@@ -1,8 +1,8 @@
-//! Copy use-item onto the held gun's [`WeaponTrigger`], and kick look / camera.
+//! Copy the live squeeze onto the held gun's [`WeaponTrigger`], and kick look / camera.
 
 use bevy::prelude::*;
 use firearms::{WeaponFired, WeaponTrigger};
-use maybraid_character_controller::CharacterIntent;
+use maybraid_input::{PadButton, VirtualPad, VirtualPadConfig};
 use player::{clamp_aim_pitch, CameraFollow, Player, PlayerLook};
 use player_camera::CameraController;
 
@@ -13,18 +13,31 @@ use crate::{FirearmUser, WeaponSwap};
 /// the remaining path over a fresh window.
 pub(crate) const RECOIL_LERP_SECS: f32 = 0.08;
 
+pub(crate) fn trigger_squeezed(
+	pad: Option<&VirtualPad>,
+	config: Option<&VirtualPadConfig>,
+	mouse: &ButtonInput<MouseButton>,
+) -> bool {
+	if let Some(pad) = pad {
+		if pad.pressed(PadButton::TriggerFire) {
+			return true;
+		}
+		let threshold = config.map(|config| config.trigger_press_threshold).unwrap_or(0.5);
+		if pad.trigger_fire >= threshold {
+			return true;
+		}
+	}
+	mouse.pressed(MouseButton::Left)
+}
+
 pub(crate) fn apply_fire_intents(
 	mouse: Res<ButtonInput<MouseButton>>,
-	mut intents: MessageReader<CharacterIntent>,
+	pad: Option<Res<VirtualPad>>,
+	config: Option<Res<VirtualPadConfig>>,
 	users: Query<(&FirearmUser, Has<WeaponSwap>), With<Player>>,
 	mut triggers: Query<&mut WeaponTrigger>,
 ) {
-	let mut fire = mouse.pressed(MouseButton::Left);
-	for intent in intents.read() {
-		if let CharacterIntent::UseItem(_) = *intent {
-			fire = true;
-		}
-	}
+	let fire = trigger_squeezed(pad.as_deref(), config.as_deref(), &mouse);
 	for (user, swapping) in &users {
 		if let Ok(mut trigger) = triggers.get_mut(user.held) {
 			trigger.0 = fire && !swapping;
@@ -142,6 +155,41 @@ mod tests {
 	use player_camera::CameraPov;
 
 	const STRENGTH: f32 = 0.08;
+
+	#[test]
+	fn rest_analog_is_not_a_squeeze() {
+		let mut pad = VirtualPad::default();
+		pad.trigger_fire = 0.02;
+		let mouse = ButtonInput::<MouseButton>::default();
+		assert!(!trigger_squeezed(Some(&pad), None, &mouse));
+	}
+
+	#[test]
+	fn digital_trigger_or_mouse_is_a_squeeze() {
+		let mut pad = VirtualPad::default();
+		pad.hold_digital(PadButton::TriggerFire);
+		pad.finish_digital();
+		let mouse = ButtonInput::<MouseButton>::default();
+		assert!(trigger_squeezed(Some(&pad), None, &mouse));
+
+		let pad = VirtualPad::default();
+		let mut mouse = ButtonInput::<MouseButton>::default();
+		mouse.press(MouseButton::Left);
+		assert!(trigger_squeezed(Some(&pad), None, &mouse));
+	}
+
+	#[test]
+	fn releasing_the_squeeze_clears_the_weapon_trigger() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.init_resource::<ButtonInput<MouseButton>>()
+			.init_resource::<VirtualPad>()
+			.add_systems(Update, apply_fire_intents);
+		let gun = app.world_mut().spawn(WeaponTrigger(true)).id();
+		app.world_mut().spawn((Player, FirearmUser::holding(gun)));
+		app.update();
+		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(false));
+	}
 
 	#[test]
 	fn kick_is_deterministic() {

@@ -41,8 +41,8 @@ pub fn collect(
 	if pad.pressed(PadButton::BumperFocus) {
 		out.push(CharacterIntent::Ads(1.0));
 	}
-	if pad.trigger_fire > ANALOG_EPS {
-		out.push(CharacterIntent::UseItem(pad.trigger_fire));
+	if pad.pressed(PadButton::TriggerFire) || pad.trigger_fire >= trigger_threshold {
+		out.push(CharacterIntent::UseItem(pad.trigger_fire.max(trigger_threshold)));
 	}
 
 	if pad.pressed(PadButton::StickClickMove) {
@@ -260,6 +260,28 @@ mod tests {
 		pad.hold_digital(PadButton::X);
 		finish(&mut pad);
 		assert_eq!(intents(&pad), vec![CharacterIntent::StartInteraction]);
+		Ok(())
+	}
+
+	#[test]
+	fn rest_analog_does_not_use_item() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.max_triggers(0.0, 0.02);
+		pad.apply_trigger_digital(0.5);
+		finish(&mut pad);
+		assert!(!intents(&pad).iter().any(|intent| matches!(intent, CharacterIntent::UseItem(_))));
+		Ok(())
+	}
+
+	#[test]
+	fn squeezed_trigger_uses_item() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.max_triggers(0.0, 0.9);
+		pad.apply_trigger_digital(0.5);
+		finish(&mut pad);
+		assert!(intents(&pad).contains(&CharacterIntent::UseItem(0.9)));
 		Ok(())
 	}
 
