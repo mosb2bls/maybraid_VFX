@@ -937,7 +937,7 @@ fn fire_ballistic_catch_up(
 			control.note_shot();
 		}
 		if let Some(source) = source {
-			fired.write(WeaponFired { shooter: source.0, recoil: kick });
+			fired.write(WeaponFired { shooter: source.0, recoil: kick, age });
 		}
 		spawned.push(SpawnedRound { entity: projectile, origin: muzzle, position, velocity, age });
 	}
@@ -1031,9 +1031,9 @@ fn tick_laser_hits(
 			continue;
 		}
 		let (muzzle, dir) = muzzle_world(global);
-		for _ in tick.ages() {
+		for age in tick.ages() {
 			if let Some(source) = source {
-				fired.write(WeaponFired { shooter: source.0, recoil: 0.0 });
+				fired.write(WeaponFired { shooter: source.0, recoil: 0.0, age });
 			}
 			let Some((target, distance)) = laser_bore_hit(
 				&spatial,

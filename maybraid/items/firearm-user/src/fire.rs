@@ -234,7 +234,7 @@ mod tests {
 	#[test]
 	fn followed_shot_lerps_camera_and_look() {
 		let (mut app, shooter, camera) = recoil_app(42, RECOIL_LERP_SECS * 0.5);
-		app.world_mut().write_message(WeaponFired { shooter, recoil: STRENGTH });
+		app.world_mut().write_message(WeaponFired::new(shooter, STRENGTH));
 		app.update();
 		let expected = recoil_kick(42, 1, STRENGTH) * 0.5;
 		let (yaw, pitch, look) = angles(&app, camera, shooter);
@@ -254,7 +254,7 @@ mod tests {
 	#[test]
 	fn zero_recoil_does_not_kick() {
 		let (mut app, shooter, camera) = recoil_app(42, RECOIL_LERP_SECS);
-		app.world_mut().write_message(WeaponFired { shooter, recoil: 0.0 });
+		app.world_mut().write_message(WeaponFired::new(shooter, 0.0));
 		app.update();
 		let (yaw, pitch, look) = angles(&app, camera, shooter);
 		assert_eq!(yaw, 0.0);
@@ -271,7 +271,7 @@ mod tests {
 			.world_mut()
 			.spawn((FirearmUser::holding(npc_gun), PlayerLook::default()))
 			.id();
-		app.world_mut().write_message(WeaponFired { shooter: npc, recoil: STRENGTH });
+		app.world_mut().write_message(WeaponFired::new(npc, STRENGTH));
 		app.update();
 		let expected = recoil_kick(99, 1, STRENGTH);
 		let (yaw, pitch, player_look) = angles(&app, camera, player);
