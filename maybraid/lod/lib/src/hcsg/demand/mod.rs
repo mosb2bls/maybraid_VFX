@@ -46,6 +46,7 @@ impl HcsgDemand {
 		}
 	}
 
+	#[cfg(test)]
 	pub(crate) fn epoch(&self) -> u64 {
 		self.lock().epoch
 	}

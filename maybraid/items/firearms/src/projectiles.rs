@@ -7,8 +7,8 @@
 //! cone and a thin ember jet while the beam is on.
 
 use ::projectiles::{
-	spawn_flight, tick_flights, BoltSpec, BulletSpec, ProjectileContact, ProjectileSource,
-	ProjectileVisualCache, ProjectilesPlugin,
+	ballistic_after_age, spawn_flight_aged, tick_flights, BoltSpec, BulletSpec, ProjectileContact,
+	ProjectileSource, ProjectileVisualCache, ProjectilesPlugin,
 };
 
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
@@ -31,7 +31,10 @@ use firearms_components::{BoneMap, FirearmHostSystems, FirearmMembers, FirearmRo
 use lod_avian::PhysicsInteractionLayer;
 use maybraid_audio::{Audio, AudioClip, AudioPlugin, AudioSystems, Mixer};
 
-use crate::cadence::{trigger_allows_fire, FireControl, WeaponFired, WeaponRecoil};
+use crate::cadence::{
+	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, Cadence, FireControl,
+	WeaponFired, WeaponRecoil,
+};
 use crate::impact::{
 	puff_mask, setup_impact_effects, spawn_impact, tick_impact_bursts, ImpactEffects,
 };
@@ -103,11 +106,13 @@ pub struct Weapon {
 	pub interval: f32,
 	pub cooldown: f32,
 	pub laser: Option<Entity>,
+	/// Previous tick's muzzle and fire direction, for leave-time interpolation.
+	pub last_muzzle: Option<(Vec3, Vec3)>,
 }
 
 impl Weapon {
 	pub fn new(load: ProjectileLoad, interval: f32) -> Self {
-		Self { load, interval, cooldown: 0.0, laser: None }
+		Self { load, interval, cooldown: 0.0, laser: None, last_muzzle: None }
 	}
 
 	pub fn bolt() -> Self {
@@ -293,13 +298,30 @@ pub(crate) struct WeaponFx<'w, 's> {
 }
 
 impl WeaponFx<'_, '_> {
-	fn play_shot(&mut self, commands: &mut Commands, world: Vec3, player: bool) {
+	fn play_shot(
+		&mut self,
+		commands: &mut Commands,
+		world: Vec3,
+		player: bool,
+		delay: f32,
+		duck: bool,
+	) {
 		let (Some(sounds), Some(audio), Some(listener)) =
 			(self.sounds.as_deref_mut(), self.audio.as_deref(), self.listeners.iter().next())
 		else {
 			return;
 		};
-		sounds.play_shot(commands, &self.clips, audio, &mut self.mixer, listener, world, player);
+		sounds.play_shot(
+			commands,
+			&self.clips,
+			audio,
+			&mut self.mixer,
+			listener,
+			world,
+			player,
+			delay,
+			duck,
+		);
 	}
 
 	fn loop_laser(&mut self, commands: &mut Commands, laser: Entity, world: Vec3, player: bool) {
@@ -692,11 +714,14 @@ pub(crate) fn fire_weapons(
 	for (_root, members, mut weapon, manual, trigger, source, mut control, payload, recoil) in
 		&mut weapons
 	{
-		let held = trigger.is_some_and(|trigger| trigger.0);
-		let allowed = trigger_allows_fire(control.as_deref_mut(), manual, held);
 		let Some((barrel, global)) = barrel_global(members, &maps, &globals) else {
 			continue;
 		};
+		let held = trigger.is_some_and(|trigger| trigger.0);
+		let allowed = trigger_allows_fire(control.as_deref_mut(), manual, held);
+		let now = muzzle_world(global);
+		let last = weapon.last_muzzle;
+		weapon.last_muzzle = Some(now);
 		match weapon.load {
 			ProjectileLoad::Laser(spec) => {
 				let live = weapon.laser.filter(|entity| lasers.get(*entity).is_ok());
@@ -735,16 +760,17 @@ pub(crate) fn fire_weapons(
 			}
 			ProjectileLoad::Bolt(spec) => {
 				if !allowed {
-					weapon.cooldown -= dt;
+					idle_shot_clock(&mut weapon.cooldown, dt);
 					continue;
 				}
-				let Some(projectile) = try_fire_ballistic(
+				let rounds = fire_ballistic_catch_up(
 					&mut commands,
 					&mut meshes,
 					&mut materials,
 					&mut projectile_visuals,
 					&mut weapon,
-					global,
+					last,
+					now,
 					spec,
 					0.0,
 					dt,
@@ -753,12 +779,20 @@ pub(crate) fn fire_weapons(
 					recoil,
 					control.as_deref_mut(),
 					&mut fired,
-				) else {
+				);
+				if rounds.is_empty() {
 					continue;
-				};
-				let (muzzle, dir) = muzzle_world(global);
-				fx.play_shot(&mut commands, muzzle, manual);
-				fx.loop_fizz(&mut commands, projectile, muzzle, dir * spec.speed);
+				}
+				for (index, round) in rounds.iter().enumerate() {
+					fx.play_shot(
+						&mut commands,
+						round.origin,
+						manual,
+						(dt - round.age).max(0.0),
+						index == 0,
+					);
+					fx.loop_fizz(&mut commands, round.entity, round.position, round.velocity);
+				}
 				ignite_muzzle_flash(
 					&mut commands,
 					&fx.flashes,
@@ -772,16 +806,17 @@ pub(crate) fn fire_weapons(
 			}
 			ProjectileLoad::Bullet(spec) => {
 				if !allowed {
-					weapon.cooldown -= dt;
+					idle_shot_clock(&mut weapon.cooldown, dt);
 					continue;
 				}
-				let Some(projectile) = try_fire_ballistic(
+				let rounds = fire_ballistic_catch_up(
 					&mut commands,
 					&mut meshes,
 					&mut materials,
 					&mut projectile_visuals,
 					&mut weapon,
-					global,
+					last,
+					now,
 					spec,
 					1.0,
 					dt,
@@ -790,12 +825,20 @@ pub(crate) fn fire_weapons(
 					recoil,
 					control.as_deref_mut(),
 					&mut fired,
-				) else {
+				);
+				if rounds.is_empty() {
 					continue;
-				};
-				let (muzzle, dir) = muzzle_world(global);
-				fx.play_shot(&mut commands, muzzle, manual);
-				fx.loop_fizz(&mut commands, projectile, muzzle, dir * spec.speed);
+				}
+				for (index, round) in rounds.iter().enumerate() {
+					fx.play_shot(
+						&mut commands,
+						round.origin,
+						manual,
+						(dt - round.age).max(0.0),
+						index == 0,
+					);
+					fx.loop_fizz(&mut commands, round.entity, round.position, round.velocity);
+				}
 				ignite_muzzle_flash(
 					&mut commands,
 					&fx.flashes,
@@ -811,60 +854,94 @@ pub(crate) fn fire_weapons(
 	}
 }
 
+struct SpawnedRound {
+	entity: Entity,
+	origin: Vec3,
+	position: Vec3,
+	velocity: Vec3,
+	age: f32,
+}
+
+fn emit_muzzle(last: Option<(Vec3, Vec3)>, now: (Vec3, Vec3), age: f32, dt: f32) -> (Vec3, Vec3) {
+	let Some((prev_muzzle, prev_dir)) = last else {
+		return now;
+	};
+	if dt <= 1e-8 {
+		return now;
+	}
+	let s = (1.0 - age / dt).clamp(0.0, 1.0);
+	let muzzle = prev_muzzle.lerp(now.0, s);
+	let dir = prev_dir.lerp(now.1, s).normalize_or(now.1);
+	(muzzle, dir)
+}
+
 #[allow(clippy::too_many_arguments)]
-fn try_fire_ballistic(
+fn fire_ballistic_catch_up(
 	commands: &mut Commands,
 	meshes: &mut Assets<Mesh>,
 	materials: &mut Assets<StandardMaterial>,
 	projectile_visuals: &mut ProjectileVisualCache,
 	weapon: &mut Weapon,
-	global: &GlobalTransform,
+	last: Option<(Vec3, Vec3)>,
+	now: (Vec3, Vec3),
 	spec: impl IntoBallistic,
 	gravity: f32,
 	dt: f32,
 	source: Option<&ProjectileSource>,
 	payload: Option<&HitPayload>,
 	recoil: Option<&WeaponRecoil>,
-	control: Option<&mut FireControl>,
+	mut control: Option<&mut FireControl>,
 	fired: &mut MessageWriter<WeaponFired>,
-) -> Option<Entity> {
-	weapon.cooldown -= dt;
-	if weapon.cooldown > 0.0 {
-		return None;
+) -> Vec<SpawnedRound> {
+	let max_shots = catch_up_limit(control.as_deref());
+	let tick = advance_shot_clock(&mut weapon.cooldown, weapon.interval, dt, max_shots);
+	if tick.shots == 0 {
+		return Vec::new();
 	}
-	weapon.cooldown = weapon.interval;
 	let (length, radius, speed, max_range, penetration, max_age, color) = spec.ballistic();
-	let (muzzle, dir) = muzzle_world(global);
-	let projectile = spawn_flight(
-		commands,
-		meshes,
-		materials,
-		projectile_visuals,
-		muzzle,
-		dir,
-		length,
-		radius,
-		speed,
-		max_range,
-		penetration,
-		max_age,
-		color,
-		gravity,
-	);
-	if let Some(payload) = payload {
-		commands.entity(projectile).insert(*payload);
-	}
-	if let Some(source) = source {
-		commands.entity(projectile).insert(*source);
-	}
-	if let Some(control) = control {
-		control.note_shot();
-	}
 	let kick = recoil.map(|recoil| recoil.0).unwrap_or(0.0);
-	if let Some(source) = source {
-		fired.write(WeaponFired { shooter: source.0, recoil: kick });
+	let mut spawned = Vec::with_capacity(tick.shots as usize);
+	for age in tick.ages() {
+		if control
+			.as_ref()
+			.is_some_and(|control| control.cadence == Cadence::Burst && control.burst_left == 0)
+		{
+			break;
+		}
+		let (muzzle, dir) = emit_muzzle(last, now, age, dt);
+		let (position, velocity) = ballistic_after_age(muzzle, dir, speed, gravity, age);
+		let projectile = spawn_flight_aged(
+			commands,
+			meshes,
+			materials,
+			projectile_visuals,
+			muzzle,
+			dir,
+			length,
+			radius,
+			speed,
+			max_range,
+			penetration,
+			max_age,
+			color,
+			gravity,
+			age,
+		);
+		if let Some(payload) = payload {
+			commands.entity(projectile).insert(*payload);
+		}
+		if let Some(source) = source {
+			commands.entity(projectile).insert(*source);
+		}
+		if let Some(control) = control.as_deref_mut() {
+			control.note_shot();
+		}
+		if let Some(source) = source {
+			fired.write(WeaponFired { shooter: source.0, recoil: kick });
+		}
+		spawned.push(SpawnedRound { entity: projectile, origin: muzzle, position, velocity, age });
 	}
-	Some(projectile)
+	spawned
 }
 
 trait IntoBallistic {
@@ -945,29 +1022,35 @@ fn tick_laser_hits(
 		if weapon.laser.is_none() {
 			continue;
 		}
-		weapon.cooldown -= dt;
-		if weapon.cooldown > 0.0 {
-			continue;
-		}
-		weapon.cooldown = weapon.interval.max(LASER_HIT_INTERVAL);
-		if let Some(source) = source {
-			fired.write(WeaponFired { shooter: source.0, recoil: 0.0 });
-		}
 		let Some((_, global)) = barrel_global(members, &maps, &globals) else {
 			continue;
 		};
-		let (muzzle, dir) = muzzle_world(global);
-		let Some((target, distance)) =
-			laser_bore_hit(&spatial, muzzle, dir, spec.max_length, source.map(|source| source.0))
-		else {
+		let interval = weapon.interval.max(LASER_HIT_INTERVAL);
+		let tick = advance_shot_clock(&mut weapon.cooldown, interval, dt, catch_up_limit(None));
+		if tick.shots == 0 {
 			continue;
-		};
-		hits.write(Hit {
-			target,
-			source: source.map(|source| source.0),
-			amount: payload.amount,
-			point: muzzle + dir * distance,
-		});
+		}
+		let (muzzle, dir) = muzzle_world(global);
+		for _ in tick.ages() {
+			if let Some(source) = source {
+				fired.write(WeaponFired { shooter: source.0, recoil: 0.0 });
+			}
+			let Some((target, distance)) = laser_bore_hit(
+				&spatial,
+				muzzle,
+				dir,
+				spec.max_length,
+				source.map(|source| source.0),
+			) else {
+				continue;
+			};
+			hits.write(Hit {
+				target,
+				source: source.map(|source| source.0),
+				amount: payload.amount,
+				point: muzzle + dir * distance,
+			});
+		}
 	}
 }
 
@@ -1107,5 +1190,16 @@ mod tests {
 		assert_eq!(Weapon::bolt().load.label(), "bolt");
 		assert_eq!(Weapon::bullet().load.label(), "bullet");
 		assert_eq!(Weapon::laser().load.label(), "laser");
+	}
+
+	#[test]
+	fn emit_muzzle_uses_the_leave_pose() {
+		let last = Some((Vec3::ZERO, Vec3::X));
+		let now = (Vec3::Y, Vec3::X);
+		let dt = 0.016;
+		let (early, _) = emit_muzzle(last, now, dt, dt);
+		assert!(early.length() < 1e-5, "{early}");
+		let (late, _) = emit_muzzle(last, now, 0.0, dt);
+		assert!((late - Vec3::Y).length() < 1e-5, "{late}");
 	}
 }

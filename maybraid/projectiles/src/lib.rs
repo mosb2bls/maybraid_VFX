@@ -361,6 +361,22 @@ fn allowed_step_distance(flight: &Flight, ds: f32, dt: f32) -> f32 {
 	ds.min(range).min(ds * age_fraction)
 }
 
+/// Avian default gravity, used to rewind a late spawn along its arc.
+pub const STANDARD_GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
+
+/// Position and velocity `age` seconds after leaving `muzzle` along `direction`.
+pub fn ballistic_after_age(
+	muzzle: Vec3,
+	direction: Vec3,
+	speed: f32,
+	gravity: f32,
+	age: f32,
+) -> (Vec3, Vec3) {
+	let accel = STANDARD_GRAVITY * gravity;
+	let velocity = direction * speed;
+	(muzzle + velocity * age + accel * (0.5 * age * age), velocity + accel * age)
+}
+
 /// Spawn a sensor capsule along `direction` from `muzzle`.
 ///
 /// [`Flight::last`] starts at the muzzle so the first sweep can enter a body
@@ -382,10 +398,55 @@ pub fn spawn_flight(
 	color: Color,
 	gravity: f32,
 ) -> Entity {
-	let transform = capsule_along_y(direction, muzzle, length, radius);
+	spawn_flight_aged(
+		commands,
+		meshes,
+		materials,
+		visuals,
+		muzzle,
+		direction,
+		length,
+		radius,
+		speed,
+		max_range,
+		max_through,
+		max_age,
+		color,
+		gravity,
+		0.0,
+	)
+}
+
+/// Like [`spawn_flight`], but the capsule is already `age` seconds downrange.
+///
+/// [`Flight::last`] stays at the leave muzzle so the next sweep covers that arc.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_flight_aged(
+	commands: &mut Commands,
+	meshes: &mut Assets<Mesh>,
+	materials: &mut Assets<StandardMaterial>,
+	visuals: &mut ProjectileVisualCache,
+	muzzle: Vec3,
+	direction: Vec3,
+	length: f32,
+	radius: f32,
+	speed: f32,
+	max_range: f32,
+	max_through: f32,
+	max_age: f32,
+	color: Color,
+	gravity: f32,
+	age: f32,
+) -> Entity {
+	let age = age.max(0.0);
+	let (pos, vel) = ballistic_after_age(muzzle, direction, speed, gravity, age);
+	let dir = vel.normalize_or(direction);
+	let transform = capsule_along_y(dir, pos, length, radius);
 	let collider = Collider::capsule(radius, length);
 	let (mesh, material) = visuals.get_or_insert(length, radius, color, meshes, materials);
-	commands
+	let mut flight = Flight::spawn(muzzle, max_range, max_through, max_age);
+	flight.age = age;
+	let entity = commands
 		.spawn((
 			Name::new("projectile"),
 			transform,
@@ -398,12 +459,14 @@ pub fn spawn_flight(
 			Sensor,
 			PhysicsInteractionLayer::projectile_layers(),
 			LockedAxes::ROTATION_LOCKED,
-			LinearVelocity(direction * speed),
+			LinearVelocity(vel),
 			GravityScale(gravity),
 			Restitution::ZERO,
-			Flight::spawn(muzzle, max_range, max_through, max_age),
+			flight,
 		))
-		.id()
+		.id();
+	commands.entity(entity).insert(GlobalTransform::from(transform));
+	entity
 }
 
 pub fn tick_flights(
@@ -496,6 +559,17 @@ mod tests {
 		assert!((through_length(1.0, false, true, Some(0.3), None) - 0.7).abs() < 1e-5);
 		assert!((through_length(1.0, false, false, Some(0.4), Some(0.4)) - 0.2).abs() < 1e-5);
 		assert!((through_length(1.0, true, false, Some(0.4), Some(0.6)) - 0.4).abs() < 1e-5);
+	}
+
+	#[test]
+	fn ballistic_after_age_moves_along_the_bore() {
+		let (pos, vel) = ballistic_after_age(Vec3::ZERO, Vec3::X, 10.0, 0.0, 0.2);
+		assert!((pos - Vec3::X * 2.0).length() < 1e-5);
+		assert!((vel - Vec3::X * 10.0).length() < 1e-5);
+		let (drop, falling) = ballistic_after_age(Vec3::ZERO, Vec3::X, 10.0, 1.0, 1.0);
+		assert!((drop.x - 10.0).abs() < 1e-5);
+		assert!(drop.y < 0.0);
+		assert!(falling.y < 0.0);
 	}
 
 	#[test]

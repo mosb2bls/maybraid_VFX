@@ -8,9 +8,9 @@ use characters::CharacterMotionSystems;
 use evasion_intelligence::{EvasionPlugin, EvasionSystems};
 use firearm_intelligence::{FirearmIntelligencePlugin, FirearmIntelligenceSystems};
 use firearm_user::FirearmUserPlugin;
-use grenade_user::GrenadeUserPlugin;
-use firearms::{FirearmWeaponSystems, FirearmWeaponsPlugin};
+use firearms::FirearmWeaponsPlugin;
 use fleeing_intelligence::{FleeingPlugin, FleeingSystems};
+use grenade_user::GrenadeUserPlugin;
 use hiding_intelligence::{HidingPlugin, HidingSystems};
 use intelligence_lod::{
 	look_near_m, look_promotes, IntelligenceBakeKey, IntelligenceBand, IntelligenceFocus,
@@ -183,10 +183,6 @@ impl Plugin for WorldIntelligencePlugin {
 			.configure_sets(
 				PostUpdate,
 				FirearmIntelligenceSystems::Fire.run_if(on_timer(Duration::from_millis(33))),
-			)
-			.configure_sets(
-				PostUpdate,
-				FirearmWeaponSystems::Fire.run_if(on_timer(Duration::from_millis(33))),
 			);
 	}
 }
@@ -670,8 +666,7 @@ mod tests {
 
 		eprintln!(
 			"bake_lod_rank_scratch_timing: {PLANT_COUNT} plants × {BAKES} bakes — clone lod rows {:?}, key scratch {:?}",
-			clone_elapsed,
-			key_elapsed,
+			clone_elapsed, key_elapsed,
 		);
 	}
 }

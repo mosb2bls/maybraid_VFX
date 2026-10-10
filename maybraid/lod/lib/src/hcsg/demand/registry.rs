@@ -92,6 +92,7 @@ impl HcsgDemand {
 	///
 	/// `Ok(None)` when the subscription no longer exists (replaced, removed,
 	/// or dropped by [`Self::advance_epoch`]): subscribe again.
+	#[cfg(test)]
 	pub(crate) fn try_read_published(
 		&self,
 		id: SubscriptionId,
