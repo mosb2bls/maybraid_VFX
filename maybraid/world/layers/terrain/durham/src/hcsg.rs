@@ -188,16 +188,6 @@ pub trait SharedTerrainStorage {
 		z: f32,
 	) -> Result<Option<WaterColumn>, Busy>;
 
-	/// Publishes origin cell `(ix, iz)` of `layout` with `base` as its whole
-	/// SDF. Only for surface tests.
-	#[doc(hidden)]
-	fn publish_base_terrain_for_test(
-		&self,
-		layout: &TerrainCellLayout,
-		ix: i32,
-		iz: i32,
-		base: BaseTerrainNoise,
-	);
 }
 
 impl SharedTerrainStorage for HcsgStorage {
@@ -229,6 +219,25 @@ impl SharedTerrainStorage for HcsgStorage {
 		Ok(None)
 	}
 
+}
+
+/// Test-only direct publishes into [`HcsgStorage`]. Frame code uses
+/// [`DurhamSurface`] or presentation hosts.
+#[cfg(any(test, feature = "test-support"))]
+pub trait SharedTerrainStorageTestExt: SharedTerrainStorage {
+	/// Publishes origin cell `(ix, iz)` of `layout` with `base` as its whole
+	/// SDF.
+	fn publish_base_terrain_for_test(
+		&self,
+		layout: &TerrainCellLayout,
+		ix: i32,
+		iz: i32,
+		base: BaseTerrainNoise,
+	);
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl SharedTerrainStorageTestExt for HcsgStorage {
 	fn publish_base_terrain_for_test(
 		&self,
 		layout: &TerrainCellLayout,
@@ -297,6 +306,7 @@ mod tests {
 	use lod::LodViewer;
 
 	use super::*;
+	use super::SharedTerrainStorageTestExt;
 	use crate::terrain::{
 		fine_patch_cell_layout, CellTiling, TerrainColliderMeshSource, TerrainConfig,
 		TerrainMeshAssets, TerrainMeshLodBand, TerrainStampConfigs, WatershedConfigs,
