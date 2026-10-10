@@ -17,12 +17,12 @@ pub const CHARGE_THROW: &str = "sound-effects/weapons/charges/throw_jingle_001.w
 
 pub const IMPACT_VOLUME: f32 = 1.0;
 pub const RUMBLE_VOLUME: f32 = 0.85;
-pub const THROW_VOLUME: f32 = 1.1;
-pub const BOUNCE_VOLUME: f32 = 0.55;
+pub const THROW_VOLUME: f32 = 0.7;
+pub const BOUNCE_VOLUME: f32 = 0.7;
 pub const IMPACT_SPATIAL_SCALE: f32 = 0.04;
 pub const RUMBLE_SPATIAL_SCALE: f32 = 0.03;
-pub const THROW_SPATIAL_SCALE: f32 = 0.35;
-pub const BOUNCE_SPATIAL_SCALE: f32 = 0.4;
+pub const THROW_SPATIAL_SCALE: f32 = 0.4;
+pub const BOUNCE_SPATIAL_SCALE: f32 = 0.2;
 pub const IMPACT_SPATIAL_RADIUS: f32 = 1.0 / IMPACT_SPATIAL_SCALE;
 pub const RUMBLE_SPATIAL_RADIUS: f32 = 1.0 / RUMBLE_SPATIAL_SCALE;
 pub const THROW_SPATIAL_RADIUS: f32 = 1.0 / THROW_SPATIAL_SCALE;
