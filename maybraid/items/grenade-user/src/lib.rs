@@ -42,6 +42,12 @@ impl Plugin for GrenadeUserPlugin {
 					.in_set(PlayerPoseSystems::Overlay)
 					.after(CharacterMotionSystems::Anim),
 			)
+			.add_systems(
+				Update,
+				throw::play_throw_jingles
+					.after(PlayerPoseSystems::Overlay)
+					.before(throw::advance_throw),
+			)
 			.add_systems(Update, throw::advance_throw.after(PlayerPoseSystems::Overlay))
 			.add_systems(
 				Update,
@@ -70,9 +76,9 @@ fn tick_owned_recharge(
 	}
 	due.clear();
 	for (entity, bag) in bags.p0().iter() {
-		if bag.items.iter().any(|item| {
-			matches!(item, InventoryItem::Grenade { recharge, .. } if recharge.remaining > 0.0)
-		}) {
+		if bag.items.iter().any(
+			|item| matches!(item, InventoryItem::Grenade { recharge, .. } if recharge.remaining > 0.0),
+		) {
 			due.push(entity);
 		}
 	}
@@ -124,7 +130,9 @@ mod tests {
 			weapons: vec![0],
 			skills: Vec::new(),
 		});
-		world.run_system_once(tick_owned_recharge).map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(tick_owned_recharge)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let bag = world
 			.query::<&Inventory>()
 			.single(&world)
@@ -155,15 +163,14 @@ mod tests {
 			})
 			.id();
 		world.clear_trackers();
-		world.run_system_once(tick_owned_recharge).map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(tick_owned_recharge)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let bag = world
 			.query::<Ref<Inventory>>()
 			.get(&world, entity)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		anyhow::ensure!(
-			!bag.is_changed(),
-			"idle grenade recharge must not dirty the inventory"
-		);
+		anyhow::ensure!(!bag.is_changed(), "idle grenade recharge must not dirty the inventory");
 		let InventoryItem::Grenade { recharge, .. } = &bag.items[0] else {
 			anyhow::bail!("expected grenade inventory item");
 		};

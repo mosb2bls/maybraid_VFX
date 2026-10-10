@@ -5352,6 +5352,7 @@ dependencies = [
  "characters",
  "firearm-user",
  "grenades",
+ "maybraid-audio",
  "maybraid-character-controller",
  "player",
 ]
@@ -5365,6 +5366,7 @@ dependencies = [
  "character-items",
  "damage",
  "lod-avian",
+ "maybraid-audio",
 ]
 
 [[package]]

@@ -1,6 +1,7 @@
 //! Thrown grenade body, fuse, blast hits, and detonation message.
 
 mod material;
+mod sound;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -10,6 +11,10 @@ use lod_avian::PhysicsInteractionLayer;
 use std::f32::consts::PI;
 
 pub use material::{grenade_material, GrenadeMaterial, GrenadeMaterialPlugin};
+pub use sound::{
+	GrenadeSounds, BOUNCE_SPATIAL_RADIUS, CHARGE_IMPACT, CHARGE_RUMBLE, CHARGE_THROW,
+	IMPACT_SPATIAL_RADIUS, RUMBLE_SPATIAL_RADIUS, THROW_SPATIAL_RADIUS,
+};
 
 /// Palette-free explosion knobs copied onto the thrown body.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -107,6 +112,8 @@ pub fn spawn_thrown_grenade(
 			LinearVelocity(velocity),
 			AngularVelocity(tumble),
 			GravityScale(1.0),
+			CollisionEventsEnabled,
+			sound::GrenadeBounceClock { next_at: 0.0 },
 		))
 		.id();
 	commands.entity(body).insert((
@@ -261,6 +268,7 @@ impl Plugin for GrenadesPlugin {
 		if !app.is_plugin_added::<GrenadeMaterialPlugin>() {
 			app.add_plugins(GrenadeMaterialPlugin);
 		}
+		sound::configure_grenade_audio(app);
 		app.add_message::<GrenadeDetonated>().add_message::<Hit>().add_systems(
 			Update,
 			(tick_grenade_fuses, apply_grenade_blasts.after(tick_grenade_fuses)),
@@ -405,11 +413,7 @@ mod tests {
 		app.update();
 		let mut blast = standard_blast();
 		blast.source = thrower;
-		let hits = collect_hits(
-			app.world_mut(),
-			blast,
-			vec![in_range, out_of_range, thrower],
-		);
+		let hits = collect_hits(app.world_mut(), blast, vec![in_range, out_of_range, thrower]);
 		assert_eq!(hits.len(), 1);
 		assert_eq!(hits[0].target, in_range);
 		assert_eq!(hits[0].source, Some(thrower));

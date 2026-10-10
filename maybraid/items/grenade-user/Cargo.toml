@@ -18,6 +18,7 @@ character-rigs = { workspace = true }
 characters = { workspace = true }
 firearm-user = { workspace = true }
 grenades = { workspace = true }
+maybraid-audio = { workspace = true }
 maybraid-character-controller = { workspace = true }
 player = { workspace = true }
 
