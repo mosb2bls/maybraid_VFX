@@ -110,6 +110,8 @@ pub enum DebugCommand {
 	SpawnNpc,
 	/// Activate the equipped Lubikan (writes LubikanActivationRequest).
 	Activate,
+	/// Toggle peaceful mode (disables hostile AI damage to player).
+	Peaceful,
 }
 
 impl PlaygroundCommand {
@@ -261,6 +263,10 @@ pub struct RequestSpawnNpc;
 pub struct RequestActivate;
 
 #[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestPeaceful;
+
+#[cfg(feature = "debug-commands")]
 impl DebugCommand {
 	fn react(self, commands: &mut Commands, console: &mut String) {
 		match self {
@@ -276,12 +282,16 @@ impl DebugCommand {
 				commands.spawn(RequestSpawnNpc);
 				*console = "debug spawn-npc: pending".into();
 			}
-			DebugCommand::Activate => {
-				commands.spawn(RequestActivate);
-				*console = "debug activate: pending".into();
-			}
+		DebugCommand::Activate => {
+			commands.spawn(RequestActivate);
+			*console = "debug activate: pending".into();
+		}
+		DebugCommand::Peaceful => {
+			commands.spawn(RequestPeaceful);
+			*console = "debug peaceful: pending".into();
 		}
 	}
+}
 }
 
 impl GameCommand for PlaygroundCommand {

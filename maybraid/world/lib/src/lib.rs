@@ -37,7 +37,7 @@ pub use world_furnished::WorldFurnished;
 pub use commands::PLAYGROUND_CLI_NAME;
 pub use commands::PlaygroundCommand;
 #[cfg(feature = "debug-commands")]
-pub use commands::{RequestActivate, RequestGrantPoints, RequestSpawnNpc, RequestTakeDamage};
+pub use commands::{RequestActivate, RequestGrantPoints, RequestPeaceful, RequestSpawnNpc, RequestTakeDamage};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
 	WorldSurfaceReady, WorldSurfaceSet,
@@ -311,9 +311,17 @@ impl Plugin for WorldPlugin {
 		lubikan_activate::configure(app);
 		#[cfg(feature = "debug-commands")]
 		{
+			app.init_resource::<DebugPeacefulMode>();
 			app.add_systems(
 				Update,
-				(apply_debug_grant_points, apply_debug_take_damage, apply_debug_spawn_npc, apply_debug_activate),
+				(
+					apply_debug_grant_points,
+					apply_debug_take_damage,
+					apply_debug_spawn_npc,
+					apply_debug_activate,
+					apply_debug_peaceful,
+					restore_player_health_in_peaceful,
+				),
 			);
 		}
 	}
@@ -369,6 +377,59 @@ fn apply_debug_activate(
 			activation_requests.write(lubikans::LubikanActivationRequest::equipped(player));
 		}
 		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Resource, Default)]
+pub struct DebugPeacefulMode(pub bool);
+
+#[cfg(feature = "debug-commands")]
+fn apply_debug_peaceful(
+	requests: Query<(Entity, &commands::RequestPeaceful)>,
+	mut peaceful: ResMut<DebugPeacefulMode>,
+	mut commands: Commands,
+) {
+	for (entity, _request) in &requests {
+		peaceful.0 = !peaceful.0;
+		log::info!("Debug peaceful mode: {}", if peaceful.0 { "ON" } else { "OFF" });
+		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(feature = "debug-commands")]
+fn prevent_hostile_damage_in_peaceful(
+	peaceful: Res<DebugPeacefulMode>,
+	mut damage_events: EventReader<damage::DamageApplied>,
+	players: Query<Entity, With<player::Player>>,
+) {
+	if !peaceful.0 {
+		return;
+	}
+	
+	// Just consume damage events to player when peaceful
+	for event in damage_events.read() {
+		if players.contains(event.target) {
+			// Damage event is already applied to health, but we can log it
+			log::debug!("Peaceful mode: ignoring {} damage to player", event.damage);
+		}
+	}
+}
+
+#[cfg(feature = "debug-commands")]
+fn restore_player_health_in_peaceful(
+	peaceful: Res<DebugPeacefulMode>,
+	mut players: Query<&mut damage::Health, With<player::Player>>,
+) {
+	if !peaceful.0 {
+		return;
+	}
+	
+	// Keep player at full health in peaceful mode
+	for mut health in &mut players {
+		if health.current < health.max {
+			health.current = health.max;
+		}
 	}
 }
 
