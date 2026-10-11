@@ -115,7 +115,7 @@ impl GrenadeStats {
 			throw_secs: 0.92,
 			release_at: 0.56,
 			weight: 12,
-			blast_radius: 6.5,
+			blast_radius: 10.5,
 			blast_damage: 65.0,
 			effect_scale: 13.0,
 			effect_intensity: 1.0,
@@ -202,12 +202,10 @@ mod tests {
 
 		let spec = GrenadeSpec::standard();
 		let stats = GrenadeStats::standard();
-		let ready = InventoryItem::Grenade { spec, stats, recharge: GrenadeRecharge { remaining: 0.0 } };
-		let cooling = InventoryItem::Grenade {
-			spec,
-			stats,
-			recharge: GrenadeRecharge { remaining: 4.0 },
-		};
+		let ready =
+			InventoryItem::Grenade { spec, stats, recharge: GrenadeRecharge { remaining: 0.0 } };
+		let cooling =
+			InventoryItem::Grenade { spec, stats, recharge: GrenadeRecharge { remaining: 4.0 } };
 		anyhow::ensure!(ready != cooling);
 		anyhow::ensure!(ready.same_catalog_identity(&cooling));
 		Ok(())
@@ -224,7 +222,7 @@ mod tests {
 	#[test]
 	fn standard_blast_is_street_scale() {
 		let stats = GrenadeStats::standard();
-		assert!(stats.blast_radius >= 5.0);
+		assert!(stats.blast_radius >= 10.0);
 		assert!(stats.blast_damage >= 50.0);
 		assert!((stats.effect_scale - 13.0).abs() < 1e-4);
 	}
