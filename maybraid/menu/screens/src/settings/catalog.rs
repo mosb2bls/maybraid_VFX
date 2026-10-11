@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{InGameSettings, InGameShadowQuality};
+use super::{InGameRenderScale, InGameSettings, InGameShadowQuality};
 
 /// Host class used to seed catalog defaults.
 ///
@@ -123,15 +123,41 @@ impl Preference for MobHud {
 	}
 }
 
+/// 3D shading scale. Machine-scoped.
+pub struct RenderScalePref;
+
+impl Preference for RenderScalePref {
+	const KEY: &'static str = "render_scale";
+	const PERSIST: PersistPolicy = PersistPolicy::Machine;
+	type Value = InGameRenderScale;
+
+	fn get(settings: &InGameSettings) -> Self::Value {
+		settings.render_scale
+	}
+
+	fn set(settings: &mut InGameSettings, value: Self::Value) {
+		settings.render_scale = value;
+	}
+
+	fn device_default(_class: DeviceClass) -> Self::Value {
+		InGameRenderScale::Auto
+	}
+}
+
 impl InGameSettings {
 	pub fn from_device(class: DeviceClass) -> Self {
-		Self { shadows: Shadows::device_default(class), mob_hud: MobHud::device_default(class) }
+		Self {
+			shadows: Shadows::device_default(class),
+			mob_hud: MobHud::device_default(class),
+			render_scale: RenderScalePref::device_default(class),
+		}
 	}
 
 	/// Machine keys only. Session chrome such as Mob HUD is omitted.
 	pub fn persisted_fields(&self) -> BTreeMap<String, Value> {
 		let mut fields = BTreeMap::new();
 		write_machine_field::<Shadows>(&mut fields, self);
+		write_machine_field::<RenderScalePref>(&mut fields, self);
 		write_machine_field::<MobHud>(&mut fields, self);
 		fields
 	}
@@ -142,6 +168,7 @@ pub(super) fn overlay_machine_fields(
 	fields: &BTreeMap<String, Value>,
 ) {
 	overlay_machine_field::<Shadows>(settings, fields);
+	overlay_machine_field::<RenderScalePref>(settings, fields);
 	overlay_machine_field::<MobHud>(settings, fields);
 }
 
@@ -175,8 +202,8 @@ fn overlay_machine_field<P: Preference>(
 #[cfg(test)]
 mod tests {
 	use super::{
-		classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, InGameSettings,
-		InGameShadowQuality, MobHud, Preference, Shadows,
+		classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, InGameRenderScale,
+		InGameSettings, InGameShadowQuality, MobHud, Preference, RenderScalePref, Shadows,
 	};
 
 	#[test]
@@ -204,11 +231,25 @@ mod tests {
 	}
 
 	#[test]
-	fn catalog_projection_writes_shadows_only() {
-		let fields =
-			InGameSettings { shadows: InGameShadowQuality::Low, mob_hud: true }.persisted_fields();
+	fn catalog_projection_writes_machine_keys_only() {
+		let fields = InGameSettings {
+			shadows: InGameShadowQuality::Low,
+			mob_hud: true,
+			render_scale: InGameRenderScale::Half,
+		}
+		.persisted_fields();
 		assert_eq!(fields.get("shadows"), Some(&serde_json::json!("low")));
+		assert_eq!(fields.get("render_scale"), Some(&serde_json::json!("50")));
 		assert!(!fields.contains_key("mob_hud"));
-		assert_eq!(fields.len(), 1);
+		assert_eq!(fields.len(), 2);
+	}
+
+	#[test]
+	fn render_scale_defaults_to_auto() {
+		assert_eq!(RenderScalePref::device_default(DeviceClass::Modest), InGameRenderScale::Auto);
+		assert_eq!(
+			InGameSettings::from_device(DeviceClass::Modest).render_scale,
+			InGameRenderScale::Auto
+		);
 	}
 }
