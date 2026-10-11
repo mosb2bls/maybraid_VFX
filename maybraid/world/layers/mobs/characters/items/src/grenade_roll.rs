@@ -6,11 +6,12 @@ use crate::{GrenadeSpec, GrenadeStats, ItemRng};
 
 const GRENADE_SEED: u64 = 0x6E4A_DE00_F1A4_0002;
 
-/// Inclusive authored band. Wide enough to clear a street, not a room corner.
-pub const BLAST_RADIUS_MIN: f32 = 5.0;
-pub const BLAST_RADIUS_MAX: f32 = 9.0;
+/// Inclusive authored band. Matches the visible fireball / smoke swell, not
+/// the smaller bright core used on the first street-scale pass.
+pub const BLAST_RADIUS_MIN: f32 = 8.0;
+pub const BLAST_RADIUS_MAX: f32 = 13.0;
 pub const BLAST_DAMAGE_MIN: f32 = 50.0;
-pub const BLAST_DAMAGE_MAX: f32 = 100.0;
+pub const BLAST_DAMAGE_MAX: f32 = 150.0;
 
 pub fn generate_grenade_stats(spec: &GrenadeSpec) -> GrenadeStats {
 	let mut rng = ItemRng::from_seed(mix(GRENADE_SEED, spec.mesh.label()));
@@ -20,16 +21,16 @@ pub fn generate_grenade_stats(spec: &GrenadeSpec) -> GrenadeStats {
 pub fn realize_grenade_stats(rng: &mut ItemRng) -> GrenadeStats {
 	let mut stats = GrenadeStats::standard();
 	stats.blast_radius =
-		Dist::new(7.0, 1.1).sample_clamped(rng, BLAST_RADIUS_MIN, BLAST_RADIUS_MAX);
+		Dist::new(10.5, 1.3).sample_clamped(rng, BLAST_RADIUS_MIN, BLAST_RADIUS_MAX);
 	stats.blast_damage =
-		Dist::new(70.0, 12.0).sample_clamped(rng, BLAST_DAMAGE_MIN, BLAST_DAMAGE_MAX);
+		Dist::new(95.0, 22.0).sample_clamped(rng, BLAST_DAMAGE_MIN, BLAST_DAMAGE_MAX);
 	stats.effect_scale = effect_scale_for_blast(stats.blast_radius);
 	stats
 }
 
-/// Fiery-explosion scale `1` reads as about this many meters of bright core.
-/// A 6.5 m blast at the old 4× VFX cap looked like 1–2 m.
-pub const FIERY_EXPLOSION_METERS: f32 = 0.5;
+/// Fiery-explosion scale `1` reads as about this many meters of fireball plus
+/// smoke swell. A 10.5 m blast at scale 13 fills that visible ring.
+pub const FIERY_EXPLOSION_METERS: f32 = 10.5 / 13.0;
 
 pub fn effect_scale_for_blast(blast_radius: f32) -> f32 {
 	(blast_radius / FIERY_EXPLOSION_METERS).clamp(1.0, 20.0)
@@ -65,8 +66,8 @@ mod tests {
 
 	#[test]
 	fn effect_scale_matches_street_blast_meters() {
-		assert!((effect_scale_for_blast(6.5) - 13.0).abs() < 1e-4);
-		assert!(effect_scale_for_blast(6.5) > 4.0);
+		assert!((effect_scale_for_blast(10.5) - 13.0).abs() < 1e-4);
+		assert!(effect_scale_for_blast(10.5) > 4.0);
 	}
 
 	#[test]

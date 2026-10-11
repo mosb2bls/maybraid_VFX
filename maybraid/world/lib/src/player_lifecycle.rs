@@ -182,6 +182,7 @@ fn spawn_player_death_glaze(mut commands: Commands) {
 }
 
 fn sync_player_death_glaze(
+	gameplay: Res<WorldGameplayEnabled>,
 	state: Res<WorldPlayerRespawnState>,
 	map: Option<Res<WorldMapView>>,
 	mut glaze: Query<(&mut BackgroundColor, &mut Visibility), With<PlayerDeathGlaze>>,
@@ -194,7 +195,7 @@ fn sync_player_death_glaze(
 		*visibility = Visibility::Hidden;
 		return;
 	};
-	if pending.first_life {
+	if pending.first_life || !gameplay.0 {
 		color.0 = death_glaze_color(0.0);
 		*visibility = Visibility::Hidden;
 		return;
@@ -1576,6 +1577,7 @@ mod tests {
 			}),
 			..default()
 		});
+		world.insert_resource(WorldGameplayEnabled(true));
 		world.insert_resource(WorldMapView { open: true, close_locked: true, ..default() });
 		world.spawn((
 			PlayerDeathGlaze,
@@ -1585,6 +1587,46 @@ mod tests {
 		world
 			.run_system_once(sync_player_death_glaze)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let (color, visibility) =
+			world.query::<(&BackgroundColor, &Visibility)>().single(&world)?;
+		assert_eq!(color.0, death_glaze_color(0.0));
+		assert_eq!(*visibility, Visibility::Hidden);
+		Ok(())
+	}
+
+	#[test]
+	fn death_glaze_hides_when_gameplay_is_off() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(WorldPlayerRespawnState {
+			pending: Some(PendingPlayerRespawn {
+				timer: Timer::from_seconds(0.0, TimerMode::Once),
+				death_at: Vec3::ZERO,
+				origin: RespawnOrigin::began(None, false),
+				candidates: Vec::new(),
+				highlighted: None,
+				highlighted_at: None,
+				map_opened: true,
+				stick_resting: true,
+				first_life: false,
+				fallback_at: Vec3::ZERO,
+				registry_revision: 0,
+				picker_nearby_scratch: Vec::new(),
+			}),
+			..default()
+		});
+		world.insert_resource(WorldGameplayEnabled(false));
+		world.insert_resource(WorldMapView { open: true, close_locked: true, ..default() });
+		world.spawn((
+			PlayerDeathGlaze,
+			BackgroundColor(death_glaze_color(0.5)),
+			Visibility::Visible,
+		));
+		world
+			.run_system_once(sync_player_death_glaze)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_some());
+		assert!(world.resource::<WorldMapView>().open);
+		assert!(world.resource::<WorldMapView>().close_locked);
 		let (color, visibility) =
 			world.query::<(&BackgroundColor, &Visibility)>().single(&world)?;
 		assert_eq!(color.0, death_glaze_color(0.0));

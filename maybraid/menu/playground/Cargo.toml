@@ -23,6 +23,7 @@ characters = { workspace = true }
 character-inventory-user = { workspace = true }
 firearm-user = { workspace = true }
 firearms-components = { workspace = true }
+grenades = { workspace = true }
 game-commands = { workspace = true }
 lod = { workspace = true }
 maybraid-character-ui-menu-renderer = { workspace = true }

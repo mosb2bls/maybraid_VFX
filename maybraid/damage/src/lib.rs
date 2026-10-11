@@ -123,6 +123,8 @@ pub struct Hit {
 	pub source: Option<Entity>,
 	pub amount: f32,
 	pub point: Vec3,
+	/// Own-weapon volumes stay ignored. Blast / other authored self-hits set this.
+	pub allow_self: bool,
 }
 
 /// HP actually subtracted.

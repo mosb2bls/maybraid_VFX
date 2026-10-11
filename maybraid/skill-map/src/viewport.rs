@@ -6,7 +6,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{TextureDimension, TextureFormat, TextureUsages};
 use bevy::ui::widget::ViewportNode;
 use character_inventory_user::InventoryUser;
-use character_items::Inventory;
+use character_items::{Inventory, InventoryItem};
 use menu_components::{
 	spawn_hud_text_card, spawn_hud_text_card_label, HudFonts, HUD_TEXT_CARD_FACE_PX,
 	PANEL_BLOCK_FONT_SIZE, TEXT_YELLOW,
@@ -40,6 +40,8 @@ const FIREARM_CARD_BORDER: f32 = 1.5;
 const FIREARM_CARD_RADIUS: f32 = 8.0;
 const FIREARM_CARD_FILL: Color = Color::srgba(0.52, 0.52, 0.56, 0.82);
 const FIREARM_CARD_STROKE: Color = Color::srgba(0.78, 0.78, 0.82, 0.9);
+const GRENADE_SILHOUETTE_PX: f32 = 28.0;
+const GRENADE_SILHOUETTE_STROKE: f32 = 2.0;
 
 /// Kenney outline Xbox **RB** (hold to steer the map).
 pub const SKILL_MAP_RB_ICON: &str = "iconography/kenney/input-prompts/xbox_rb_outline.png";
@@ -65,6 +67,18 @@ pub struct SkillMapFirearmHud;
 
 #[derive(Component)]
 pub struct SkillMapFirearmName;
+
+#[derive(Component)]
+pub(crate) struct SkillMapFirearmSilhouette;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadeSilhouette;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadeChargeFill;
+
+#[derive(Component)]
+pub(crate) struct SkillMapWeaponAction;
 
 #[derive(Component)]
 pub struct Debraid {
@@ -316,7 +330,7 @@ fn spawn_map_frame(
 					Pickable::IGNORE,
 				))
 				.with_children(|slot| {
-					spawn_prompt_chip(slot, fonts, asset_server, SKILL_MAP_RB_ICON, "Hold");
+					spawn_prompt_chip(slot, fonts, asset_server, SKILL_MAP_RB_ICON, "Hold", ());
 				});
 		})
 		.id()
@@ -360,6 +374,7 @@ fn spawn_firearm_hud(
 				));
 			});
 			spawn_firearm_silhouette(stack);
+			spawn_grenade_silhouette(stack);
 			stack
 				.spawn((
 					Node {
@@ -371,8 +386,15 @@ fn spawn_firearm_hud(
 					Pickable::IGNORE,
 				))
 				.with_children(|row| {
-					spawn_prompt_chip(row, fonts, asset_server, SKILL_MAP_RT_ICON, "Fire");
-					spawn_prompt_chip(row, fonts, asset_server, SKILL_MAP_Y_ICON, "Switch");
+					spawn_prompt_chip(
+						row,
+						fonts,
+						asset_server,
+						SKILL_MAP_RT_ICON,
+						"Fire",
+						SkillMapWeaponAction,
+					);
+					spawn_prompt_chip(row, fonts, asset_server, SKILL_MAP_Y_ICON, "Switch", ());
 				});
 		});
 }
@@ -383,6 +405,7 @@ fn spawn_prompt_chip(
 	asset_server: &AssetServer,
 	icon: &'static str,
 	label: &str,
+	extra: impl Bundle,
 ) {
 	spawn_hud_text_card(parent, (), |card| {
 		card.spawn((
@@ -400,6 +423,7 @@ fn spawn_prompt_chip(
 			fonts.item(HUD_TEXT_CARD_FACE_PX),
 			TextColor(TEXT_YELLOW),
 			Pickable::IGNORE,
+			extra,
 		));
 	});
 }
@@ -407,6 +431,7 @@ fn spawn_prompt_chip(
 fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 	parent
 		.spawn((
+			SkillMapFirearmSilhouette,
 			Node {
 				width: Val::Px(96.0),
 				height: Val::Px(28.0),
@@ -414,6 +439,7 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 				align_items: AlignItems::Center,
 				..default()
 			},
+			Visibility::Inherited,
 			Pickable::IGNORE,
 		))
 		.with_children(|gun| {
@@ -460,6 +486,40 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 		});
 }
 
+fn spawn_grenade_silhouette(parent: &mut ChildSpawnerCommands) {
+	parent
+		.spawn((
+			SkillMapGrenadeSilhouette,
+			Node {
+				width: Val::Px(GRENADE_SILHOUETTE_PX),
+				height: Val::Px(GRENADE_SILHOUETTE_PX),
+				justify_content: JustifyContent::FlexEnd,
+				align_items: AlignItems::Center,
+				overflow: Overflow::clip(),
+				border: UiRect::all(Val::Px(GRENADE_SILHOUETTE_STROKE)),
+				border_radius: BorderRadius::all(Val::Px(GRENADE_SILHOUETTE_PX)),
+				..default()
+			},
+			BorderColor::all(TEXT_YELLOW),
+			BackgroundColor(Color::NONE),
+			Visibility::Hidden,
+			Pickable::IGNORE,
+		))
+		.with_children(|orb| {
+			orb.spawn((
+				SkillMapGrenadeChargeFill,
+				Node {
+					width: Val::Percent(100.0),
+					height: Val::Percent(100.0),
+					border_radius: BorderRadius::all(Val::Px(GRENADE_SILHOUETTE_PX)),
+					..default()
+				},
+				BackgroundColor(TEXT_YELLOW),
+				Pickable::IGNORE,
+			));
+		});
+}
+
 pub fn sync_viewport_chrome(
 	enabled: Res<SkillMapEnabled>,
 	users: Query<(&SkillMapUser, &SkillMapHeld)>,
@@ -490,26 +550,86 @@ pub fn sync_viewport_chrome(
 pub fn sync_firearm_chrome(
 	users: Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
 	bags: Query<&Inventory>,
+	members: Query<&SkillMapMember, With<SkillMapFirearmHud>>,
 	mut blocks: Query<(&SkillMapMember, &mut Visibility), With<SkillMapFirearmHud>>,
 	mut names: Query<(&SkillMapMember, &mut Text), With<SkillMapFirearmName>>,
+	mut guns: Query<
+		&mut Visibility,
+		(With<SkillMapFirearmSilhouette>, Without<SkillMapFirearmHud>),
+	>,
+	mut orbs: Query<
+		&mut Visibility,
+		(
+			With<SkillMapGrenadeSilhouette>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+		),
+	>,
+	mut fills: Query<(&mut Node, &mut BackgroundColor), With<SkillMapGrenadeChargeFill>>,
+	mut actions: Query<&mut Text, (With<SkillMapWeaponAction>, Without<SkillMapFirearmName>)>,
 ) {
 	for (member, mut visibility) in &mut blocks {
-		let name = firearm_action_name(member.user, &users, &bags);
+		let name = primary_weapon_name(member.user, &users, &bags);
 		*visibility = if name.is_some() { Visibility::Inherited } else { Visibility::Hidden };
 	}
 	for (member, mut text) in &mut names {
-		text.0 = firearm_action_name(member.user, &users, &bags).unwrap_or_default();
+		text.0 = primary_weapon_name(member.user, &users, &bags).unwrap_or_default();
+	}
+	let Some(member) = members.iter().next() else {
+		return;
+	};
+	let weapon = primary_weapon(member.user, &users, &bags);
+	let grenade = weapon.and_then(grenade_charge);
+	let show_orb = grenade.is_some();
+	for mut visibility in &mut guns {
+		*visibility = if show_orb { Visibility::Hidden } else { Visibility::Inherited };
+	}
+	for mut visibility in &mut orbs {
+		*visibility = if show_orb { Visibility::Inherited } else { Visibility::Hidden };
+	}
+	if let Some(progress) = grenade {
+		for (mut node, mut fill) in &mut fills {
+			node.height = Val::Percent((progress * 100.0).clamp(0.0, 100.0));
+			fill.0 = if progress >= 1.0 - 1e-3 {
+				TEXT_YELLOW
+			} else {
+				TEXT_YELLOW.with_alpha(0.55 + 0.45 * progress)
+			};
+		}
+	}
+	let verb = if show_orb { "Throw" } else { "Fire" };
+	for mut text in &mut actions {
+		if text.0 != verb {
+			text.0 = verb.to_string();
+		}
 	}
 }
 
-fn firearm_action_name(
+fn primary_weapon<'a>(
+	user: Entity,
+	users: &'a Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
+	bags: &'a Query<&Inventory>,
+) -> Option<&'a InventoryItem> {
+	let (_, inventory) = users.iter().find(|(entity, _)| *entity == user)?;
+	bags.get(inventory?.bag).ok()?.primary_weapon()
+}
+
+fn primary_weapon_name(
 	user: Entity,
 	users: &Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
 	bags: &Query<&Inventory>,
 ) -> Option<String> {
-	let (_, inventory) = users.iter().find(|(entity, _)| *entity == user)?;
-	let bag = bags.get(inventory?.bag).ok()?;
-	Some(bag.primary_weapon()?.name())
+	Some(primary_weapon(user, users, bags)?.name())
+}
+
+fn grenade_charge(item: &InventoryItem) -> Option<f32> {
+	let InventoryItem::Grenade { stats, recharge, .. } = item else {
+		return None;
+	};
+	if stats.recharge <= 1e-4 {
+		return Some(1.0);
+	}
+	Some((1.0 - recharge.remaining / stats.recharge).clamp(0.0, 1.0))
 }
 
 type TrackedCameras<'w, 's> = Query<
@@ -630,5 +750,26 @@ mod tests {
 		bag.weapons.push(0);
 		assert_eq!(bag.primary_weapon().map(InventoryItem::name), Some(bag.items[0].name()));
 		assert!(bag.primary_weapon().is_some());
+	}
+
+	#[test]
+	fn grenade_charge_fills_as_recharge_elapses() {
+		use character_items::{GrenadeRecharge, GrenadeSpec, GrenadeStats, InventoryItem};
+
+		let stats = GrenadeStats::standard();
+		let ready = InventoryItem::Grenade {
+			spec: GrenadeSpec::standard(),
+			stats,
+			recharge: GrenadeRecharge { remaining: 0.0 },
+		};
+		let half = InventoryItem::Grenade {
+			spec: GrenadeSpec::standard(),
+			stats,
+			recharge: GrenadeRecharge { remaining: stats.recharge * 0.5 },
+		};
+		assert!((grenade_charge(&ready).unwrap() - 1.0).abs() < 1e-4);
+		assert!((grenade_charge(&half).unwrap() - 0.5).abs() < 1e-4);
+		assert!(grenade_charge(&InventoryItem::firearm(character_items::FirearmMesh::Bullpup))
+			.is_none());
 	}
 }
