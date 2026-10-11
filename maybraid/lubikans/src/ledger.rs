@@ -170,7 +170,8 @@ impl LubikanLedger {
 	/// Equip `account` when it is owned. `None` returns to Self (`LubikanSelection`
 	/// default / Self fallback). Selecting Self is the same as `None`.
 	/// Unknown accounts are left unchanged and return `false`. Charge is never
-	/// copied. Input cycles through this method only.
+	/// copied. [#1112](https://github.com/ramate-io/maybraid/issues/1112) cycles
+	/// through this method only.
 	pub fn select(&mut self, account: Option<LubikanAccountId>) -> bool {
 		match account {
 			None => {
@@ -415,6 +416,11 @@ mod tests {
 			return Err(anyhow!("select(Some(Self)) is the same as None"));
 		}
 		assert_eq!(ledger.selection(), crate::LubikanSelection::default());
+		assert_eq!(
+			ledger.account(LubikanAccountId::SELF).map(|account| account.charge().current()),
+			Some(12.0)
+		);
+		assert_eq!(ledger.account(other).map(|account| account.charge().current()), Some(9.0));
 		if !ledger.select(None) {
 			return Err(anyhow!("select(None) is the Self fallback"));
 		}

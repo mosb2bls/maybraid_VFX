@@ -21,8 +21,8 @@ use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
 	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
-	TerrainStreaming, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlayerLoadout, WorldPlugin,
-	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
+	TerrainStreaming, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlaySessionEnded,
+	WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
 };
 use menu_components::{
 	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
@@ -175,10 +175,12 @@ fn clear_play_session(
 	mut session: ResMut<PlaySession>,
 	mut mode: ResMut<GameMode>,
 	mut ready: ResMut<WorldSurfaceReady>,
+	mut ended: MessageWriter<WorldPlaySessionEnded>,
 ) {
 	ready.0 = false;
 	*session = PlaySession::None;
 	mode.label = String::from(PlaySession::Discovery.label());
+	ended.write(WorldPlaySessionEnded);
 }
 
 fn load_active_player_loadout(

@@ -32,8 +32,8 @@ pub use world_furnished::WorldFurnished;
 
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
-	InventoryEditCameraFollow, WorldGameplayEnabled, WorldSceneryVisible, WorldSurfaceReady,
-	WorldSurfaceSet,
+	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
+	WorldSurfaceReady, WorldSurfaceSet,
 };
 pub use durham::Durham;
 #[cfg(any(test, feature = "test-support"))]
@@ -77,18 +77,18 @@ use bevy::prelude::*;
 use character_ragdoll::{CharacterRagdollPlugin, CharacterRagdollTargets};
 use characters::{CharacterMotionSystems, DrawTerrainPitchProbes};
 use combat_hud::CombatHudPlugin;
-use lubikans::LubikansPlugin;
 use durham::TerrainFrictionConfig;
 use firearms::EnergyMaterialPlugin;
-use maybraid_vfx::VfxPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
+use lubikans::{LubikanSystems, LubikansPlugin};
 use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
 use maybraid_skill_map::{SkillMapPlugin, SkillMapSystems};
 use maybraid_sky::SkyDomePlugin;
+use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
 use player::{
 	register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin, PlayerSystems,
@@ -194,6 +194,7 @@ impl Plugin for WorldPlugin {
 			.insert_resource(PadMovementEnabled(false))
 			.insert_resource(VegetationPlayerMotor(false))
 			.insert_resource(CharacterCameraFollowEnabled(false))
+			.add_message::<control::WorldPlaySessionEnded>()
 			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
@@ -227,7 +228,12 @@ impl Plugin for WorldPlugin {
 			.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,
-				(control::stamp_vegetation_motor_traction, control::stamp_world_player_motor),
+				(
+					control::stamp_vegetation_motor_traction,
+					control::stamp_world_player_motor,
+					control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
+					control::sync_lubikan_session.before(LubikanSystems::Owner),
+				),
 			)
 			.configure_sets(Update, control::WorldSurfaceSet)
 			.add_systems(
@@ -236,7 +242,6 @@ impl Plugin for WorldPlugin {
 					control::update_world_surface_ready.in_set(control::WorldSurfaceSet),
 					control::sync_world_scenery,
 					control::sync_combat_hud_visible,
-					control::sync_lubikan_session,
 					control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
 					control::apply_intents_to_movement
 						.after(CharacterControlSystems)

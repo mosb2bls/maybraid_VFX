@@ -23,8 +23,14 @@ use world_player::{
 use crate::map_view::WorldMapView;
 
 /// When `false`, world movement / POV intents are ignored (menus, pause overlay).
+/// Pause must not be treated as a play-session teardown.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorldGameplayEnabled(pub bool);
+
+/// Explicit play-session teardown. The game shell writes this when leaving
+/// to Home. Pause must not write it.
+#[derive(Message, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorldPlaySessionEnded;
 
 /// Keep third-person follow while the in-game inventory editor is open.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -86,17 +92,31 @@ fn discovery_xz(
 	layout.region_center_xz().xz()
 }
 
+/// Mark the world capsule as a Lubikan owner. [`lubikans::LubikansPlugin`]
+/// attaches the Self ledger in `LubikanSystems::Owner`; do not insert
+/// `LubikanLedger::with_self` here. [#1112](https://github.com/ramate-io/maybraid/issues/1112)
+/// can drop its temporary attach once this grant is on the stack.
+pub(crate) fn grant_world_player_lubikan_owner(
+	mut commands: Commands,
+	players: Query<Entity, (With<Player>, Without<lubikans::LubikanOwner>)>,
+) {
+	for player in &players {
+		commands.entity(player).insert(lubikans::LubikanOwner);
+	}
+}
+
 pub(crate) fn sync_lubikan_session(
-	gameplay: Res<WorldGameplayEnabled>,
+	mut ended: MessageReader<WorldPlaySessionEnded>,
 	mut lives: MessageWriter<lubikans::LubikanOwnerLifetime>,
 ) {
-	if gameplay.is_changed() && !gameplay.0 {
-		lives.write(lubikans::LubikanOwnerLifetime::new(
-			None,
-			None,
-			lubikans::LubikanOwnerLifetimeKind::RestartSession,
-		));
+	if ended.read().next().is_none() {
+		return;
 	}
+	lives.write(lubikans::LubikanOwnerLifetime::new(
+		None,
+		None,
+		lubikans::LubikanOwnerLifetimeKind::RestartSession,
+	));
 }
 
 pub(crate) fn sync_combat_hud_visible(
@@ -425,5 +445,48 @@ mod tests {
 		world.run_system_once(stamp_world_player_motor).expect("restore stance");
 		assert!(world.get::<CharacterStance>(player).is_some());
 		assert!(world.get::<RestLocomotionCapsule>(player).is_some());
+	}
+
+	#[test]
+	fn grant_marks_vegetation_player_without_inserting_a_ledger() {
+		use bevy::ecs::system::RunSystemOnce;
+		use lubikans::{LubikanLedger, LubikanOwner};
+
+		let mut world = World::new();
+		let player = world.spawn(Player).id();
+		world.run_system_once(grant_world_player_lubikan_owner).expect("grant owner");
+		assert!(world.get::<LubikanOwner>(player).is_some());
+		assert!(world.get::<LubikanLedger>(player).is_none());
+		world
+			.run_system_once(grant_world_player_lubikan_owner)
+			.expect("grant is idempotent");
+		assert!(world.get::<LubikanOwner>(player).is_some());
+	}
+
+	#[test]
+	fn pause_does_not_end_the_play_session() {
+		use bevy::ecs::system::RunSystemOnce;
+		use lubikans::{LubikanOwnerLifetime, LubikanOwnerLifetimeKind};
+
+		fn take_notices(
+			mut notices: MessageReader<LubikanOwnerLifetime>,
+		) -> Vec<LubikanOwnerLifetime> {
+			notices.read().copied().collect()
+		}
+
+		let mut world = World::new();
+		world.init_resource::<Messages<LubikanOwnerLifetime>>();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.run_system_once(sync_lubikan_session).expect("initial sync");
+		world.resource_mut::<WorldGameplayEnabled>().0 = false;
+		world.run_system_once(sync_lubikan_session).expect("paused sync");
+		let paused = world.run_system_once(take_notices).expect("read pause notices");
+		assert!(paused.is_empty());
+		world.write_message(WorldPlaySessionEnded);
+		world.run_system_once(sync_lubikan_session).expect("ended sync");
+		let notices = world.run_system_once(take_notices).expect("read restart notices");
+		assert_eq!(notices.len(), 1);
+		assert_eq!(notices[0].kind, LubikanOwnerLifetimeKind::RestartSession);
 	}
 }

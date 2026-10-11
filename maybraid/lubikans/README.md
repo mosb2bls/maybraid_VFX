@@ -40,9 +40,17 @@ charge state by being visible.
 | [`fixtures`](src/fixtures.rs) | Test helper (`test-support` feature or this crate's tests). |
 
 [`LubikanInterfacePlugin`](src/lib.rs) only registers the shared messages.
-[`LubikansPlugin`](src/plugin.rs) registers Self, attaches a ledger to each
-`player::Player`, restores charge across body replacement, and honors
-session-restart notices. It has no Bikanwarda or HUD dependency.
+[`LubikansPlugin`](src/plugin.rs) is the only place that creates or restores
+a player's ledger, and the sole owner of [`LubikanActivationRequest`](src/activation.rs):
+it spends once, emits [`LubikanActivationSession`](src/activation.rs) or
+[`LubikanActivationRefused`](src/activation.rs), and applies
+[`LubikanActivationReport`](src/activation.rs) to the captured account.
+Consumers order after [`LubikanSystems::Owner`](src/lib.rs) (PreUpdate).
+World capsules get the owner marker from `grant_world_player_lubikan_owner`
+(do not insert a fresh `LubikanLedger::with_self`). Pause does not restart
+the session; `WorldPlaySessionEnded` does. Input cycles through
+[`LubikanLedger::select`](src/ledger.rs) only (`None` / `Some(Self)` are the
+Self fallback). The plugin has no Bikanwarda or HUD dependency.
 
 ## Consumer fixture
 
