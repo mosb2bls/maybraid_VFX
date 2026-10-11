@@ -1072,7 +1072,7 @@ mod tests {
 			.get::<lubikans::LubikanLedger>(owner)
 			.map(|ledger| ledger.equipped().charge().current());
 		assert_eq!(stored, Some(80.0));
-		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "Self  80/100"));
+		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "80"));
 		Ok(())
 	}
 }

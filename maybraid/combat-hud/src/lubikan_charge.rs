@@ -6,9 +6,7 @@ use lubikans::{
 	LubikanActivationPhase, LubikanCatalog, LubikanCharge, LubikanLedger, LubikanOwner,
 	LubikanReadiness, LubikanSelfHeal, LubikanSelfHealChannel,
 };
-use menu_components::{
-	spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW,
-};
+use menu_components::{HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW};
 use player::Player;
 
 use crate::cycle_cue::CombatHudInventoryCycleCategory;
@@ -17,11 +15,12 @@ use crate::vitals::VITALS_WIDTH;
 use crate::CombatHudVisible;
 
 /// Vertical space reserved for the vitals plate so charge sits above it.
-pub(crate) const VITALS_STACK_OFFSET: f32 = 92.0;
+pub(crate) const VITALS_STACK_OFFSET: f32 = 72.0;
 
 const CHARGE_WIDTH: f32 = VITALS_WIDTH;
 const CHARGE_BAR_HEIGHT: f32 = 12.0;
-const CHARGE_ROW_GAP: f32 = 4.0;
+const CHARGE_ROW_GAP: f32 = 6.0;
+const ICON_PX: f32 = 44.0;
 const READY_GLOW: Color = Color::srgba(0.45, 0.95, 0.72, 0.35);
 const CATEGORY_CUE: Color = Color::srgb(0.55, 0.82, 1.0);
 const TRACK_FILL: Color = Color::srgb(0.10, 0.11, 0.13);
@@ -97,7 +96,7 @@ pub(crate) struct LubikanChargeRoot;
 pub struct LubikanChargeFlyTarget;
 
 #[derive(Component)]
-pub(crate) struct LubikanChargeTitle;
+pub(crate) struct LubikanChargeAmount;
 
 #[derive(Component)]
 pub(crate) struct LubikanChargeStatus;
@@ -152,49 +151,64 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 			Pickable::IGNORE,
 		))
 		.with_children(|plate| {
-			spawn_hud_text_card(plate, (), |card| {
-				card.spawn((
-					LubikanChargeTitle,
-					Text::new("Self  0/100"),
-					fonts.item(HUD_TEXT_CARD_FACE_PX),
-					TextColor(TEXT_YELLOW),
-					Pickable::IGNORE,
-				));
-			});
 			plate
 				.spawn((
 					Node {
+						flex_direction: FlexDirection::Row,
+						align_items: AlignItems::Center,
+						column_gap: Val::Px(CHARGE_ROW_GAP),
 						width: Val::Percent(100.0),
-						height: Val::Px(CHARGE_BAR_HEIGHT + 6.0),
-						padding: UiRect::axes(Val::Px(4.0), Val::Px(3.0)),
-						border: UiRect::all(Val::Px(1.0)),
-						border_radius: BorderRadius::all(Val::Px(4.0)),
 						..default()
 					},
-					BackgroundColor(TRACK_FILL),
-					BorderColor::all(TRACK_STROKE),
 					Pickable::IGNORE,
 				))
-				.with_children(|track| {
-					track.spawn((
-						LubikanChargeFill,
+				.with_children(|row| {
+					spawn_self_icon(row);
+					row.spawn((
 						Node {
-							width: Val::Percent(0.0),
-							height: Val::Percent(100.0),
-							border_radius: BorderRadius::all(Val::Px(2.0)),
+							flex_grow: 1.0,
+							height: Val::Px(CHARGE_BAR_HEIGHT + 6.0),
+							padding: UiRect::axes(Val::Px(4.0), Val::Px(3.0)),
+							border: UiRect::all(Val::Px(1.0)),
+							border_radius: BorderRadius::all(Val::Px(4.0)),
 							..default()
 						},
-						BackgroundColor(BAR_MID),
+						BackgroundColor(TRACK_FILL),
+						BorderColor::all(TRACK_STROKE),
 						Pickable::IGNORE,
-					));
-					track.spawn((
-						LubikanChargeFlyTarget,
+					))
+					.with_children(|track| {
+						track.spawn((
+							LubikanChargeFill,
+							Node {
+								width: Val::Percent(0.0),
+								height: Val::Percent(100.0),
+								border_radius: BorderRadius::all(Val::Px(2.0)),
+								..default()
+							},
+							BackgroundColor(BAR_MID),
+							Pickable::IGNORE,
+						));
+						track.spawn((
+							LubikanChargeFlyTarget,
+							Node {
+								position_type: PositionType::Absolute,
+								right: Val::Px(2.0),
+								top: Val::Px(0.0),
+								width: Val::Px(4.0),
+								height: Val::Percent(100.0),
+								..default()
+							},
+							Pickable::IGNORE,
+						));
+					});
+					row.spawn((
+						LubikanChargeAmount,
+						Text::new("0"),
+						fonts.item(HUD_TEXT_CARD_FACE_PX),
+						TextColor(TEXT_YELLOW),
 						Node {
-							position_type: PositionType::Absolute,
-							right: Val::Px(2.0),
-							top: Val::Px(0.0),
-							width: Val::Px(4.0),
-							height: Val::Percent(100.0),
+							min_width: Val::Px(28.0),
 							..default()
 						},
 						Pickable::IGNORE,
@@ -205,6 +219,7 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 				Text::new(""),
 				fonts.body(12.0),
 				TextColor(MUTED),
+				Visibility::Hidden,
 				Pickable::IGNORE,
 			));
 			plate.spawn((
@@ -222,6 +237,66 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 				Visibility::Hidden,
 				Pickable::IGNORE,
 			));
+		});
+}
+
+fn spawn_self_icon(parent: &mut ChildSpawnerCommands) {
+	parent
+		.spawn((
+			Node {
+				width: Val::Px(ICON_PX),
+				height: Val::Px(ICON_PX),
+				min_width: Val::Px(ICON_PX),
+				min_height: Val::Px(ICON_PX),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				border: UiRect::all(Val::Px(2.0)),
+				border_radius: BorderRadius::all(Val::Px(6.0)),
+				..default()
+			},
+			BackgroundColor(TRACK_FILL),
+			BorderColor::all(TEXT_YELLOW),
+			Pickable::IGNORE,
+		))
+		.with_children(|icon| {
+			icon.spawn((
+				Node {
+					width: Val::Px(18.0),
+					height: Val::Px(18.0),
+					justify_content: JustifyContent::Center,
+					align_items: AlignItems::Center,
+					..default()
+				},
+				Pickable::IGNORE,
+			))
+			.with_children(|plus| {
+				plus.spawn((
+					Node {
+						width: Val::Px(18.0),
+						height: Val::Px(6.0),
+						position_type: PositionType::Absolute,
+						left: Val::Px(0.0),
+						top: Val::Px(6.0),
+						border_radius: BorderRadius::all(Val::Px(1.0)),
+						..default()
+					},
+					BackgroundColor(TEXT_YELLOW),
+					Pickable::IGNORE,
+				));
+				plus.spawn((
+					Node {
+						width: Val::Px(6.0),
+						height: Val::Px(18.0),
+						position_type: PositionType::Absolute,
+						left: Val::Px(6.0),
+						top: Val::Px(0.0),
+						border_radius: BorderRadius::all(Val::Px(1.0)),
+						..default()
+					},
+					BackgroundColor(TEXT_YELLOW),
+					Pickable::IGNORE,
+				));
+			});
 		});
 }
 
@@ -257,8 +332,8 @@ pub(crate) fn sync_lubikan_charge(
 	heal_channels: Query<&LubikanSelfHealChannel>,
 	mut widgets: ParamSet<(
 		Query<(&mut Visibility, &mut BorderColor), With<LubikanChargeRoot>>,
-		Query<&mut Text, With<LubikanChargeTitle>>,
-		Query<&mut Text, With<LubikanChargeStatus>>,
+		Query<&mut Text, With<LubikanChargeAmount>>,
+		Query<(&mut Text, &mut Visibility), With<LubikanChargeStatus>>,
 		Query<(&mut Node, &mut BackgroundColor), With<LubikanChargeFill>>,
 		Query<&mut Visibility, With<LubikanCategoryCue>>,
 	)>,
@@ -287,7 +362,7 @@ pub(crate) fn sync_lubikan_charge(
 		heal_channels.get(owner).ok(),
 	);
 	let finished = pulse.as_deref().and_then(|pulse| pulse.active_label(time.elapsed_secs()));
-	let headline = charge_title(&row);
+	let amount = format_charge(row.charge.current());
 	let status = charge_status(&row, heal, finished);
 	let fraction = row.charge.fraction();
 	let fill_color = charge_bar_color(&row);
@@ -301,14 +376,19 @@ pub(crate) fn sync_lubikan_charge(
 		});
 	}
 	for mut text in widgets.p1().iter_mut() {
-		if text.0 != headline {
-			text.0 = headline.clone();
+		if text.0 != amount {
+			text.0 = amount.clone();
 		}
 	}
-	for mut text in widgets.p2().iter_mut() {
+	for (mut text, mut visibility) in widgets.p2().iter_mut() {
 		if text.0 != status {
 			text.0 = status.clone();
 		}
+		*visibility = if status.is_empty() {
+			Visibility::Hidden
+		} else {
+			Visibility::Visible
+		};
 	}
 	for (mut node, mut color) in widgets.p3().iter_mut() {
 		node.width = Val::Percent(fraction * 100.0);
@@ -318,13 +398,6 @@ pub(crate) fn sync_lubikan_charge(
 	for mut visibility in widgets.p4().iter_mut() {
 		*visibility = if lubikan_selected { Visibility::Visible } else { Visibility::Hidden };
 	}
-}
-
-pub(crate) fn charge_title(row: &LubikanHudRow) -> String {
-	let name = account_label(row.account);
-	let current = format_charge(row.charge.current());
-	let capacity = format_charge(row.charge.capacity());
-	format!("{name}  {current}/{capacity}")
 }
 
 pub(crate) fn charge_status(
@@ -350,20 +423,7 @@ pub(crate) fn charge_status(
 			String::from("Activating")
 		}
 		LubikanActivationPhase::Active => String::from("Active"),
-		LubikanActivationPhase::Completed | LubikanActivationPhase::Idle
-			if row.charge.current() <= 0.0 =>
-		{
-			String::from("Empty")
-		}
-		LubikanActivationPhase::Completed | LubikanActivationPhase::Idle
-			if row.readiness.can_activate =>
-		{
-			String::from("Ready")
-		}
-		LubikanActivationPhase::Completed | LubikanActivationPhase::Idle => {
-			let need = (row.readiness.activation_cost - row.charge.current()).max(0.0);
-			format!("Need {:.0} more", need.ceil())
-		}
+		_ => String::new(),
 	}
 }
 
@@ -382,14 +442,6 @@ pub(crate) fn charge_bar_color(row: &LubikanHudRow) -> Color {
 	}
 }
 
-fn account_label(account: LubikanAccountId) -> String {
-	account
-		.definition()
-		.well_known_label()
-		.map(str::to_string)
-		.unwrap_or_else(|| format!("Lubikan {}", account.definition().raw()))
-}
-
 fn format_charge(value: f32) -> String {
 	if value.fract().abs() < 0.05 {
 		format!("{:.0}", value)
@@ -404,33 +456,28 @@ mod tests {
 	use lubikans::LubikanAccountId;
 
 	#[test]
-	fn ready_and_empty_status_lines() {
+	fn idle_status_stays_empty_so_the_bar_is_the_charge_readout() {
 		let ready = LubikanHudRow {
 			account: LubikanAccountId::SELF,
 			charge: LubikanCharge::new(30.0, 100.0),
 			readiness: LubikanReadiness::from_charge(LubikanAccountId::SELF, LubikanCharge::new(30.0, 100.0), 25.0, false),
 			activation: LubikanActivation::idle(LubikanAccountId::SELF),
 		};
-		assert_eq!(charge_status(&ready, None, None), "Ready");
+		assert_eq!(charge_status(&ready, None, None), "");
 		let healing = LubikanHudSelfHeal { remaining: 55.0, rate: 5.0 };
 		assert_eq!(charge_status(&ready, Some(healing), None), "Healing 55 (5/s)");
 		assert_eq!(charge_status(&ready, Some(healing), Some("completed")), "completed");
 		let empty = LubikanHudRow {
-			charge: LubikanCharge::new(0.0, 100.0),
+			charge: LubikanCharge::new(3.0, 100.0),
+			readiness: LubikanReadiness::from_charge(LubikanAccountId::SELF, LubikanCharge::new(3.0, 100.0), 25.0, false),
 			..ready
 		};
-		assert_eq!(charge_status(&empty, None, None), "Empty");
+		assert_eq!(charge_status(&empty, None, None), "");
 	}
 
 	#[test]
-	fn charge_title_includes_capacity() {
-		let account = LubikanAccountId::unique(lubikans::LubikanDefinitionId::from_raw(7));
-		let row = LubikanHudRow {
-			account,
-			charge: LubikanCharge::new(12.0, 50.0),
-			readiness: LubikanReadiness::from_charge(account, LubikanCharge::new(12.0, 50.0), 10.0, false),
-			activation: LubikanActivation::idle(account),
-		};
-		assert_eq!(charge_title(&row), "Lubikan 7  12/50");
+	fn charge_amount_is_current_not_a_fraction() {
+		assert_eq!(format_charge(3.0), "3");
+		assert_eq!(format_charge(12.5), "12.5");
 	}
 }

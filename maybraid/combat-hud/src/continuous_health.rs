@@ -30,7 +30,7 @@ impl Default for ContinuousHealthConfig {
 	fn default() -> Self {
 		Self {
 			bar_width: 120.0,
-			bar_height: 10.0,
+			bar_height: 12.0,
 			frame_thickness: 1.5,
 			corner_radius: 3.0,
 			fill_color_high: Color::srgb(0.35, 0.85, 0.45),
@@ -172,10 +172,10 @@ fn spawn_continuous_health_bar_impl(
 		},
 		HealthBarLayout::UiChild => Node {
 			width: Val::Percent(100.0),
-			height: Val::Px(config.bar_height + 20.0),
-			flex_direction: FlexDirection::Column,
+			height: Val::Px(config.bar_height + 6.0),
+			flex_direction: FlexDirection::Row,
 			align_items: AlignItems::Center,
-			row_gap: Val::Px(2.0),
+			column_gap: Val::Px(8.0),
 			..default()
 		},
 	};
@@ -184,7 +184,7 @@ fn spawn_continuous_health_bar_impl(
 		HealthBarLayout::WorldAnchored => Visibility::Hidden,
 		HealthBarLayout::UiChild => Visibility::Visible,
 	};
-	
+
 	root.spawn((
 		ContinuousHealthBar { target, layout },
 		HealthAnimState::default(),
@@ -193,139 +193,146 @@ fn spawn_continuous_health_bar_impl(
 		Pickable::IGNORE,
 	))
 		.with_children(|anchor| {
-			// Status dot
-			anchor.spawn((
-				HealthStatusDot,
-				Node {
-					width: Val::Px(10.0),
-					height: Val::Px(10.0),
-					border_radius: BorderRadius::all(Val::Px(10.0)),
-					..default()
-				},
-				BackgroundColor(Color::WHITE),
-				Visibility::Hidden,
-				Pickable::IGNORE,
-			));
-			
-			// Numeric label
-			anchor.spawn((
-				HealthLabel,
-				Text::new(""),
-				TextFont { font_size: FontSize::Px(12.0), ..default() },
-				TextColor(Color::WHITE),
-			));
-			
-			// Bar container with frame
-			anchor
+			if layout == HealthBarLayout::WorldAnchored {
+				anchor.spawn((
+					HealthStatusDot,
+					Node {
+						width: Val::Px(10.0),
+						height: Val::Px(10.0),
+						border_radius: BorderRadius::all(Val::Px(10.0)),
+						..default()
+					},
+					BackgroundColor(Color::WHITE),
+					Visibility::Hidden,
+					Pickable::IGNORE,
+				));
+			}
+			if layout == HealthBarLayout::WorldAnchored {
+				spawn_health_label(anchor, "");
+			}
+			spawn_health_track(anchor, config);
+			if layout == HealthBarLayout::UiChild {
+				spawn_health_label(anchor, "0");
+			}
+		})
+		.id()
+}
+
+fn spawn_health_label(anchor: &mut ChildSpawnerCommands, initial: &str) {
+	anchor.spawn((
+		HealthLabel,
+		Text::new(initial),
+		TextFont { font_size: FontSize::Px(12.0), ..default() },
+		TextColor(Color::WHITE),
+		Node {
+			min_width: Val::Px(28.0),
+			..default()
+		},
+		Pickable::IGNORE,
+	));
+}
+
+fn spawn_health_track(anchor: &mut ChildSpawnerCommands, config: &ContinuousHealthConfig) {
+	anchor
+		.spawn((
+			Node {
+				width: Val::Percent(100.0),
+				height: Val::Px(config.bar_height),
+				flex_grow: 1.0,
+				padding: UiRect::all(Val::Px(config.frame_thickness)),
+				border_radius: BorderRadius::all(Val::Px(config.corner_radius)),
+				..default()
+			},
+			BackgroundColor(Color::srgba(0.12, 0.13, 0.15, 0.9)),
+			Pickable::IGNORE,
+		))
+		.with_children(|frame| {
+			frame
 				.spawn((
 					Node {
 						width: Val::Percent(100.0),
-						height: Val::Px(config.bar_height),
-						padding: UiRect::all(Val::Px(config.frame_thickness)),
-						border_radius: BorderRadius::all(Val::Px(config.corner_radius)),
+						height: Val::Percent(100.0),
+						border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
+						overflow: Overflow::clip(),
 						..default()
 					},
-					BackgroundColor(Color::srgba(0.12, 0.13, 0.15, 0.9)),
+					BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.95)),
 					Pickable::IGNORE,
 				))
-				.with_children(|frame| {
-					frame
-						.spawn((
-							Node {
-								width: Val::Percent(100.0),
-								height: Val::Percent(100.0),
-								border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-								overflow: Overflow::clip(),
-								..default()
-							},
-							BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.95)),
-							Pickable::IGNORE,
-						))
-						.with_children(|track| {
-							// Damage trail (behind fill)
-							track.spawn((
-								HealthTrail,
-								Node {
-									width: Val::Percent(100.0),
-									height: Val::Percent(100.0),
-									position_type: PositionType::Absolute,
-									left: Val::Px(0.0),
-									top: Val::Px(0.0),
-									border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-									..default()
-								},
-								BackgroundColor(config.trail_color),
-								Pickable::IGNORE,
-							));
-							
-							// Main fill
-							track.spawn((
-								HealthFill,
-								Node {
-									width: Val::Percent(100.0),
-									height: Val::Percent(100.0),
-									position_type: PositionType::Absolute,
-									left: Val::Px(0.0),
-									top: Val::Px(0.0),
-									border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-									..default()
-								},
-								BackgroundColor(config.fill_color_high),
-								Pickable::IGNORE,
-							));
-							
-							// Heal preview
-							track.spawn((
-								HealPreview,
-								Node {
-									width: Val::Percent(0.0),
-									height: Val::Percent(100.0),
-									position_type: PositionType::Absolute,
-									left: Val::Px(0.0),
-									top: Val::Px(0.0),
-									border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-									..default()
-								},
-								BackgroundColor(config.heal_preview_color),
-								Visibility::Hidden,
-								Pickable::IGNORE,
-							));
-							
-							// Cap marker
-							track.spawn((
-								CapMarker,
-								Node {
-									width: Val::Px(config.cap_marker_width),
-									height: Val::Percent(100.0),
-									position_type: PositionType::Absolute,
-									left: Val::Px(0.0),
-									top: Val::Px(0.0),
-									..default()
-								},
-								BackgroundColor(config.cap_marker_color),
-								Visibility::Hidden,
-								Pickable::IGNORE,
-							));
-							
-							// Completion flash
-							track.spawn((
-								CompletionFlash,
-								Node {
-									width: Val::Percent(100.0),
-									height: Val::Percent(100.0),
-									position_type: PositionType::Absolute,
-									left: Val::Px(0.0),
-									top: Val::Px(0.0),
-									border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-									..default()
-								},
-								BackgroundColor(config.completion_flash_color.with_alpha(0.0)),
-								Pickable::IGNORE,
-							));
-						});
+				.with_children(|track| {
+					track.spawn((
+						HealthTrail,
+						Node {
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
+							position_type: PositionType::Absolute,
+							left: Val::Px(0.0),
+							top: Val::Px(0.0),
+							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
+							..default()
+						},
+						BackgroundColor(config.trail_color),
+						Pickable::IGNORE,
+					));
+					track.spawn((
+						HealthFill,
+						Node {
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
+							position_type: PositionType::Absolute,
+							left: Val::Px(0.0),
+							top: Val::Px(0.0),
+							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
+							..default()
+						},
+						BackgroundColor(config.fill_color_high),
+						Pickable::IGNORE,
+					));
+					track.spawn((
+						HealPreview,
+						Node {
+							width: Val::Percent(0.0),
+							height: Val::Percent(100.0),
+							position_type: PositionType::Absolute,
+							left: Val::Px(0.0),
+							top: Val::Px(0.0),
+							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
+							..default()
+						},
+						BackgroundColor(config.heal_preview_color),
+						Visibility::Hidden,
+						Pickable::IGNORE,
+					));
+					track.spawn((
+						CapMarker,
+						Node {
+							width: Val::Px(config.cap_marker_width),
+							height: Val::Percent(100.0),
+							position_type: PositionType::Absolute,
+							left: Val::Px(0.0),
+							top: Val::Px(0.0),
+							..default()
+						},
+						BackgroundColor(config.cap_marker_color),
+						Visibility::Hidden,
+						Pickable::IGNORE,
+					));
+					track.spawn((
+						CompletionFlash,
+						Node {
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
+							position_type: PositionType::Absolute,
+							left: Val::Px(0.0),
+							top: Val::Px(0.0),
+							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
+							..default()
+						},
+						BackgroundColor(config.completion_flash_color.with_alpha(0.0)),
+						Pickable::IGNORE,
+					));
 				});
-		})
-		.id()
+		});
 }
 
 #[allow(clippy::type_complexity)]
@@ -343,18 +350,20 @@ pub fn position_continuous_health_bars(
 		return;
 	}
 
-	let Ok((camera, camera_transform)) = cameras.single() else {
-		return;
-	};
-
 	let config = config.as_ref().map(|c| **c).unwrap_or_default();
+	let camera = cameras.single().ok();
 
 	for (bar, mut node, mut visibility) in &mut bars {
-		// Only position world-anchored bars; UI children use relative layout
-		if bar.layout != HealthBarLayout::WorldAnchored {
+		if bar.layout == HealthBarLayout::UiChild {
+			*visibility = Visibility::Visible;
 			continue;
 		}
-		
+
+		let Some((camera, camera_transform)) = camera else {
+			*visibility = Visibility::Hidden;
+			continue;
+		};
+
 		let Ok((transform, hull)) = healths.get(bar.target) else {
 			*visibility = Visibility::Hidden;
 			continue;
@@ -708,6 +717,50 @@ mod tests {
 			.expect("anim state");
 		
 		assert!(anim_state.flash_timer > 0.0, "flash timer triggered by event");
+	}
+
+	#[test]
+	fn ui_child_bar_is_visible_again_after_hud_hide() {
+		let mut app = test_app();
+		app.add_systems(Update, position_continuous_health_bars);
+		let target = app
+			.world_mut()
+			.spawn((Health { current: 100.0, max: 100.0 }, GlobalTransform::default()))
+			.id();
+		let config = ContinuousHealthConfig::default();
+		let root = app.world_mut().spawn(Node::default()).id();
+		spawn_continuous_health_bar_with_layout(
+			root,
+			target,
+			&mut app.world_mut().commands(),
+			&config,
+			HealthBarLayout::UiChild,
+		);
+		app.update();
+
+		app.world_mut().insert_resource(CombatHudVisible(false));
+		app.update();
+		{
+			let visibility = app
+				.world_mut()
+				.query_filtered::<&Visibility, With<ContinuousHealthBar>>()
+				.iter(app.world())
+				.next()
+				.copied()
+				.expect("bar");
+			assert_eq!(visibility, Visibility::Hidden);
+		}
+
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let visibility = app
+			.world_mut()
+			.query_filtered::<&Visibility, With<ContinuousHealthBar>>()
+			.iter(app.world())
+			.next()
+			.copied()
+			.expect("bar");
+		assert_eq!(visibility, Visibility::Visible, "UI child bars must unhide with the HUD");
 	}
 
 	#[test]
