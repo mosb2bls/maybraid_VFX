@@ -34,7 +34,9 @@ pub fn prepare_character_terrain_pitch(
 		let mut pitch =
 			TerrainPitch::new(kind, kind.default_half_span(), kind.default_half_width());
 		if let Some(bones) = body_bones(members, &rigs) {
-			record_quadruped_girdles(&mut pitch, kind, bones, &globals);
+			if let Some(samples) = quadruped_girdle_samples(kind, bones, &globals) {
+				pitch.record_girdles(samples[0], samples[1], samples[2], samples[3]);
+			}
 		}
 		let mut entity_commands = commands.entity(entity);
 		// Preview / LOD refresh can despawn the host before this buffer applies.
@@ -49,26 +51,30 @@ pub fn prepare_character_terrain_pitch(
 			continue;
 		};
 		if let Some(bones) = body_bones(members, &rigs) {
-			record_quadruped_girdles(&mut pitch, kind, bones, &globals);
+			let Some(samples) = quadruped_girdle_samples(kind, bones, &globals) else {
+				continue;
+			};
+			if !pitch.would_record_girdles(samples[0], samples[1], samples[2], samples[3]) {
+				continue;
+			}
+			pitch.record_girdles(samples[0], samples[1], samples[2], samples[3]);
 		}
 	}
 }
 
-fn record_quadruped_girdles(
-	pitch: &mut TerrainPitch,
+fn quadruped_girdle_samples(
 	kind: RigSkeletonKind,
 	bones: &BoneMap,
 	globals: &Query<&GlobalTransform>,
-) {
-	if kind != RigSkeletonKind::Quadruped {
-		return;
-	}
-	pitch.record_girdles(
-		named_world(bones, "shoulder.L", globals),
-		named_world(bones, "shoulder.R", globals),
-		named_world(bones, "hip.L", globals),
-		named_world(bones, "hip.R", globals),
-	);
+) -> Option<[Option<Vec3>; 4]> {
+	(kind == RigSkeletonKind::Quadruped).then(|| {
+		[
+			named_world(bones, "shoulder.L", globals),
+			named_world(bones, "shoulder.R", globals),
+			named_world(bones, "hip.L", globals),
+			named_world(bones, "hip.R", globals),
+		]
+	})
 }
 
 fn body_skeleton(

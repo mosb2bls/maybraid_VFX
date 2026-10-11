@@ -104,8 +104,12 @@ pub fn discover_pois(
 	let now = time.elapsed_secs();
 	let delta = time.delta_secs();
 	for (entity, _, mut user, mut knowledge, _) in &mut users {
-		user.accrue_learning(delta);
-		forget_if_due(entity, now, &mut user, &mut knowledge);
+		if user.learning_credit != user.next_learning_credit(delta) {
+			user.accrue_learning(delta);
+		}
+		if now >= user.next_forget_at {
+			forget_if_due(entity, now, &mut user, &mut knowledge);
+		}
 	}
 
 	let mut due: Vec<Entity> = users
@@ -184,7 +188,9 @@ pub fn discover_pois(
 			user.global_cursor = user.global_cursor.wrapping_add(n);
 		}
 		if let Some(lod) = lod.as_deref_mut() {
-			lod.skips = 0;
+			if lod.skips != 0 {
+				lod.skips = 0;
+			}
 		}
 	}
 }

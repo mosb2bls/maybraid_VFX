@@ -34,7 +34,7 @@ impl Default for CharacterLocomotion {
 	}
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone, Copy, PartialEq)]
 pub struct MoveWish(pub Vec3);
 
 /// Last walkable contact plane. Default is world up (flat XZ heading).

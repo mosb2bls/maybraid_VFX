@@ -80,23 +80,54 @@ pub(crate) fn write_back_mob_roster(
 		.collect();
 
 	for (host, mut roster) in &mut rosters {
+		if !roster_needs_writeback(&roster, host, &live) {
+			continue;
+		}
 		for (slot, member) in roster.iter_mut() {
 			if let Some((_, _, _, pose, health)) =
 				live.iter().find(|(entity, mob, live_slot, ..)| {
 					*mob == host && *live_slot == slot && member.entity == Some(*entity)
 				}) {
-				member.pose = *pose;
+				if member.pose != *pose {
+					member.pose = *pose;
+				}
 				if let Some(health) = health {
-					member.health = *health;
+					if member.health != *health {
+						member.health = *health;
+					}
 				}
 				continue;
 			}
-			if member.entity.is_none() {
-				continue;
+			if member.entity.is_some() {
+				member.entity = None;
 			}
-			member.entity = None;
 		}
 	}
+}
+
+fn roster_needs_writeback(
+	roster: &MobRoster,
+	host: Entity,
+	live: &[(Entity, Entity, u16, Vec3, Option<Health>)],
+) -> bool {
+	roster.iter().any(|(slot, member)| match live_snapshot(live, host, slot, member.entity) {
+		Some((pose, health)) => {
+			member.pose != pose || health.is_some_and(|health| member.health != health)
+		}
+		None => member.entity.is_some(),
+	})
+}
+
+fn live_snapshot(
+	live: &[(Entity, Entity, u16, Vec3, Option<Health>)],
+	host: Entity,
+	slot: u16,
+	entity: Option<Entity>,
+) -> Option<(Vec3, Option<Health>)> {
+	live.iter().find_map(|(live_entity, mob, live_slot, pose, health)| {
+		(*mob == host && *live_slot == slot && entity == Some(*live_entity))
+			.then_some((*pose, *health))
+	})
 }
 
 fn member_translation(transform: &Transform, global: &GlobalTransform, parented: bool) -> Vec3 {

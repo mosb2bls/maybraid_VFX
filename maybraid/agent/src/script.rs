@@ -25,6 +25,26 @@ pub fn read_script_commands(path: &Path) -> Result<Vec<AgentCommand>, String> {
 	read_script_text(&text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+/// Remove `start` commands that precede the first duration command and return
+/// the last one's XZ. The caller applies it as the spawn point before load.
+pub fn take_leading_start(commands: &mut Vec<AgentCommand>) -> Option<[f32; 2]> {
+	let leading = commands.iter().position(AgentCommand::is_duration).unwrap_or(commands.len());
+	let mut start = None;
+	let mut idx = 0;
+	commands.retain(|command| {
+		let keep = match command {
+			AgentCommand::Start { xz } if idx < leading => {
+				start = Some(*xz);
+				false
+			}
+			_ => true,
+		};
+		idx += 1;
+		keep
+	});
+	start
+}
+
 fn strip_comment(line: &str) -> &str {
 	let trimmed = line.trim();
 	if trimmed.starts_with('#') || trimmed.starts_with("//") {
@@ -69,7 +89,34 @@ mod tests {
 		"origin-idle.jsonl",
 		"biome-traverse.jsonl",
 		"locomotion-mix.jsonl",
+		"remote-start.jsonl",
 	];
+
+	#[test]
+	fn leading_start_is_taken_and_later_start_kept() -> anyhow::Result<()> {
+		let mut commands = read_script_text(
+			r#"
+{"cmd":"console","line":"stats vsync"}
+{"cmd":"start","xz":[100,-40]}
+{"cmd":"wait","secs":1}
+{"cmd":"start","xz":[5,5]}
+"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(take_leading_start(&mut commands), Some([100.0, -40.0]));
+		assert_eq!(commands.len(), 3);
+		assert!(matches!(commands[2], AgentCommand::Start { xz } if xz == [5.0, 5.0]));
+		Ok(())
+	}
+
+	#[test]
+	fn no_start_leaves_commands() -> anyhow::Result<()> {
+		let mut commands =
+			read_script_text("{\"cmd\":\"wait\",\"secs\":1}\n").map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(take_leading_start(&mut commands), None);
+		assert_eq!(commands.len(), 1);
+		Ok(())
+	}
 
 	#[test]
 	fn example_scripts_parse() -> anyhow::Result<()> {

@@ -17,6 +17,7 @@ mod crate_loot;
 mod first_wave;
 mod intelligence;
 mod map_view;
+mod mob_spawn;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
@@ -223,7 +224,14 @@ impl Plugin for WorldPlugin {
 			app.init_resource::<TextEntryFocus>();
 		}
 		app.add_systems(Startup, vsync::apply_startup_vsync)
-			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands))
+			.add_systems(
+				Update,
+				(
+					vsync::toggle_vsync,
+					commands::apply_sky_commands,
+					mob_spawn::apply_spawn_mob_requests,
+				),
+			)
 			.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,
