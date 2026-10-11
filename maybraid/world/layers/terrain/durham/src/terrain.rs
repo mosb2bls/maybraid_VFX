@@ -347,24 +347,6 @@ impl hcsg::GenerationScheme for PreWatershedTerrain {
 	}
 }
 
-/// Pocket-water leaf metadata for one origin cell after [`HydroComplexCell`]
-/// has materialized both bands (avoids a second `original_ids_for` walk).
-fn marazion_leaves_in(cx: &mut GenerationContext, bounds: Aabb3d) -> Vec<WatershedLeafBounds> {
-	let mut high: Vec<Id> = cx.overlapping::<PocketWatersHighPass>(bounds);
-	high.sort();
-	let mut leaves: Vec<WatershedLeafBounds> = high
-		.into_iter()
-		.filter_map(|id| cx.get::<PocketWatersHighPass>(id).map(|leaf| leaf.leaf_bounds()))
-		.collect();
-	let mut low: Vec<Id> = cx.overlapping::<PocketWatersLowPass>(bounds);
-	low.sort();
-	leaves.extend(
-		low.into_iter()
-			.filter_map(|id| cx.get::<PocketWatersLowPass>(id).map(|leaf| leaf.leaf_bounds())),
-	);
-	leaves
-}
-
 /// Final terrain: pre-watershed + Watershed correction stages (carve → rim → apron).
 ///
 /// Shares [`PreWatershedTerrain`]'s origin ids. Pocket-water leaves, the
@@ -382,7 +364,7 @@ impl hcsg::GenerationScheme for Terrain {
 		let bounds = id.origin_cell_bounds()?;
 		let pre = cx.get_or_generate::<PreWatershedTerrain>(id)?;
 		let complex_cell = cx.get_or_generate::<HydroComplexCell>(id)?;
-		let marazion_leaves = marazion_leaves_in(cx, bounds);
+		let marazion_leaves = complex_cell.marazion_leaves.clone();
 		let complex = complex_cell.indexed().cloned();
 
 		// Keep stage cells materialized for later policy work; elevation uses
@@ -463,28 +445,51 @@ mod scheme_perf_tests {
 	fn leaves_via_pocket_discovery(
 		cx: &mut GenerationContext,
 		bounds: Aabb3d,
-	) -> Vec<WatershedLeafBounds> {
-		let high = cx.get_or_generate_all_in::<PocketWatersHighPass>(bounds).unwrap();
-		let low = cx.get_or_generate_all_in::<PocketWatersLowPass>(bounds).unwrap();
-		high
+	) -> anyhow::Result<Vec<WatershedLeafBounds>> {
+		let high = cx
+			.get_or_generate_all_in::<PocketWatersHighPass>(bounds)
+			.ok_or_else(|| anyhow::anyhow!("high-pass pocket-water discovery failed"))?;
+		let low = cx
+			.get_or_generate_all_in::<PocketWatersLowPass>(bounds)
+			.ok_or_else(|| anyhow::anyhow!("low-pass pocket-water discovery failed"))?;
+		Ok(high
 			.iter()
 			.map(|leaf| leaf.leaf_bounds())
 			.chain(low.iter().map(|leaf| leaf.leaf_bounds()))
-			.collect()
+			.collect())
+	}
+
+	fn assert_marazion_leaves_match_discovery(
+		seed: u32,
+		half_extent: i32,
+		origin: IVec2,
+	) -> anyhow::Result<()> {
+		let storage = HcsgStorage::default();
+		let layout = fine_patch_cell_layout(half_extent, origin);
+		seed_storage(&storage, seed, &layout);
+		let mut cx = GenerationContext::new(&storage);
+		for OriginalId(id) in layout.cell_ids(layout.request_region()) {
+			let bounds = id.origin_cell_bounds().unwrap();
+			let complex_cell = cx
+				.get_or_generate::<HydroComplexCell>(id)
+				.ok_or_else(|| anyhow::anyhow!("HydroComplexCell missing for {id:?}"))?;
+			let indexed = complex_cell.marazion_leaves.clone();
+			let discovered = leaves_via_pocket_discovery(&mut cx, bounds)?;
+			assert_eq!(
+				format!("{indexed:?}"),
+				format!("{discovered:?}"),
+				"seed {seed} origin {origin:?} cell {id:?}"
+			);
+		}
+		Ok(())
 	}
 
 	#[test]
 	fn marazion_leaves_match_pocket_water_discovery() -> anyhow::Result<()> {
-		let storage = HcsgStorage::default();
-		let layout = fine_patch_cell_layout(1, IVec2::new(-1, -1));
-		seed_storage(&storage, 11, &layout);
-		let mut cx = GenerationContext::new(&storage);
-		for OriginalId(id) in layout.cell_ids(layout.request_region()) {
-			let bounds = id.origin_cell_bounds().unwrap();
-			anyhow::ensure!(cx.get_or_generate::<HydroComplexCell>(id).is_some());
-			let indexed = marazion_leaves_in(&mut cx, bounds);
-			let discovered = leaves_via_pocket_discovery(&mut cx, bounds);
-			assert_eq!(format!("{indexed:?}"), format!("{discovered:?}"), "{id:?}");
+		for seed in [11u32, 42, 99, 7_001] {
+			assert_marazion_leaves_match_discovery(seed, 1, IVec2::new(-1, -1))?;
+			// Origin off the symmetric patch exercises boundary-straddling cells.
+			assert_marazion_leaves_match_discovery(seed, 2, IVec2::new(0, 1))?;
 		}
 		Ok(())
 	}
