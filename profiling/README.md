@@ -28,14 +28,58 @@ unwrap/zone/message CSVs, event JSONL, and capture/game logs are
 Do **not** write `tracy-csvexport -u` unwrap CSVs — they are hundreds of
 MB to multi-GB. Zone means come from the aggregate export.
 
-Publish tables and per-scenario summaries as a **secret GitHub Gist**
-(`gh gist create`, default secret — not `--public`) and link the Gist
-from the PR. Do not upload `.tracy` files unless one is specifically
-worth sharing; mention it instead of attaching a large binary.
+Publish captures worth keeping as assets on a `vX.Y.Z Traces` GitHub release,
+each with a same-named `.md` of findings — see **Traces Releases** in
+[`CONTRIBUTING.md`](../CONTRIBUTING.md). Link the release from the PR.
 
 `tracy-flight.sh` starts `tracy-capture` first, then the game with
 `MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone /
 message CSVs plus a top-zone summary.
+
+## Scripts outside the repo
+
+Both flight scripts take a scenario name (`maybraid/agent/scripts/<name>.jsonl`)
+or a path to any JSONL script, such as one downloaded from a Traces release.
+The measure window is the script's last non-`-warmup` `scenario` start mark,
+so a script needs a `<name>-warmup` / `<name>` pair. A leading `start`
+command overrides `--start-at=0,0`. Unknown scripts get a 300 s wall clock;
+raise it with `MAYBRAID_FLIGHT_TIMEOUT`.
+
+```bash
+gh release download v0.1.3-traces -R ramate-io/maybraid -p 'abc1234_20261011_script_*.jsonl' -D /tmp/scripts
+profiling/tracy-flight.sh /tmp/scripts/abc1234_20261011_script_ridge-run.jsonl daily 1
+```
+
+## GPU flights (Metal)
+
+Bevy does not open a Tracy GPU context on Metal, so Tracy has no GPU zones on
+macOS. `metal-flight.sh` records the real per-pass GPU time with Instruments
+instead: it launches the game, waits for the measure scenario's start mark,
+attaches `xctrace record --template 'Metal System Trace'`, exports the encoder,
+GPU-interval, and GPU performance-state tables, and summarizes them with
+`metal-passes.py`.
+
+```bash
+profiling/metal-flight.sh crowd-0 baseline 1
+```
+
+Output goes to `profiling/captures/gpu/<phase>/<scenario>/r<repeat>/`:
+`*-summary.md` (GPU busy per frame, pass buckets, top encoder labels,
+performance state), `*-passes.csv`, `*-stats.json`, and `*.trace.zip` (the
+upload form of the `.trace` bundle). The exported XML is 10s–100s of MB and
+is deleted after parsing.
+
+- Needs Xcode (`/usr/bin/xctrace`) and Accessibility permission for
+  `osascript`: macOS throttles an occluded game window, so the script keeps it
+  frontmost while recording.
+- `MAYBRAID_GPU_TRACE_LIMIT` (default 28 s) is how long to record after the
+  start mark. Set it to at least the measure window; the summary warns when
+  the recording was shorter than the scenario.
+- Compare **GPU busy** (union of channels) against the 16.67 ms budget. Apple
+  GPUs downclock when lightly loaded, so read the performance-state table
+  before comparing GPU ms across runs.
+- Encoder labels are occasionally dropped in a repeat recording (the opaque
+  pass shows as `unlabeled`); discard that run rather than averaging it in.
 
 ## A/B on a shared Mac
 
