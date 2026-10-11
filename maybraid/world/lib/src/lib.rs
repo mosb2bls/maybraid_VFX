@@ -20,6 +20,7 @@ mod pitch;
 mod player_lifecycle;
 mod player_position;
 mod poi;
+mod render_scale;
 mod start;
 mod stash;
 mod ui;
@@ -56,6 +57,10 @@ pub use player_position::{
 	resume_discovery_from_saved_waypoints, PlayerPositionPlugin, PlayerPositionWaypoints,
 };
 pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
+pub use render_scale::{
+	map_render_to_window, map_window_to_render, parse_render_scale_env, target_physical_size,
+	RenderScale, RequestRenderScale, RENDER_SCALE_ENV,
+};
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
 	START_AT_ENV,
@@ -79,7 +84,6 @@ use characters::{CharacterMotionSystems, DrawTerrainPitchProbes};
 use combat_hud::CombatHudPlugin;
 use durham::TerrainFrictionConfig;
 use firearms::EnergyMaterialPlugin;
-use maybraid_vfx::VfxPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
@@ -88,6 +92,7 @@ use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
 use maybraid_skill_map::{SkillMapPlugin, SkillMapSystems};
 use maybraid_sky::SkyDomePlugin;
+use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
 use player::{
 	register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin, PlayerSystems,
@@ -128,6 +133,8 @@ const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbe
 /// Playground chrome (command drawer and FPS HUD) is on by default.
 /// The game executable uses [`WorldPlugin::game`] (FPS log, no HUD or console).
 /// `F8` / `/stats vsync` / `MAYBRAID_VSYNC=off` toggles vsync for Tracy flights.
+/// `/render scale <f>` / `MAYBRAID_RENDER_SCALE` shades 3D below native window
+/// size without resizing the window.
 pub struct WorldPlugin {
 	/// `/` console, debug gizmos, and FPS HUD.
 	pub debug_chrome: bool,
@@ -221,8 +228,9 @@ impl Plugin for WorldPlugin {
 			app.init_resource::<TextEntryFocus>();
 		}
 		app.add_systems(Startup, vsync::apply_startup_vsync)
-			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands))
-			.add_systems(PostStartup, spawn_default_braidman)
+			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands));
+		render_scale::configure(app);
+		app.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,
 				(control::stamp_vegetation_motor_traction, control::stamp_world_player_motor),

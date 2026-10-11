@@ -12,7 +12,7 @@ use maybraid_sky::{
 	SKY_PHASE_NIGHT, SKY_PHASE_NOON,
 };
 
-use crate::RequestVsyncToggle;
+use crate::{RequestRenderScale, RequestVsyncToggle};
 
 pub const PLAYGROUND_CLI_NAME: &str = "maybraid-world";
 pub type Script = CommandScript<PlaygroundCommand>;
@@ -40,6 +40,9 @@ pub enum PlaygroundCommand {
 	/// Inspect or drive the Discovery sky clock.
 	#[command(subcommand)]
 	Sky(Sky),
+	/// Internal 3D shading scale (`scale ×` window physical size).
+	#[command(subcommand)]
+	Render(Render),
 }
 
 #[derive(Clone, Subcommand)]
@@ -72,6 +75,13 @@ pub enum Sky {
 	Rate {
 		seconds: f32,
 	},
+}
+
+#[derive(Clone, Subcommand)]
+#[command(rename_all = "kebab-case")]
+pub enum Render {
+	/// Shade the 3D world at `factor ×` window physical size (`0.5`–`1.0`).
+	Scale { factor: f32 },
 }
 
 #[derive(Clone, Subcommand)]
@@ -111,6 +121,7 @@ impl PlaygroundCommand {
 			}
 			PlaygroundCommand::Stats(stats) => stats.react(commands, console),
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
+			PlaygroundCommand::Render(render) => render.react(commands, console),
 		}
 	}
 
@@ -157,6 +168,18 @@ impl Sky {
 			SkyCommand::SetPeriod(seconds) => format!("sky rate {seconds:.0}s"),
 		};
 		commands.spawn(request);
+	}
+}
+
+impl Render {
+	fn react(self, commands: &mut Commands, console: &mut String) {
+		match self {
+			Self::Scale { factor } => {
+				let factor = crate::render_scale::RenderScale::clamp(factor);
+				commands.spawn(RequestRenderScale(factor));
+				*console = format!("render scale {factor:.3}: pending");
+			}
+		}
 	}
 }
 
@@ -221,6 +244,19 @@ mod tests {
 	fn parse_stats_vsync() {
 		let cmd = PlaygroundCommand::parse_line("stats vsync").unwrap();
 		assert!(matches!(cmd, PlaygroundCommand::Stats(Stats::Vsync)));
+	}
+
+	#[test]
+	fn parse_render_scale() -> anyhow::Result<()> {
+		let cmd = PlaygroundCommand::parse_line("render scale 0.75")
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		match cmd {
+			PlaygroundCommand::Render(Render::Scale { factor }) => {
+				anyhow::ensure!((factor - 0.75).abs() < 1e-4, "factor {factor}");
+			}
+			_ => anyhow::bail!("expected render scale 0.75"),
+		}
+		Ok(())
 	}
 
 	#[test]
