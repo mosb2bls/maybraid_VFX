@@ -19,6 +19,16 @@ on:
         type: string
         default: 'ubuntu-latest'
         description: 'Runner to use for the job'
+      rust_cache:
+        required: false
+        type: boolean
+        default: true
+        description: 'Restore/save Swatinem/rust-cache (disable for non-Cargo jobs)'
+      rust_cache_key:
+        required: false
+        type: string
+        default: 'shared'
+        description: 'Per-workflow cache suffix so parallel jobs do not race on save'
     secrets:
       NIX_ACCESS_TOKEN:
         required: false
@@ -45,12 +55,15 @@ jobs:
         run: echo "channel=$(./packaging/version.sh --rust)" >> "$GITHUB_OUTPUT"
 
       - uses: dtolnay/rust-toolchain@master
+        if: inputs.rust_cache
         with:
           toolchain: ${{ steps.rust_toolchain.outputs.channel }}
 
       - uses: Swatinem/rust-cache@v2
+        if: inputs.rust_cache
         with:
-          shared-key: nix-${{ steps.rust_toolchain.outputs.channel }}
+          shared-key: nix-${{ steps.rust_toolchain.outputs.channel }}-${{ inputs.rust_cache_key }}
+          cache-all-crates: true
           cache-on-failure: true
 
       - name: Run Command in Nix Shell
