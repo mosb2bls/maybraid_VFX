@@ -11,7 +11,7 @@ const GRENADE_SEED: u64 = 0x6E4A_DE00_F1A4_0002;
 pub const BLAST_RADIUS_MIN: f32 = 8.0;
 pub const BLAST_RADIUS_MAX: f32 = 13.0;
 pub const BLAST_DAMAGE_MIN: f32 = 50.0;
-pub const BLAST_DAMAGE_MAX: f32 = 100.0;
+pub const BLAST_DAMAGE_MAX: f32 = 150.0;
 
 pub fn generate_grenade_stats(spec: &GrenadeSpec) -> GrenadeStats {
 	let mut rng = ItemRng::from_seed(mix(GRENADE_SEED, spec.mesh.label()));
@@ -23,7 +23,7 @@ pub fn realize_grenade_stats(rng: &mut ItemRng) -> GrenadeStats {
 	stats.blast_radius =
 		Dist::new(10.5, 1.3).sample_clamped(rng, BLAST_RADIUS_MIN, BLAST_RADIUS_MAX);
 	stats.blast_damage =
-		Dist::new(70.0, 12.0).sample_clamped(rng, BLAST_DAMAGE_MIN, BLAST_DAMAGE_MAX);
+		Dist::new(95.0, 22.0).sample_clamped(rng, BLAST_DAMAGE_MIN, BLAST_DAMAGE_MAX);
 	stats.effect_scale = effect_scale_for_blast(stats.blast_radius);
 	stats
 }

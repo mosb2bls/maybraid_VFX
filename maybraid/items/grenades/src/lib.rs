@@ -70,12 +70,20 @@ pub fn grenade_mesh() -> Mesh {
 	Sphere::new(0.5).mesh().ico(3).expect("grenade sphere")
 }
 
+/// Late-drop shape: most of the peak holds until the outer third, then zero at `radius`.
+pub const BLAST_FALLOFF_K: f32 = 3.0;
+
 /// Full damage at the origin, zero at `radius`.
 pub fn blast_amount(damage: f32, radius: f32, distance: f32) -> f32 {
 	if damage <= 0.0 || radius <= 1e-4 || distance > radius {
 		return 0.0;
 	}
-	damage * (1.0 - distance / radius).clamp(0.0, 1.0)
+	let t = (distance / radius).clamp(0.0, 1.0);
+	let denom = 1.0 - (-BLAST_FALLOFF_K).exp();
+	if denom <= 1e-6 {
+		return damage * (1.0 - t);
+	}
+	damage * (1.0 - (-BLAST_FALLOFF_K * (1.0 - t)).exp()) / denom
 }
 
 pub fn spawn_thrown_grenade(
@@ -406,7 +414,12 @@ mod tests {
 	#[test]
 	fn blast_falls_off_to_the_rim() {
 		assert!((blast_amount(80.0, 8.0, 0.0) - 80.0).abs() < 1e-4);
-		assert!((blast_amount(80.0, 8.0, 4.0) - 40.0).abs() < 1e-4);
+		let mid = blast_amount(80.0, 8.0, 4.0);
+		assert!(mid > 60.0, "inner half should keep most of the peak, got {mid}");
+		assert!(mid < 80.0);
+		let outer = blast_amount(80.0, 8.0, 6.4);
+		assert!(outer > 30.0, "outer third should still chunk, got {outer}");
+		assert!(outer < mid);
 		assert_eq!(blast_amount(80.0, 8.0, 8.1), 0.0);
 	}
 
