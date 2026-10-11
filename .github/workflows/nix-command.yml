@@ -38,6 +38,21 @@ jobs:
           mkdir -p ~/.config/nix
           echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 
+      # Host rustup toolchain matches `rust-toolchain.toml` so Swatinem/rust-cache
+      # keys align with `rustc` inside `nix develop` (same channel, shared `target/`).
+      - name: Read Rust toolchain channel
+        id: rust_toolchain
+        run: echo "channel=$(./packaging/version.sh --rust)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.channel }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nix-${{ steps.rust_toolchain.outputs.channel }}
+          cache-on-failure: true
+
       - name: Run Command in Nix Shell
         run: |
           # Write the command to a temporary script file to handle multiline commands
