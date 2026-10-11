@@ -16,6 +16,7 @@ mod crate_loot;
 mod first_wave;
 mod intelligence;
 mod inventory_cycling;
+mod lubikan_owner_attach;
 mod map_view;
 mod pitch;
 mod player_lifecycle;
@@ -259,6 +260,7 @@ impl Plugin for WorldPlugin {
 				),
 			);
 		camera::configure(app);
+		lubikan_owner_attach::configure(app);
 		inventory_cycling::configure(app);
 		weapon::configure(app);
 		app.configure_sets(

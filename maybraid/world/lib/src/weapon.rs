@@ -376,6 +376,7 @@ mod tests {
 		RequestSetCharacterAppearance,
 	};
 
+	use crate::inventory_cycling::ActiveInventoryCyclingCategory;
 	use crate::weapon::{arm_world_player, WorldPlayerAppearanceRequested, WorldPlayerLoadout};
 	use crate::WorldGameplayEnabled;
 
@@ -493,6 +494,9 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
 		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(ActiveInventoryCyclingCategory(
+			maybraid_character_controller::InventoryCyclingCategory::Weapons,
+		));
 		let bag = world.spawn(inventory).id();
 		let held = world.spawn_empty().id();
 		let player = world
@@ -608,6 +612,9 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
 		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(ActiveInventoryCyclingCategory(
+			maybraid_character_controller::InventoryCyclingCategory::Weapons,
+		));
 		let bag = world.spawn(inventory).id();
 		let held = world.spawn_empty().id();
 		let player = world
@@ -644,6 +651,7 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
 		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(game_commands::command::TextEntryFocus(false));
 		world.insert_resource(ActiveInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps));
 		world.insert_resource(WorldPlayerLoadout::new(
 			"active",

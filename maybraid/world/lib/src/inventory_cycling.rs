@@ -5,7 +5,7 @@ use bevy::text::FontSize;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventorySlot};
 use game_commands::command::TextEntryFocus;
-use lubikans::{LubikanAccountId, LubikanLedger, LubikanOwner, LubikanSelfConfig};
+use lubikans::{LubikanAccountId, LubikanLedger, LubikanOwner};
 use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
 use world_player::Player as VegetationPlayer;
 
@@ -38,12 +38,6 @@ pub(crate) fn configure(app: &mut App) {
 		.add_systems(Startup, spawn_inventory_cycling_cue)
 		.add_systems(
 			Update,
-			ensure_lubikan_owner
-				.in_set(InventoryCyclingSystems)
-				.run_if(resource_equals(WorldGameplayEnabled(true))),
-		)
-		.add_systems(
-			Update,
 			(
 				apply_inventory_category_selection,
 				cycle_equipped_inventory_queues,
@@ -54,18 +48,6 @@ pub(crate) fn configure(app: &mut App) {
 				.after(maybraid_character_controller::CharacterControlSystems)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
 		);
-}
-
-fn ensure_lubikan_owner(
-	mut commands: Commands,
-	config: Res<LubikanSelfConfig>,
-	players: Query<Entity, (With<VegetationPlayer>, Without<LubikanOwner>)>,
-) {
-	for player in &players {
-		commands
-			.entity(player)
-			.insert((LubikanOwner, LubikanLedger::with_self(&*config)));
-	}
 }
 
 fn gameplay_cycling_allowed(
