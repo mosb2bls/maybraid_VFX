@@ -11,8 +11,8 @@ export WGPU_BACKEND=vulkan
 export CROZON_PREVIEW_HIDE_UI=1
 
 # Allow asset load + mailbox pose before scrot (seconds).
-SHOT_SECS="${CROZON_PREVIEW_SHOT_SECS:-25}"
-QUIT_SECS="${CROZON_PREVIEW_QUIT_SECS:-29}"
+SHOT_SECS="${CROZON_PREVIEW_SHOT_SECS:-28}"
+QUIT_SECS="${CROZON_PREVIEW_QUIT_SECS:-32}"
 
 if [[ ! -x "$BIN" ]]; then
   (cd "$WS_ROOT/maybraid/menu/character-concepts-playground" && cargo build -q --bin character-concepts-playground)

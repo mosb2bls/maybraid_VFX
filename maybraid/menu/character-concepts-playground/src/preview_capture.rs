@@ -2,10 +2,15 @@
 //!
 //! See `maybraid/world/layers/mobs/characters/animations/previews/epiphant-1130/README.md`.
 
+use bevy::camera::primitives::Aabb;
+use bevy::math::bounding::Aabb3d;
+use bevy::mesh::{Mesh, VertexAttributeValues};
 use bevy::prelude::*;
 use character_motion::{sample_bray_mouth_emit, BrayMouthEmit};
-use characters::{BoneMap, CharacterMembers, CharacterRig, CharacterRigRole};
+use characters::{BoneMap, CharacterMembers, CharacterPart, CharacterRig, CharacterRigRole};
 use game_commands::GameCommandDrawerVisible;
+
+use crate::focus_reference::FocusReferenceRig;
 
 use crate::animation::ConceptAnimation;
 use crate::preview::{ConceptPreviewConfig, ConceptPreviewRoot};
@@ -95,18 +100,116 @@ pub fn load_preview_capture_settings(mut commands: Commands) {
 	}
 }
 
-/// Side / 3/4 framing that scales with encounter size (boss ≈ 20 m assembly).
-pub fn capture_camera_frame(encounter_scale: f32) -> (Vec3, Vec3) {
+/// Marks the capture ground plane (excluded from mesh bounds).
+#[derive(Component)]
+pub struct CaptureGroundPlane;
+
+/// Fallback when mesh bounds are not ready yet.
+pub fn capture_camera_frame_fallback(encounter_scale: f32) -> (Vec3, Vec3) {
 	let scale = encounter_scale.max(1.0);
-	let center = Vec3::new(0.0, 0.55 * scale, 0.0);
-	if scale <= 1.0 + f32::EPSILON {
-		let look_at = Vec3::new(0.0, 0.95, 0.0);
-		let eye = Vec3::new(2.4, 1.4, 5.2);
-		return (eye, look_at);
+	let center = Vec3::new(0.0, 0.9 * scale, 0.0);
+	let distance = 5.5 * scale;
+	let dir = Vec3::new(0.42, 0.28, 0.86).normalize();
+	(center + dir * distance, center)
+}
+
+/// Frame the full character AABB (feet + ground) in a 3/4 elevated view.
+pub fn capture_camera_frame_for_bounds(bounds: Aabb3d, aspect: f32, fov_y: f32) -> (Vec3, Vec3) {
+	const MARGIN: f32 = 1.14;
+	let mut min = Vec3::from(bounds.min);
+	let mut max = Vec3::from(bounds.max);
+	// Keep ground contact in frame.
+	min.y = min.y.min(0.0);
+	let center = (min + max) * 0.5;
+	let size = (max - min) * MARGIN;
+	let height = size.y.max(0.5);
+	let horizontal = (size.x * size.x + size.z * size.z).sqrt().max(0.5);
+	let half_fov_y = fov_y * 0.5;
+	let dist_for_height = height / (2.0 * half_fov_y.tan());
+	let half_fov_x = (fov_y * 0.5).tan() * aspect;
+	let dist_for_width = horizontal / (2.0 * half_fov_x);
+	let distance = dist_for_height.max(dist_for_width);
+	let dir = Vec3::new(0.42, 0.28, 0.86).normalize();
+	(center + dir * distance, center)
+}
+
+pub fn union_preview_mesh_bounds(
+	meshes: &Query<
+		(&Mesh3d, &GlobalTransform, Option<&Visibility>),
+		(With<CharacterPart>, Without<FocusReferenceRig>, Without<CaptureGroundPlane>),
+	>,
+	mesh_assets: &Assets<Mesh>,
+) -> Option<Aabb3d> {
+	let mut union: Option<Aabb3d> = None;
+	for (mesh3d, global, visibility) in meshes.iter() {
+		if matches!(visibility, Some(Visibility::Hidden)) {
+			continue;
+		}
+		let Some(mesh) = mesh_assets.get(&mesh3d.0) else {
+			continue;
+		};
+		let Some(world) = mesh_world_aabb(mesh, global) else {
+			continue;
+		};
+		union = Some(match union {
+			None => world,
+			Some(acc) => Aabb3d::from_min_max(acc.min.min(world.min), acc.max.max(world.max)),
+		});
 	}
-	let distance = 4.2 * scale;
-	let eye = center + Vec3::new(distance * 0.58, distance * 0.42, distance * 0.92);
-	(eye, center)
+	union
+}
+
+fn mesh_world_aabb(mesh: &Mesh, global: &GlobalTransform) -> Option<Aabb3d> {
+	let VertexAttributeValues::Float32x3(positions) = mesh.attribute(Mesh::ATTRIBUTE_POSITION)?
+	else {
+		return None;
+	};
+	let local = Aabb::enclosing(positions.iter().map(|p| Vec3::from(*p)))?;
+	let min = local.min();
+	let max = local.max();
+	let corners = [
+		Vec3::new(min.x, min.y, min.z),
+		Vec3::new(min.x, min.y, max.z),
+		Vec3::new(min.x, max.y, min.z),
+		Vec3::new(min.x, max.y, max.z),
+		Vec3::new(max.x, min.y, min.z),
+		Vec3::new(max.x, min.y, max.z),
+		Vec3::new(max.x, max.y, min.z),
+		Vec3::new(max.x, max.y, max.z),
+	];
+	let mut world_min = Vec3::splat(f32::INFINITY);
+	let mut world_max = Vec3::splat(f32::NEG_INFINITY);
+	for corner in corners {
+		let world = global.transform_point(corner);
+		world_min = world_min.min(world);
+		world_max = world_max.max(world);
+	}
+	Some(Aabb3d::from_min_max(world_min, world_max))
+}
+
+pub fn setup_capture_ground(
+	mut commands: Commands,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut materials: ResMut<Assets<StandardMaterial>>,
+	settings: Option<Res<PreviewCaptureSettings>>,
+) {
+	let Some(settings) = settings else {
+		return;
+	};
+	let scale = settings.encounter_scale.max(1.0);
+	let extent = 120.0 * scale;
+	let mesh = meshes.add(Plane3d::default().mesh().size(extent, extent));
+	let material = materials.add(StandardMaterial {
+		base_color: Color::srgb(0.78, 0.82, 0.76),
+		perceptual_roughness: 0.95,
+		..default()
+	});
+	commands.spawn((
+		Mesh3d(mesh),
+		MeshMaterial3d(material),
+		Transform::IDENTITY,
+		CaptureGroundPlane,
+	));
 }
 
 pub fn mouth_emit_gizmo_enabled(settings: Option<Res<PreviewCaptureSettings>>) -> bool {

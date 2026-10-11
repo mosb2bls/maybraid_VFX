@@ -91,6 +91,7 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 				Startup,
 				(
 					preview_capture::load_preview_capture_settings,
+					preview_capture::setup_capture_ground.after(preview_capture::load_preview_capture_settings),
 					camera::setup_camera,
 					add_lod_viewer_to_camera.after(camera::setup_camera),
 					setup_lighting,
