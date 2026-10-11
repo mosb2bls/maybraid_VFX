@@ -3,17 +3,18 @@
 //!
 //! Start a session with [`lod::hcsg::request_hcsg_session_restart`].
 
-use std::marker::PhantomData;
-use std::sync::Arc;
-
 use bevy::ecs::system::{SystemParam, SystemParamItem};
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
+#[cfg(test)]
+use lod::gen::Id;
 use lod::hcsg::{
 	register_session_seed, Busy, HcsgBounds, HcsgClass, HcsgStorage, PresentationPlugin,
 };
 use lod::LodViewer;
 use render_item::mesh::handle::MeshFulfillBudget;
+use std::marker::PhantomData;
+use std::sync::Arc;
 use terrain_layer_model::TerrainStreaming;
 use terrain_shaders::{RefractionWater, TerrainShader, TerrainShaderPlugin};
 use visual_geometry_core::{
@@ -220,7 +221,7 @@ impl SharedTerrainStorage for HcsgStorage {
 
 /// Test-only direct publishes into [`HcsgStorage`]. Frame code uses
 /// [`DurhamSurface`] or presentation hosts.
-#[cfg(any(test))]
+#[cfg(test)]
 pub trait SharedTerrainStorageTestExt: SharedTerrainStorage {
 	/// Publishes origin cell `(ix, iz)` of `layout` with `base` as its whole
 	/// SDF.
@@ -233,7 +234,7 @@ pub trait SharedTerrainStorageTestExt: SharedTerrainStorage {
 	);
 }
 
-#[cfg(any(test))]
+#[cfg(test)]
 impl SharedTerrainStorageTestExt for HcsgStorage {
 	fn publish_base_terrain_for_test(
 		&self,
@@ -297,8 +298,7 @@ mod tests {
 	use std::time::Duration;
 
 	use bevy::scene::ScenePlugin;
-	use lod::gen::Id;
-	use lod::gen::{Id, OriginalId, Version};
+	use lod::gen::{OriginalId, Version};
 	use lod::hcsg::{HcsgBoundsPlugin, HcsgDemand, HcsgNode, HcsgRestartRequest};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;

@@ -54,6 +54,8 @@ pub use session::{
 pub use storage::{Busy, HcsgStorage, HcsgValue};
 
 /// Keeps a test [`worker::HcsgWorker`] alive until dropped.
+/// Allow unused since this a guard object.
+#[allow(unused)]
 pub struct TestWorkerGuard(worker::HcsgWorker);
 
 /// Starts the shared generation worker. Production apps rely on

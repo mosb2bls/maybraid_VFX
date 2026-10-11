@@ -62,12 +62,6 @@ impl<'a> GenerationContext<'a> {
 		}
 	}
 
-	/// Crate-only escape hatch. Schemes must read through `get` / `entry` so
-	/// reach is recorded.
-	pub(crate) fn storage(&self) -> &HcsgStorage {
-		self.storage
-	}
-
 	pub fn is_stale(&self) -> bool {
 		(self.stale)()
 	}
