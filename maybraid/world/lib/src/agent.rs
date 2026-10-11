@@ -5,8 +5,9 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 use durham::{CascadeChunk, DurhamSurface, WorldBaseTerrain};
 use maybraid_agent::{
-	read_script_commands, AgentArgs, AgentButton, AgentCommand, AgentEvent, AgentEventBody,
-	CommandStatus, EventSink, LineInbox, PadIntent, Playback, TickEffect, TickView,
+	read_script_commands, take_leading_start, AgentArgs, AgentButton, AgentCommand, AgentEvent,
+	AgentEventBody, CommandStatus, EventSink, LineInbox, PadIntent, Playback, TickEffect, TickView,
+	SCRIPT_API_VERSION,
 };
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
 use mob_characters::CharacterSceneRecipe;
@@ -18,6 +19,7 @@ use world_player::Player;
 
 use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
+use crate::PlayerSpawnXz;
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
 const DEFAULT_READY_TIMEOUT: f32 = 90.0;
@@ -62,13 +64,22 @@ impl Plugin for WorldAgentPlugin {
 		let mut load_error = None;
 		if let Some(path) = &drive.args.script {
 			match read_script_commands(path) {
-				Ok(commands) => {
+				Ok(mut commands) => {
 					info!(
 						target: "maybraid.agent",
-						"loaded {} command(s) from {}",
+						"loaded {} command(s) from {} (script api v{SCRIPT_API_VERSION})",
 						commands.len(),
 						path.display()
 					);
+					if let Some(xz) = take_leading_start(&mut commands) {
+						info!(
+							target: "maybraid.agent",
+							"script start {:.1},{:.1} replaces --start-at",
+							xz[0],
+							xz[1]
+						);
+						app.insert_resource(PlayerSpawnXz(Some(Vec2::new(xz[0], xz[1]))));
+					}
 					for command in commands {
 						playback.push(command);
 					}
@@ -382,6 +393,10 @@ fn agent_apply_world_ops(
 ) {
 	let pending = std::mem::take(&mut runtime.pending);
 	for (_id, command) in pending {
+		let command = match command {
+			AgentCommand::Start { xz } => AgentCommand::Teleport { xz, y: None },
+			other => other,
+		};
 		match command {
 			AgentCommand::Teleport { xz, y } => {
 				let target = Vec2::new(xz[0], xz[1]);

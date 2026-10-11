@@ -1,0 +1,20 @@
+# Start away from the origin. A leading `start` replaces `--start-at`, so the
+# player spawns and terrain streams in at that point instead of being
+# teleported there after the origin has loaded. Waypoints are world XZ.
+
+{"cmd":"start","xz":[-1500,-600]}
+
+{"cmd":"scenario","name":"remote-start-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":10}
+{"cmd":"hold","move":[0,1],"secs":4}
+{"cmd":"scenario","name":"remote-start-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"remote-start","mark":"start"}
+{"cmd":"goto","xz":[-1420,-600],"timeout":60,"radius":6,"sprint":true,"look":[0.15,0]}
+{"cmd":"goto","xz":[-1420,-520],"timeout":60,"radius":6,"sprint":true}
+{"cmd":"hold","look":[-0.4,0],"secs":1.5}
+{"cmd":"goto","xz":[-1500,-560],"timeout":60,"radius":6}
+{"cmd":"wait","secs":3}
+{"cmd":"scenario","name":"remote-start","mark":"end"}
+{"cmd":"quit"}
