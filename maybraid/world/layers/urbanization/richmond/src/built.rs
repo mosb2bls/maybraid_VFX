@@ -83,7 +83,7 @@ impl<G: RichmondGround> LodScene for Built<G> {
 		LodSceneStatus::Unchanged
 	}
 
-	fn scene_with_level(&self, _lod_ref: &LodRef, _level: LodSceneLevel) -> impl Scene + 'static {
+	fn scene_with_level(&self, lod_ref: &LodRef, _level: LodSceneLevel) -> impl Scene + 'static {
 		let setting = self.setting;
 		let at = Transform::from_translation(self.setting_at);
 		let mut children: Vec<Box<dyn Scene>> = vec![Box::new(bsn! {
@@ -91,7 +91,12 @@ impl<G: RichmondGround> LodScene for Built<G> {
 			template(move |_ctx| Ok(setting))
 			template_value(at)
 		})];
-		children.extend(self.development.hosts().iter().map(|host| host.scene(Some(setting.id))));
+		children.extend(
+			self.development
+				.hosts()
+				.iter()
+				.map(|host| host.scene(Some(setting.id), lod_ref)),
+		);
 		scene_children(children)
 	}
 }
