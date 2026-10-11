@@ -139,20 +139,24 @@ fn playable_level_for(world: &World, entity: Entity) -> Option<LodSceneLevel> {
 }
 
 fn sync_stick_colliders(world: &mut World) {
-	let pending: Vec<_> = {
-		let mut sources = world
-			.query_filtered::<Entity, (With<StickPhysicsProducer>, Without<StickPhysicsAttached>)>(
-			);
-		sources
-			.iter(world)
-			.filter(|entity| playable_level_for(world, *entity).is_some())
-			.collect()
-	};
-	for entity in pending {
-		world.resource_mut::<StickPhysicsQueue>().enqueue(entity);
-	}
-
 	let limit = world.resource::<StickPhysicsBudget>().hosts_per_frame;
+	// Skip the producer walk while the drain already has a full frame of work.
+	// Discovery resumes as soon as the queue drops below the budget; compounds
+	// and attach stamps stay the same, only later hosts wait a few extra frames.
+	if (world.resource::<StickPhysicsQueue>().pending.len() as u32) < limit {
+		let pending: Vec<_> = {
+			let mut sources = world
+				.query_filtered::<Entity, (With<StickPhysicsProducer>, Without<StickPhysicsAttached>)>(
+				);
+			sources
+				.iter(world)
+				.filter(|entity| playable_level_for(world, *entity).is_some())
+				.collect()
+		};
+		for entity in pending {
+			world.resource_mut::<StickPhysicsQueue>().enqueue(entity);
+		}
+	}
 	for _ in 0..limit {
 		let Some(entity) = world.resource_mut::<StickPhysicsQueue>().pop_front() else {
 			break;
@@ -460,5 +464,38 @@ mod tests {
 		app.update();
 		assert!(has_compound(app.world(), tree));
 		assert!(app.world().get::<StickPhysicsAttached>(tree).is_some());
+	}
+
+	#[test]
+	fn backlog_skips_rescan_until_queue_drops_below_budget() {
+		let mut app = App::new();
+		app.add_plugins(StickPhysicsPlugin);
+		app.insert_resource(StickPhysicsBudget { hosts_per_frame: 1 });
+		let first: Vec<_> = (0..3)
+			.map(|_| {
+				app.world_mut()
+					.spawn((playable_trunk(), LodSceneHost, LodSceneLevel::High))
+					.id()
+			})
+			.collect();
+		app.update();
+		let attached = first
+			.iter()
+			.filter(|entity| app.world().get::<StickPhysicsAttached>(**entity).is_some())
+			.count();
+		assert_eq!(attached, 1);
+
+		let late = app
+			.world_mut()
+			.spawn((playable_trunk(), LodSceneHost, LodSceneLevel::High))
+			.id();
+		// Two first-batch hosts remain queued (>= budget), so the late host waits.
+		app.update();
+		assert!(app.world().get::<StickPhysicsAttached>(late).is_none());
+		app.update();
+		app.update();
+		// Queue is empty; the next scan discovers the late host.
+		app.update();
+		assert!(has_compound(app.world(), late));
 	}
 }
