@@ -2754,6 +2754,7 @@ dependencies = [
  "character-animations",
  "character-creation-menus",
  "character-items",
+ "character-motion",
  "character-rigs",
  "character-ui-menu",
  "characters",

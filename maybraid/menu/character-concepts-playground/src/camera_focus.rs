@@ -149,12 +149,28 @@ type ShadowRigQuery<'w, 's> = Query<
 pub fn apply_camera_suggestion(
 	time: Res<Time>,
 	look_enabled: Option<Res<CameraLookEnabled>>,
+	capture_locked: Option<Res<crate::preview_capture::CaptureCameraLocked>>,
+	capture_settings: Option<Res<crate::preview_capture::PreviewCaptureSettings>>,
 	mut pending: ResMut<PendingCameraFocus>,
 	shadow_rigs: ShadowRigQuery,
 	bone_globals: Query<&GlobalTransform>,
 	mut cameras: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
 	mut last_wait_log: Local<Option<String>>,
 ) {
+	if capture_locked.is_some() {
+		if let Some(settings) = capture_settings {
+			let (eye, look_at) = crate::preview_capture::capture_camera_frame(settings.encounter_scale);
+			for (mut transform, mut controller) in &mut cameras {
+				characters_playground::camera::orient_camera(
+					&mut transform,
+					&mut controller,
+					eye,
+					look_at,
+				);
+			}
+		}
+		return;
+	}
 	if look_enabled.is_none_or(|enabled| enabled.0) {
 		pending.focus = None;
 		pending.focus_trigger = None;

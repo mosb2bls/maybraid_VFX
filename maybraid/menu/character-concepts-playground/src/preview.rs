@@ -637,7 +637,9 @@ impl ConceptPreviewConfig {
 			}
 			Self::Brenal { config, .. } => format!("species=brenal {}", config.sync_key()),
 			Self::Caole { config, .. } => format!("species=caole {}", config.sync_key()),
-			Self::Epiphant { config, .. } => format!("species=epiphant {}", config.sync_key()),
+			Self::Epiphant { config, animation } => {
+				format!("species=epiphant {} animation={animation:?}", config.sync_key())
+			}
 			Self::Hars { config, .. } => format!("species=hars {}", config.sync_key()),
 			Self::Yilter { config, .. } => format!("species=ylter {}", config.sync_key()),
 			Self::Sonyak { config, .. } => format!("species=sonyak {}", config.sync_key()),
