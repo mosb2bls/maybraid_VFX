@@ -347,8 +347,19 @@ fn tick_self_heal(
 			let rate = config.hp_per_sec(health.max);
 			let amount = rate * time.delta_secs().max(0.0);
 			let cap = config.cap_hp(health.max, live.damaged);
+			let hp_before = health.current;
 			health.heal_toward(amount, cap);
+			let hp_after = health.current;
 			let remaining = config.remaining_hp(*health, live.damaged);
+			
+			// Log healing with cap info when damaged flag is set
+			if live.damaged && (hp_after - hp_before).abs() > 0.01 {
+				info!(
+					"[HEAL_TICK] HP {:.1} -> {:.1} (max={:.1}, cap={:.1}, damaged={}, remaining={:.1})",
+					hp_before, hp_after, health.max, cap, live.damaged, remaining
+				);
+			}
+			
 			publish_heal(
 				&mut close.commands,
 				&mut close.presentation,
@@ -390,6 +401,16 @@ fn latch_self_heal_damage(
 		return;
 	}
 	live.latch_damage();
+	
+	// Log cap latch event with current HP
+	if let Ok(health) = healths.get(owner) {
+		let cap = config.cap_hp(health.max, true);
+		info!(
+			"[CAP_LATCH] HP={:.1}/{:.1} at latch, new cap={:.1} ({:.0}%)",
+			health.current, health.max, cap, (cap / health.max) * 100.0
+		);
+	}
+	
 	publish_heal(
 		&mut commands,
 		&mut presentation,

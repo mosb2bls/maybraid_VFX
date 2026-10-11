@@ -97,6 +97,7 @@ pub fn run_auto_capture(
 	lubikan_heal: Res<lubikans::LubikanSelfHeal>,
 	map_view: Res<crate::map_view::WorldMapView>,
 	mut activation_finished: MessageReader<lubikans::LubikanActivationFinished>,
+	mut damage_applied: MessageReader<damage::DamageApplied>,
 ) {
 	// Log activation finished events
 	for finished in activation_finished.read() {
@@ -105,6 +106,22 @@ pub fn run_auto_capture(
 			finished.account, finished.outcome
 		);
 	}
+	
+	// Log damage events with HP state
+	for applied in damage_applied.read() {
+		if let Ok((_, health)) = players.single() {
+			eprintln!(
+				"[DAMAGE] Applied {:.1} damage, HP before={:.1} after={:.1} (max={:.1}), heal_active={} damaged={}",
+				applied.applied,
+				applied.remaining + applied.applied,
+				applied.remaining,
+				health.max,
+				lubikan_heal.active,
+				lubikan_heal.damaged
+			);
+		}
+	}
+	
 	let Some(ref mut script) = script else {
 		return;
 	};
@@ -124,23 +141,31 @@ pub fn run_auto_capture(
 	script.current_index += 1;
 	
 	// Log player state before command execution
-	if let Ok((player_entity, health)) = players.single() {
-		let charge = lubikan_ledgers.get(player_entity)
-			.map(|ledger| ledger.equipped().charge().current())
-			.unwrap_or(0.0);
-		
-		let heal_status = if lubikan_heal.active {
-			format!("healing {:.1} HP/s (rem {:.1})", lubikan_heal.rate, lubikan_heal.remaining)
-		} else {
-			"idle".to_string()
-		};
-		
-		let camera_view = if map_view.open { "MAP" } else { "3P" };
-		
-		eprintln!(
-			"[STATE] frame={} hp={:.1}/{:.1} charge={:.1} heal={} camera={}",
-			script.frame_count, health.current, health.max, charge, heal_status, camera_view
-		);
+	match players.single() {
+		Ok((player_entity, health)) => {
+			let charge = lubikan_ledgers.get(player_entity)
+				.map(|ledger| ledger.equipped().charge().current())
+				.unwrap_or(0.0);
+			
+			let heal_status = if lubikan_heal.active {
+				format!("healing {:.1} HP/s (rem {:.1})", lubikan_heal.rate, lubikan_heal.remaining)
+			} else {
+				"idle".to_string()
+			};
+			
+			let camera_view = if map_view.open { "MAP" } else { "3P" };
+			
+			eprintln!(
+				"[STATE] frame={} hp={:.1}/{:.1} charge={:.1} heal={} camera={}",
+				script.frame_count, health.current, health.max, charge, heal_status, camera_view
+			);
+		}
+		Err(e) => {
+			eprintln!(
+				"[STATE] frame={} no player found: {:?}",
+				script.frame_count, e
+			);
+		}
 	}
 	
 	match cmd {

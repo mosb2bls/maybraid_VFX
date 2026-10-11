@@ -366,10 +366,15 @@ fn apply_debug_take_damage(
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
+		eprintln!("[APPLY_DAMAGE] System running, found {} damage requests, {} players", 
+			requests.iter().count(), players.iter().count());
 		if let Some((player_entity, mut health)) = players.iter_mut().next() {
 			let before = health.current;
 			let applied = health.take_damage(request.amount);
 			let after = health.current;
+			
+			eprintln!("[APPLY_DAMAGE] Applied {:.1} damage to player {:?}, HP {:.1} -> {:.1}", 
+				request.amount, player_entity, before, after);
 			
 			// Write DamageApplied event so lubikan healing cap latches correctly
 			damage_events.write(damage::DamageApplied {
@@ -380,6 +385,8 @@ fn apply_debug_take_damage(
 				remaining: after,
 				point: Vec3::ZERO,
 			});
+		} else {
+			eprintln!("[APPLY_DAMAGE] No player found to apply damage to!");
 		}
 		commands.entity(entity).despawn();
 	}
