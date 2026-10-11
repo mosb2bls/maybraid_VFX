@@ -75,7 +75,7 @@ pub trait DoricColumnComponents {
 impl DoricColumnComponents for DoricColumnSpec {
 	fn part_nodes_for_level(&self, _level: LodSceneLevel) -> Vec<DoricColumnPartNode> {
 		use crate::layout::part_placements;
-		let parts = part_placements(&self.layout());
+		let parts = part_placements(self);
 		vec![
 			DoricColumnPartNode::for_spec(self, DoricColumnPartSlot::Pedestal, parts.pedestal),
 			DoricColumnPartNode::for_spec(self, DoricColumnPartSlot::Shaft, parts.shaft),

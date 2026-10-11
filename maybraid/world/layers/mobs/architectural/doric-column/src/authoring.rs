@@ -1,39 +1,87 @@
-//! Authoring convention: **unit-normalized part meshes** scaled once by [`crate::layout::part_placements`].
+//! **D-normalized authoring** + **uniform runtime scale** (matches [#1143](https://github.com/ramate-io/maybraid/pull/1143) `COLUMN_SURFACE.md`).
 //!
-//! GLBs and procedural placeholders model each part in **local part space** with:
-//! - **Y ∈ [0, 1]** along the part height (bottom pivot at **Y = 0**).
-//! - Horizontal extent **1** in the kit’s normalized frame (square side = 1, shaft lower diameter = 1, etc.).
+//! Each part GLB is modeled in **multiples of lower shaft diameter D** (local **D = 1** horizontally on the shaft):
+//! bottom-center pivot, **+Y** up, real [`DoricColumnRatios`] proportions baked into the mesh (not unit height 1).
 //!
-//! Runtime [`building_components::Placement::scale`] carries **world metres** from [`DoricColumnLayout`].
-//! Do **not** bake [`DoricColumnDimensions`] metre sizes into the mesh; that would double-scale with placement.
+//! Runtime [`crate::layout::part_placements`] sets **`Placement::scale = Vec3::splat(D_world)`** only — never per-axis stretch — so
+//! shaft tangents and POM UV density stay valid under [#1143](https://github.com/ramate-io/maybraid/pull/1143).
 
 use bevy::prelude::*;
 use building_components::Placement;
 
-/// Authored mesh height before placement scale (every part).
-pub const UNIT_PART_HEIGHT: f32 = 1.0;
+use crate::spec::{DoricColumnRatios, DoricColumnSpec};
 
-/// Plinth / abacus unit square side in local X and Z.
-pub const UNIT_SQUARE_SIDE: f32 = 1.0;
+/// Lower shaft **diameter** in authored part space (**1.0** = one kit diameter).
+pub const NORMALIZED_LOWER_SHAFT_DIAMETER: f32 = 1.0;
 
-/// Shaft unit lower diameter (mesh radius 0.5 at **Y = 0**).
-pub const UNIT_SHAFT_LOWER_DIAMETER: f32 = 1.0;
-
-/// Shaft unit upper diameter at **Y = 1** (matches default `shaft_upper_diameter_d = 0.8`).
-pub const UNIT_SHAFT_UPPER_DIAMETER: f32 = 0.8;
-
-/// World-space axis-aligned bounds for a **unit-normalized** mesh under `placement`.
-pub fn world_aabb_from_unit_mesh_placement(placement: &Placement) -> (Vec3, Vec3) {
-	let min = placement.translation
-		- Vec3::new(placement.scale.x * 0.5, 0.0, placement.scale.z * 0.5);
-	let max = min + placement.scale;
-	(min, max)
+/// Local mesh extents for the plinth (same units as **D** in the mesh file).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlinthAuthoredExtents {
+	pub height_d: f32,
+	pub half_side_d: f32,
 }
 
-/// Top **Y** of a unit-height part after placement (assembly space).
-pub fn world_top_y(placement: &Placement) -> f32 {
-	placement.translation.y + placement.scale.y * UNIT_PART_HEIGHT
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShaftAuthoredExtents {
+	pub height_d: f32,
+	pub radius_bottom_d: f32,
+	pub radius_top_d: f32,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CapitalAuthoredExtents {
+	pub echinus_height_d: f32,
+	pub abacus_height_d: f32,
+	pub echinus_radius_bottom_d: f32,
+	pub echinus_radius_top_d: f32,
+	pub abacus_half_side_d: f32,
+}
+
+impl CapitalAuthoredExtents {
+	pub fn height_d(self) -> f32 {
+		self.echinus_height_d + self.abacus_height_d
+	}
+}
+
+pub fn authored_extents(ratios: DoricColumnRatios) -> (PlinthAuthoredExtents, ShaftAuthoredExtents, CapitalAuthoredExtents) {
+	let plinth = PlinthAuthoredExtents {
+		height_d: ratios.plinth_height_d,
+		half_side_d: ratios.plinth_side_d * 0.5,
+	};
+	let shaft = ShaftAuthoredExtents {
+		height_d: ratios.shaft_height_d(),
+		radius_bottom_d: NORMALIZED_LOWER_SHAFT_DIAMETER * 0.5,
+		radius_top_d: ratios.shaft_upper_diameter_d * 0.5,
+	};
+	let capital = CapitalAuthoredExtents {
+		echinus_height_d: ratios.echinus_height_d,
+		abacus_height_d: ratios.abacus_height_d,
+		echinus_radius_bottom_d: shaft.radius_top_d,
+		echinus_radius_top_d: ratios.echinus_bulge_radius_d,
+		abacus_half_side_d: ratios.abacus_side_d * 0.5,
+	};
+	(plinth, shaft, capital)
+}
+
+/// World metres per authored unit (**D_world**).
+pub fn uniform_placement_scale(spec: &DoricColumnSpec) -> f32 {
+	spec.dims.d() * spec.uniform_scale()
+}
+
+pub fn placement_scale_vec(spec: &DoricColumnSpec) -> Vec3 {
+	Vec3::splat(uniform_placement_scale(spec))
+}
+
+/// Top **Y** in assembly space after uniform scale (mesh local height in **D** units).
+pub fn world_top_y(placement: &Placement, authored_height_d: f32) -> f32 {
+	let d = placement.scale.x;
+	placement.translation.y + d * authored_height_d
+}
+
+/// **GLB vs spec:** gameplay anchors and cover colliders follow [`DoricColumnLayout`] from the spec.
+/// Authored GLBs must match [`DoricColumnRatios`]. When a loaded GLB’s bounds or named empties disagree
+/// with the spec, the runtime logs a warning and **named anchor nodes in the GLB** (`ground_contact`, `shaft_top`, …)
+/// override spec-computed anchor transforms; cover colliders remain spec-based until the asset is fixed.
 
 #[cfg(test)]
 mod tests {
@@ -44,65 +92,65 @@ mod tests {
 	use crate::spec::DoricColumnSpec;
 
 	#[test]
-	fn simulated_authored_unit_mesh_matches_layout_anchors_and_colliders() {
+	fn d_normalized_mesh_with_uniform_scale_matches_layout_anchors_and_colliders() {
 		let spec = DoricColumnSpec::default();
 		let layout = spec.layout();
-		let parts = part_placements(&layout);
+		let ratios = spec.dims.ratios;
+		let (plinth, shaft, capital) = authored_extents(ratios);
+		let parts = part_placements(&spec);
 		let anchors = DoricColumnAnchors::for_spec(&spec);
 		let (cover_min, cover_max) = cover_aabb(&layout);
+		let d = uniform_placement_scale(&spec);
+		let scale = Vec3::splat(d);
+
+		for (label, p) in [
+			("pedestal", &parts.pedestal),
+			("shaft", &parts.shaft),
+			("capital", &parts.capital),
+		] {
+			assert!(
+				(p.scale - scale).length() < 1e-4,
+				"{label} must use uniform scale D only (got {:?})",
+				p.scale
+			);
+		}
+
+		assert!((world_top_y(&parts.pedestal, plinth.height_d) - layout.plinth.height).abs() < 1e-3);
+		assert!((world_top_y(&parts.shaft, shaft.height_d) - layout.shaft_top_y()).abs() < 1e-3);
+		assert!(
+			(world_top_y(&parts.capital, capital.height_d()) - layout.total_height()).abs() < 1e-3
+		);
 
 		assert!(
-			(parts.pedestal.scale.y - layout.plinth.height).abs() < 1e-4,
-			"plinth placement must scale unit mesh once to layout height"
+			(anchors.get(names::PEDESTAL_TOP).unwrap().translation.y - layout.plinth.height).abs() < 1e-3
 		);
 		assert!(
-			(parts.shaft.scale.y - layout.shaft.height).abs() < 1e-4,
-			"shaft placement must scale unit mesh once to layout height"
+			(anchors.get(names::SHAFT_TOP).unwrap().translation.y - layout.shaft_top_y()).abs() < 1e-3
 		);
 		assert!(
-			(parts.capital.scale.y - layout.capital_height()).abs() < 1e-4,
-			"capital placement must scale unit mesh once to layout height"
+			(anchors.get(names::CAPITAL_TOP).unwrap().translation.y - layout.total_height()).abs() < 1e-3
 		);
 
-		let pedestal_top = world_top_y(&parts.pedestal);
-		assert!((pedestal_top - layout.plinth.height).abs() < 1e-4);
-		assert!(
-			(anchors.get(names::PEDESTAL_TOP).unwrap().translation.y - pedestal_top).abs() < 1e-4
-		);
-
-		let shaft_top = world_top_y(&parts.shaft);
-		assert!((shaft_top - layout.shaft_top_y()).abs() < 1e-4);
-		assert!(
-			(anchors.get(names::SHAFT_TOP).unwrap().translation.y - shaft_top).abs() < 1e-4
-		);
-
-		let capital_top = world_top_y(&parts.capital);
-		assert!((capital_top - layout.total_height()).abs() < 1e-4);
-		assert!(
-			(anchors.get(names::CAPITAL_TOP).unwrap().translation.y - capital_top).abs() < 1e-4
-		);
-
-		assert!((cover_max.y - layout.total_height()).abs() < 1e-4);
+		assert!((cover_max.y - layout.total_height()).abs() < 1e-3);
 		assert!(cover_min.y.abs() < 1e-4);
-		assert!((cover_max.y - capital_top).abs() < 1e-4);
 
-		// Baking layout metres into the mesh *and* applying placement scale double-counts height.
-		let double_scaled_shaft_top =
-			parts.shaft.translation.y + parts.shaft.scale.y * layout.shaft.height;
+		let wrong_top = parts.shaft.translation.y + d * d * shaft.height_d;
 		assert!(
-			double_scaled_shaft_top > layout.shaft_top_y() * 1.5,
-			"authored-at-metres GLB + placement scale must not be used together"
+			wrong_top > layout.shaft_top_y() * 1.2,
+			"uniform D scale must not be confused with baking world metres into the mesh"
 		);
 	}
 
 	#[test]
-	fn summon_uniform_scale_still_single_mesh_scale() {
+	fn summon_uniform_scale_still_single_d_factor() {
 		let spec = DoricColumnSpec {
 			scale: Vec3::splat(0.85),
 			..DoricColumnSpec::default()
 		};
-		let layout = spec.layout();
-		let parts = part_placements(&layout);
-		assert!((world_top_y(&parts.shaft) - layout.shaft_top_y()).abs() < 1e-3);
+		let parts = part_placements(&spec);
+		let d = uniform_placement_scale(&spec);
+		assert!((parts.shaft.scale.x - d).abs() < 1e-4);
+		let shaft = authored_extents(spec.dims.ratios).1;
+		assert!((world_top_y(&parts.shaft, shaft.height_d) - spec.layout().shaft_top_y()).abs() < 1e-3);
 	}
 }

@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use building_components::Placement;
 
+use crate::authoring::{authored_extents, placement_scale_vec, uniform_placement_scale};
 use crate::spec::DoricColumnSpec;
 
 /// Axis-aligned square footprint: faces perpendicular to **±X** and **±Z**, centered on the shaft axis.
@@ -84,37 +85,25 @@ pub struct PartPlacements {
 	pub capital: Placement,
 }
 
-/// World [`Placement`] for each part. Assumes meshes authored per [`crate::authoring`] (unit height, unit footprint).
-pub fn part_placements(layout: &DoricColumnLayout) -> PartPlacements {
-	let plinth_y = 0.0;
-	let shaft_y = layout.plinth.height;
-	let capital_y = layout.shaft_top_y();
-	let capital_xz = layout.abacus.half_side * 2.0;
-	let capital_h = layout.capital_height();
+/// World [`Placement`] for D-normalized meshes: **uniform** `scale = D_world`, translations in metres.
+pub fn part_placements(spec: &DoricColumnSpec) -> PartPlacements {
+	let r = spec.dims.ratios;
+	let d = uniform_placement_scale(spec);
+	let scale = placement_scale_vec(spec);
+	let (plinth, shaft, _) = authored_extents(r);
+	let shaft_base_y = plinth.height_d * d;
+	let capital_base_y = (plinth.height_d + shaft.height_d) * d;
 	PartPlacements {
-		pedestal: square_placement(plinth_y, layout.plinth),
-		shaft: round_placement(shaft_y, layout.shaft),
-		capital: Placement::new(Vec3::new(0.0, capital_y, 0.0), 0.0)
-			.with_scale(Vec3::new(capital_xz, capital_h, capital_xz)),
+		pedestal: Placement::new(Vec3::new(0.0, 0.0, 0.0), 0.0).with_scale(scale),
+		shaft: Placement::new(Vec3::new(0.0, shaft_base_y, 0.0), 0.0).with_scale(scale),
+		capital: Placement::new(Vec3::new(0.0, capital_base_y, 0.0), 0.0).with_scale(scale),
 	}
-}
-
-fn square_placement(base_y: f32, part: SquarePartLayout) -> Placement {
-	let side = part.half_side * 2.0;
-	Placement::new(Vec3::new(0.0, base_y, 0.0), 0.0)
-		.with_scale(Vec3::new(side, part.height, side))
-}
-
-fn round_placement(base_y: f32, part: RoundPartLayout) -> Placement {
-	let diameter = part.radius_bottom.max(part.radius_top) * 2.0;
-	Placement::new(Vec3::new(0.0, base_y, 0.0), 0.0)
-		.with_scale(Vec3::new(diameter, part.height, diameter))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::spec::{DoricColumnDimensions, DoricColumnSpec};
+	use crate::spec::DoricColumnSpec;
 
 	#[test]
 	fn assembly_height_is_sum_of_parts() {
@@ -123,6 +112,16 @@ mod tests {
 		assert!(
 			(layout.total_height() - spec.dims.total_height() * spec.uniform_scale()).abs() < 1e-3
 		);
+	}
+
+	#[test]
+	fn placements_use_uniform_scale_only() {
+		let spec = DoricColumnSpec::default();
+		let parts = part_placements(&spec);
+		let s = parts.pedestal.scale;
+		assert!((parts.shaft.scale - s).length() < 1e-5);
+		assert!((parts.capital.scale - s).length() < 1e-5);
+		assert!((s.x - s.y).abs() < 1e-5 && (s.y - s.z).abs() < 1e-5);
 	}
 
 	#[test]

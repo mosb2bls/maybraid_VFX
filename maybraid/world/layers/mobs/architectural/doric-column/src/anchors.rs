@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
-use crate::layout::{part_placements, DoricColumnLayout};
+use crate::layout::DoricColumnLayout;
 use crate::spec::DoricColumnSpec;
 
 /// Stable anchor names shared with authored GLBs (empty nodes / rig bones).
@@ -46,8 +46,7 @@ impl DoricColumnAnchors {
 		let layout = DoricColumnLayout::from_spec(spec);
 		let mut transforms = BTreeMap::new();
 		transforms.insert(names::GROUND_CONTACT, Transform::IDENTITY);
-		let parts = part_placements(&layout);
-		let pedestal_top_y = parts.pedestal.translation.y + layout.plinth.height;
+		let pedestal_top_y = layout.plinth.height;
 		let shaft_top_y = layout.shaft_top_y();
 		let capital_top_y = layout.total_height();
 		transforms.insert(
@@ -143,11 +142,10 @@ mod tests {
 	#[test]
 	fn pedestal_top_matches_part_stack() {
 		let spec = DoricColumnSpec::default();
-		let layout = DoricColumnLayout::from_spec(&spec);
-		let parts = part_placements(&layout);
+		let layout = spec.layout();
 		let anchors = DoricColumnAnchors::for_spec(&spec);
 		let top = anchors.get(names::PEDESTAL_TOP).unwrap().translation.y;
-		let expected = parts.pedestal.translation.y + layout.plinth.height;
+		let expected = layout.plinth.height;
 		assert!((top - expected).abs() < 1e-4);
 	}
 }

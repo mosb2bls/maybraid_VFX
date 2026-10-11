@@ -1,8 +1,11 @@
 //! Procedural placeholder meshes until authored GLBs replace them.
 //!
-//! All parts use the [`crate::authoring`] convention: **Y ∈ [0, 1]**, unit footprint; world size from [`part_placements`](crate::layout::part_placements).
+//! D-normalized meshes ([`crate::authoring`]); runtime applies uniform **D** via [`part_placements`](crate::layout::part_placements).
 
 use std::f32::consts::{PI, TAU};
+
+use crate::authoring::authored_extents;
+use crate::spec::DoricColumnRatios;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
@@ -47,9 +50,24 @@ impl Plugin for DoricColumnPlaceholderPlugin {
 }
 
 fn init_placeholder_meshes(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
-	let pedestal = meshes.add(solid_square_box_mesh(0.5, 1.0));
-	let shaft = meshes.add(solid_shaft_mesh(0.5, 0.4, 1.0, 32, 10));
-	let capital = meshes.add(solid_capital_placeholder_mesh(0.4, 0.52, 0.6, 0.5, 32));
+	let r = DoricColumnRatios::default();
+	let (plinth, shaft, capital) = authored_extents(r);
+	let pedestal = meshes.add(solid_square_box_mesh(plinth.half_side_d, plinth.height_d));
+	let shaft = meshes.add(solid_shaft_mesh(
+		shaft.radius_bottom_d,
+		shaft.radius_top_d,
+		shaft.height_d,
+		32,
+		16,
+	));
+	let capital = meshes.add(solid_capital_placeholder_mesh(
+		capital.echinus_radius_bottom_d,
+		capital.echinus_radius_top_d,
+		capital.echinus_height_d,
+		capital.abacus_half_side_d,
+		capital.abacus_height_d,
+		32,
+	));
 	commands.insert_resource(DoricColumnPlaceholderMeshes { pedestal, shaft, capital });
 }
 
@@ -206,17 +224,18 @@ pub(crate) fn solid_square_box_data(half_side: f32, height: f32) -> SolidMesh {
 	SolidMesh { positions, normals, indices }
 }
 
-/// Round echinus + square abacus in one mesh (unit height 1, abacus half-side 1 in X/Z).
+/// Round echinus + square abacus in one mesh (heights in **D** units).
 pub(crate) fn solid_capital_placeholder_mesh(
 	echinus_radius_bottom: f32,
 	echinus_radius_top: f32,
-	echinus_height_fraction: f32,
-	abacus_half_side: f32,
+	echinus_height_d: f32,
+	abacus_half_side_d: f32,
+	abacus_height_d: f32,
 	segments: u32,
 ) -> Mesh {
-	let echinus_h = echinus_height_fraction.clamp(0.05, 0.95);
+	let echinus_h = echinus_height_d.max(1e-3);
 	let echinus = solid_frustum_data(echinus_radius_bottom, echinus_radius_top, echinus_h, segments);
-	let abacus = solid_square_box_data(abacus_half_side, 1.0 - echinus_h);
+	let abacus = solid_square_box_data(abacus_half_side_d, abacus_height_d);
 	let offset_y = echinus_h;
 	let mut positions = echinus.positions;
 	let mut normals = echinus.normals;
@@ -404,7 +423,7 @@ mod tests {
 		}
 	}
 
-	fn check_shaft_closed(mesh: &Mesh) {
+	fn check_shaft_closed(mesh: &Mesh, height_d: f32) {
 		let positions = mesh_positions(mesh).expect("positions");
 		let indices = mesh_indices(mesh).expect("indices");
 		assert!(
@@ -412,35 +431,51 @@ mod tests {
 			"shaft should be closed"
 		);
 		assert!(
-			mesh_normals_point_outward(&positions, &indices, 1.0),
+			mesh_normals_point_outward(&positions, &indices, height_d),
 			"shaft normals should point outward"
 		);
 	}
 
 	#[test]
 	fn plinth_placeholder_is_closed_square_and_axis_aligned() {
-		let mesh = solid_square_box_data(0.5, 1.0);
-		check_solid(&mesh, 1.0);
-		square_faces_align_to_axes(&mesh, 0.5);
+		let r = DoricColumnRatios::default();
+		let (plinth, _, _) = authored_extents(r);
+		let mesh = solid_square_box_data(plinth.half_side_d, plinth.height_d);
+		check_solid(&mesh, plinth.height_d);
+		square_faces_align_to_axes(&mesh, plinth.half_side_d);
 	}
 
 	#[test]
 	fn capital_placeholder_is_closed_echinus_and_abacus() {
-		let echinus = solid_frustum_data(0.4, 0.52, 0.6, 24);
-		check_solid(&echinus, 0.6);
-		let abacus = solid_square_box_data(0.5, 0.4);
-		check_solid(&abacus, 0.4);
-		square_faces_align_to_axes(&abacus, 0.5);
+		let r = DoricColumnRatios::default();
+		let (_, _, capital) = authored_extents(r);
+		let echinus = solid_frustum_data(
+			capital.echinus_radius_bottom_d,
+			capital.echinus_radius_top_d,
+			capital.echinus_height_d,
+			24,
+		);
+		check_solid(&echinus, capital.echinus_height_d);
+		let abacus = solid_square_box_data(capital.abacus_half_side_d, capital.abacus_height_d);
+		check_solid(&abacus, capital.abacus_height_d);
+		square_faces_align_to_axes(&abacus, capital.abacus_half_side_d);
 	}
 
 	#[test]
 	fn shaft_placeholder_is_closed_and_outward() {
-		check_shaft_closed(&solid_shaft_mesh(0.5, 0.4, 1.0, 24, 8));
+		let r = DoricColumnRatios::default();
+		let (_, shaft, _) = authored_extents(r);
+		check_shaft_closed(
+			&solid_shaft_mesh(shaft.radius_bottom_d, shaft.radius_top_d, shaft.height_d, 24, 8),
+			shaft.height_d,
+		);
 	}
 
 	#[test]
 	fn shaft_uv_seam_is_duplicated_on_local_neg_z() {
-		let mesh = solid_shaft_mesh(0.5, 0.4, 1.0, 24, 4);
+		let r = DoricColumnRatios::default();
+		let (_, shaft, _) = authored_extents(r);
+		let mesh = solid_shaft_mesh(shaft.radius_bottom_d, shaft.radius_top_d, shaft.height_d, 24, 4);
 		let positions = mesh_positions(&mesh).expect("positions");
 		let uvs = mesh
 			.attribute(Mesh::ATTRIBUTE_UV_0)
@@ -455,8 +490,8 @@ mod tests {
 		assert!((uvs[0][0] - 0.0).abs() < 1e-5);
 		assert!((uvs[longitudes as usize][0] - 1.0).abs() < 1e-5);
 		assert!(positions[0].x.abs() < 1e-5);
-		assert!((positions[0].z + 0.5).abs() < 1e-4);
-		assert!((positions[longitudes as usize].z + 0.5).abs() < 1e-4);
+		assert!((positions[0].z + shaft.radius_bottom_d).abs() < 1e-4);
+		assert!((positions[longitudes as usize].z + shaft.radius_bottom_d).abs() < 1e-4);
 
 		for row in 0..5 {
 			let i0 = (row * cols) as usize;
@@ -469,7 +504,9 @@ mod tests {
 
 	#[test]
 	fn shaft_tangents_are_right_handed_and_circumferential() {
-		let mesh = solid_shaft_mesh(0.5, 0.4, 1.0, 16, 4);
+		let r = DoricColumnRatios::default();
+		let (_, shaft, _) = authored_extents(r);
+		let mesh = solid_shaft_mesh(shaft.radius_bottom_d, shaft.radius_top_d, shaft.height_d, 16, 4);
 		let normals = mesh
 			.attribute(Mesh::ATTRIBUTE_NORMAL)
 			.and_then(|v| v.as_float3())

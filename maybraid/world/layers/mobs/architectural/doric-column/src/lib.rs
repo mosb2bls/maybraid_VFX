@@ -21,7 +21,7 @@ pub mod spec;
 pub mod terrain;
 
 pub use authoring::{
-	UNIT_PART_HEIGHT, UNIT_SHAFT_LOWER_DIAMETER, UNIT_SHAFT_UPPER_DIAMETER, UNIT_SQUARE_SIDE,
+	NORMALIZED_LOWER_SHAFT_DIAMETER, uniform_placement_scale, placement_scale_vec,
 };
 pub use anchors::{
 	CHAIN_ANCHOR_NAMES, DoricColumnAnchors, DoricColumnChainAnchor, DoricColumnGroundContact,
