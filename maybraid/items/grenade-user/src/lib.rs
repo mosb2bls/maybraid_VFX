@@ -10,7 +10,7 @@ use character_items::{Inventory, InventoryItem};
 use characters::CharacterMotionSystems;
 use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 
-pub use feel::{blast_presence, blast_rumble};
+pub use feel::{blast_presence, blast_rumble, rumble_presence};
 pub use hold::{spawn_held_grenade, HeldGrenade, HoldingGrenade};
 pub use throw::{GrenadePhase, GrenadeThrow, GrenadeUser, GrenadeUserSettings};
 

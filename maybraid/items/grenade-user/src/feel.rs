@@ -11,11 +11,27 @@ const SHAKE_MS_NEAR: u64 = 420;
 const SHAKE_MS_FAR: u64 = 180;
 const RUMBLE_WEAK: f32 = 0.58;
 const RUMBLE_STRONG: f32 = 0.86;
+/// Camera shake stays on the visible fireball.
+const SHAKE_RANGE: f32 = 2.2;
+/// Pad rumble keeps going after the screen kick fades — a few streets over.
+const RUMBLE_RANGE: f32 = 6.6;
+
+fn feel_radius(blast_radius: f32, effect_scale: f32, range: f32) -> f32 {
+	blast_radius.max(effect_scale * 0.7) * range
+}
+
+fn falloff(distance: f32, radius: f32) -> f32 {
+	(1.0 - distance / radius.max(1.0)).clamp(0.0, 1.0)
+}
 
 /// How far the visible explosion still reads as a nearby hit.
 pub fn blast_presence(distance: f32, blast_radius: f32, effect_scale: f32) -> f32 {
-	let feel = blast_radius.max(effect_scale * 0.7) * 2.2;
-	(1.0 - distance / feel.max(1.0)).clamp(0.0, 1.0)
+	falloff(distance, feel_radius(blast_radius, effect_scale, SHAKE_RANGE))
+}
+
+/// Pad motors keep a longer tail than camera shake.
+pub fn rumble_presence(distance: f32, blast_radius: f32, effect_scale: f32) -> f32 {
+	falloff(distance, feel_radius(blast_radius, effect_scale, RUMBLE_RANGE))
 }
 
 pub fn blast_rumble(presence: f32) -> PadRumble {
@@ -45,13 +61,15 @@ pub fn pulse_blast_feel(
 	};
 	let origin = camera.translation();
 	for blast in detonations.read() {
-		let presence =
-			blast_presence(origin.distance(blast.position), blast.radius, blast.effect.scale);
-		if presence <= 1e-3 {
-			continue;
+		let distance = origin.distance(blast.position);
+		let shake_presence = blast_presence(distance, blast.radius, blast.effect.scale);
+		if shake_presence > 1e-3 {
+			shake.kick(shake_presence, 0.22 + 0.28 * shake_presence);
 		}
-		shake.kick(presence, 0.22 + 0.28 * presence);
-		rumble.write(blast_rumble(presence));
+		let pad = rumble_presence(distance, blast.radius, blast.effect.scale);
+		if pad > 1e-3 {
+			rumble.write(blast_rumble(pad));
+		}
 	}
 }
 
@@ -65,6 +83,16 @@ mod tests {
 		assert!((blast_presence(0.0, 10.5, 13.0) - 1.0).abs() < 1e-4);
 		assert_eq!(blast_presence(80.0, 10.5, 13.0), 0.0);
 		assert!(blast_presence(8.0, 10.5, 13.0) > blast_presence(20.0, 10.5, 13.0));
+	}
+
+	#[test]
+	fn rumble_reaches_past_the_screen_kick() {
+		assert!((rumble_presence(0.0, 10.5, 13.0) - 1.0).abs() < 1e-4);
+		assert!(rumble_presence(40.0, 10.5, 13.0) > 0.0);
+		assert_eq!(blast_presence(40.0, 10.5, 13.0), 0.0);
+		assert!(
+			feel_radius(10.5, 13.0, RUMBLE_RANGE) > feel_radius(10.5, 13.0, SHAKE_RANGE) * 2.0
+		);
 	}
 
 	#[test]
