@@ -24,6 +24,10 @@ impl LubikanSessionStore {
 	pub fn cached_ledger(&self) -> Option<&LubikanLedger> {
 		self.cached.as_ref().map(|(_, ledger)| ledger)
 	}
+
+	pub(crate) fn cached_ledger_mut(&mut self) -> Option<&mut LubikanLedger> {
+		self.cached.as_mut().map(|(_, ledger)| ledger)
+	}
 }
 
 /// Registers Self and keeps per-player charge independent of the HUD.
@@ -66,6 +70,7 @@ impl Plugin for LubikansPlugin {
 					.in_set(LubikanSystems::Activate),
 			);
 		crate::award::configure(app);
+		crate::heal::configure(app);
 	}
 }
 

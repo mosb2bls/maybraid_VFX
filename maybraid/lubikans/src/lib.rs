@@ -11,6 +11,7 @@ mod award;
 mod catalog;
 mod change;
 mod charge;
+mod heal;
 mod identity;
 mod ledger;
 mod lifetime;
@@ -34,6 +35,11 @@ pub use catalog::{
 };
 pub use change::{LubikanChargeChanged, LubikanChargeReason, LubikanChargeRequest};
 pub use charge::{LubikanCharge, LubikanChargeMutation};
+pub use heal::{
+	LubikanHealingEnabled, LubikanSelfHeal, LubikanSelfHealChannel, LubikanSelfHealConfig,
+	DEFAULT_SELF_HEAL_CAP_DAMAGED, DEFAULT_SELF_HEAL_CAP_HEALTHY, DEFAULT_SELF_HEAL_DURATION_SECS,
+	DEFAULT_SELF_HEAL_RATE_FRAC,
+};
 pub use identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
 pub use ledger::{LubikanAccount, LubikanAccountBinding, LubikanLedger, LubikanOwner};
 pub use lifetime::{
@@ -51,6 +57,8 @@ pub enum LubikanSystems {
 	/// Sole owner of [`LubikanActivationRequest`]s: spend once and emit a
 	/// [`LubikanActivationSession`], or emit [`LubikanActivationRefused`].
 	Activate,
+	/// Self healing consumer: pick up Self sessions, regenerate, and report.
+	Heal,
 	/// Apply [`LubikanChargeRequest`]s and emit [`LubikanChargeChanged`].
 	Award,
 }

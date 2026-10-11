@@ -63,6 +63,29 @@ impl Health {
 		before - self.current
 	}
 
+	/// Restore HP and return the amount actually gained. Never exceeds [`Self::max`].
+	pub fn heal(&mut self, amount: f32) -> f32 {
+		let before = if self.current.is_finite() { self.current.max(0.0) } else { 0.0 };
+		let max = if self.max.is_finite() { self.max.max(0.0) } else { 0.0 };
+		let gain = if amount.is_finite() { amount.max(0.0) } else { 0.0 };
+		self.current = (before + gain).min(max);
+		self.current - before
+	}
+
+	/// Restore HP toward `cap` without lowering current health.
+	///
+	/// A body already at or above `cap` gains nothing. `cap` is itself
+	/// clamped to [`Self::max`].
+	pub fn heal_toward(&mut self, amount: f32, cap: f32) -> f32 {
+		let max = if self.max.is_finite() { self.max.max(0.0) } else { 0.0 };
+		let cap = if cap.is_finite() { cap.clamp(0.0, max) } else { 0.0 };
+		let before = if self.current.is_finite() { self.current.max(0.0) } else { 0.0 };
+		if before >= cap {
+			return 0.0;
+		}
+		self.heal(amount.min(cap - before))
+	}
+
 	pub fn is_dead(self) -> bool {
 		self.current <= 0.0
 	}
@@ -221,6 +244,23 @@ mod tests {
 		assert_eq!(health.current, 0.0);
 		assert!(health.is_dead());
 		assert_eq!(health.take_damage(10.0), 0.0);
+	}
+
+	#[test]
+	fn heal_clamps_at_max_and_heal_toward_never_reduces() {
+		let mut health = Health::from_max(100.0);
+		health.take_damage(40.0);
+		assert_eq!(health.heal(15.0), 15.0);
+		assert_eq!(health.current, 75.0);
+		assert_eq!(health.heal(100.0), 25.0);
+		assert_eq!(health.current, 100.0);
+		assert_eq!(health.heal_toward(10.0, 70.0), 0.0);
+		assert_eq!(health.current, 100.0);
+		health.take_damage(50.0);
+		assert_eq!(health.heal_toward(20.0, 70.0), 20.0);
+		assert_eq!(health.current, 70.0);
+		assert_eq!(health.heal_toward(20.0, 70.0), 0.0);
+		assert_eq!(health.current, 70.0);
 	}
 
 	#[test]

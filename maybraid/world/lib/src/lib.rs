@@ -15,6 +15,7 @@ mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
+mod lubikan_activate;
 mod map_view;
 mod pitch;
 mod player_lifecycle;
@@ -296,6 +297,7 @@ impl Plugin for WorldPlugin {
 				),
 			);
 		}
+		lubikan_activate::configure(app);
 	}
 }
 
