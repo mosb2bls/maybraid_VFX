@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use lubikans::{
 	LubikanAccountId, LubikanActivation, LubikanActivationPhase, LubikanCatalog, LubikanCharge,
-	LubikanLedger, LubikanOwner, LubikanReadiness,
+	LubikanLedger, LubikanOwner, LubikanReadiness, LubikanSelfHeal, LubikanSelfHealChannel,
 };
 use menu_components::{
 	spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW,
@@ -14,14 +14,6 @@ use crate::cycle_cue::CombatHudInventoryCycleCategory;
 use crate::plate::HUD_CORNER_INSET;
 use crate::vitals::VITALS_WIDTH;
 use crate::CombatHudVisible;
-
-/// **Placeholder ([#1110](https://github.com/ramate-io/maybraid/issues/1110)):** Self
-/// healing presentation until the healing lane publishes active / remaining / rate.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
-pub struct LubikanSelfHealingHudPlaceholder {
-	pub active: bool,
-	pub remaining_secs: f32,
-}
 
 /// Vertical space reserved for the vitals plate so charge sits above it.
 pub(crate) const VITALS_STACK_OFFSET: f32 = 92.0;
@@ -176,12 +168,34 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 }
 
 #[allow(clippy::type_complexity)]
+/// Read-only Self heal presentation from [`LubikanSelfHeal`] / [`LubikanSelfHealChannel`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct LubikanHudSelfHeal {
+	pub remaining: f32,
+	pub rate: f32,
+}
+
+pub(crate) fn self_heal_for_owner(
+	owner: Entity,
+	global: Option<&LubikanSelfHeal>,
+	channel: Option<&LubikanSelfHealChannel>,
+) -> Option<LubikanHudSelfHeal> {
+	if let Some(channel) = channel.filter(|channel| channel.active) {
+		return Some(LubikanHudSelfHeal { remaining: channel.remaining, rate: channel.rate });
+	}
+	global
+		.filter(|heal| heal.active && heal.owner == Some(owner))
+		.map(|heal| LubikanHudSelfHeal { remaining: heal.remaining, rate: heal.rate })
+}
+
+#[allow(clippy::type_complexity)]
 pub(crate) fn sync_lubikan_charge(
 	hud: Res<CombatHudVisible>,
 	catalog: Option<Res<LubikanCatalog>>,
 	category: Option<Res<CombatHudInventoryCycleCategory>>,
-	healing: Option<Res<LubikanSelfHealingHudPlaceholder>>,
-	players: Query<&LubikanLedger, (With<Player>, With<LubikanOwner>)>,
+	self_heal: Option<Res<LubikanSelfHeal>>,
+	players: Query<(Entity, &LubikanLedger), (With<Player>, With<LubikanOwner>)>,
+	heal_channels: Query<&LubikanSelfHealChannel>,
 	mut widgets: ParamSet<(
 		Query<(&mut Visibility, &mut BorderColor), With<LubikanChargeRoot>>,
 		Query<&mut Text, With<LubikanChargeTitle>>,
@@ -203,13 +217,18 @@ pub(crate) fn sync_lubikan_charge(
 		hide();
 		return;
 	};
-	let Some(ledger) = players.iter().next() else {
+	let Some((owner, ledger)) = players.iter().next() else {
 		hide();
 		return;
 	};
 	let row = LubikanHudRow::from_ledger(ledger, catalog.as_ref());
+	let heal = self_heal_for_owner(
+		owner,
+		self_heal.as_deref(),
+		heal_channels.get(owner).ok(),
+	);
 	let headline = charge_title(&row);
-	let status = charge_status(&row, healing.as_deref());
+	let status = charge_status(&row, heal);
 	let fraction = row.charge.fraction();
 	let fill_color = charge_bar_color(&row);
 	let ready = row.readiness.can_activate;
@@ -248,14 +267,16 @@ pub(crate) fn charge_title(row: &LubikanHudRow) -> String {
 	format!("{name}  {current}/{capacity}")
 }
 
-pub(crate) fn charge_status(
-	row: &LubikanHudRow,
-	healing: Option<&LubikanSelfHealingHudPlaceholder>,
-) -> String {
-	if let Some(healing) = healing.filter(|healing| {
-		row.account.is_self() && healing.active && healing.remaining_secs > 0.0
-	}) {
-		return format!("Healing {:.0}s", healing.remaining_secs.ceil());
+pub(crate) fn charge_status(row: &LubikanHudRow, heal: Option<LubikanHudSelfHeal>) -> String {
+	if let Some(heal) = heal.filter(|heal| row.account.is_self() && heal.remaining > 0.0) {
+		if heal.rate > 0.0 {
+			return format!(
+				"Healing {:.0} ({:.0}/s)",
+				heal.remaining.ceil(),
+				heal.rate
+			);
+		}
+		return format!("Healing {:.0}", heal.remaining.ceil());
 	}
 	match row.activation.phase {
 		LubikanActivationPhase::Active if row.activation.session.is_some() => {
@@ -317,6 +338,8 @@ mod tests {
 			activation: LubikanActivation::idle(LubikanAccountId::SELF),
 		};
 		assert_eq!(charge_status(&ready, None), "Ready");
+		let healing = LubikanHudSelfHeal { remaining: 55.0, rate: 5.0 };
+		assert_eq!(charge_status(&ready, Some(healing)), "Healing 55 (5/s)");
 		let empty = LubikanHudRow {
 			charge: LubikanCharge::new(0.0, 100.0),
 			..ready

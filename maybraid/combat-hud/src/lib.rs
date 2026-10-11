@@ -23,7 +23,7 @@ use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
 pub use cycle_cue::CombatHudInventoryCycleCategory;
-pub use lubikan_charge::{LubikanChargeFlyTarget, LubikanSelfHealingHudPlaceholder};
+pub use lubikan_charge::LubikanChargeFlyTarget;
 pub use score::{CombatScore, LiveEnemies};
 pub use screen_pin::ScreenPin;
 
@@ -94,8 +94,12 @@ impl Plugin for CombatHudPlugin {
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
 			.init_resource::<CombatHudInventoryCycleCategory>()
-			.init_resource::<LubikanSelfHealingHudPlaceholder>()
-			.configure_sets(PostUpdate, CombatHudSystems::Health.after(LubikanSystems::Award))
+			.configure_sets(
+				PostUpdate,
+				CombatHudSystems::Health
+					.after(LubikanSystems::Heal)
+					.after(LubikanSystems::Award),
+			)
 			.add_systems(Startup, spawn_combat_hud);
 		if self.health_bars {
 			app.init_resource::<CombatHudOpponentTotal>()

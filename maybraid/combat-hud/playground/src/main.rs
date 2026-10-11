@@ -7,15 +7,12 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 use bevy::winit::WinitSettings;
 use clap::Parser;
-use combat_hud::{
-	CombatHudInventoryCycleCategory, CombatHudPlugin, CombatHudVisible,
-	LubikanSelfHealingHudPlaceholder,
-};
+use combat_hud::{CombatHudInventoryCycleCategory, CombatHudPlugin, CombatHudVisible};
 use damage::Health;
 use lubikans::{
-	fixtures::{install_interface, spawn_self_owner},
-	LubikanCatalog, LubikanChargeChanged, LubikanChargeReason,
-	LubikanInterfacePlugin, LubikanLedger, LubikanOwner,
+	fixtures::{install_gameplay, install_interface, spawn_self_owner},
+	LubikanActivationRequest, LubikanCatalog, LubikanChargeChanged, LubikanChargeReason,
+	LubikanHealingEnabled, LubikanInterfacePlugin, LubikanLedger, LubikanOwner, LubikanSelfHeal,
 };
 use player::Player;
 
@@ -36,7 +33,7 @@ enum StateKind {
 	PartialCharge,
 	Ready,
 	Activating,
-	HealingPlaceholder,
+	SelfHealing,
 	PointMidflight,
 	PausedHidden,
 }
@@ -57,6 +54,11 @@ struct StateCapturePlan {
 	last_applied: Option<usize>,
 	captured_this_step: bool,
 	ledger_snapshot: Option<f32>,
+}
+
+#[derive(Resource, Default)]
+struct CaptureSelfHealPriming {
+	armed: bool,
 }
 
 #[derive(Resource)]
@@ -134,9 +136,9 @@ fn capture_steps() -> Vec<StateStep> {
 			dwell_secs: 0.35,
 		},
 		StateStep {
-			label: "04-healing-placeholder",
-			kind: StateKind::HealingPlaceholder,
-			dwell_secs: 0.35,
+			label: "04-self-healing",
+			kind: StateKind::SelfHealing,
+			dwell_secs: 1.0,
 		},
 		StateStep {
 			label: "05-point-midflight",
@@ -182,9 +184,11 @@ fn main() {
 			score: false,
 		})
 		.insert_resource(CombatHudVisible(true))
-		.insert_resource(LubikanSelfHealingHudPlaceholder::default())
-		.add_systems(Update, (apply_capture_state, drive_capture_states));
+		.insert_resource(LubikanHealingEnabled(true))
+		.init_resource::<CaptureSelfHealPriming>()
+		.add_systems(Update, freeze_self_heal_capture);
 	install_interface(&mut app);
+	install_gameplay(&mut app);
 	let owner = spawn_self_owner(app.world_mut());
 	// No `Name`: vitals show the default character label ("Player"), not a debug title.
 	app.world_mut().entity_mut(owner).insert((
@@ -196,6 +200,7 @@ fn main() {
 		Transform::from_xyz(0.0, 6.0, 14.0).looking_at(Vec3::ZERO, Vec3::Y),
 	));
 	app.insert_resource(PreviewOwner(owner));
+	app.add_systems(Update, (apply_capture_state, drive_capture_states).chain());
 	if app.world().resource::<Cli>().capture_states {
 		let _ = std::fs::create_dir_all(artifacts_dir());
 		app.insert_resource(StateCapturePlan {
@@ -210,6 +215,21 @@ fn main() {
 	app.run();
 }
 
+fn freeze_self_heal_capture(
+	owner: Res<PreviewOwner>,
+	mut priming: ResMut<CaptureSelfHealPriming>,
+	heal: Res<LubikanSelfHeal>,
+	mut enabled: ResMut<LubikanHealingEnabled>,
+) {
+	if !priming.armed {
+		return;
+	}
+	if heal.active && heal.owner == Some(owner.0) {
+		enabled.0 = false;
+		priming.armed = false;
+	}
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_capture_state(
 	cli: Res<Cli>,
@@ -217,9 +237,11 @@ fn apply_capture_state(
 	owner: Res<PreviewOwner>,
 	catalog: Res<LubikanCatalog>,
 	mut hud: ResMut<CombatHudVisible>,
-	mut healing: ResMut<LubikanSelfHealingHudPlaceholder>,
+	mut priming: ResMut<CaptureSelfHealPriming>,
+	mut healing_enabled: ResMut<LubikanHealingEnabled>,
 	mut category: ResMut<CombatHudInventoryCycleCategory>,
 	mut ledgers: Query<&mut LubikanLedger, With<LubikanOwner>>,
+	mut healths: Query<&mut Health>,
 	mut commands: Commands,
 ) {
 	if !cli.capture_states {
@@ -235,9 +257,14 @@ fn apply_capture_state(
 	}
 	plan.last_applied = Some(index);
 	let step = plan.steps[index];
-	*healing = LubikanSelfHealingHudPlaceholder::default();
+	priming.armed = false;
+	healing_enabled.0 = true;
 	*category = CombatHudInventoryCycleCategory::Weapons;
 	*hud = CombatHudVisible(true);
+
+	if let Ok(mut health) = healths.get_mut(owner.0) {
+		*health = Health { current: 68.0, max: 100.0 };
+	}
 
 	if let Ok(mut ledger) = ledgers.get_mut(owner.0) {
 		let account = ledger.equipped().id();
@@ -255,9 +282,14 @@ fn apply_capture_state(
 				ledger.apply_to_equipped(capacity - current);
 				ledger.try_activate(&catalog, None).ok();
 			}
-			StateKind::HealingPlaceholder => {
-				ledger.apply_to_equipped(55.0 - current);
-				*healing = LubikanSelfHealingHudPlaceholder { active: true, remaining_secs: 4.0 };
+			StateKind::SelfHealing => {
+				if let Ok(mut health) = healths.get_mut(owner.0) {
+					health.current = 40.0;
+					health.max = 100.0;
+				}
+				ledger.apply_to_equipped(capacity - current);
+				commands.write_message(LubikanActivationRequest::equipped(owner.0));
+				priming.armed = true;
 			}
 			StateKind::PointMidflight => {
 				ledger.apply_to_equipped(50.0 - current);
@@ -279,10 +311,13 @@ fn apply_capture_state(
 	}
 }
 
+#[allow(clippy::too_many_arguments)]
 fn drive_capture_states(
 	time: Res<Time>,
 	cli: Res<Cli>,
 	plan: Option<ResMut<StateCapturePlan>>,
+	priming: Res<CaptureSelfHealPriming>,
+	heal: Res<LubikanSelfHeal>,
 	owner: Res<PreviewOwner>,
 	ledgers: Query<&LubikanLedger, With<LubikanOwner>>,
 	mut exit: MessageWriter<AppExit>,
@@ -312,6 +347,9 @@ fn drive_capture_states(
 	}
 
 	if plan.dwell < step.dwell_secs {
+		return;
+	}
+	if step.kind == StateKind::SelfHealing && (priming.armed || !heal.active) {
 		return;
 	}
 
