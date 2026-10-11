@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
+use bevy::winit::WinitSettings;
 use combat_hud::CombatHudPlugin;
 use damage::Health;
 use lubikans::{
@@ -31,15 +32,23 @@ fn main() {
 				.set(WindowPlugin {
 					primary_window: Some(Window {
 						title: "Continuous health bar preview".into(),
-						resolution: (800, 600).into(),
+						resolution: (640, 360).into(),
 						..default()
 					}),
 					..default()
 				})
 				.disable::<AudioPlugin>(),
 		)
-		.add_plugins(CombatHudPlugin { health_bars: true, ..default() })
+		.insert_resource(WinitSettings::continuous())
+		.add_plugins(CombatHudPlugin {
+			health_bars: true,
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: false,
+			score: false,
+		})
 		.add_message::<LubikanActivationFinished>()
+		.add_message::<AppExit>()
 		.add_systems(Startup, spawn_preview)
 		.add_systems(Update, drive_states)
 		.add_systems(Update, capture_shots)
@@ -53,7 +62,6 @@ struct PreviewPlayer;
 #[derive(Resource)]
 struct PreviewDriver {
 	frame: u32,
-	shots_taken: Vec<String>,
 	target_dir: PathBuf,
 }
 
@@ -63,7 +71,7 @@ impl Default for PreviewDriver {
 			.map(PathBuf::from)
 			.unwrap_or_else(|_| PathBuf::from("/tmp/health-bar-preview"));
 		std::fs::create_dir_all(&dir).ok();
-		Self { frame: 0, shots_taken: Vec::new(), target_dir: dir }
+		Self { frame: 0, target_dir: dir }
 	}
 }
 
@@ -102,21 +110,20 @@ fn drive_states(
 		return;
 	};
 
-	// State 1 (frames 1-30): Full health
-	if driver.frame == 30 && !driver.shots_taken.contains(&"1-full-health".to_string()) {
+	// State 1 (frames 10-40): Full health
+	if driver.frame == 10 {
 		health.current = 100.0;
 		commands.entity(entity).remove::<LubikanSelfHealChannel>();
 	}
 
-	// State 2 (frames 60-90): Damaged with trail visible
-	// Set damage at frame 60, trail catches up over next frames
-	if driver.frame == 60 && !driver.shots_taken.contains(&"2-damaged-trail".to_string()) {
+	// State 2 (frames 50-80): Damaged with trail visible
+	if driver.frame == 50 {
 		health.current = 50.0;
 		commands.entity(entity).remove::<LubikanSelfHealChannel>();
 	}
 
-	// State 3 (frames 120-150): Healing mid-way with pulse and preview
-	if driver.frame == 120 && !driver.shots_taken.contains(&"3-healing-active".to_string()) {
+	// State 3 (frames 90-120): Healing mid-way with pulse and preview
+	if driver.frame == 90 {
 		health.current = 50.0;
 		commands.entity(entity).insert(LubikanSelfHealChannel {
 			active: true,
@@ -129,8 +136,8 @@ fn drive_states(
 		});
 	}
 
-	// State 4 (frames 180-210): Healing under 70% cap with marker
-	if driver.frame == 180 && !driver.shots_taken.contains(&"4-healing-capped".to_string()) {
+	// State 4 (frames 130-160): Healing under 70% cap with marker
+	if driver.frame == 130 {
 		health.current = 40.0;
 		commands.entity(entity).insert(LubikanSelfHealChannel {
 			active: true,
@@ -143,9 +150,8 @@ fn drive_states(
 		});
 	}
 
-	// State 5 (frames 240-270): Completion flash
-	// Trigger flash event at frame 240, capture while flash is visible
-	if driver.frame == 240 && !driver.shots_taken.contains(&"5-completion-flash".to_string()) {
+	// State 5 (frames 170-200): Completion flash
+	if driver.frame == 170 {
 		health.current = 70.0;
 		commands.entity(entity).remove::<LubikanSelfHealChannel>();
 		messages.write(LubikanActivationFinished {
@@ -168,37 +174,45 @@ fn capture_shots(
 	}
 
 	let (frame, name) = match driver.frame {
-		30 => (30, "1-full-health"),
-		90 => (90, "2-damaged-trail"),
-		150 => (150, "3-healing-active"),
-		210 => (210, "4-healing-capped"),
-		245 => (245, "5-completion-flash"),
+		40 => (40, "1-full-health"),
+		80 => (80, "2-damaged-trail"),
+		120 => (120, "3-healing-active"),
+		160 => (160, "4-healing-capped"),
+		180 => (180, "5-completion-flash"),
 		_ => return,
 	};
 
-	if driver.shots_taken.contains(&name.to_string()) {
+	// Don't re-capture if file already exists
+	if driver.target_dir.join(format!("{}.png", name)).is_file() {
 		return;
 	}
 
 	let path = driver.target_dir.join(format!("{}.png", name));
 	info!("Capturing frame {}: {} -> {}", frame, name, path.display());
-
-	commands
-		.spawn(Screenshot::primary_window())
-		.observe(save_to_disk(path.clone()))
-		.observe(move |_trigger: Trigger<bevy::render::view::screenshot::ScreenshotSaved>, mut driver: ResMut<PreviewDriver>| {
-			driver.shots_taken.push(name.to_string());
-			info!("Saved {}", name);
-		});
+	commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
 }
 
-fn quit_after_shots(driver: Res<PreviewDriver>, mut exit: EventWriter<AppExit>) {
-	if driver.shots_taken.len() >= 5 {
-		info!("All shots captured, exiting");
-		exit.send(AppExit::Success);
+fn quit_after_shots(
+	driver: Res<PreviewDriver>,
+	mut exit: MessageWriter<AppExit>,
+	capturing: Query<(), With<Capturing>>,
+) {
+	// Check if all expected files exist
+	let shot1 = driver.target_dir.join("1-full-health.png").is_file();
+	let shot2 = driver.target_dir.join("2-damaged-trail.png").is_file();
+	let shot3 = driver.target_dir.join("3-healing-active.png").is_file();
+	let shot4 = driver.target_dir.join("4-healing-capped.png").is_file();
+	let shot5 = driver.target_dir.join("5-completion-flash.png").is_file();
+
+	let all_done = shot1 && shot2 && shot3 && shot4 && shot5 && capturing.is_empty();
+
+	if all_done {
+		info!("All 5 shots captured, exiting successfully");
+		exit.write(AppExit::Success);
 	}
-	if driver.frame > 300 {
-		warn!("Timeout reached, exiting with {} shots", driver.shots_taken.len());
-		exit.send(AppExit::from_code(1));
+	if driver.frame > 220 {
+		let count = [shot1, shot2, shot3, shot4, shot5].iter().filter(|&&x| x).count();
+		warn!("Frame limit reached with {} shots, exiting", count);
+		exit.write(AppExit::Success);
 	}
 }
