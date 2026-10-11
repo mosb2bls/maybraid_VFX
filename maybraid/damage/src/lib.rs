@@ -2,15 +2,27 @@
 //! does not know about firearms.
 
 mod apply;
+mod attribution;
 mod from_projectiles;
+mod history;
 mod lifecycle;
+mod lubikan;
 
 use bevy::prelude::*;
 use projectiles::tick_flights;
 
 pub use apply::apply_hits;
+pub use attribution::{DamageActorId, ResponsibleOwner};
 pub use from_projectiles::contacts_to_hits;
+pub use history::{
+	maintain_damage_history, ClearDamageHistory, DamageHistory, DamageHistoryPolicy, DamageRecord,
+	TimeInterval,
+};
 pub use lifecycle::{mark_downed, tick_queued_despawns, DespawnAfter, Downed};
+pub use lubikan::{
+	LubikanAccountBinding, LubikanAccountId, LubikanAttribution, LubikanDefinitionId,
+	LubikanOwnerLifetime,
+};
 
 /// Default DPC used when a bolt is spawned without catalog stats.
 pub const DEFAULT_HIT: f32 = 25.0;
@@ -22,6 +34,7 @@ pub const DEFAULT_MAX_HEALTH: f32 = 100.0;
 pub enum DamageSystems {
 	Collect,
 	Apply,
+	History,
 	Down,
 }
 
@@ -150,12 +163,16 @@ impl Plugin for DamagePlugin {
 		app.add_message::<Hit>()
 			.add_message::<DamageApplied>()
 			.add_message::<Died>()
+			.add_message::<ClearDamageHistory>()
+			.init_resource::<DamageHistory>()
+			.init_resource::<DamageHistoryPolicy>()
 			.configure_sets(
 				PostUpdate,
 				(
 					DamageSystems::Collect.after(tick_flights),
 					DamageSystems::Apply.after(DamageSystems::Collect),
-					DamageSystems::Down.after(DamageSystems::Apply),
+					DamageSystems::History.after(DamageSystems::Apply),
+					DamageSystems::Down.after(DamageSystems::History),
 				),
 			)
 			.add_systems(
@@ -163,6 +180,7 @@ impl Plugin for DamagePlugin {
 				(
 					contacts_to_hits.in_set(DamageSystems::Collect),
 					apply_hits.in_set(DamageSystems::Apply),
+					maintain_damage_history.in_set(DamageSystems::History),
 				),
 			)
 			.add_systems(PostUpdate, mark_downed.in_set(DamageSystems::Down))
