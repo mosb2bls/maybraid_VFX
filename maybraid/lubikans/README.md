@@ -21,6 +21,10 @@ LubikanChargeChanged   (authoritative award / spend)
 HUD, occupancy, input, and combat rules read this store. They do not create
 charge state by being visible.
 
+Damage history stays generic. [`lubikans-damage`](damage/) copies
+[`LubikanAccountBinding`](src/ledger.rs) onto `damage::DamageCredit` so the
+`damage` crate does not depend on this one.
+
 ## Public types
 
 | Type | Role |

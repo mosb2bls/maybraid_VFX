@@ -101,6 +101,7 @@ members = [
   "maybraid/input",
   "maybraid/combat-hud",
   "maybraid/lubikans",
+  "maybraid/lubikans/damage",
   "maybraid/player",
   "maybraid/player-camera",
   "maybraid/world/layers/mobs/characters/generated",
@@ -354,6 +355,7 @@ maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
 combat-hud = { path = "maybraid/combat-hud" }
 lubikans = { path = "maybraid/lubikans" }
+lubikans-damage = { path = "maybraid/lubikans/damage" }
 player = { path = "maybraid/player" }
 player-camera = { path = "maybraid/player-camera" }
 movement-realization = { path = "maybraid/movement-realization" }

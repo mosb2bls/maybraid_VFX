@@ -1,14 +1,11 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::*;
-use lubikans::{
-	LubikanAccountBinding, LubikanAccountId, LubikanDefinitionId, LubikanLedger, LubikanSelection,
-};
 use projectiles::ProjectileContact;
 
 use crate::{
-	maintain_damage_history, ClearDamageHistory, DamageActorId, DamageApplied, DamageHistory,
-	DamageHistoryPolicy, DamagePlugin, DamageRecord, DamageSystems, Health, Hit, ResponsibleOwner,
-	TimeInterval,
+	maintain_damage_history, ClearDamageHistory, DamageActorId, DamageApplied, DamageCredit,
+	DamageHistory, DamageHistoryPolicy, DamagePlugin, DamageRecord, DamageSystems, Health, Hit,
+	ResponsibleOwner, TimeInterval,
 };
 
 fn history_app() -> App {
@@ -23,9 +20,24 @@ fn write_applied(app: &mut App, target: Entity, source: Option<Entity>, amount: 
 		target,
 		source,
 		amount,
+		applied: amount,
 		remaining: 100.0 - amount,
 		point: Vec3::ZERO,
 	});
+}
+
+fn record(at: f32, recipient: u64, requested: f32, applied: f32, remaining: f32) -> DamageRecord {
+	DamageRecord {
+		at,
+		recipient: DamageActorId::from_bits(recipient),
+		requested,
+		applied,
+		remaining,
+		point: Vec3::ZERO,
+		source: None,
+		owner: None,
+		credit: None,
+	}
 }
 
 fn history(app: &App) -> Result<&DamageHistory> {
@@ -42,36 +54,9 @@ fn set_elapsed(app: &mut App, secs: f32) {
 #[test]
 fn interval_boundaries_are_closed() -> Result<()> {
 	let mut history = DamageHistory::default();
-	history.push(DamageRecord {
-		at: 1.0,
-		recipient: DamageActorId::from_bits(1),
-		amount: 4.0,
-		remaining: 96.0,
-		point: Vec3::ZERO,
-		source: None,
-		owner: None,
-		lubikan: None,
-	});
-	history.push(DamageRecord {
-		at: 2.0,
-		recipient: DamageActorId::from_bits(1),
-		amount: 5.0,
-		remaining: 91.0,
-		point: Vec3::ZERO,
-		source: None,
-		owner: None,
-		lubikan: None,
-	});
-	history.push(DamageRecord {
-		at: 3.0,
-		recipient: DamageActorId::from_bits(1),
-		amount: 6.0,
-		remaining: 85.0,
-		point: Vec3::ZERO,
-		source: None,
-		owner: None,
-		lubikan: None,
-	});
+	history.push(record(1.0, 1, 4.0, 4.0, 96.0));
+	history.push(record(2.0, 1, 5.0, 5.0, 91.0));
+	history.push(record(3.0, 1, 6.0, 6.0, 85.0));
 	let recipient = DamageActorId::from_bits(1);
 	let in_range: Vec<f32> = history
 		.for_recipient_in(recipient, TimeInterval::new(2.0, 3.0))
@@ -88,30 +73,13 @@ fn interval_boundaries_are_closed() -> Result<()> {
 }
 
 #[test]
-fn healing_lookback_ignores_non_positive_hits() -> Result<()> {
+fn healing_lookback_uses_applied_hp_not_requested() -> Result<()> {
 	let recipient = DamageActorId::from_bits(7);
 	let mut history = DamageHistory::default();
-	history.push(DamageRecord {
-		at: 4.0,
-		recipient,
-		amount: 0.0,
-		remaining: 100.0,
-		point: Vec3::ZERO,
-		source: None,
-		owner: None,
-		lubikan: None,
-	});
+	history.push(record(4.0, 7, 8.0, 0.0, 100.0));
 	assert!(!history.received_positive_damage_since(recipient, 1.0));
-	history.push(DamageRecord {
-		at: 5.0,
-		recipient,
-		amount: 1.0,
-		remaining: 99.0,
-		point: Vec3::ZERO,
-		source: None,
-		owner: None,
-		lubikan: None,
-	});
+	assert!(history.records().next().is_some_and(|record| record.is_zero_effect()));
+	history.push(record(5.0, 7, 1.0, 1.0, 99.0));
 	assert!(history.received_positive_damage_since(recipient, 5.0));
 	assert!(!history.received_positive_damage_since(DamageActorId::from_bits(8), 1.0));
 	Ok(())
@@ -127,21 +95,19 @@ fn multiple_hits_in_one_frame_are_retained() -> Result<()> {
 	app.update();
 	let recorded: Vec<f32> = history(&app)?
 		.for_recipient(DamageActorId::from_entity(victim))
-		.map(|record| record.amount)
+		.map(|record| record.applied)
 		.collect();
 	assert_eq!(recorded, vec![3.0, 5.0]);
 	Ok(())
 }
 
 #[test]
-fn source_despawn_keeps_attribution() -> Result<()> {
+fn source_despawn_keeps_generic_credit() -> Result<()> {
 	let mut app = history_app();
 	let victim = app.world_mut().spawn(Health::from_max(100.0)).id();
-	let account = LubikanAccountId::SELF;
-	let attacker = app
-		.world_mut()
-		.spawn(LubikanAccountBinding::self_on(Entity::from_bits(11)))
-		.id();
+	let owner = Entity::from_bits(11);
+	let credit = DamageCredit::from_owner_entity(3, 0, owner);
+	let attacker = app.world_mut().spawn(credit).id();
 	let attacker_id = DamageActorId::from_entity(attacker);
 	write_applied(&mut app, victim, Some(attacker), 8.0);
 	app.update();
@@ -158,8 +124,8 @@ fn source_despawn_keeps_attribution() -> Result<()> {
 			record.source
 		));
 	}
-	if record.lubikan.is_none_or(|credit| credit.account != account) {
-		return Err(anyhow!("Lubikan account should remain after source despawn"));
+	if record.credit != Some(credit) {
+		return Err(anyhow!("generic credit should remain after source despawn"));
 	}
 	assert!(!app.world().entities().contains(attacker));
 	Ok(())
@@ -187,21 +153,11 @@ fn recycled_entity_does_not_match_retired_recipient() -> Result<()> {
 #[test]
 fn capacity_overflow_drops_oldest() -> Result<()> {
 	let mut history = DamageHistory::default();
-	let recipient = DamageActorId::from_bits(3);
 	for index in 0..4 {
-		history.push(DamageRecord {
-			at: index as f32,
-			recipient,
-			amount: 1.0 + index as f32,
-			remaining: 90.0,
-			point: Vec3::ZERO,
-			source: None,
-			owner: None,
-			lubikan: None,
-		});
+		history.push(record(index as f32, 3, 1.0 + index as f32, 1.0 + index as f32, 90.0));
 	}
 	history.evict(10.0, DamageHistoryPolicy { retain_secs: 60.0, max_records: 2 });
-	let amounts: Vec<f32> = history.records().map(|record| record.amount).collect();
+	let amounts: Vec<f32> = history.records().map(|record| record.applied).collect();
 	assert_eq!(amounts, vec![3.0, 4.0]);
 	Ok(())
 }
@@ -209,29 +165,10 @@ fn capacity_overflow_drops_oldest() -> Result<()> {
 #[test]
 fn expired_records_are_removed() -> Result<()> {
 	let mut history = DamageHistory::default();
-	let recipient = DamageActorId::from_bits(4);
-	history.push(DamageRecord {
-		at: 1.0,
-		recipient,
-		amount: 2.0,
-		remaining: 98.0,
-		point: Vec3::ZERO,
-		source: None,
-		owner: None,
-		lubikan: None,
-	});
-	history.push(DamageRecord {
-		at: 10.0,
-		recipient,
-		amount: 3.0,
-		remaining: 95.0,
-		point: Vec3::ZERO,
-		source: None,
-		owner: None,
-		lubikan: None,
-	});
+	history.push(record(1.0, 4, 2.0, 2.0, 98.0));
+	history.push(record(10.0, 4, 3.0, 3.0, 95.0));
 	history.evict(12.0, DamageHistoryPolicy { retain_secs: 5.0, max_records: 64 });
-	let amounts: Vec<f32> = history.records().map(|record| record.amount).collect();
+	let amounts: Vec<f32> = history.records().map(|record| record.applied).collect();
 	assert_eq!(amounts, vec![3.0]);
 	Ok(())
 }
@@ -256,10 +193,10 @@ fn session_reset_clears_history() -> Result<()> {
 #[test]
 fn responsible_owner_is_distinct_from_direct_attacker() -> Result<()> {
 	let mut app = history_app();
-	let account = LubikanAccountId::SELF;
 	let victim = app.world_mut().spawn(Health::from_max(100.0)).id();
 	let owner = app.world_mut().spawn_empty().id();
-	app.world_mut().entity_mut(owner).insert(LubikanAccountBinding::self_on(owner));
+	let credit = DamageCredit::from_owner_entity(9, 0, owner);
+	app.world_mut().entity_mut(owner).insert(credit);
 	let summon = app.world_mut().spawn(ResponsibleOwner::new(owner)).id();
 	write_applied(&mut app, victim, Some(summon), 12.0);
 	app.update();
@@ -274,22 +211,18 @@ fn responsible_owner_is_distinct_from_direct_attacker() -> Result<()> {
 	if record.owner != Some(DamageActorId::from_entity(owner)) {
 		return Err(anyhow!("responsible owner should be the summoner"));
 	}
-	if record
-		.lubikan
-		.is_none_or(|credit| credit.account != account || !credit.is_self())
-	{
-		return Err(anyhow!("charge credit should name the owner's Self account"));
+	if record.credit != Some(credit) {
+		return Err(anyhow!("credit on the owner should attach through ResponsibleOwner"));
 	}
 	Ok(())
 }
 
 #[test]
-fn summon_keeps_charge_credit_after_owner_despawn() -> Result<()> {
+fn credit_on_summon_survives_owner_despawn() -> Result<()> {
 	let mut app = history_app();
-	let account = LubikanAccountId::SELF;
 	let owner = app.world_mut().spawn_empty().id();
-	let binding = LubikanAccountBinding::self_account(account, owner);
-	let summon = app.world_mut().spawn((ResponsibleOwner::new(owner), binding)).id();
+	let credit = DamageCredit::from_owner_entity(9, 0, owner);
+	let summon = app.world_mut().spawn((ResponsibleOwner::new(owner), credit)).id();
 	let victim = app.world_mut().spawn(Health::from_max(100.0)).id();
 	app.world_mut().entity_mut(owner).despawn();
 	write_applied(&mut app, victim, Some(summon), 6.0);
@@ -302,37 +235,95 @@ fn summon_keeps_charge_credit_after_owner_despawn() -> Result<()> {
 	if record.owner != Some(DamageActorId::from_entity(owner)) {
 		return Err(anyhow!("owner actor id should stay on the record"));
 	}
-	if record.lubikan.is_none_or(|credit| credit.account != account) {
-		return Err(anyhow!("summon-stamped #1107 account should survive owner despawn"));
+	if record.credit != Some(credit) {
+		return Err(anyhow!("summon-stamped credit should survive owner despawn"));
 	}
 	Ok(())
 }
 
 #[test]
-fn owner_binding_generation_does_not_follow_a_replaced_body() -> Result<()> {
-	let first = Entity::from_bits(50);
-	let replacement = Entity::from_bits(51);
-	let binding = LubikanAccountBinding::self_on(first);
-	assert!(binding.matches_body(first));
-	assert!(!binding.matches_body(replacement));
-	assert_eq!(binding.account, LubikanAccountId::SELF);
-	assert_eq!(binding.generation(), first.to_bits());
-	assert_ne!(binding.generation(), replacement.to_bits());
+fn overkill_records_applied_hp_separately_from_requested() -> Result<()> {
+	let mut app = history_app();
+	let victim = app.world_mut().spawn(Health::from_max(10.0)).id();
+	app.world_mut().write_message(Hit {
+		target: victim,
+		source: None,
+		amount: 25.0,
+		point: Vec3::ZERO,
+	});
+	app.update();
+	let record = history(&app)?
+		.for_recipient(DamageActorId::from_entity(victim))
+		.next()
+		.copied()
+		.ok_or_else(|| anyhow!("overkill hit should be recorded"))?;
+	if record.requested != 25.0 {
+		return Err(anyhow!("requested should stay 25, got {}", record.requested));
+	}
+	if record.applied != 10.0 {
+		return Err(anyhow!("applied should be remaining HP 10, got {}", record.applied));
+	}
+	if record.remaining != 0.0 || !record.is_overkill() || !record.is_positive() {
+		return Err(anyhow!("overkill should be positive applied HP, not the request"));
+	}
 	Ok(())
 }
 
 #[test]
-fn charge_credit_snapshots_ledger_selection() -> Result<()> {
-	let owner = Entity::from_bits(9);
-	let ledger = LubikanLedger::default();
-	let from_ledger = LubikanAccountBinding::from_selection(ledger.selection(), owner);
-	let from_resolved = LubikanAccountBinding::from_selection(LubikanSelection::default(), owner);
-	assert_eq!(from_ledger.account, LubikanAccountId::SELF);
-	assert_eq!(from_ledger.definition, LubikanDefinitionId::SELF);
-	assert_eq!(from_ledger.generation(), owner.to_bits());
-	assert_eq!(from_ledger, from_resolved);
-	assert_eq!(from_ledger.account.to_bits(), LubikanAccountId::SELF.to_bits());
-	assert_eq!(LubikanAccountId::from_bits(from_ledger.account.to_bits()), LubikanAccountId::SELF);
+fn already_dead_hits_do_not_enter_history() -> Result<()> {
+	let mut app = history_app();
+	let victim = app.world_mut().spawn(Health::from_max(10.0)).id();
+	app.world_mut().write_message(Hit {
+		target: victim,
+		source: None,
+		amount: 10.0,
+		point: Vec3::ZERO,
+	});
+	app.update();
+	if history(&app)?.len() != 1 {
+		return Err(anyhow!("lethal hit should record once"));
+	}
+	app.world_mut().write_message(Hit {
+		target: victim,
+		source: None,
+		amount: 7.0,
+		point: Vec3::ZERO,
+	});
+	app.update();
+	let hist = history(&app)?;
+	if hist.len() != 1 {
+		return Err(anyhow!("already-dead hits are rejected at apply and must not append"));
+	}
+	if hist.received_positive_damage_since(DamageActorId::from_entity(victim), 0.0)
+		&& hist.records().any(|record| record.requested == 7.0)
+	{
+		return Err(anyhow!("corpse hit must not look like a new apply"));
+	}
+	Ok(())
+}
+
+#[test]
+fn zero_damage_is_recorded_as_zero_effect() -> Result<()> {
+	let mut app = history_app();
+	let victim = app.world_mut().spawn(Health::from_max(100.0)).id();
+	app.world_mut().write_message(Hit {
+		target: victim,
+		source: None,
+		amount: 0.0,
+		point: Vec3::ZERO,
+	});
+	app.update();
+	let record = history(&app)?
+		.for_recipient(DamageActorId::from_entity(victim))
+		.next()
+		.copied()
+		.ok_or_else(|| anyhow!("zero-amount hit on a live target should still be recorded"))?;
+	if !record.is_zero_effect() || record.is_positive() || record.applied != 0.0 {
+		return Err(anyhow!("zero damage must be distinguishable from a positive apply"));
+	}
+	if history(&app)?.received_positive_damage_since(DamageActorId::from_entity(victim), 0.0) {
+		return Err(anyhow!("healing lookback must ignore zero-effect hits"));
+	}
 	Ok(())
 }
 
@@ -355,8 +346,8 @@ fn victim_retirement_leaves_history_queryable() -> Result<()> {
 		.next()
 		.copied()
 		.ok_or_else(|| anyhow!("history must outlive the retired victim"))?;
-	if !record.is_positive() || record.amount != 10.0 {
-		return Err(anyhow!("retired victim record should keep the accepted amount"));
+	if !record.is_positive() || record.applied != 10.0 {
+		return Err(anyhow!("retired victim record should keep the applied HP"));
 	}
 	Ok(())
 }

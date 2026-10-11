@@ -13,16 +13,17 @@ meaningful after source or victim despawn and do not match recycled occupants.
 [`ResponsibleOwner`](src/attribution.rs) is the summon-owner seam: the live
 attacker stays on the record, and the owner is snapshotted separately.
 
-Lubikan charge credit is named through the shared [`lubikans`](../lubikans/)
-interface ([#1107](https://github.com/ramate-io/maybraid/issues/1107)): a
-[`LubikanAccountBinding`](../lubikans/src/ledger.rs) snapshot (`account`,
-`definition`, `owner`; `generation()` is `owner.to_bits()`). Selection is
-[`LubikanSelection`](../lubikans/src/selection.rs) / `LubikanLedger::selection()`.
-[`LubikanOwnerLifetime`](../lubikans/src/lifetime.rs) is the lifetime *event*,
-not the snapshot token. History does not mutate charge. Healing lookback uses
-[`DamageHistory::received_positive_damage_since`](src/history.rs); an active
-healing session should latch that answer rather than depend on the retention
-window forever.
+Each history record stores **applied HP** (clamped by remaining health) and the
+requested/scaled amount separately, so overkill is not overstated and
+zero-effect hits stay distinguishable. Healing lookback uses
+[`DamageHistory::received_positive_damage_since`](src/history.rs) on applied HP;
+an active healing session should latch that answer rather than depend on the
+retention window forever.
+
+Credit is a generic [`DamageCredit`](src/attribution.rs) token (`account`,
+`kind`, owner id). This crate does not depend on [`lubikans`](../lubikans/).
+The Lubikan runtime attaches `LubikanAccountBinding` through
+[`lubikans-damage`](../lubikans/damage/).
 
 Default retention is 45s and 256 records (oldest dropped first). Override
 [`DamageHistoryPolicy`](src/history.rs). Write [`ClearDamageHistory`](src/history.rs)

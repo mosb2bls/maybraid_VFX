@@ -3672,7 +3672,6 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "bevy",
- "lubikans",
  "projectiles",
 ]
 
@@ -6598,6 +6597,16 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "bevy",
+]
+
+[[package]]
+name = "lubikans-damage"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "damage",
+ "lubikans",
 ]
 
 [[package]]

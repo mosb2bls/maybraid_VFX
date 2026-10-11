@@ -50,3 +50,25 @@ impl ResponsibleOwner {
 		DamageActorId::from_entity(self.actor)
 	}
 }
+
+/// Opaque credit token for a later award rule.
+///
+/// Damage does not interpret `account` / `kind`. A Lubikan (or other) runtime
+/// stamps this from its own binding type via a bridge crate so `damage` stays
+/// free of that dependency.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DamageCredit {
+	pub account: u64,
+	pub kind: u64,
+	pub owner: DamageActorId,
+}
+
+impl DamageCredit {
+	pub fn new(account: u64, kind: u64, owner: DamageActorId) -> Self {
+		Self { account, kind, owner }
+	}
+
+	pub fn from_owner_entity(account: u64, kind: u64, owner: Entity) -> Self {
+		Self::new(account, kind, DamageActorId::from_entity(owner))
+	}
+}

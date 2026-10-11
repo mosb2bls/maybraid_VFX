@@ -11,7 +11,7 @@ use bevy::prelude::*;
 use projectiles::{tick_flights, ProjectileContact};
 
 pub use apply::apply_hits;
-pub use attribution::{DamageActorId, ResponsibleOwner};
+pub use attribution::{DamageActorId, DamageCredit, ResponsibleOwner};
 pub use from_projectiles::contacts_to_hits;
 pub use history::{
 	maintain_damage_history, ClearDamageHistory, DamageHistory, DamageHistoryPolicy, DamageRecord,
@@ -53,7 +53,14 @@ impl Health {
 	}
 
 	pub fn apply_damage(&mut self, damage: f32) {
-		self.current = (self.current - damage.max(0.0)).max(0.0);
+		self.take_damage(damage);
+	}
+
+	/// Subtract damage and return the HP actually lost. Overkill is clamped.
+	pub fn take_damage(&mut self, damage: f32) -> f32 {
+		let before = if self.current.is_finite() { self.current.max(0.0) } else { 0.0 };
+		self.current = (before - if damage.is_finite() { damage.max(0.0) } else { 0.0 }).max(0.0);
+		before - self.current
 	}
 
 	pub fn is_dead(self) -> bool {
@@ -133,14 +140,31 @@ pub struct Hit {
 	pub point: Vec3,
 }
 
-/// HP actually subtracted.
+/// One accepted apply. [`Self::amount`] is the requested/scaled injury;
+/// [`Self::applied`] is the HP actually lost after clamping to remaining
+/// health. Zero-effect hits keep `applied == 0` so they stay distinguishable
+/// from overkill (`applied > 0 && applied < amount`).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct DamageApplied {
 	pub target: Entity,
 	pub source: Option<Entity>,
 	pub amount: f32,
+	pub applied: f32,
 	pub remaining: f32,
 	pub point: Vec3,
+}
+
+impl DamageApplied {
+	pub fn is_zero_effect(self) -> bool {
+		!self.applied.is_finite() || self.applied <= 0.0
+	}
+
+	pub fn is_overkill(self) -> bool {
+		self.applied.is_finite()
+			&& self.amount.is_finite()
+			&& self.applied > 0.0
+			&& self.applied < self.amount
+	}
 }
 
 /// `Health` crossed zero this apply.
@@ -191,11 +215,12 @@ mod tests {
 	#[test]
 	fn damage_clamps_at_zero() {
 		let mut health = Health::default();
-		health.apply_damage(25.0);
+		assert_eq!(health.take_damage(25.0), 25.0);
 		assert_eq!(health.current, 75.0);
-		health.apply_damage(100.0);
+		assert_eq!(health.take_damage(100.0), 75.0);
 		assert_eq!(health.current, 0.0);
 		assert!(health.is_dead());
+		assert_eq!(health.take_damage(10.0), 0.0);
 	}
 
 	#[test]

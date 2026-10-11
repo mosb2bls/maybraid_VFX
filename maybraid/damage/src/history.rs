@@ -3,9 +3,8 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
-use lubikans::LubikanAccountBinding;
 
-use crate::{DamageActorId, DamageApplied, ResponsibleOwner};
+use crate::{DamageActorId, DamageApplied, DamageCredit, ResponsibleOwner};
 
 /// Closed interval on game time (`start <= at <= end`). [`TimeInterval::since`]
 /// leaves the end open.
@@ -68,21 +67,34 @@ impl DamageHistoryPolicy {
 }
 
 /// One accepted hit, keyed by durable identities rather than live entities.
+///
+/// [`Self::applied`] is the HP actually lost. [`Self::requested`] is the
+/// scaled `DamageApplied.amount` and may exceed `applied` on overkill.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DamageRecord {
 	pub at: f32,
 	pub recipient: DamageActorId,
-	pub amount: f32,
+	pub requested: f32,
+	pub applied: f32,
 	pub remaining: f32,
 	pub point: Vec3,
 	pub source: Option<DamageActorId>,
 	pub owner: Option<DamageActorId>,
-	pub lubikan: Option<LubikanAccountBinding>,
+	pub credit: Option<DamageCredit>,
 }
 
 impl DamageRecord {
+	/// Strictly positive HP actually lost.
 	pub fn is_positive(self) -> bool {
-		self.amount.is_finite() && self.amount > 0.0
+		self.applied.is_finite() && self.applied > 0.0
+	}
+
+	pub fn is_zero_effect(self) -> bool {
+		!self.is_positive()
+	}
+
+	pub fn is_overkill(self) -> bool {
+		self.is_positive() && self.requested.is_finite() && self.applied < self.requested
 	}
 
 	pub fn in_interval(self, interval: TimeInterval) -> bool {
@@ -145,7 +157,7 @@ impl DamageHistory {
 		self.for_recipient(recipient).filter(move |record| record.in_interval(interval))
 	}
 
-	/// Whether `recipient` took strictly positive damage in `interval`.
+	/// Whether `recipient` took strictly positive HP loss in `interval`.
 	pub fn received_positive_damage(
 		&self,
 		recipient: DamageActorId,
@@ -154,7 +166,7 @@ impl DamageHistory {
 		self.for_recipient_in(recipient, interval).any(|record| record.is_positive())
 	}
 
-	/// Healing lookback: positive damage at or after `since`.
+	/// Healing lookback: positive applied HP at or after `since`.
 	pub fn received_positive_damage_since(&self, recipient: DamageActorId, since: f32) -> bool {
 		self.received_positive_damage(recipient, TimeInterval::since(since))
 	}
@@ -171,14 +183,14 @@ pub fn maintain_damage_history(
 	mut applied: MessageReader<DamageApplied>,
 	mut clear: MessageReader<ClearDamageHistory>,
 	owners: Query<&ResponsibleOwner>,
-	accounts: Query<&LubikanAccountBinding>,
+	credits: Query<&DamageCredit>,
 ) {
 	if clear.read().next().is_some() {
 		history.clear();
 	}
 	let now = time.elapsed_secs();
 	for event in applied.read() {
-		history.push(snapshot_applied(now, event, &owners, &accounts));
+		history.push(snapshot_applied(now, event, &owners, &credits));
 	}
 	history.evict(now, *policy);
 }
@@ -187,7 +199,7 @@ fn snapshot_applied(
 	at: f32,
 	event: &DamageApplied,
 	owners: &Query<&ResponsibleOwner>,
-	accounts: &Query<&LubikanAccountBinding>,
+	credits: &Query<&DamageCredit>,
 ) -> DamageRecord {
 	let recipient = DamageActorId::from_entity(event.target);
 	let source = event.source.map(DamageActorId::from_entity);
@@ -197,19 +209,20 @@ fn snapshot_applied(
 	let responsible = event
 		.source
 		.and_then(|source| owners.get(source).ok().map(|owner| owner.actor).or(Some(source)));
-	let lubikan = event
+	let credit = event
 		.source
-		.and_then(|source| accounts.get(source).ok().copied())
-		.or_else(|| responsible.and_then(|entity| accounts.get(entity).ok().copied()));
+		.and_then(|source| credits.get(source).ok().copied())
+		.or_else(|| responsible.and_then(|entity| credits.get(entity).ok().copied()));
 	DamageRecord {
 		at: finite_time(at),
 		recipient,
-		amount: event.amount,
+		requested: event.amount,
+		applied: event.applied,
 		remaining: event.remaining,
 		point: event.point,
 		source,
 		owner,
-		lubikan,
+		credit,
 	}
 }
 
