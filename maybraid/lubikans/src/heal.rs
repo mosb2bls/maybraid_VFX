@@ -8,8 +8,8 @@ use damage::{
 };
 
 use crate::activation::{
-	LubikanActivationOutcome, LubikanActivationPhase, LubikanActivationReport,
-	LubikanActivationSession, LubikanActivationSessionId,
+	LubikanActivationFinished, LubikanActivationOutcome, LubikanActivationPhase,
+	LubikanActivationReport, LubikanActivationSession, LubikanActivationSessionId,
 };
 use crate::identity::{LubikanAccountId, LubikanDefinitionId};
 use crate::ledger::{LubikanLedger, LubikanOwner};
@@ -172,6 +172,7 @@ struct SelfHealClose<'w, 's> {
 	runtime: ResMut<'w, LubikanSelfHealRuntime>,
 	presentation: ResMut<'w, LubikanSelfHeal>,
 	reports: MessageWriter<'w, LubikanActivationReport>,
+	finished: MessageWriter<'w, LubikanActivationFinished>,
 	ledgers: Query<'w, 's, &'static mut LubikanLedger>,
 	store: ResMut<'w, LubikanSessionStore>,
 	commands: Commands<'w, 's>,
@@ -192,15 +193,21 @@ impl SelfHealClose<'_, '_> {
 	}
 
 	fn close(&mut self, session: LubikanActivationSession, outcome: LubikanActivationOutcome) {
-		close_session(
-			&mut self.commands,
-			&mut self.presentation,
-			&mut self.reports,
-			&mut self.ledgers,
-			&mut self.store,
-			session,
-			outcome,
-		);
+		let mut applied = false;
+		for mut ledger in self.ledgers.iter_mut() {
+			if apply_close(&mut ledger, session, outcome) {
+				applied = true;
+				break;
+			}
+		}
+		if !applied {
+			if let Some(cached) = self.store.cached_ledger_mut() {
+				apply_close(cached, session, outcome);
+			}
+		}
+		self.reports.write(LubikanActivationReport { id: session.id, outcome });
+		self.finished.write(LubikanActivationFinished::from_session(session, outcome));
+		clear_heal(&mut self.commands, &mut self.presentation, Some(session.owner));
 		self.runtime.live = None;
 	}
 }
@@ -442,29 +449,21 @@ fn ledger_session_phase(
 	})
 }
 
-fn close_session(
-	commands: &mut Commands,
-	presentation: &mut LubikanSelfHeal,
-	reports: &mut MessageWriter<LubikanActivationReport>,
-	ledgers: &mut Query<&mut LubikanLedger>,
-	store: &mut LubikanSessionStore,
+/// Close the captured account. A natural complete reports through
+/// [`LubikanActivationFinished`] and returns the account to Idle in this
+/// frame so a later activate in the same life can spend again.
+fn apply_close(
+	ledger: &mut LubikanLedger,
 	session: LubikanActivationSession,
 	outcome: LubikanActivationOutcome,
-) {
-	let mut finished = false;
-	for mut ledger in ledgers.iter_mut() {
-		if ledger.finish_activation(session.id, outcome) {
-			finished = true;
-			break;
-		}
+) -> bool {
+	if !ledger.finish_activation(session.id, outcome) {
+		return false;
 	}
-	if !finished {
-		if let Some(cached) = store.cached_ledger_mut() {
-			cached.finish_activation(session.id, outcome);
-		}
+	if outcome == LubikanActivationOutcome::Completed {
+		ledger.reset_activation(session.account);
 	}
-	reports.write(LubikanActivationReport { id: session.id, outcome });
-	clear_heal(commands, presentation, Some(session.owner));
+	true
 }
 
 fn publish_heal(
@@ -512,8 +511,8 @@ mod tests {
 	use crate::identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
 	use crate::plugin::LubikansPlugin;
 	use crate::{
-		LubikanActivationRefused, LubikanActivationRequest, LubikanChargeChanged,
-		LubikanChargeReason, LubikanOwnerLifetime,
+		LubikanActivationFinished, LubikanActivationRefused, LubikanActivationRequest,
+		LubikanChargeChanged, LubikanChargeReason, LubikanOwnerLifetime,
 	};
 	use anyhow::{anyhow, Result};
 	use bevy::time::{TimeUpdateStrategy, Virtual};
@@ -587,6 +586,13 @@ mod tests {
 
 	fn applied(target: Entity, amount: f32, lost: f32, remaining: f32) -> DamageApplied {
 		DamageApplied { target, source: None, amount, applied: lost, remaining, point: Vec3::ZERO }
+	}
+
+	fn finished(app: &mut App) -> Vec<LubikanActivationFinished> {
+		app.world_mut()
+			.resource_mut::<Messages<LubikanActivationFinished>>()
+			.drain()
+			.collect()
 	}
 
 	#[test]
@@ -666,9 +672,14 @@ mod tests {
 		app.update();
 		assert_eq!(health(&app, owner)?.current, 100.0);
 		assert!(!app.world().resource::<LubikanSelfHeal>().active);
-		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Completed);
+		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Idle);
+		let pulse = finished(&mut app);
+		assert_eq!(pulse.len(), 1);
+		assert_eq!(pulse[0].account, LubikanAccountId::SELF);
+		assert_eq!(pulse[0].outcome, LubikanActivationOutcome::Completed);
 		app.update();
 		assert_eq!(health(&app, owner)?.current, 100.0);
+		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Idle);
 		Ok(())
 	}
 
@@ -730,10 +741,14 @@ mod tests {
 			}
 		}
 		app.update();
-		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Completed);
+		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Idle);
 		assert_eq!(phase(&app, owner, other)?, LubikanActivationPhase::Idle);
 		assert_eq!(charge(&app, owner, other)?, 9.0);
 		assert_eq!(health(&app, owner)?.current, 100.0);
+		let pulse = finished(&mut app);
+		assert_eq!(pulse.len(), 1);
+		assert_eq!(pulse[0].account, LubikanAccountId::SELF);
+		assert_eq!(pulse[0].outcome, LubikanActivationOutcome::Completed);
 		Ok(())
 	}
 
@@ -826,6 +841,66 @@ mod tests {
 				|| !app.world().resource::<LubikanSelfHeal>().active
 		);
 		assert_eq!(health(&app, owner)?.current, 70.0);
+		Ok(())
+	}
+
+	#[test]
+	fn natural_finish_idles_and_a_second_activate_spends_and_heals() -> Result<()> {
+		let mut app = heal_app();
+		let owner = spawn_owner(&mut app, 90.0, 100.0);
+		let cost = app
+			.world()
+			.resource::<crate::LubikanCatalog>()
+			.self_definition()
+			.activation_cost;
+		let first = fund_and_activate(&mut app, owner)?;
+		assert_eq!(health(&app, owner)?.current, 95.0);
+		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Active);
+		app.update();
+		assert_eq!(health(&app, owner)?.current, 100.0);
+		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Idle);
+		assert!(!app.world().resource::<LubikanSelfHeal>().active);
+		let pulse = finished(&mut app);
+		assert_eq!(pulse.len(), 1);
+		assert_eq!(pulse[0].id, first.id);
+		assert_eq!(pulse[0].account, LubikanAccountId::SELF);
+		assert_eq!(pulse[0].owner, owner);
+		assert_eq!(pulse[0].outcome, LubikanActivationOutcome::Completed);
+
+		{
+			let mut health =
+				app.world_mut().get_mut::<Health>(owner).ok_or_else(|| anyhow!("health"))?;
+			health.take_damage(40.0);
+		}
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<LubikanLedger>(owner)
+				.ok_or_else(|| anyhow!("ledger"))?;
+			ledger.apply_to_equipped(cost);
+		}
+		app.world_mut().write_message(LubikanActivationRequest::equipped(owner));
+		app.update();
+		let second = app
+			.world_mut()
+			.resource_mut::<Messages<LubikanActivationSession>>()
+			.drain()
+			.find(|session| session.definition == LubikanDefinitionId::SELF)
+			.ok_or_else(|| anyhow!("second session"))?;
+		assert_ne!(second.id, first.id);
+		assert_eq!(second.account, LubikanAccountId::SELF);
+		let spends: Vec<_> = app
+			.world_mut()
+			.resource_mut::<Messages<LubikanChargeChanged>>()
+			.drain()
+			.filter(|change| change.reason == LubikanChargeReason::ACTIVATION)
+			.collect();
+		assert_eq!(spends.len(), 1);
+		assert_eq!(spends[0].amount, -cost);
+		assert_eq!(charge(&app, owner, LubikanAccountId::SELF)?, 0.0);
+		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Active);
+		assert_eq!(health(&app, owner)?.current, 65.0);
+		assert!(app.world().resource::<LubikanSelfHeal>().active);
 		Ok(())
 	}
 }

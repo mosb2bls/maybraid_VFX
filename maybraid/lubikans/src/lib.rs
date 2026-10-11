@@ -24,10 +24,10 @@ pub mod fixtures;
 use bevy::prelude::*;
 
 pub use activation::{
-	LubikanActivation, LubikanActivationDenied, LubikanActivationGrant, LubikanActivationOutcome,
-	LubikanActivationPhase, LubikanActivationRefused, LubikanActivationReport,
-	LubikanActivationRequest, LubikanActivationSession, LubikanActivationSessionId,
-	LubikanReadiness,
+	LubikanActivation, LubikanActivationDenied, LubikanActivationFinished, LubikanActivationGrant,
+	LubikanActivationOutcome, LubikanActivationPhase, LubikanActivationRefused,
+	LubikanActivationReport, LubikanActivationRequest, LubikanActivationSession,
+	LubikanActivationSessionId, LubikanReadiness,
 };
 pub use award::LubikanCombatAward;
 pub use catalog::{
@@ -75,6 +75,7 @@ impl Plugin for LubikanInterfacePlugin {
 			.add_message::<LubikanActivationSession>()
 			.add_message::<LubikanActivationRefused>()
 			.add_message::<LubikanActivationReport>()
+			.add_message::<LubikanActivationFinished>()
 			.add_message::<LubikanOwnerLifetime>();
 	}
 }
@@ -93,6 +94,7 @@ mod tests {
 		assert!(app.world().get_resource::<Messages<LubikanActivationSession>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRefused>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationReport>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationFinished>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanOwnerLifetime>>().is_some());
 	}
 }
