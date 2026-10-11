@@ -1,0 +1,14 @@
+# Steady-state idle at `--start-at=0,0` after Discovery stream-in.
+# Warmup is excluded from the Tracy measure window so startup bakes
+# do not dominate zone means.
+
+{"cmd":"scenario","name":"origin-idle-warmup","mark":"start"}
+{"cmd":"console","line":"stats vsync"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":20}
+{"cmd":"scenario","name":"origin-idle-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"origin-idle","mark":"start"}
+{"cmd":"wait","secs":25}
+{"cmd":"scenario","name":"origin-idle","mark":"end"}
+{"cmd":"quit"}

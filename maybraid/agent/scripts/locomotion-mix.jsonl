@@ -1,0 +1,32 @@
+# Recurring locomotion near the origin after a short stream-in warmup.
+# Sprint, jump, look, and stance use the same virtual-pad path as a player
+# so animation / camera / character-controller zones show up in Tracy.
+
+{"cmd":"scenario","name":"locomotion-mix-warmup","mark":"start"}
+{"cmd":"console","line":"stats vsync"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":12}
+{"cmd":"hold","move":[0,1],"secs":4}
+{"cmd":"scenario","name":"locomotion-mix-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"locomotion-mix","mark":"start"}
+{"cmd":"hold","move":[0,1],"buttons":["sprint"],"secs":4}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":1.2}
+{"cmd":"hold","look":[0.55,0],"secs":1.4}
+{"cmd":"hold","move":[0,1],"secs":3}
+{"cmd":"press","button":"jump"}
+{"cmd":"press","button":"stance"}
+{"cmd":"hold","look":[-0.45,0.2],"secs":1.2}
+{"cmd":"hold","move":[0,1],"buttons":["sprint"],"secs":4}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":1.2}
+{"cmd":"hold","look":[-0.5,0],"secs":1.4}
+{"cmd":"goto","xz":[35,8],"timeout":40,"radius":4,"sprint":true,"look":[0.2,0]}
+{"cmd":"press","button":"jump"}
+{"cmd":"hold","move":[0,1],"secs":3}
+{"cmd":"press","button":"stance"}
+{"cmd":"goto","xz":[8,8],"timeout":40,"radius":4}
+{"cmd":"wait","secs":3}
+{"cmd":"scenario","name":"locomotion-mix","mark":"end"}
+{"cmd":"quit"}

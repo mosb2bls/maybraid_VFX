@@ -33,7 +33,7 @@ with `"cmd"`.
 | `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
 | `press` | `button` | one frame |
 | `wait` | `secs` | idle |
-| `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint` | steer until reached |
+| `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
@@ -43,8 +43,14 @@ Buttons: `jump` (`a`), `sprint` (`l3`), `stance` (`b`), `interact` (`x`),
 `swap` (`y`), `ads` (`lb`), `fire` (`rt`), `focus` (`lt`), `menu`, `map`,
 `swap_pov` (`r3`), d-pad.
 
-See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl) and
-[`scripts/biome-traverse.jsonl`](scripts/biome-traverse.jsonl).
+See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
+[`scripts/origin-idle.jsonl`](scripts/origin-idle.jsonl),
+[`scripts/biome-traverse.jsonl`](scripts/biome-traverse.jsonl), and
+[`scripts/locomotion-mix.jsonl`](scripts/locomotion-mix.jsonl).
+
+Profile scripts mark a `*-warmup` scenario (stream-in / first steps) and then
+the measure window. `goto.look` holds the look stick while steering so a
+traversal can sweep the camera without a separate `hold`.
 
 ## Events
 
