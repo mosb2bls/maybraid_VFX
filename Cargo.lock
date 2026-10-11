@@ -7006,6 +7006,7 @@ dependencies = [
  "movement-intelligence-avian",
  "movement-realization",
  "npc-intelligence",
+ "occupancy-rewards",
  "player",
  "player-camera",
  "poi-intelligence",

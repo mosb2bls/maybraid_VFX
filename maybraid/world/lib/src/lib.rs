@@ -16,6 +16,7 @@ mod crate_loot;
 mod first_wave;
 mod intelligence;
 mod map_view;
+mod occupancy;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
@@ -44,6 +45,7 @@ pub use intelligence::WorldIntelligencePlugin;
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
+pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use maybraid_sky::{
 	ShadowQuality, SkyClock, SkyCommand, SKY_BLUE, SKY_CLEAR, SKY_HORIZON, SKY_NADIR, SKY_ZENITH,
 	SUN_COLOR, SUN_ILLUMINANCE,
@@ -189,6 +191,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(LubikanDamagePlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
+			.add_plugins(WorldOccupancyPlugin)
 			.add_plugins(WorldMapViewPlugin)
 			.add_plugins(WorldPlayerLifecyclePlugin)
 			.add_plugins(WorldStashPlugin)

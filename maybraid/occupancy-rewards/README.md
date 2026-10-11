@@ -58,3 +58,10 @@ emitted here.
 
 Self is the production default Lubikan. This crate has no Bikanwarda
 dependency.
+
+## World registration
+
+The ordinary world (`maybraid-world`) registers this plugin through
+`WorldOccupancyPlugin`. That publisher fills `CellMetadataStore` from HCSG
+`ChicoForest` / `ChicoGrove` cell facts — not vegetation meshes — and attaches
+Self plus `OccupancyRewardsUser` to the player.
