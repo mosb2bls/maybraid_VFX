@@ -41,7 +41,7 @@ pub use jab::{Jab, DEFAULT_BACKSWING, DEFAULT_JAB_TARGET};
 pub use land::Land;
 pub use lateral_undulation::LateralUndulation;
 pub use leap::{Leap, AIR_END, TAKEOFF_END};
-pub use mix::{smoothstep, Mix, Smooth};
+pub use mix::{burst_envelope, smoothstep, Mix, Smooth, DEFAULT_BURST_EDGE};
 pub use prone::Prone;
 pub use quadruped_gallop::QuadrupedGallop;
 pub use quadruped_idle::QuadrupedIdle;

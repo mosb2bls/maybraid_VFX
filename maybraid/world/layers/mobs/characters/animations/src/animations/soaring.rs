@@ -5,6 +5,11 @@
 
 use std::f32::consts::TAU;
 
+use crate::animations::burst_envelope;
+
+/// Softer handoff than idle scratch bursts (`DEFAULT_BURST_EDGE`).
+const SOARING_BURST_EDGE: f32 = 0.2;
+
 /// Held wing-spread with infrequent corrective flaps.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Soaring {
@@ -69,27 +74,10 @@ impl Soaring {
 		}
 
 		let u = (t / burst).clamp(0.0, 1.0);
-		let envelope = burst_envelope(u);
+		let envelope = burst_envelope(u, SOARING_BURST_EDGE);
 		let local = t * self.flap_speed.max(f32::EPSILON);
 		envelope * (TAU * local).sin() * self.flap_range
 	}
-}
-
-/// Fade flap in/out over the burst so the glide handoff is soft.
-fn burst_envelope(u: f32) -> f32 {
-	let edge = 0.2;
-	if u < edge {
-		smoothstep(u / edge)
-	} else if u > 1.0 - edge {
-		smoothstep((1.0 - u) / edge)
-	} else {
-		1.0
-	}
-}
-
-fn smoothstep(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]
@@ -115,9 +103,9 @@ mod tests {
 
 	#[test]
 	fn burst_envelope_peaks_in_middle() -> anyhow::Result<()> {
-		assert!(burst_envelope(0.0) < 0.05);
-		assert!((burst_envelope(0.5) - 1.0).abs() < 1e-5);
-		assert!(burst_envelope(1.0) < 0.05);
+		assert!(burst_envelope(0.0, SOARING_BURST_EDGE) < 0.05);
+		assert!((burst_envelope(0.5, SOARING_BURST_EDGE) - 1.0).abs() < 1e-5);
+		assert!(burst_envelope(1.0, SOARING_BURST_EDGE) < 0.05);
 		Ok(())
 	}
 }
