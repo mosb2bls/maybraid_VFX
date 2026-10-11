@@ -36,6 +36,8 @@ members = [
   "maybraid/world/materials/playground",
   "maybraid/vfx/lib",
   "maybraid/vfx/playground",
+  "maybraid/spatial-rumble/lib",
+  "maybraid/spatial-rumble/playground",
   "maybraid/terrain-chunk-ref",
   "maybraid/visual-geometry-core",
 
@@ -348,6 +350,8 @@ world-materials = { path = "maybraid/world/materials/lib" }
 world-materials-playground = { path = "maybraid/world/materials/playground" }
 maybraid-vfx = { path = "maybraid/vfx/lib" }
 vfx-playground = { path = "maybraid/vfx/playground" }
+maybraid-spatial-rumble = { path = "maybraid/spatial-rumble/lib" }
+spatial-rumble-playground = { path = "maybraid/spatial-rumble/playground" }
 maybraid-skill-map = { path = "maybraid/skill-map" }
 maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
