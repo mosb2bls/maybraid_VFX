@@ -58,7 +58,8 @@ impl Plugin for GrenadeUserPlugin {
 					hold::realize_held_grenade_visuals,
 					tick_owned_recharge,
 					despawn_orphaned_held_grenades,
-				),
+				)
+					.chain(),
 			)
 			.add_message::<maybraid_input::PadRumble>();
 	}
