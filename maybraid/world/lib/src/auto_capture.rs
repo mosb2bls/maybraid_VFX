@@ -95,7 +95,16 @@ pub fn run_auto_capture(
 	players: Query<(Entity, &damage::Health), With<player::Player>>,
 	lubikan_ledgers: Query<&lubikans::LubikanLedger>,
 	lubikan_heal: Res<lubikans::LubikanSelfHeal>,
+	map_view: Res<crate::map_view::WorldMapView>,
+	mut activation_finished: MessageReader<lubikans::LubikanActivationFinished>,
 ) {
+	// Log activation finished events
+	for finished in activation_finished.read() {
+		eprintln!(
+			"[EVENT] LubikanActivationFinished: account={:?} outcome={:?}",
+			finished.account, finished.outcome
+		);
+	}
 	let Some(ref mut script) = script else {
 		return;
 	};
@@ -126,9 +135,11 @@ pub fn run_auto_capture(
 			"idle".to_string()
 		};
 		
+		let camera_view = if map_view.open { "MAP" } else { "3P" };
+		
 		eprintln!(
-			"[STATE] frame={} hp={:.1}/{:.1} charge={:.1} heal={}",
-			script.frame_count, health.current, health.max, charge, heal_status
+			"[STATE] frame={} hp={:.1}/{:.1} charge={:.1} heal={} camera={}",
+			script.frame_count, health.current, health.max, charge, heal_status, camera_view
 		);
 	}
 	

@@ -112,6 +112,17 @@ pub enum DebugCommand {
 	Activate,
 	/// Toggle peaceful mode (disables hostile AI damage to player).
 	Peaceful,
+	/// Force third-person camera view (close map).
+	Camera {
+		#[arg(value_enum)]
+		mode: CameraMode,
+	},
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum CameraMode {
+	ThirdPerson,
 }
 
 impl PlaygroundCommand {
@@ -267,6 +278,12 @@ pub struct RequestActivate;
 pub struct RequestPeaceful;
 
 #[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestCamera {
+	pub mode: CameraMode,
+}
+
+#[cfg(feature = "debug-commands")]
 impl DebugCommand {
 	fn react(self, commands: &mut Commands, console: &mut String) {
 		match self {
@@ -289,6 +306,10 @@ impl DebugCommand {
 		DebugCommand::Peaceful => {
 			commands.spawn(RequestPeaceful);
 			*console = "debug peaceful: pending".into();
+		}
+		DebugCommand::Camera { mode } => {
+			commands.spawn(RequestCamera { mode });
+			*console = format!("debug camera {:?}: pending", mode);
 		}
 	}
 }

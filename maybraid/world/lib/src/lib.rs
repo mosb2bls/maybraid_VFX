@@ -37,7 +37,7 @@ pub use world_furnished::WorldFurnished;
 pub use commands::PLAYGROUND_CLI_NAME;
 pub use commands::PlaygroundCommand;
 #[cfg(feature = "debug-commands")]
-pub use commands::{RequestActivate, RequestGrantPoints, RequestPeaceful, RequestSpawnNpc, RequestTakeDamage};
+pub use commands::{CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful, RequestSpawnNpc, RequestTakeDamage};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
 	WorldSurfaceReady, WorldSurfaceSet,
@@ -323,7 +323,12 @@ impl Plugin for WorldPlugin {
 				apply_debug_spawn_npc,
 				apply_debug_activate,
 				apply_debug_peaceful,
+				apply_debug_camera,
 			),
+			);
+			app.add_systems(
+				PostUpdate,
+				undo_npc_damage_in_peaceful.after(damage::DamageSystems::Apply),
 			);
 		}
 	}
@@ -414,6 +419,43 @@ fn apply_debug_peaceful(
 
 
 #[cfg(feature = "debug-commands")]
+fn undo_npc_damage_in_peaceful(
+	peaceful: Res<DebugPeacefulMode>,
+	players: Query<Entity, With<player::Player>>,
+	mut damage_applied: MessageReader<damage::DamageApplied>,
+	mut healths: Query<&mut damage::Health>,
+	mut blocked_count: Local<usize>,
+	mut total_damage: Local<usize>,
+) {
+	let Ok(player) = players.single() else {
+		return;
+	};
+	
+	// Log ALL damage to player
+	for applied in damage_applied.read() {
+		if applied.target == player && applied.applied > 0.0 {
+			*total_damage += 1;
+			eprintln!("[DAMAGE] Player took {:.1} HP from source={:?} (remaining HP: {:.1})", 
+				applied.applied, applied.source, applied.remaining);
+			
+			// In peaceful mode, undo NPC damage (source is Some)
+			if peaceful.0 && applied.source.is_some() {
+				*blocked_count += 1;
+				eprintln!("[PEACEFUL] Undoing NPC damage #{}: restoring {:.1} HP", 
+					*blocked_count, applied.applied);
+				
+				// Restore the HP that was lost
+				if let Ok(mut health) = healths.get_mut(player) {
+					let before = health.current;
+					health.heal(applied.applied);
+					eprintln!("[PEACEFUL] HP restored: {:.1} -> {:.1}", before, health.current);
+				}
+			}
+		}
+	}
+}
+
+#[cfg(feature = "debug-commands")]
 fn apply_debug_spawn_npc(
 	requests: Query<(Entity, &commands::RequestSpawnNpc)>,
 	players: Query<&GlobalTransform, With<player::Player>>,
@@ -429,6 +471,23 @@ fn apply_debug_spawn_npc(
 				Transform::from_translation(spawn_pos),
 				Name::new("Debug NPC"),
 			));
+		}
+		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(feature = "debug-commands")]
+fn apply_debug_camera(
+	requests: Query<(Entity, &commands::RequestCamera)>,
+	mut map_view: ResMut<map_view::WorldMapView>,
+	mut commands: Commands,
+) {
+	for (entity, request) in &requests {
+		match request.mode {
+			commands::CameraMode::ThirdPerson => {
+				map_view.close();
+				eprintln!("[DEBUG] Camera forced to third-person (map closed)");
+			}
 		}
 		commands.entity(entity).despawn();
 	}
