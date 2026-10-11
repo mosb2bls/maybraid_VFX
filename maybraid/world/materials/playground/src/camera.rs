@@ -5,7 +5,7 @@ use bevy::window::WindowFocused;
 use game_commands::command::TextEntryFocus;
 
 #[derive(Component)]
-pub struct CameraController {
+pub(crate) struct CameraController {
 	pub speed: f32,
 	pub sensitivity: f32,
 	pub yaw: f32,

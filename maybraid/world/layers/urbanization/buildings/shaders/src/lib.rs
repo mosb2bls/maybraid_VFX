@@ -2,11 +2,21 @@
 
 use bevy::prelude::*;
 
+mod column_surface;
 mod material_lib;
 mod urban_surface;
 
+pub use column_surface::shaft::{
+	placeholder_shaft_mesh, PlaceholderShaft, PLACEHOLDER_SHAFT_HEIGHT_M,
+	PLACEHOLDER_SHAFT_RADIUS_M,
+};
+pub use column_surface::{
+	doric_column_ref, is_column_surface_recipe, ColumnSurfaceMaterial, ColumnSurfaceMaterialPlugin,
+	ColumnSurfaceUniform, RECIPE_DORIC_COLUMN,
+};
 pub use material_lib::{
-	init_urban_material_caches, UrbanMaterialLib, UrbanMaterialRefPlugin, UrbanSurfaceMaterialLib,
+	init_urban_material_caches, ColumnSurfaceMaterialLib, ColumnSurfaceMaterialRefCache,
+	UrbanMaterialLib, UrbanMaterialRefPlugin, UrbanSurfaceMaterialLib,
 	UrbanSurfaceMaterialRefCache,
 };
 pub use urban_surface::{
@@ -21,5 +31,6 @@ pub struct BuildingShadersPlugin;
 impl Plugin for BuildingShadersPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(UrbanSurfaceMaterialPlugin);
+		app.add_plugins(ColumnSurfaceMaterialPlugin);
 	}
 }

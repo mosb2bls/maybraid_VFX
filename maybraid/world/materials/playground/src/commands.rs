@@ -31,7 +31,7 @@ pub enum PlaygroundCommand {
 	},
 	/// Switch the preview / shot hull. `sphere` and `capsule` are the solid baselines.
 	Mesh {
-		/// `sphere`, `capsule`, `core`, `shell`, `ring`, `cards`, or `blast`.
+		/// `sphere`, `capsule`, `core`, `shell`, `ring`, `cards`, `blast`, or `cylinder`.
 		shape: PreviewShape,
 	},
 	/// Fire repeating copies of the current hull. `shoot stop` cancels.
@@ -109,6 +109,7 @@ pub(crate) fn material_for_show(name: &str) -> MaterialRef {
 		"pulse" | "laser_pulse" | "laser-pulse" => laser_pulse_ref(),
 		"tail" | "laser_tail" | "laser-tail" => laser_tail_ref(),
 		"muzzle-flame" | "muzzle_flame" => muzzle_flame_ref(),
+		"doric" | "doric_column" | "doric-column" => building_shaders::doric_column_ref(),
 		"standard" | "default" => MaterialRef::default(),
 		other => MaterialRef::named(other),
 	}

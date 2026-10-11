@@ -5,15 +5,19 @@ A [`MaterialRef`](../../../material-ref) on blast-style hulls. Uses the composed
 ```text
 cargo run -p world-materials-playground
 cargo run -p world-materials-playground -- show pulse
+cargo run -p world-materials-playground -- show doric_column
 cargo run -p world-materials-playground -- mesh blast
 cargo run -p world-materials-playground -- mesh ring
+MAYBRAID_CAPTURE_DIR=./column-pom cargo run -p world-materials-playground
 ```
 
 In-game (press `/`):
 
 - `show hex|pulse|tail|muzzle-flame|standard` — authored energy / flame / Standard looks
+- `show doric|doric_column` — Doric column POM on limestone
 - `show <recipe>` — any world recipe name (`furniture_wood`, …)
 - `mesh sphere|capsule` — solid baselines (the original hosts)
+- `mesh cylinder` — open Doric shaft (UV / tangent contract)
 - `mesh core` — tiny orb
 - `mesh shell` — faceted energy hull
 - `mesh ring` — flat shockwave annulus
