@@ -32,6 +32,7 @@ members = [
   "maybraid/weather",
   "maybraid/scene-ref",
   "maybraid/material-ref",
+  "maybraid/screen-capture",
   "maybraid/world/materials/lib",
   "maybraid/world/materials/playground",
   "maybraid/vfx/lib",
@@ -295,6 +296,7 @@ maybraid-weather = { path = "maybraid/weather" }
 scene-ref = { path = "maybraid/scene-ref" }
 visual-geometry-core = { path = "maybraid/visual-geometry-core" }
 material-ref = { path = "maybraid/material-ref" }
+screen-capture = { path = "maybraid/screen-capture" }
 terrain-chunk-ref = { path = "maybraid/terrain-chunk-ref" }
 avian3d = "0.7"
 
