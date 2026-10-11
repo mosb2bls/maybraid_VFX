@@ -95,7 +95,6 @@ mod tests {
 	}
 
 	#[test]
-	#[test]
 	fn already_dead_health_ignores_further_hits() -> Result<()> {
 		let mut app = App::new();
 		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();

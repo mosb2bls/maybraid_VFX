@@ -1020,6 +1020,7 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
 			.init_resource::<CharacterRagdollTargets>()
+			.init_resource::<CharacterRagdollSettings>()
 			.add_systems(
 				Update,
 				(begin_corpse_handoffs, finish_corpse_handoffs, damage::ensure_downed_have_despawn)
