@@ -45,7 +45,12 @@ pub(crate) fn spawn_player_vitals(
 		parent,
 		"player-vitals",
 		PlayerVitalsRoot,
-		HudPlateLayout { width: VITALS_WIDTH, row_gap: 6.0, corner: HudPlateCorner::BottomLeft },
+		HudPlateLayout {
+			width: VITALS_WIDTH,
+			row_gap: 6.0,
+			corner: HudPlateCorner::BottomLeft,
+			bottom_lift: 0.0,
+		},
 		|plate| {
 			let bar_entity = spawn_continuous_health_bar_in_builder(
 				plate,

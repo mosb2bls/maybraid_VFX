@@ -107,10 +107,13 @@ fn spawn_flyer(
 				position_type: PositionType::Absolute,
 				left: Val::Px(start.x),
 				top: Val::Px(start.y),
+				justify_content: JustifyContent::FlexStart,
+				align_items: AlignItems::FlexStart,
 				..default()
 			},
 			Text::new(label),
 			TextFont { font_size: FontSize::Px(18.0), ..default() },
+			TextLayout::new(Justify::Left, LineBreak::NoWrap),
 			TextColor(color),
 			Pickable::IGNORE,
 		));
@@ -211,6 +214,7 @@ mod tests {
 		assert_eq!(stack_offset(0), Vec2::new(0.0, -SLOT_H));
 		assert_eq!(stack_offset(1), Vec2::new(0.0, -2.0 * SLOT_H));
 		assert!(stack_offset(0).y > stack_offset(2).y);
+		assert_eq!(stack_offset(0).x, 0.0, "feed stays left-justified over the plate");
 	}
 
 	#[test]

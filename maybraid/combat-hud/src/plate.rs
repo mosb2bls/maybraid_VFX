@@ -22,6 +22,8 @@ pub(crate) struct HudPlateLayout {
 	pub width: f32,
 	pub row_gap: f32,
 	pub corner: HudPlateCorner,
+	/// Extra lift for a stacked plate (charge above vitals).
+	pub bottom_lift: f32,
 }
 
 impl HudPlateLayout {
@@ -40,7 +42,7 @@ impl HudPlateLayout {
 		match self.corner {
 			HudPlateCorner::BottomLeft => {
 				node.left = Val::Px(HUD_CORNER_INSET);
-				node.bottom = Val::Px(HUD_CORNER_INSET);
+				node.bottom = Val::Px(HUD_CORNER_INSET + self.bottom_lift);
 			}
 			HudPlateCorner::TopRight => {
 				node.right = Val::Px(HUD_CORNER_INSET);

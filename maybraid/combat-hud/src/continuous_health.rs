@@ -217,14 +217,7 @@ fn spawn_continuous_health_bar_impl(
 			row_gap: Val::Px(2.0),
 			..default()
 		},
-		HealthBarLayout::UiChild => Node {
-			width: Val::Percent(100.0),
-			height: Val::Px(config.bar_height + 6.0),
-			flex_direction: FlexDirection::Row,
-			align_items: AlignItems::Center,
-			column_gap: Val::Px(8.0),
-			..default()
-		},
+		HealthBarLayout::UiChild => ui_meter_row_node(config),
 	};
 	
 	let visibility = match layout {
@@ -260,15 +253,34 @@ fn spawn_continuous_health_bar_impl(
 			}
 			spawn_health_track(anchor, config);
 			if layout == HealthBarLayout::UiChild {
-				spawn_health_label(anchor, "0");
+				spawn_meter_amount(anchor, "0", HealthLabel);
 			}
 		})
 		.id()
 }
 
 fn spawn_health_label(anchor: &mut ChildSpawnerCommands, initial: &str) {
+	spawn_meter_amount(anchor, initial, HealthLabel);
+}
+
+pub(crate) fn ui_meter_row_node(config: &ContinuousHealthConfig) -> Node {
+	Node {
+		width: Val::Percent(100.0),
+		height: Val::Px(config.bar_height + 6.0),
+		flex_direction: FlexDirection::Row,
+		align_items: AlignItems::Center,
+		column_gap: Val::Px(8.0),
+		..default()
+	}
+}
+
+pub(crate) fn spawn_meter_amount(
+	anchor: &mut ChildSpawnerCommands,
+	initial: &str,
+	extra: impl Bundle,
+) {
 	anchor.spawn((
-		HealthLabel,
+		extra,
 		Text::new(initial),
 		TextFont { font_size: FontSize::Px(12.0), ..default() },
 		TextColor(Color::WHITE),
@@ -278,6 +290,29 @@ fn spawn_health_label(anchor: &mut ChildSpawnerCommands, initial: &str) {
 		},
 		Pickable::IGNORE,
 	));
+}
+
+/// Charge / other meters: same framed track + trailing amount as player vitals.
+pub(crate) fn spawn_ui_meter_row(
+	parent: &mut ChildSpawnerCommands,
+	config: &ContinuousHealthConfig,
+	fill: impl Bundle,
+	amount: impl Bundle,
+) -> Entity {
+	parent
+		.spawn((ui_meter_row_node(config), Visibility::Inherited, Pickable::IGNORE))
+		.with_children(|row| {
+			spawn_meter_track(row, config, |track| {
+				track.spawn((
+					fill,
+					config.layer_node(0.0),
+					BackgroundColor(config.fill_color_high),
+					Pickable::IGNORE,
+				));
+			});
+			spawn_meter_amount(row, "0", amount);
+		})
+		.id()
 }
 
 fn spawn_health_track(anchor: &mut ChildSpawnerCommands, config: &ContinuousHealthConfig) {
