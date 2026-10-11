@@ -421,10 +421,19 @@ impl Inventory {
 	/// No-op when fewer than two weapons are queued. Returns whether the
 	/// primary changed.
 	pub fn swap_active(&mut self) -> bool {
+		self.cycle_weapons(1)
+	}
+
+	/// Rotate the equipped weapon queue. `dir >= 0` advances; `dir < 0` goes back.
+	pub fn cycle_weapons(&mut self, dir: i8) -> bool {
 		if self.weapons.len() < 2 {
 			return false;
 		}
-		self.weapons.rotate_left(1);
+		if dir < 0 {
+			self.weapons.rotate_right(1);
+		} else {
+			self.weapons.rotate_left(1);
+		}
 		true
 	}
 

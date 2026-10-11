@@ -5,7 +5,7 @@ use bevy::text::FontSize;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventorySlot};
 use game_commands::command::TextEntryFocus;
-use lubikans::{LubikanAccountId, LubikanLedger, LubikanOwner};
+use lubikans::{LubikanAccountId, LubikanLedger, LubikanOwner, LubikanSystems};
 use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
 use world_player::Player as VegetationPlayer;
 
@@ -29,23 +29,38 @@ struct InventoryCyclingCueRoot;
 #[derive(Component)]
 struct InventoryCyclingCueText;
 
+/// D-pad category pick runs before weapon swap and queue cycling on the same frame.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct InventoryCyclingCategorySystems;
+
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct InventoryCyclingSystems;
 
 pub(crate) fn configure(app: &mut App) {
 	app.init_resource::<ActiveInventoryCyclingCategory>()
-		.configure_sets(Update, InventoryCyclingSystems)
+		.configure_sets(
+			Update,
+			(
+				InventoryCyclingCategorySystems,
+				InventoryCyclingSystems.after(InventoryCyclingCategorySystems),
+			),
+		)
 		.add_systems(Startup, spawn_inventory_cycling_cue)
 		.add_systems(
 			Update,
-			(
-				apply_inventory_category_selection,
-				cycle_equipped_inventory_queues,
-				sync_inventory_cycling_cue,
-			)
+			apply_inventory_category_selection
+				.in_set(InventoryCyclingCategorySystems)
+				.after(maybraid_character_controller::CharacterControlSystems)
+				.after(LubikanSystems::Owner)
+				.run_if(resource_equals(WorldGameplayEnabled(true))),
+		)
+		.add_systems(
+			Update,
+			(cycle_equipped_inventory_queues, sync_inventory_cycling_cue)
 				.chain()
 				.in_set(InventoryCyclingSystems)
 				.after(maybraid_character_controller::CharacterControlSystems)
+				.after(LubikanSystems::Owner)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
 		);
 }
@@ -115,12 +130,12 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		}
 		return;
 	}
-	if category.0 == InventoryCyclingCategory::Weapons && dir >= 0 {
-		// Forward weapon swaps are animated in [`crate::weapon::begin_weapon_swap`].
+	if category.0 == InventoryCyclingCategory::Weapons {
+		// Weapon queue steps use [`crate::weapon::begin_weapon_swap`] / [`commit_weapon_swap`].
 		return;
 	}
 	let slot = match category.0 {
-		InventoryCyclingCategory::Weapons => InventorySlot::Weapons,
+		InventoryCyclingCategory::Weapons => return,
 		InventoryCyclingCategory::SkillMaps => InventorySlot::Skills,
 		InventoryCyclingCategory::Lubikans => return,
 	};
@@ -129,7 +144,7 @@ pub(crate) fn cycle_equipped_inventory_queues(
 			continue;
 		};
 		let changed = match slot {
-			InventorySlot::Weapons => cycle_weapons_backward(&mut bag),
+			InventorySlot::Weapons => false,
 			InventorySlot::Skills => bag.cycle_skills(dir),
 			InventorySlot::Clothing => false,
 		};
@@ -170,14 +185,6 @@ fn select_owned_account(ledger: &mut LubikanLedger, account: LubikanAccountId) -
 	} else {
 		ledger.select(Some(account))
 	}
-}
-
-fn cycle_weapons_backward(bag: &mut Inventory) -> bool {
-	if bag.weapons.len() < 2 {
-		return false;
-	}
-	bag.weapons.rotate_right(1);
-	true
 }
 
 fn spawn_inventory_cycling_cue(mut commands: Commands, assets: Res<AssetServer>) {
@@ -313,6 +320,48 @@ mod tests {
 		assert_eq!(
 			bag.primary_skill_map().and_then(InventoryItem::skill_map_spec),
 			Some(SkillMapSpec::new(SkillMapKind::Fireball, 1))
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn same_frame_category_then_y_uses_the_new_category() -> anyhow::Result<()> {
+		use character_items::{SkillMapKind, SkillMapSpec};
+
+		let inventory = Inventory {
+			items: vec![
+				InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
+				InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 2)),
+			],
+			clothing: Vec::new(),
+			weapons: Vec::new(),
+			skills: vec![0, 1],
+		};
+		let mut world = World::new();
+		world.init_resource::<Messages<CharacterIntent>>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(TextEntryFocus(false));
+		world.insert_resource(ActiveInventoryCyclingCategory(InventoryCyclingCategory::Weapons));
+		let bag = world.spawn(inventory).id();
+		world.spawn((VegetationPlayer, InventoryUser::carrying(bag)));
+		world
+			.run_system_once(|mut writer: MessageWriter<CharacterIntent>| {
+				writer.write(CharacterIntent::SelectInventoryCyclingCategory(
+					InventoryCyclingCategory::SkillMaps,
+				));
+				writer.write(CharacterIntent::SwapActive);
+			})
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(apply_inventory_category_selection)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(cycle_equipped_inventory_queues)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let bag = world.get::<Inventory>(bag).ok_or_else(|| anyhow::anyhow!("bag"))?;
+		assert_eq!(
+			bag.primary_skill_map().and_then(InventoryItem::skill_map_spec),
+			Some(SkillMapSpec::new(SkillMapKind::Dumbwave, 2))
 		);
 		Ok(())
 	}
