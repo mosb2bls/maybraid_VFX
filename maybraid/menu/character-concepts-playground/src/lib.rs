@@ -14,6 +14,7 @@ mod focus_reference;
 mod material;
 mod menu_listeners;
 mod preview;
+mod preview_capture;
 mod preview_color;
 mod scale_reference;
 mod skinning;
@@ -34,7 +35,7 @@ use game_commands::command::{capture_command_line_input, GameCommandPlugin};
 
 use camera_focus::{apply_camera_suggestion, PendingCameraFocus};
 use character_lod::CharacterLodPlugin;
-use characters::CharacterHostSystems;
+use characters::{CharacterHostSystems, CharacterMotionSystems};
 use focus::animate_focused_preview_asset;
 use focus_reference::{sync_focus_reference, FocusReferenceSyncState};
 use lod::LodViewer;
@@ -95,6 +96,8 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 					scale_reference::setup_scale_reference,
 					init_character_menu_state,
 					ui::setup_creator_ui,
+					preview_capture::load_preview_capture_settings,
+					preview_capture::adjust_capture_camera_from_env.after(camera::setup_camera),
 				),
 			)
 			.add_systems(
@@ -110,9 +113,12 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 					ui::refresh_creator_ui_display.after(ui::sync_creator_ui),
 					camera::camera_controller,
 					ui::send_creator_ui_scroll_events,
+					preview_capture::preview_capture_interrupt,
 					sync_preview
 						.after(capture_command_line_input::<ConceptsCommand>)
-						.after(on_character_menu_event),
+						.after(on_character_menu_event)
+						.after(preview_capture::preview_capture_interrupt),
+					preview_capture::preview_capture_auto_quit,
 					sync_focus_reference.after(sync_preview).before(CharacterHostSystems::BoneMap),
 					stamp_lod_character_preview
 						.after(sync_preview)
@@ -140,9 +146,11 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 			)
 			.add_systems(
 				PostUpdate,
-				(apply_camera_suggestion
-					.after(TransformSystems::Propagate)
-					.after(CharacterHostSystems::Pose),),
+				(
+					apply_camera_suggestion
+						.after(TransformSystems::Propagate)
+						.after(CharacterHostSystems::Pose),
+				),
 			);
 	}
 }

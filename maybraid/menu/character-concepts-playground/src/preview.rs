@@ -9,6 +9,7 @@ use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
 use character_items::ClothingMesh;
 use characters::{
+	AnimProgress,
 	assembly::CharacterPartSlot,
 	character_bounds,
 	species::{
@@ -883,6 +884,39 @@ impl ConceptPreviewConfig {
 		}
 	}
 
+	pub fn with_animation(self, animation: ConceptAnimation) -> Self {
+		match self {
+			Self::Braidman { config, .. } => Self::Braidman { config, animation },
+			Self::Brenal { config, .. } => Self::Brenal { config, animation },
+			Self::Caole { config, .. } => Self::Caole { config, animation },
+			Self::Epiphant { config, .. } => Self::Epiphant { config, animation },
+			Self::Hars { config, .. } => Self::Hars { config, animation },
+			Self::Yilter { config, .. } => Self::Yilter { config, animation },
+			Self::Sonyak { config, .. } => Self::Sonyak { config, animation },
+			Self::Claber { config, .. } => Self::Claber { config, animation },
+			Self::Croconot { config, .. } => Self::Croconot { config, animation },
+			Self::Brodler { config, .. } => Self::Brodler { config, animation },
+			Self::Mygr { config, .. } => Self::Mygr { config, animation },
+			Self::Dui { config, .. } => Self::Dui { config, animation },
+			Self::Lidder { config, .. } => Self::Lidder { config, animation },
+			Self::Chupri { config, .. } => Self::Chupri { config, animation },
+			Self::Brokker { config, .. } => Self::Brokker { config, animation },
+			Self::Tipple { config, .. } => Self::Tipple { config, animation },
+			Self::Topple { config, .. } => Self::Topple { config, animation },
+			Self::Kispar { config, .. } => Self::Kispar { config, animation },
+			Self::Tapp { config, .. } => Self::Tapp { config, animation },
+			Self::Kaller { config, .. } => Self::Kaller { config, animation },
+			Self::Kappler { config, .. } => Self::Kappler { config, animation },
+			Self::Wumbus { config, .. } => Self::Wumbus { config, animation },
+			Self::Lero { config, .. } => Self::Lero { config, animation },
+			Self::Spibmom { config, .. } => Self::Spibmom { config, animation },
+			Self::Grener { config, .. } => Self::Grener { config, animation },
+			Self::Thumplus { config, .. } => Self::Thumplus { config, animation },
+			Self::Mistler { config, .. } => Self::Mistler { config, animation },
+			Self::Tuberwaber { config, .. } => Self::Tuberwaber { config, animation },
+		}
+	}
+
 	pub const fn animation(&self) -> ConceptAnimation {
 		match self {
 			Self::Braidman { animation, .. }
@@ -1209,11 +1243,12 @@ where
 		bounds: &bounds,
 	};
 	let host = ComponentsOnly(character.clone());
+	let scale = crate::preview_capture::encounter_scale_from_env();
 	let entity = commands
 		.spawn_scene((
 			host.host(&lod_ref),
 			bsn! {
-				Transform::IDENTITY
+				Transform::from_scale(Vec3::splat(scale))
 			},
 		))
 		.id();
@@ -1251,6 +1286,9 @@ pub fn stamp_lod_character_preview(
 				};
 				if needs_clip {
 					commands.entity(member).insert(AnimRefRoot(desired_anim));
+				}
+				if let Some(progress) = crate::preview_capture::sample_progress_from_env() {
+					commands.entity(member).insert(AnimProgress(progress));
 				}
 			}
 		}

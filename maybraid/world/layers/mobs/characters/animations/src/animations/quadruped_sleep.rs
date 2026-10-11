@@ -13,7 +13,8 @@ pub const SLEEP_ENTER_IMPACT_NORM: f32 = 0.88;
 /// Front pair takes weight early in wake.
 pub const WAKE_IMPACT_NORM: f32 = 0.18;
 
-const SETTLE_END: f32 = 0.92;
+/// End of the sleep-entry settle segment (after [`SLEEP_ENTER_IMPACT_NORM`]).
+pub const SETTLE_END: f32 = 0.92;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EpiphantSleepEnter {
@@ -128,6 +129,7 @@ mod tests {
 	#[test]
 	fn sleep_enter_impact_follows_settle() {
 		assert!(EpiphantSleepEnter::fold_weight(SLEEP_ENTER_IMPACT_NORM) > 0.9);
+		assert!(SLEEP_ENTER_IMPACT_NORM <= SETTLE_END);
 		assert!(EpiphantSleepEnter::fold_weight(SETTLE_END) > EpiphantSleepEnter::fold_weight(0.5));
 	}
 

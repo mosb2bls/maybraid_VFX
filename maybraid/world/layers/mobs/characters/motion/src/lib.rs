@@ -12,6 +12,7 @@
 pub mod clip;
 pub mod clip_cache;
 pub mod cue;
+pub mod mouth_emit;
 pub mod elevation;
 pub mod mailbox;
 pub mod markers;
@@ -28,8 +29,11 @@ pub use clip::{
 	TwoFootedTuckedFlipParams,
 };
 pub use cue::{
-	AnimClipCues, AnimCueKind, AnimCueMarker, AnimCueSheet, cue_sheet, prepare_anim_clip_cues,
-	tick_anim_clip_cues,
+	advance_anim_clip_cues, AnimClipCues, AnimCueKind, AnimCueMarker, AnimCueSheet, cue_sheet,
+	prepare_anim_clip_cues, tick_anim_clip_cues,
+};
+pub use mouth_emit::{
+	horizontal_fight_forward, sample_bray_mouth_emit, BrayMouthEmit,
 };
 pub use clip_cache::{
 	apply_evaluated_sample, clip_bone_mask, parameters_key, AnimClipCache, AnimClipCacheSettings,

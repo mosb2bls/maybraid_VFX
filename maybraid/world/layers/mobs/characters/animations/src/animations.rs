@@ -45,7 +45,9 @@ pub use lateral_undulation::LateralUndulation;
 pub use leap::{Leap, AIR_END, TAKEOFF_END};
 pub use mix::{smoothstep, Mix, Smooth};
 pub use prone::Prone;
-pub use quadruped_bray::{EpiphantBray, SONIC_EMIT_NORM};
+pub use quadruped_bray::{
+	EpiphantBray, MOUTH_EMIT_NECK_LOCAL, MOUTH_EMIT_SOCKET, SONIC_EMIT_NORM,
+};
 pub use quadruped_gallop::QuadrupedGallop;
 pub use quadruped_idle::QuadrupedIdle;
 pub use quadruped_leap::QuadrupedLeap;

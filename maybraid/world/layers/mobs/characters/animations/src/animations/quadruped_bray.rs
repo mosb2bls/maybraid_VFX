@@ -4,11 +4,19 @@
 //! `neck_tilt` = parent Z, `neck_nod` = parent X). Sonic gameplay should key off
 //! [`Self::SONIC_EMIT_NORM`], not pose sampling.
 
+use bevy::prelude::Vec3;
+
 use crate::animations::smoothstep;
 use crate::Progress;
 
 /// Normalized clip time when the head passes through the flick apex (sonic emission).
 pub const SONIC_EMIT_NORM: f32 = 0.32;
+
+/// Epiphant head rig bone that carries the nose mesh (see `species/epiphant/recipe.rs`).
+pub const MOUTH_EMIT_SOCKET: &str = "nose_socket";
+
+/// Fallback mouth origin in **body** `neck` local space when `nose_socket` is unavailable (+Z fight-forward).
+pub const MOUTH_EMIT_NECK_LOCAL: Vec3 = Vec3::new(0.0, 0.05, 0.55);
 
 const ANTICIPATION_END: f32 = 0.22;
 const FLICK_END: f32 = 0.42;

@@ -81,6 +81,8 @@ pub fn cue_sheet(clip: AnimClip) -> AnimCueSheet {
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct AnimClipCues {
 	pub clip: AnimId,
+	/// Mailbox clip seconds before policy remap (used to detect restarts).
+	pub clip_time_secs: f32,
 	pub progress: f32,
 	pub prev_progress: f32,
 	pub sheet: AnimCueSheet,
@@ -104,6 +106,7 @@ impl Default for AnimClipCues {
 	fn default() -> Self {
 		Self {
 			clip: AnimId::Still,
+			clip_time_secs: 0.0,
 			progress: 0.0,
 			prev_progress: 0.0,
 			sheet: AnimCueSheet::default(),
@@ -111,7 +114,22 @@ impl Default for AnimClipCues {
 	}
 }
 
+/// Advance cue progress and reset crossing history on clip changes / restarts.
+pub fn advance_anim_clip_cues(cues: &mut AnimClipCues, clip: AnimClip, clip_time_secs: f32) {
+	let clip_id = clip.id();
+	let progress = normalized_progress(clip, clip_time_secs);
+	let segment_start = cues.clip != clip_id
+		|| clip_time_secs + f32::EPSILON < cues.clip_time_secs
+		|| progress + 0.5 < cues.progress;
+	cues.prev_progress = if segment_start { 0.0 } else { cues.progress };
+	cues.progress = progress;
+	cues.clip = clip_id;
+	cues.clip_time_secs = clip_time_secs;
+	cues.sheet = cue_sheet(clip);
+}
+
 /// Insert [`AnimClipCues`] on body mailboxes once the mailbox exists.
+#[allow(clippy::type_complexity)]
 pub fn prepare_anim_clip_cues(
 	mut commands: Commands,
 	hosts: Query<
@@ -128,6 +146,7 @@ pub fn prepare_anim_clip_cues(
 }
 
 /// Advance cue state in lockstep with mailbox clip progress (run after [`tick_anim_mailbox`]).
+#[allow(clippy::type_complexity)]
 pub fn tick_anim_clip_cues(
 	mut hosts: Query<
 		(&AnimRefRoot, &AnimMailbox, &mut AnimClipCues),
@@ -135,12 +154,7 @@ pub fn tick_anim_clip_cues(
 	>,
 ) {
 	for (root, mailbox, mut cues) in &mut hosts {
-		let clip = root.0.clip;
-		let progress = normalized_progress(clip, mailbox.clip_time_secs());
-		cues.prev_progress = cues.progress;
-		cues.progress = progress;
-		cues.clip = clip.id();
-		cues.sheet = cue_sheet(clip);
+		advance_anim_clip_cues(&mut *cues, root.0.clip, mailbox.clip_time_secs());
 	}
 }
 
@@ -189,5 +203,36 @@ mod tests {
 			anticipation: 0.3,
 		}));
 		assert_eq!(a, b);
+	}
+
+	#[test]
+	fn clip_change_allows_first_frame_sonic_crossing() {
+		let bray = AnimClip::epiphant_bray();
+		let mut cues = AnimClipCues::default();
+		advance_anim_clip_cues(&mut cues, AnimClip::quadruped_run(), 0.95);
+		assert!(!cues.sonic_emit_crossed());
+
+		advance_anim_clip_cues(&mut cues, bray, 0.34);
+		assert!(
+			cues.sonic_emit_crossed(),
+			"first bray sample past SONIC_EMIT_NORM should fire after clip change"
+		);
+	}
+
+	#[test]
+	fn restart_allows_first_frame_sonic_crossing() {
+		let bray = AnimClip::epiphant_bray();
+		let mut cues = AnimClipCues::default();
+		advance_anim_clip_cues(&mut cues, bray, 0.25);
+		advance_anim_clip_cues(&mut cues, bray, 0.40);
+		assert!(cues.sonic_emit_crossed());
+		advance_anim_clip_cues(&mut cues, bray, 0.90);
+		assert!(!cues.sonic_emit_crossed());
+
+		advance_anim_clip_cues(&mut cues, bray, 0.34);
+		assert!(
+			cues.sonic_emit_crossed(),
+			"restarted bray sample past SONIC_EMIT_NORM should fire"
+		);
 	}
 }
