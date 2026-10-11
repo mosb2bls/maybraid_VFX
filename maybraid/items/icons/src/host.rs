@@ -1,5 +1,6 @@
 //! Realize posed, painted inventory subjects into isolated capture roots.
 
+use bevy::ecs::entity_disabling::Disabled;
 use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
 use character_items::{ClothingHost, ClothingMesh, InventoryItem, ItemColor};
@@ -14,7 +15,10 @@ use firearms_components::{
 };
 use lod::lod_ref::LodRef;
 use lod::scene::{LodScene, LodSceneLevel};
-use lod::{LodLevelRootPending, LodLevelSpawnRequest, LodRefreshCorePlugin};
+use lod::{
+	LodLevelRootPending, LodLevelSpawnRequest, LodRefreshCorePlugin, LodRefreshDomain,
+	LodRefreshMembership,
+};
 use material_ref::MaterialRefApplied;
 use screen_capture::{CaptureHostReady, CaptureHostRoot, CaptureId, CaptureSilhouetteRoot};
 use std::collections::HashMap;
@@ -132,7 +136,9 @@ pub fn mark_capture_hosts_ready(
 	}
 }
 
-pub fn strip_silhouette_shader_materials(
+/// Strip clothing/face shaders and keep the tree extractable. Shader systems
+/// re-insert custom materials in Update; this runs again before readback.
+pub fn prepare_silhouette_hosts(
 	mut commands: Commands,
 	roots: Query<Entity, With<CaptureSilhouetteRoot>>,
 	children: Query<&Children>,
@@ -151,6 +157,23 @@ pub fn strip_silhouette_shader_materials(
 	}
 }
 
+pub fn keep_capture_hosts_visible(
+	mut commands: Commands,
+	roots: Query<Entity, With<CaptureHostRoot>>,
+	children: Query<&Children>,
+	hidden: Query<(), Or<(With<Disabled>, With<Visibility>)>>,
+) {
+	for root in &roots {
+		visit_descendants(root, &children, &mut |entity| {
+			if hidden.get(entity).is_err() {
+				return;
+			}
+			commands.entity(entity).try_remove::<Disabled>();
+			commands.entity(entity).try_insert(Visibility::Inherited);
+		});
+	}
+}
+
 fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) -> bool {
 	match item {
 		InventoryItem::Firearm { spec, .. } => {
@@ -161,7 +184,7 @@ fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) 
 				Transform::IDENTITY,
 				firearm_bounds(&preview),
 			) {
-				commands.entity(entity).try_insert(ChildOf(root));
+				pin_capture_host(commands, entity, root);
 			}
 			true
 		}
@@ -171,11 +194,18 @@ fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) 
 					.with_material(material.id),
 			};
 			let entity = spawn_clothing_icon(commands, &preview);
-			commands.entity(entity).try_insert(ChildOf(root));
+			pin_capture_host(commands, entity, root);
 			true
 		}
 		InventoryItem::Grenade { .. } | InventoryItem::SkillMap { .. } => false,
 	}
+}
+
+fn pin_capture_host(commands: &mut Commands, entity: Entity, root: Entity) {
+	commands.entity(entity).try_insert((
+		ChildOf(root),
+		LodRefreshMembership(LodRefreshDomain::of::<CaptureHostRoot>()),
+	));
 }
 
 fn spawn_clothing_icon(commands: &mut Commands, preview: &ClothingIconPreview) -> Entity {
@@ -263,5 +293,12 @@ mod tests {
 		let item = InventoryItem::from_firearm_spec(spec);
 		assert!(item.capture_id_label().is_some());
 		let _ = GeneratedFirearm::from_spec(spec);
+	}
+
+	#[test]
+	fn capture_hosts_use_an_isolated_lod_domain() {
+		let domain = LodRefreshDomain::of::<CaptureHostRoot>();
+		assert_eq!(domain, LodRefreshDomain::of::<CaptureHostRoot>());
+		assert_ne!(domain, LodRefreshDomain::of::<GeneratedFirearm>());
 	}
 }

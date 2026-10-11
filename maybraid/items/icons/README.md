@@ -5,7 +5,8 @@ Hosts request both [`CaptureMode::Shaded`] and [`CaptureMode::Silhouette`] the
 first time an inventory item is seen. The crate never mutates the live scene. Isolated captures spawn the same
 posed hosts the inspect preview uses: [`firearm_user::GeneratedFirearm`] for
 kits and a bind-pose clothing preview with catalog materials. Silhouette
-mode strips clothing/face shaders so the capture crate can stamp unlit gray.
+mode strips clothing/face shaders every frame so shader restamp cannot leave
+meshes bare, and capture restamps unlit gray through settle/readback.
 
 Inventory catalogs look up **shaded** handles by
 [`character_items::InventoryItem::icon_catalog_key`]. The skill-map HUD looks

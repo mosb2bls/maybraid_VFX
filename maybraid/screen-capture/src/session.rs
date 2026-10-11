@@ -301,12 +301,16 @@ pub(crate) fn apply_silhouette(
 		if meshes.get(entity).is_err() {
 			return;
 		}
-		let silhouette = match standard.get(entity).ok().and_then(|handle| materials.get(&handle.0))
-		{
+		let original = standard.get(entity).ok().and_then(|handle| materials.get(&handle.0));
+		if original.is_some_and(is_silhouette_material) {
+			converted += 1;
+			return;
+		}
+		let silhouette = match original {
 			Some(original) => silhouette_from_standard(original),
 			None => {
 				custom += 1;
-				silhouette_from_standard(&StandardMaterial::default())
+				opaque_silhouette()
 			}
 		};
 		commands.entity(entity).try_insert(MeshMaterial3d(materials.add(silhouette)));
@@ -339,6 +343,24 @@ fn silhouette_from_standard(original: &StandardMaterial) -> StandardMaterial {
 		reflectance: 0.0,
 		..Default::default()
 	}
+}
+
+fn opaque_silhouette() -> StandardMaterial {
+	StandardMaterial {
+		base_color: Color::srgba(SILHOUETTE_GRAY, SILHOUETTE_GRAY, SILHOUETTE_GRAY, 1.0),
+		unlit: true,
+		alpha_mode: AlphaMode::Opaque,
+		perceptual_roughness: 1.0,
+		metallic: 0.0,
+		reflectance: 0.0,
+		..Default::default()
+	}
+}
+
+fn is_silhouette_material(material: &StandardMaterial) -> bool {
+	material.unlit
+		&& material.base_color
+			== Color::srgba(SILHOUETTE_GRAY, SILHOUETTE_GRAY, SILHOUETTE_GRAY, 1.0)
 }
 
 fn visit_descendants(root: Entity, children: &Query<&Children>, visit: &mut impl FnMut(Entity)) {
@@ -426,11 +448,13 @@ mod tests {
 
 	#[test]
 	fn unlit_gray_covers_meshes_without_a_standard_material() {
-		let silhouette = silhouette_from_standard(&StandardMaterial::default());
+		let silhouette = opaque_silhouette();
 		assert!(silhouette.unlit);
+		assert_eq!(silhouette.alpha_mode, AlphaMode::Opaque);
 		assert_eq!(
 			silhouette.base_color,
 			Color::srgba(SILHOUETTE_GRAY, SILHOUETTE_GRAY, SILHOUETTE_GRAY, 1.0)
 		);
+		assert!(is_silhouette_material(&silhouette));
 	}
 }

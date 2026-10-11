@@ -7,8 +7,8 @@ use character_items::{icon_catalog_key_for_label, Inventory, InventoryItem};
 use character_persist::SaveRoot;
 use firearms_components::firearm_preview_camera;
 use host::{
-	install_capture_hosts, mark_capture_hosts_ready, realize_capture_hosts, remember_item,
-	strip_silhouette_shader_materials, HOST_CLOTHING, HOST_FIREARM,
+	install_capture_hosts, keep_capture_hosts_visible, mark_capture_hosts_ready,
+	prepare_silhouette_hosts, realize_capture_hosts, remember_item, HOST_CLOTHING, HOST_FIREARM,
 };
 use screen_capture::{
 	CaptureCompleted, CaptureFailed, CaptureLighting, CaptureRequest, CaptureResolution,
@@ -134,7 +134,7 @@ impl Plugin for ItemIconPlugin {
 			)
 			.add_systems(
 				PostUpdate,
-				(strip_silhouette_shader_materials, mark_capture_hosts_ready)
+				(keep_capture_hosts_visible, prepare_silhouette_hosts, mark_capture_hosts_ready)
 					.chain()
 					.before(ScreenCaptureSystems::Advance),
 			);

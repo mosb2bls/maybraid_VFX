@@ -267,6 +267,17 @@ fn advance_sessions(
 		return;
 	}
 
+	if matches!(session.phase, CapturePhase::Settle { .. } | CapturePhase::Readback { .. }) {
+		let _ = apply_silhouette(
+			&mut commands,
+			session,
+			&mut materials,
+			&children,
+			&standard,
+			&mesh_entities,
+		);
+	}
+
 	match &mut session.phase {
 		CapturePhase::Load { frames } => {
 			*frames += 1;

@@ -44,8 +44,9 @@ reported with [`CaptureCompleted`] / [`CaptureFailed`].
   preset (studio or a world key/fill pair).
 - **Silhouette** — uniform grayscale on a transparent background, with MSAA
   edges. Geometry and standard-material cutouts that affect the outline are
-  preserved. Meshes without a `StandardMaterial` still get unlit gray so
-  clothing/firearm shaders can be stripped by the host before readback.
+  preserved. Meshes without a `StandardMaterial` get opaque unlit gray.
+  The conversion is reapplied through settle and readback so host shader
+  systems cannot strip the outline before the GPU copies pixels.
 
 Capture always uses an isolated scene, camera, and render layer. The live
 item is never mutated.
