@@ -9,7 +9,6 @@ use std::sync::Arc;
 use bevy::ecs::system::{SystemParam, SystemParamItem};
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
-use lod::gen::Id;
 use lod::hcsg::{
 	register_session_seed, Busy, HcsgBounds, HcsgClass, HcsgStorage, PresentationPlugin,
 };
@@ -187,7 +186,6 @@ pub trait SharedTerrainStorage {
 		x: f32,
 		z: f32,
 	) -> Result<Option<WaterColumn>, Busy>;
-
 }
 
 impl SharedTerrainStorage for HcsgStorage {
@@ -218,12 +216,11 @@ impl SharedTerrainStorage for HcsgStorage {
 		}
 		Ok(None)
 	}
-
 }
 
 /// Test-only direct publishes into [`HcsgStorage`]. Frame code uses
 /// [`DurhamSurface`] or presentation hosts.
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test))]
 pub trait SharedTerrainStorageTestExt: SharedTerrainStorage {
 	/// Publishes origin cell `(ix, iz)` of `layout` with `base` as its whole
 	/// SDF.
@@ -236,7 +233,7 @@ pub trait SharedTerrainStorageTestExt: SharedTerrainStorage {
 	);
 }
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(any(test))]
 impl SharedTerrainStorageTestExt for HcsgStorage {
 	fn publish_base_terrain_for_test(
 		&self,
@@ -300,13 +297,14 @@ mod tests {
 	use std::time::Duration;
 
 	use bevy::scene::ScenePlugin;
+	use lod::gen::Id;
 	use lod::gen::{Id, OriginalId, Version};
 	use lod::hcsg::{HcsgBoundsPlugin, HcsgDemand, HcsgNode, HcsgRestartRequest};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 
-	use super::*;
 	use super::SharedTerrainStorageTestExt;
+	use super::*;
 	use crate::terrain::{
 		fine_patch_cell_layout, CellTiling, TerrainColliderMeshSource, TerrainConfig,
 		TerrainMeshAssets, TerrainMeshLodBand, TerrainStampConfigs, WatershedConfigs,
