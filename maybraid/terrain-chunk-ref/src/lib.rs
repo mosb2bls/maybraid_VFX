@@ -169,11 +169,11 @@ pub struct TerrainChunkRefSeen {
 /// after the first query look. Overlay fill uses
 /// [`TerrainChunkRefCache::without_build_on_miss`].
 ///
-/// Waiters that already carry [`TerrainChunkRefSeen`] for the current
-/// [`HandleMap`] generation are not iterated while the mailbox is quiet.
-/// A generation bump re-walks those Seen waiters (budgeted). Without that
-/// skip, a 2 ms budget was spent every idle frame walking already-Seen
-/// overlays.
+/// Waiters that already carry [`TerrainChunkRefSeen`] are not iterated while
+/// the mailbox generation is unchanged. A generation bump re-walks them
+/// (budgeted). The recorded generation is updated every tick so a 2 ms
+/// skip-walk cannot pin the system in "always rescan" and refill the idle
+/// budget.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct TerrainChunkRefBudget {
 	pub new_meshes_per_frame: u32,
@@ -253,9 +253,11 @@ pub fn fulfill_terrain_chunk_refs<T>(
 	let mut looked = 0u32;
 	let started = Instant::now();
 	let generation = cache.handles().generation();
-	let rescan_seen = *last_generation != Some(generation);
+	// `None` means first tick: only fresh waiters. A quiet mailbox (`Some` and
+	// unchanged) must not walk Seen — iterating those skips filled the 2 ms
+	// budget every idle frame and then never recorded `last_generation`.
+	let rescan_seen = matches!(*last_generation, Some(previous) if previous != generation);
 
-	let mut budget_hit = false;
 	for item in &queries.p0() {
 		if !fulfill_one(
 			item,
@@ -270,11 +272,11 @@ pub fn fulfill_terrain_chunk_refs<T>(
 			&mut looked,
 			started,
 		) {
-			budget_hit = true;
-			break;
+			*last_generation = Some(generation);
+			return;
 		}
 	}
-	if rescan_seen && !budget_hit {
+	if rescan_seen {
 		for item in &queries.p1() {
 			if !fulfill_one(
 				item,
@@ -289,16 +291,11 @@ pub fn fulfill_terrain_chunk_refs<T>(
 				&mut looked,
 				started,
 			) {
-				budget_hit = true;
 				break;
 			}
 		}
-		if !budget_hit {
-			*last_generation = Some(generation);
-		}
-	} else if !rescan_seen {
-		*last_generation = Some(generation);
 	}
+	*last_generation = Some(generation);
 }
 
 /// Returns `false` when a per-frame cap was hit and the caller should stop.
