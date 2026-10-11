@@ -9,6 +9,7 @@
 
 pub mod anchors;
 pub mod assets;
+pub mod authoring;
 pub mod colliders;
 pub mod layout;
 pub mod materials;
@@ -19,6 +20,9 @@ pub mod spawn;
 pub mod spec;
 pub mod terrain;
 
+pub use authoring::{
+	UNIT_PART_HEIGHT, UNIT_SHAFT_LOWER_DIAMETER, UNIT_SHAFT_UPPER_DIAMETER, UNIT_SQUARE_SIDE,
+};
 pub use anchors::{
 	CHAIN_ANCHOR_NAMES, DoricColumnAnchors, DoricColumnChainAnchor, DoricColumnGroundContact,
 };
@@ -32,5 +36,5 @@ pub use spawn::{
 	spawn_doric_column_encounter, spawn_doric_column_summon, DoricColumnCoverCollider,
 	DoricColumnEncounter, DoricColumnRoot, DoricColumnSummon,
 };
-pub use spec::{DoricColumnDimensions, DoricColumnSpec};
+pub use spec::{DoricColumnDimensions, DoricColumnRatios, DoricColumnSpec};
 pub use terrain::{snap_doric_columns_to_terrain, DoricColumnTerrainPlacement};

@@ -47,9 +47,9 @@ impl DoricColumnAnchors {
 		let mut transforms = BTreeMap::new();
 		transforms.insert(names::GROUND_CONTACT, Transform::IDENTITY);
 		let parts = part_placements(&layout);
-		let pedestal_top_y = parts.pedestal.translation.y + layout.pedestal.height;
-		let shaft_top_y = parts.shaft.translation.y + layout.shaft.height;
-		let capital_top_y = parts.capital.translation.y + layout.capital.height;
+		let pedestal_top_y = parts.pedestal.translation.y + layout.plinth.height;
+		let shaft_top_y = layout.shaft_top_y();
+		let capital_top_y = layout.total_height();
 		transforms.insert(
 			names::PEDESTAL_TOP,
 			Transform::from_translation(Vec3::new(0.0, pedestal_top_y, 0.0)),
@@ -64,7 +64,7 @@ impl DoricColumnAnchors {
 		);
 
 		let chain_y = shaft_top_y;
-		let chain_r = layout.shaft.radius_bottom + layout.chain_anchor_outset;
+		let chain_r = layout.shaft.radius_top + layout.chain_anchor_outset;
 		transforms.insert(
 			names::CHAIN_ANCHOR_POS_X,
 			chain_anchor(chain_r, chain_y, Vec3::X),
@@ -147,7 +147,7 @@ mod tests {
 		let parts = part_placements(&layout);
 		let anchors = DoricColumnAnchors::for_spec(&spec);
 		let top = anchors.get(names::PEDESTAL_TOP).unwrap().translation.y;
-		let expected = parts.pedestal.translation.y + layout.pedestal.height;
+		let expected = parts.pedestal.translation.y + layout.plinth.height;
 		assert!((top - expected).abs() < 1e-4);
 	}
 }

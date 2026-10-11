@@ -1,4 +1,6 @@
 //! Procedural placeholder meshes until authored GLBs replace them.
+//!
+//! All parts use the [`crate::authoring`] convention: **Y ∈ [0, 1]**, unit footprint; world size from [`part_placements`](crate::layout::part_placements).
 
 use std::f32::consts::{PI, TAU};
 
@@ -45,9 +47,9 @@ impl Plugin for DoricColumnPlaceholderPlugin {
 }
 
 fn init_placeholder_meshes(mut meshes: ResMut<Assets<Mesh>>, mut commands: Commands) {
-	let pedestal = meshes.add(solid_frustum_mesh(1.0, 1.2, 1.0, 32));
-	let shaft = meshes.add(solid_shaft_mesh(0.5, 1.0, 32, 8));
-	let capital = meshes.add(solid_frustum_mesh(1.15, 1.0, 1.0, 32));
+	let pedestal = meshes.add(solid_square_box_mesh(0.5, 1.0));
+	let shaft = meshes.add(solid_shaft_mesh(0.5, 0.4, 1.0, 32, 10));
+	let capital = meshes.add(solid_capital_placeholder_mesh(0.4, 0.52, 0.6, 0.5, 32));
 	commands.insert_resource(DoricColumnPlaceholderMeshes { pedestal, shaft, capital });
 }
 
@@ -83,6 +85,7 @@ impl SolidMesh {
 }
 
 /// Closed frustum or cylinder: side quads + bottom cap + top cap, outward normals.
+#[allow(dead_code)]
 pub(crate) fn solid_frustum_mesh(
 	bottom_radius: f32,
 	top_radius: f32,
@@ -146,12 +149,96 @@ pub(crate) fn solid_frustum_data(
 	SolidMesh { positions, normals, indices }
 }
 
-/// Closed unit cylinder with column POM UV/tangent contract on the side wall.
+/// Closed axis-aligned box: **±X** / **±Z** faces, bottom at **Y = 0**, centered on the axis.
+pub(crate) fn solid_square_box_mesh(half_side: f32, height: f32) -> Mesh {
+	solid_square_box_data(half_side, height).into_bevy_mesh()
+}
+
+pub(crate) fn solid_square_box_data(half_side: f32, height: f32) -> SolidMesh {
+	let hx = half_side;
+	let hz = half_side;
+	let y0 = 0.0;
+	let y1 = height;
+	let corners = [
+		Vec3::new(-hx, y0, -hz),
+		Vec3::new(hx, y0, -hz),
+		Vec3::new(hx, y0, hz),
+		Vec3::new(-hx, y0, hz),
+		Vec3::new(-hx, y1, -hz),
+		Vec3::new(hx, y1, -hz),
+		Vec3::new(hx, y1, hz),
+		Vec3::new(-hx, y1, hz),
+	];
+
+	let mut positions = Vec::new();
+	let mut normals = Vec::new();
+	let mut indices = Vec::new();
+	let mut push_tri = |a: Vec3, b: Vec3, c: Vec3| {
+		let normal = (b - a).cross(c - a).normalize_or_zero();
+		let base = positions.len() as u32;
+		positions.extend([a, b, c]);
+		normals.extend([normal, normal, normal]);
+		indices.extend([base, base + 1, base + 2]);
+	};
+
+	// Sides (+X, +Z, -X, -Z outward).
+	push_tri(corners[1], corners[5], corners[6]);
+	push_tri(corners[1], corners[6], corners[2]);
+	push_tri(corners[2], corners[6], corners[7]);
+	push_tri(corners[2], corners[7], corners[3]);
+	push_tri(corners[3], corners[7], corners[4]);
+	push_tri(corners[3], corners[4], corners[0]);
+	push_tri(corners[0], corners[4], corners[5]);
+	push_tri(corners[0], corners[5], corners[1]);
+
+	let bottom_center = Vec3::new(0.0, y0, 0.0);
+	push_tri(bottom_center, corners[0], corners[1]);
+	push_tri(bottom_center, corners[1], corners[2]);
+	push_tri(bottom_center, corners[2], corners[3]);
+	push_tri(bottom_center, corners[3], corners[0]);
+
+	let top_center = Vec3::new(0.0, y1, 0.0);
+	push_tri(top_center, corners[5], corners[4]);
+	push_tri(top_center, corners[6], corners[5]);
+	push_tri(top_center, corners[7], corners[6]);
+	push_tri(top_center, corners[4], corners[7]);
+
+	SolidMesh { positions, normals, indices }
+}
+
+/// Round echinus + square abacus in one mesh (unit height 1, abacus half-side 1 in X/Z).
+pub(crate) fn solid_capital_placeholder_mesh(
+	echinus_radius_bottom: f32,
+	echinus_radius_top: f32,
+	echinus_height_fraction: f32,
+	abacus_half_side: f32,
+	segments: u32,
+) -> Mesh {
+	let echinus_h = echinus_height_fraction.clamp(0.05, 0.95);
+	let echinus = solid_frustum_data(echinus_radius_bottom, echinus_radius_top, echinus_h, segments);
+	let abacus = solid_square_box_data(abacus_half_side, 1.0 - echinus_h);
+	let offset_y = echinus_h;
+	let mut positions = echinus.positions;
+	let mut normals = echinus.normals;
+	let mut indices = echinus.indices;
+	let base = positions.len() as u32;
+	for p in abacus.positions {
+		positions.push(p + Vec3::new(0.0, offset_y, 0.0));
+	}
+	normals.extend(abacus.normals);
+	for i in abacus.indices {
+		indices.push(i + base);
+	}
+	SolidMesh { positions, normals, indices }.into_bevy_mesh()
+}
+
+/// Closed tapered shaft with column POM UV/tangent contract on the side wall.
 ///
 /// Side: **U** wraps once with seam duplicated on local **−Z**; **V** is 0 at bottom, 1 at top.
 /// Top/bottom caps are separate UV islands (`U = 0.5`) so fluting UVs do not cover caps.
 pub(crate) fn solid_shaft_mesh(
-	radius: f32,
+	radius_bottom: f32,
+	radius_top: f32,
 	height: f32,
 	longitudes: u32,
 	rings: u32,
@@ -169,6 +256,7 @@ pub(crate) fn solid_shaft_mesh(
 	for row in 0..rows {
 		let v = row as f32 / rings as f32;
 		let y = v * height;
+		let radius = radius_bottom + (radius_top - radius_bottom) * v;
 		for col in 0..cols {
 			let u = col as f32 / longitudes as f32;
 			let theta = TAU * u - PI;
@@ -297,17 +385,23 @@ mod tests {
 		true
 	}
 
-	fn check_frustum(bottom: f32, top: f32) {
-		let height = 1.0;
-		let mesh = solid_frustum_data(bottom, top, height, 24);
-		assert!(
-			mesh_is_closed(&mesh.positions, &mesh.indices),
-			"mesh should be closed"
-		);
+	fn check_solid(mesh: &SolidMesh, height: f32) {
+		assert!(mesh_is_closed(&mesh.positions, &mesh.indices), "mesh should be closed");
 		assert!(
 			mesh_normals_point_outward(&mesh.positions, &mesh.indices, height),
 			"normals should point outward"
 		);
+	}
+
+	fn square_faces_align_to_axes(mesh: &SolidMesh, half: f32) {
+		for p in &mesh.positions {
+			if p.x.abs() < 1e-4 && p.z.abs() < 1e-4 {
+				continue;
+			}
+			let on_x = (p.x.abs() - half).abs() < 1e-4;
+			let on_z = (p.z.abs() - half).abs() < 1e-4;
+			assert!(on_x || on_z, "vertex {:?} should lie on ±X or ±Z square faces", p);
+		}
 	}
 
 	fn check_shaft_closed(mesh: &Mesh) {
@@ -324,23 +418,29 @@ mod tests {
 	}
 
 	#[test]
-	fn pedestal_placeholder_is_closed_and_outward() {
-		check_frustum(1.0, 1.2);
+	fn plinth_placeholder_is_closed_square_and_axis_aligned() {
+		let mesh = solid_square_box_data(0.5, 1.0);
+		check_solid(&mesh, 1.0);
+		square_faces_align_to_axes(&mesh, 0.5);
 	}
 
 	#[test]
-	fn capital_placeholder_is_closed_and_outward() {
-		check_frustum(1.15, 1.0);
+	fn capital_placeholder_is_closed_echinus_and_abacus() {
+		let echinus = solid_frustum_data(0.4, 0.52, 0.6, 24);
+		check_solid(&echinus, 0.6);
+		let abacus = solid_square_box_data(0.5, 0.4);
+		check_solid(&abacus, 0.4);
+		square_faces_align_to_axes(&abacus, 0.5);
 	}
 
 	#[test]
 	fn shaft_placeholder_is_closed_and_outward() {
-		check_shaft_closed(&solid_shaft_mesh(0.5, 1.0, 24, 8));
+		check_shaft_closed(&solid_shaft_mesh(0.5, 0.4, 1.0, 24, 8));
 	}
 
 	#[test]
 	fn shaft_uv_seam_is_duplicated_on_local_neg_z() {
-		let mesh = solid_shaft_mesh(0.5, 1.0, 24, 4);
+		let mesh = solid_shaft_mesh(0.5, 0.4, 1.0, 24, 4);
 		let positions = mesh_positions(&mesh).expect("positions");
 		let uvs = mesh
 			.attribute(Mesh::ATTRIBUTE_UV_0)
@@ -369,7 +469,7 @@ mod tests {
 
 	#[test]
 	fn shaft_tangents_are_right_handed_and_circumferential() {
-		let mesh = solid_shaft_mesh(0.5, 1.0, 16, 4);
+		let mesh = solid_shaft_mesh(0.5, 0.4, 1.0, 16, 4);
 		let normals = mesh
 			.attribute(Mesh::ATTRIBUTE_NORMAL)
 			.and_then(|v| v.as_float3())

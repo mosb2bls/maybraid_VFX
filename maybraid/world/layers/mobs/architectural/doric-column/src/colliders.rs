@@ -3,17 +3,18 @@
 use avian3d::prelude::Collider;
 use bevy::prelude::*;
 
-use crate::layout::{DoricColumnLayout, PartLayout};
+use crate::layout::{DoricColumnLayout, RoundPartLayout, SquarePartLayout};
 
 /// Shapes in **assembly-local** space for one compound [`Collider`].
 pub fn cover_collider_shapes(layout: &DoricColumnLayout) -> Vec<(Vec3, Quat, Collider)> {
-	let mut shapes = Vec::with_capacity(3);
-	let y = 0.0;
-	shapes.push(cylinder_shape(y, layout.pedestal));
-	let shaft_y = layout.pedestal.height;
-	shapes.push(cylinder_shape(shaft_y, layout.shaft));
-	let capital_y = shaft_y + layout.shaft.height;
-	shapes.push(cylinder_shape(capital_y, layout.capital));
+	let mut shapes = Vec::with_capacity(4);
+	shapes.push(square_shape(0.0, layout.plinth));
+	let shaft_y = layout.plinth.height;
+	shapes.push(round_shape(shaft_y, layout.shaft));
+	let echinus_y = layout.shaft_top_y();
+	shapes.push(round_shape(echinus_y, layout.echinus));
+	let abacus_y = echinus_y + layout.echinus.height;
+	shapes.push(square_shape(abacus_y, layout.abacus));
 	shapes
 }
 
@@ -22,7 +23,17 @@ pub fn cover_collider(layout: &DoricColumnLayout) -> Collider {
 	Collider::compound(shapes)
 }
 
-fn cylinder_shape(base_y: f32, part: PartLayout) -> (Vec3, Quat, Collider) {
+fn square_shape(base_y: f32, part: SquarePartLayout) -> (Vec3, Quat, Collider) {
+	let height = part.height.max(1e-3);
+	let center_y = base_y + height * 0.5;
+	(
+		Vec3::new(0.0, center_y, 0.0),
+		Quat::IDENTITY,
+		Collider::cuboid(part.half_side, height * 0.5, part.half_side),
+	)
+}
+
+fn round_shape(base_y: f32, part: RoundPartLayout) -> (Vec3, Quat, Collider) {
 	let height = part.height.max(1e-3);
 	let radius = (part.radius_bottom + part.radius_top) * 0.5;
 	let center_y = base_y + height * 0.5;
@@ -35,12 +46,8 @@ fn cylinder_shape(base_y: f32, part: PartLayout) -> (Vec3, Quat, Collider) {
 
 /// Axis-aligned bounds enclosing the cover collider (assembly space).
 pub fn cover_aabb(layout: &DoricColumnLayout) -> (Vec3, Vec3) {
-	let r = layout
-		.pedestal
-		.radius_bottom
-		.max(layout.shaft.radius_bottom)
-		.max(layout.capital.radius_top);
-	(Vec3::new(-r, 0.0, -r), Vec3::new(r, layout.total_height(), r))
+	let h = layout.max_plan_half_extent();
+	(Vec3::new(-h, 0.0, -h), Vec3::new(h, layout.total_height(), h))
 }
 
 #[cfg(test)]
@@ -55,6 +62,17 @@ mod tests {
 		let layout = spec.layout();
 		let (min, max) = cover_aabb(&layout);
 		assert!((max.y - min.y - layout.total_height()).abs() < 0.05);
+	}
+
+	#[test]
+	fn plinth_and_abacus_use_square_colliders() {
+		let layout = DoricColumnSpec::default().layout();
+		let shapes = cover_collider_shapes(&layout);
+		assert_eq!(shapes.len(), 4);
+		let plinth_half = layout.plinth.half_side;
+		let abacus_half = layout.abacus.half_side;
+		assert!(plinth_half > layout.shaft.radius_bottom);
+		assert!(abacus_half > layout.echinus.radius_top);
 	}
 
 	#[test]

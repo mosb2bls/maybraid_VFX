@@ -6,159 +6,163 @@ This document is the drop-in contract for the Bikanwarda Doric column and pedest
 
 | Convention | Value |
 |------------|--------|
-| **Units** | 1 Blender unit = 1 meter |
+| **Units** | 1 Blender unit = 1 meter in **world** space after placement |
 | **Up** | **+Y** |
 | **Forward** | **+Z** (encounter facing; chain anchors use this frame) |
 | **Right** | **+X** |
 
 Assembly roots place **`ground_contact`** at the world position passed to [`spawn_doric_column_encounter`](src/spawn.rs) / [`spawn_doric_column_summon`](src/spawn.rs). Terrain snap moves the root so `ground_contact` sits on the sampled surface.
 
-## Reference dimensions (unit kit)
+## Mesh authoring convention (read this first)
 
-Authored meshes should match these extents at **scale `(1,1,1)`** on the part node. Gameplay scales via [`DoricColumnSpec::scale`](src/spec.rs) and [`DoricColumnDimensions`](src/spec.rs) without re-exporting GLBs.
+**Runtime applies world size exactly once** via [`part_placements`](src/layout.rs) → [`Placement::scale`](../../../../../building-components). Meshes must be **unit-normalized in each part’s local space**; do **not** model parts at full metre heights (for example a 8 m shaft) unless placement scale is `(1,1,1)` only.
 
-| Part | Height (m) | Footprint (radius at bottom → top) |
-|------|------------|-------------------------------------|
-| **Pedestal** | 1.2 | 0.95 → 0.75 |
-| **Shaft** | 14.0 | 0.75 → 0.75 (cylinder) |
-| **Capital** | 1.0 | 0.95 → 0.95 |
+| Rule | Local part space (before placement) | World size (after placement) |
+|------|-----------------------------------|------------------------------|
+| Height | **Y ∈ [0, 1]** | `layout.<part>.height` metres |
+| Plinth / abacus footprint | Square side **1** on **X** and **Z**, faces parallel to **±X** / **±Z** | `plinth_side_d × D` or `abacus_side_d × D` |
+| Shaft footprint | Lower diameter **1**, upper diameter **`shaft_upper_diameter_d`** (default **0.8**) | Lower diameter **D**, upper **`shaft_upper_diameter_d × D`** |
+| Capital placeholder | Echinus + abacus in one GLB, same unit rules | See [`DoricColumnLayout`](src/layout.rs) |
 
-**Total assembly height:** 16.2 m at unit scale.
+Constants mirrored in code: [`src/authoring.rs`](src/authoring.rs) (`UNIT_PART_HEIGHT`, `UNIT_SQUARE_SIDE`, …). Integration test: `simulated_authored_unit_mesh_matches_layout_anchors_and_colliders`.
+
+**Why:** If a shaft GLB is modeled 8 m tall and runtime sets `scale.y = 8`, the column becomes 64 m tall while anchors and colliders stay at 8 m.
+
+Gameplay [`DoricColumnSpec::uniform_scale`](src/spec.rs) multiplies **D** and every derived length together; it does not change the unit mesh.
+
+## Classical proportions (multiples of **D**)
+
+**D** = lower shaft diameter ([`DoricColumnDimensions::lower_shaft_diameter_d`](src/spec.rs)). Defaults live in [`DoricColumnRatios`](src/spec.rs); tune via spec, not by re-exporting GLBs.
+
+| Quantity | Ratio (× **D**) | Default @ **D = 1.5 m** |
+|----------|-----------------|-------------------------|
+| Total column height | `column_height_d` (**6.5**) | 9.75 m |
+| Plinth height | `plinth_height_d` (**0.4**) | 0.60 m |
+| Plinth square side | `plinth_side_d` (**1.4**) | 2.10 m |
+| Shaft height | `column_height_d − plinth_height_d − capital_height_d` (**5.6**) | 8.40 m |
+| Shaft upper diameter | `shaft_upper_diameter_d` (**0.8**) | 1.20 m |
+| Capital height (echinus + abacus) | `capital_height_d` (**0.5**) | 0.75 m |
+| Echinus height | `echinus_height_d` (**0.3**) | 0.45 m |
+| Abacus height | `abacus_height_d` (**0.2**) | 0.30 m |
+| Abacus square side | `abacus_side_d` (**1.2**) | 1.80 m |
+| Chain anchor outset | `chain_anchor_outset_d` (**0.05**) | 0.075 m |
+
+### Plan shape
+
+| Part | Plan | Notes |
+|------|------|--------|
+| **Plinth** | Square | Axis-aligned; corners on diagonals, faces on **±X** / **±Z** |
+| **Shaft** | Round (entasis) | Circular; seam for POM on local **−Z** |
+| **Echinus** | Round | Sits under the square abacus |
+| **Abacus** | Square | Same axis alignment as plinth |
 
 ### Per-part origin (pivot)
 
-Each part GLB is instanced with a **bottom-center** origin:
-
 - **Origin:** center of the bottom face on the XZ plane, **Y = 0**.
-- **Mesh extends:** **Y ∈ [0, part_height]**.
-- **Forward:** mesh features (flutes, abacus detail) should face **+Z** when rotation is identity.
+- **Mesh extends:** **Y ∈ [0, 1]** in local space (unit height).
+- **Forward:** detail faces **+Z** at identity rotation.
 
-Stacking in assembly space (before root yaw):
+Stacking in assembly space (world metres at `scale = 1`, default **D**):
 
-1. Pedestal at **Y = 0**
-2. Shaft at **Y = 1.2** (top of pedestal)
-3. Capital at **Y = 15.2** (top of shaft)
-
-Scaling maps authored unit meshes via non-uniform `Placement.scale` on each part (`diameter` on X/Z, `height` on Y). Do **not** bake encounter scale into the GLB; keep the reference dimensions above.
+1. Plinth base **Y = 0**
+2. Shaft base **Y = `plinth_height_d × D`**
+3. Capital (echinus + abacus) base **Y = plinth height + shaft height**
 
 ## File paths and naming
 
 | Role | Blender source | Runtime GLB (`maybraid/assets/`) |
 |------|----------------|----------------------------------|
-| Pedestal | `maybraid/art/bikanwarda/architectural/doric_column/pedestal_001.blend` | `bikanwarda/architectural/doric_column/pedestal_001.glb` |
+| Plinth | `maybraid/art/bikanwarda/architectural/doric_column/pedestal_001.blend` | `bikanwarda/architectural/doric_column/pedestal_001.glb` |
 | Shaft | `…/shaft_001.blend` | `…/shaft_001.glb` |
 | Capital | `…/capital_001.blend` | `…/capital_001.glb` |
 | Optional rig | `…/doric_column_rig_001.blend` | `…/doric_column_rig_001.glb` |
 
-Constants: [`src/assets.rs`](src/assets.rs).
+Constants: [`src/assets.rs`](src/assets.rs). Scene object names: `pedestal`, `shaft`, `capital`.
 
-### Scene / object naming (GLB export)
-
-- Export **Scene 0** as today’s urban/furniture kits do.
-- Root object names should match part labels: `pedestal`, `shaft`, `capital`.
-- Material slot names (for material-ref routing):
-  - `doric_column_pedestal`
-  - `doric_column_shaft`
-  - `doric_column_capital`
-
-Shaft instances use material recipe **`doric-column-shaft-pom`** ([`DoricColumnMaterials`](src/materials.rs)) — same contract as **`doric_column`** in the POM lane ([#1132](https://github.com/ramate-io/maybraid/issues/1132), draft PR [#1143](https://github.com/ramate-io/maybraid/pull/1143)). Pedestal and capital use `doric-column-pedestal` and `doric-column-capital`.
+Material slots: `doric_column_pedestal`, `doric_column_shaft`, `doric_column_capital`. Shaft recipe **`doric-column-shaft-pom`** / **`doric_column`** ([#1132](https://github.com/ramate-io/maybraid/issues/1132), [#1143](https://github.com/ramate-io/maybraid/pull/1143)).
 
 ## UV layout and column POM ([#1132](https://github.com/ramate-io/maybraid/issues/1132))
 
-Canonical shader and recipe documentation: [`COLUMN_SURFACE.md`](../../../../urbanization/buildings/shaders/COLUMN_SURFACE.md) ([#1143](https://github.com/ramate-io/maybraid/pull/1143)). POM owns **surface relief only**. Shaft outline, capital, pedestal, and cover collision stay real geometry. The material never displaces the silhouette and must not be treated as physical cover.
+Canonical contract: [`COLUMN_SURFACE.md`](../../../../urbanization/buildings/shaders/COLUMN_SURFACE.md) ([#1143](https://github.com/ramate-io/maybraid/pull/1143)). POM owns **surface relief only** on the **shaft**; plinth, echinus, abacus, and cover stay real geometry.
 
 ### Mesh islands
 
-| Part | Geometry | This material? |
-|------|----------|----------------|
-| Shaft | Circular (or slight entasis) cylinder of revolution | Yes — `doric_column` / `doric-column-shaft-pom` |
-| Capital / necking | Real mesh | No. Separate island or mesh. |
-| Pedestal / base | Real mesh | No. Separate island or mesh. |
-| Caps | Omit on the shaft, or a distinct UV island | Fluting UVs must not cover caps |
+| Part | Geometry | POM material? |
+|------|----------|---------------|
+| Shaft | Circular cylinder of revolution (entasis in mesh + scale) | Yes |
+| Echinus / abacus / plinth | Real mesh | No |
+| Shaft caps | Omit, or separate UV island | Fluting UVs must not cover caps |
 
-Runtime **placeholders** close the shaft with top/bottom caps for preview; cap faces use **`U = 0.5`** (off the fluting island). Authored GLBs should omit shaft caps or keep them on a separate UV island as above.
+Runtime placeholders close the shaft for preview; cap UVs use **`U = 0.5`** off the fluting island.
 
-### UV (shaft side wall)
+### UV (shaft only)
 
-Local space: **+Y** up the shaft, origin on the shaft axis.
+Local **+Y** up the shaft, origin on the axis.
 
 | Channel | Range | Meaning |
 |---------|-------|---------|
-| **U** | `0..1`, wraps once | Angle around the shaft. **U = 0 and U = 1 are the same physical seam.** |
-| **V** | `0..1` | Bottom → top of the **authored shaft** (bind pose, before gameplay scale). |
+| **U** | `0..1`, one wrap | Azimuth; **U = 0** and **U = 1** are the same seam |
+| **V** | `0..1` | Bottom → top of the **authored shaft** bind pose (unit **Y ∈ [0, 1]** before placement) |
 
-Seam placement: put **U = 0/1 on local −Z** so a typical +Z / +X approach does not look at the cut. Duplicate the seam ring of vertices. Do **not** let a triangle interpolate from `U ≈ 1` to `U ≈ 0`.
-
-Height is **periodic in U** (`fract(u)`). Authored height / normal maps must tile across the seam, or hide the seam on −Z and keep a few texels of overlap.
-
-Do not mirror U. Flute count is `U * 20` (classical Doric; override with material scalar 3 in the POM recipe).
+- Seam at **local −Z**; duplicate the seam ring; no triangle spans **U ≈ 1** to **U ≈ 0**.
+- Height periodic in **U** (`fract(u)`); maps must tile across the seam.
+- Do not mirror **U**. Flute count **`U × 20`** (override via material scalar 3 in [#1143](https://github.com/ramate-io/maybraid/pull/1143)).
 
 ### Tangent frame (shaft)
 
-Right-handed, Bevy `ATTRIBUTE_TANGENT` (`xyz` + `w` sign):
+Bevy `ATTRIBUTE_TANGENT` (`xyz` + `w`):
 
-| Vector | Direction | Notes |
-|--------|-----------|--------|
-| **T** (+U) | Circumferential, counterclockwise when viewed from +Y | `dP/dU` |
-| **B** (+V) | Up the shaft | `dP/dV` |
-| **N** | Outward from the axis | `T × B` (with `tangent.w = +1`) |
+| Vector | Direction |
+|--------|-----------|
+| **T** (+U) | Circumferential, **counterclockwise** viewed from **+Y** (`dP/dU`) |
+| **B** (+V) | Up the shaft (`dP/dV`) |
+| **N** | Outward from axis — **`T × B`** with **`tangent.w = +1`** |
 
-`T` must be perpendicular to `N`. Do not import a GLB whose tangents were generated against a different unwrap (planar box, mirrored U, or inverted V). Export tangents for the shaft.
+Export tangents; must match this unwrap (not planar/mirrored). Placeholder: [`solid_shaft_mesh`](src/placeholder.rs).
 
-The [`doric-column`](.) placeholder shaft follows this contract on the side wall (see `solid_shaft_mesh` in [`src/placeholder.rs`](src/placeholder.rs)).
-
-### Texel density (when baking maps)
+### Texel density (baked maps)
 
 | Axis | Target |
 |------|--------|
-| **U** | **64–128 texels per flute** (one wrap = flute count × that) |
-| **V** | **256–512 texels per metre** of authored shaft |
+| **U** | **64–128 texels per flute** (width = flute count × that) |
+| **V** | **256–512 texels per metre** of authored shaft height in **world** metres after placement |
 
-Example at preview radius `r = 0.42 m`, height `2.52 m`, 20 flutes: 96 texels/flute → **1920** px wide; 384 texels/m → **968** px tall.
+At default **D = 1.5 m**: lower radius **0.75 m**, shaft height **8.4 m**, 20 flutes, 96 texels/flute → **1920** px wrap width; 384 texels/m → **3226** px tall. Circumference **2πr ≈ 4.71 m** → ~408 texels/m in **U** (same band as **V**).
 
-Uniform gameplay scale is fine. Non-uniform scale that stretches U vs V will shear flutes; don’t.
-
-Pedestal and capital: planar or box-projected UV0 is fine at similar texel density; they do not use the column POM recipe.
+Uniform [`DoricColumnSpec::uniform_scale`](src/spec.rs) is fine; non-uniform **U** vs **V** stretch shears flutes.
 
 ## Anchor nodes
 
-Add **empty** objects (or bones on the optional rig) with **exact** names. Positions are in **assembly space** at unit scale; the code mirrors these in [`DoricColumnAnchors`](src/anchors.rs).
+Empties (or rig bones) in **assembly space** (world metres). Runtime: [`DoricColumnAnchors`](src/anchors.rs).
 
-| Name | Position (m) | Orientation |
-|------|----------------|-------------|
+| Name | Position (× **D** at `scale = 1`) | Orientation |
+|------|-----------------------------------|-------------|
 | `ground_contact` | `(0, 0, 0)` | Identity |
-| `pedestal_top` | `(0, 1.2, 0)` | Identity |
-| `shaft_top` | `(0, 15.2, 0)` | Identity |
-| `capital_top` | `(0, 16.2, 0)` | Identity |
-| `chain_anchor_pos_x` | `(0.83, 15.2, 0)` | **+X** outward (local **+Y** = world **+Y**, local **+Z** = **+X**) |
-| `chain_anchor_neg_x` | `(-0.83, 15.2, 0)` | **−X** outward |
-| `chain_anchor_pos_z` | `(0, 15.2, 0.83)` | **+Z** outward |
-| `chain_anchor_neg_z` | `(0, 15.2, -0.83)` | **−Z** outward |
+| `pedestal_top` | `(0, plinth_height_d, 0)` | Identity |
+| `shaft_top` | `(0, plinth_height_d + shaft_height_d, 0)` | Identity |
+| `capital_top` | `(0, column_height_d, 0)` | Identity |
+| `chain_anchor_pos_x` | `((shaft_upper_diameter_d/2 + chain_anchor_outset_d), plinth_height_d + shaft_height_d, 0)` | **+X** outward |
+| `chain_anchor_neg_x` | Negate **X** | **−X** outward |
+| `chain_anchor_pos_z` | **Z** = same radius | **+Z** outward |
+| `chain_anchor_neg_z` | Negate **Z** | **−Z** outward |
 
-Chain anchor radius = `shaft_radius + 0.08 m` at unit scale. Chain systems attach to entities tagged [`DoricColumnChainAnchor`](src/anchors.rs).
-
-Part-to-part sockets align with `pedestal_top` / `shaft_top` — shaft bottom sits on pedestal top, capital bottom on shaft top.
+`shaft_height_d = column_height_d − plinth_height_d − capital_height_d`. Chain radius uses **upper** shaft radius + outset.
 
 ## Collision and cover
 
-- **Do not** rely on render mesh for physics.
-- Silhouette flutes and echinus overhangs should be in the **visible** mesh; cover uses **conservative cylinders** per part ([`cover_collider_shapes`](src/colliders.rs)), not POM depth.
-- Colliders are **Fixed** layer compounds; they participate in movement blocking and sight/trajectory probes the same way building geometry does.
+Cover uses layout-derived **boxes** (plinth, abacus) and **cylinders** (shaft, echinus) in [`cover_collider_shapes`](src/colliders.rs), not render meshes or POM depth. **Fixed** layer.
 
 ## Swapping placeholders for GLBs
 
-1. Export the three part GLBs to the paths in [`src/assets.rs`](src/assets.rs).
-2. In the spawning lane (encounter or summon), pass `use_glb: true` to the spawn helpers **or** set [`DoricColumnUseAuthoredGlb`](src/parts.rs) resource to `true` before spawn.
-3. Each part node with `use_authored_glb` gets a [`SceneRefRoot`](../../../../../scene-ref/src/scene_ref.rs) for its GLB; placeholders are skipped.
-4. Verify in `doric-column-playground`: chain anchors (cyan), ground contact (green), cover debug (red lines).
-
-No change to [`DoricColumnSpec`](src/spec.rs), anchor names, or collider layout is required if meshes honor the origins and reference dimensions above.
+1. Export **unit-normalized** meshes per the table above.
+2. Export GLBs to [`src/assets.rs`](src/assets.rs) paths.
+3. Enable [`DoricColumnUseAuthoredGlb`](src/parts.rs) or `use_glb: true` on spawn.
+4. Verify in `doric-column-playground`: square plinth/abacus (top-down shot), anchors, red cover gizmos.
 
 ## Validation checklist
 
-- [ ] Part heights and radii match the reference table at scale 1.
-- [ ] `ground_contact` at bottom center; assembly sits on terrain without floating.
-- [ ] All eight anchor names present with orientations as specified.
-- [ ] Shaft UV0 seam and density ready for POM lane ([#1132](https://github.com/ramate-io/maybraid/issues/1132)).
-- [ ] Materials named for material-ref fulfillment.
-- [ ] Playground preview: encounter + summon instances, anchors and cover gizmos aligned.
+- [ ] Each part **Y ∈ [0, 1]** locally; world size comes only from placement scale.
+- [ ] Square plinth and abacus aligned to **±X** / **±Z**.
+- [ ] Shaft UV/tangents per [#1143](https://github.com/ramate-io/maybraid/pull/1143) `COLUMN_SURFACE.md`.
+- [ ] Anchor names and ratios match [`DoricColumnRatios`](src/spec.rs).
+- [ ] `cargo test -p doric-column authoring::` passes for your **D** / scale.

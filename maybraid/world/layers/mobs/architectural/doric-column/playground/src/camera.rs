@@ -10,16 +10,19 @@ pub struct CameraController {
 	pub pitch: f32,
 }
 
-/// `wide` | `capital` | `caps` (low angle on pedestal top + shaft base).
+/// `wide` | `capital` | `caps` | `topdown` (square plinth + abacus).
 pub fn preview_camera_transform() -> Transform {
 	match std::env::var("DORIC_PREVIEW_SHOT").as_deref() {
 		Ok("capital") => {
-			Transform::from_xyz(-2.0, 15.8, 7.2).looking_at(Vec3::new(-4.0, 15.25, 0.0), Vec3::Y)
+			Transform::from_xyz(-6.5, 9.2, 6.5).looking_at(Vec3::new(-4.0, 8.6, 0.0), Vec3::Y)
 		}
 		Ok("caps") => {
-			Transform::from_xyz(-1.5, 3.5, 9.0).looking_at(Vec3::new(-4.0, 4.5, 0.0), Vec3::Y)
+			Transform::from_xyz(-2.0, 2.2, 7.5).looking_at(Vec3::new(-4.0, 2.8, 0.0), Vec3::Y)
 		}
-		_ => Transform::from_xyz(6.0, 9.5, 14.0).looking_at(Vec3::new(0.0, 7.5, 0.0), Vec3::Y),
+		Ok("topdown") => {
+			Transform::from_xyz(0.0, 22.0, 0.0).looking_at(Vec3::ZERO, Vec3::NEG_Z)
+		}
+		_ => Transform::from_xyz(8.0, 6.5, 14.0).looking_at(Vec3::new(0.0, 4.8, 0.0), Vec3::Y),
 	}
 }
 
