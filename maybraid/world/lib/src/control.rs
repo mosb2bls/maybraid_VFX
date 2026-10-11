@@ -101,7 +101,8 @@ fn discovery_xz(
 /// so that `combat-hud` vitals and continuous bars can query this entity.
 pub fn grant_world_player_lubikan_owner(
 	mut commands: Commands,
-	players: Query<Entity, (With<Player>, Without<lubikans::LubikanOwner>)>,
+	// Match world players that don't have generic player::Player marker
+	players: Query<Entity, (With<Player>, Without<MaybraidPlayer>)>,
 ) {
 	for player in &players {
 		commands.entity(player).insert((

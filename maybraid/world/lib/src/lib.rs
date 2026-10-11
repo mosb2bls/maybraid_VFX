@@ -104,7 +104,7 @@ use player::{
 use player_camera::{PlayerCameraPlugin, PlayerCameraSystems};
 use world_player::{
 	CharacterCameraFollowEnabled, CharacterLocomotion, CharacterSpecies, MeshStatsPlugin,
-	PadMovementEnabled, PlayerControlSystems, PlaygroundDiag, PlaygroundMode,
+	PadMovementEnabled, Player as WorldPlayer, PlayerControlSystems, PlaygroundDiag, PlaygroundMode,
 	PlaygroundTimingPlugin, RequestSetCharacter, VegetationHostPlugin, VegetationPlayerMotor,
 };
 
@@ -338,12 +338,12 @@ impl Plugin for WorldPlugin {
 #[cfg(feature = "debug-commands")]
 fn apply_debug_grant_points(
 	requests: Query<(Entity, &commands::RequestGrantPoints)>,
-	players: Query<Entity, With<player::Player>>,
+	players: Query<Entity, (With<player::Player>, With<WorldPlayer>)>,
 	mut lubikan_requests: MessageWriter<lubikans::LubikanChargeRequest>,
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
-		if let Ok(player) = players.single() {
+		if let Some(player) = players.iter().next() {
 			// Go through LubikanChargeRequest -> Award path
 			lubikan_requests.write(lubikans::LubikanChargeRequest::equipped(
 				player,
@@ -359,13 +359,13 @@ fn apply_debug_grant_points(
 #[cfg(feature = "debug-commands")]
 fn apply_debug_take_damage(
 	requests: Query<(Entity, &commands::RequestTakeDamage)>,
-	players: Query<Entity, With<player::Player>>,
+	players: Query<Entity, (With<player::Player>, With<WorldPlayer>)>,
 	mut healths: Query<&mut damage::Health>,
 	mut damage_events: MessageWriter<damage::DamageApplied>,
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
-		if let Ok(player) = players.single() {
+		if let Some(player) = players.iter().next() {
 			if let Ok(mut health) = healths.get_mut(player) {
 				let before = health.current;
 				let applied = health.take_damage(request.amount);
@@ -389,12 +389,12 @@ fn apply_debug_take_damage(
 #[cfg(feature = "debug-commands")]
 fn apply_debug_activate(
 	requests: Query<(Entity, &commands::RequestActivate)>,
-	players: Query<Entity, With<player::Player>>,
+	players: Query<Entity, (With<player::Player>, With<WorldPlayer>)>,
 	mut activation_requests: MessageWriter<lubikans::LubikanActivationRequest>,
 	mut commands: Commands,
 ) {
 	for (entity, _request) in &requests {
-		if let Ok(player) = players.single() {
+		if let Some(player) = players.iter().next() {
 			activation_requests.write(lubikans::LubikanActivationRequest::equipped(player));
 		}
 		commands.entity(entity).despawn();
@@ -496,11 +496,11 @@ fn apply_debug_camera(
 #[cfg(feature = "debug-commands")]
 fn apply_debug_teleport(
 	requests: Query<(Entity, &commands::RequestTeleport)>,
-	mut players: Query<(&mut Transform, &mut avian3d::prelude::LinearVelocity), With<player::Player>>,
+	mut players: Query<(&mut Transform, &mut avian3d::prelude::LinearVelocity), (With<player::Player>, With<WorldPlayer>)>,
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
-		if let Ok((mut transform, mut velocity)) = players.single_mut() {
+		if let Some((mut transform, mut velocity)) = players.iter_mut().next() {
 			transform.translation = request.position;
 			**velocity = Vec3::ZERO;
 		}
