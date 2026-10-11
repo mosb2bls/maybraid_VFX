@@ -9,6 +9,7 @@
 //! Painted furniture is a generate pass over Richmond High slots, presented as
 //! flattened 50 m cell hosts in a neighborhood around the camera.
 
+mod agent;
 mod camera;
 pub mod commands;
 pub mod control;
@@ -35,10 +36,13 @@ mod world_layers;
 
 pub use world_furnished::WorldFurnished;
 
-pub use commands::PLAYGROUND_CLI_NAME;
-pub use commands::PlaygroundCommand;
+pub use agent::AgentDrive;
+pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 #[cfg(feature = "debug-commands")]
-pub use commands::{CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful, RequestSpawnNpc, RequestTakeDamage, RequestTeleport};
+pub use commands::{
+	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
+	RequestSpawnNpc, RequestTakeDamage, RequestTeleport,
+};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
 	WorldSurfaceReady, WorldSurfaceSet,
@@ -287,6 +291,9 @@ impl Plugin for WorldPlugin {
 				ui::draw_npc_behavior_gizmos.run_if(resource_equals(WorldMobHudEnabled(true))),
 			),
 		);
+		if app.world().contains_resource::<AgentDrive>() {
+			app.add_plugins(agent::WorldAgentPlugin);
+		}
 		if self.debug_chrome {
 			app.add_systems(Startup, ui::spawn_mob_debug_hud).add_systems(
 				Update,

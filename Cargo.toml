@@ -99,6 +99,7 @@ members = [
   "maybraid/world/modes/discover",
   "maybraid/world/modes/reliquary",
   "maybraid/input",
+  "maybraid/agent",
   "maybraid/combat-hud",
   "maybraid/combat-hud/playground",
   "maybraid/lubikans",
@@ -354,6 +355,7 @@ vfx-playground = { path = "maybraid/vfx/playground" }
 maybraid-skill-map = { path = "maybraid/skill-map" }
 maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
+maybraid-agent = { path = "maybraid/agent" }
 combat-hud = { path = "maybraid/combat-hud" }
 combat-hud-playground = { path = "maybraid/combat-hud/playground" }
 lubikans = { path = "maybraid/lubikans" }
