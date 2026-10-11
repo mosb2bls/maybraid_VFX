@@ -2,7 +2,10 @@
 
 use bevy::prelude::*;
 
-use crate::activation::{LubikanActivation, LubikanActivationDenied, LubikanReadiness};
+use crate::activation::{
+	LubikanActivation, LubikanActivationDenied, LubikanActivationGrant, LubikanActivationOutcome,
+	LubikanActivationSessionId, LubikanReadiness,
+};
 use crate::catalog::{LubikanCatalog, LubikanSelfConfig};
 use crate::charge::{LubikanCharge, LubikanChargeMutation};
 use crate::identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
@@ -164,8 +167,10 @@ impl LubikanLedger {
 		self.accounts.iter()
 	}
 
-	/// Equip `account` when it is owned. `None` returns to Self. Unknown
-	/// accounts are left unchanged and return `false`.
+	/// Equip `account` when it is owned. `None` returns to Self (`LubikanSelection`
+	/// default / Self fallback). Selecting Self is the same as `None`.
+	/// Unknown accounts are left unchanged and return `false`. Charge is never
+	/// copied. Input cycles through this method only.
 	pub fn select(&mut self, account: Option<LubikanAccountId>) -> bool {
 		match account {
 			None => {
@@ -202,51 +207,111 @@ impl LubikanLedger {
 	}
 
 	pub fn readiness(&self, catalog: &LubikanCatalog) -> LubikanReadiness {
-		let equipped = self.equipped();
-		LubikanReadiness::from_charge(
-			equipped.id,
-			equipped.charge,
-			catalog.activation_cost(equipped.id.definition()),
-			equipped.activation.is_busy(),
-		)
+		self.readiness_for(catalog, self.selection.resolved()).unwrap_or_else(|| {
+			let equipped = self.equipped();
+			LubikanReadiness::from_charge(
+				equipped.id,
+				equipped.charge,
+				catalog.activation_cost(equipped.id.definition()),
+				equipped.activation.is_busy(),
+			)
+		})
 	}
 
-	/// Begin activation when the resolved account can afford it.
+	pub fn readiness_for(
+		&self,
+		catalog: &LubikanCatalog,
+		account: LubikanAccountId,
+	) -> Option<LubikanReadiness> {
+		self.account(account).map(|owned| {
+			LubikanReadiness::from_charge(
+				owned.id,
+				owned.charge,
+				catalog.activation_cost(owned.id.definition()),
+				owned.activation.is_busy(),
+			)
+		})
+	}
+
+	/// Accept activation for `requested` (or the current selection).
 	///
-	/// Does not spend charge; [#1110](https://github.com/ramate-io/maybraid/issues/1110)
-	/// consumes cost through [`Self::apply_to`] / [`crate::LubikanChargeChanged`].
+	/// Spends the catalog cost exactly once on that account and captures a
+	/// session id. Completion and reset take that account (or session id),
+	/// not the later equipped selection. A denial spends nothing.
+	/// The Activate-set owner emits [`crate::LubikanActivationSession`] or
+	/// [`crate::LubikanActivationRefused`]. [#1110](https://github.com/ramate-io/maybraid/issues/1110)
+	/// and later summons consume the session and write
+	/// [`crate::LubikanActivationReport`].
 	pub fn try_activate(
 		&mut self,
 		catalog: &LubikanCatalog,
 		requested: Option<LubikanAccountId>,
-	) -> Result<LubikanActivation, LubikanActivationDenied> {
-		if let Some(id) = requested {
-			if !self.contains(id) {
-				return Err(LubikanActivationDenied::UnknownAccount);
-			}
-			if !self.select(Some(id)) {
-				return Err(LubikanActivationDenied::UnknownAccount);
-			}
+	) -> Result<LubikanActivationGrant, LubikanActivationDenied> {
+		let id = requested.unwrap_or_else(|| self.selection.resolved());
+		if !self.contains(id) {
+			return Err(LubikanActivationDenied::UnknownAccount);
 		}
-		let ready = self.readiness(catalog);
+		let ready =
+			self.readiness_for(catalog, id).ok_or(LubikanActivationDenied::UnknownAccount)?;
 		if !ready.can_activate {
-			let equipped = self.equipped();
-			if equipped.activation.is_busy() {
+			let busy = self.account(id).is_some_and(|account| account.activation.is_busy());
+			if busy {
 				return Err(LubikanActivationDenied::AlreadyActive);
 			}
 			return Err(LubikanActivationDenied::InsufficientCharge);
 		}
-		let equipped = self.equipped_mut();
-		equipped.activation.begin();
-		Ok(equipped.activation)
+		let cost = ready.activation_cost;
+		let owned = self.account_mut(id).ok_or(LubikanActivationDenied::UnknownAccount)?;
+		let spend = owned.charge.apply(-cost);
+		let session = owned.activation.begin();
+		Ok(LubikanActivationGrant {
+			account: id,
+			definition: id.definition(),
+			id: session,
+			spent: spend.applied,
+		})
 	}
 
-	pub fn complete_activation(&mut self) {
-		self.equipped_mut().activation.complete();
+	/// Complete the captured account. Does not consult current selection.
+	pub fn complete_activation(&mut self, account: LubikanAccountId) -> bool {
+		match self.account_mut(account) {
+			Some(owned) => {
+				owned.activation.complete();
+				true
+			}
+			None => false,
+		}
 	}
 
-	pub fn reset_activation(&mut self) {
-		self.equipped_mut().activation.reset();
+	/// Reset the captured account. Does not consult current selection.
+	pub fn reset_activation(&mut self, account: LubikanAccountId) -> bool {
+		match self.account_mut(account) {
+			Some(owned) => {
+				owned.activation.reset();
+				true
+			}
+			None => false,
+		}
+	}
+
+	/// Close an accepted session by id. Unknown ids leave the ledger unchanged.
+	pub fn finish_activation(
+		&mut self,
+		session: LubikanActivationSessionId,
+		outcome: LubikanActivationOutcome,
+	) -> bool {
+		let Some(owned) = self
+			.accounts
+			.iter_mut()
+			.find(|account| account.activation.session == Some(session))
+		else {
+			return false;
+		};
+		match outcome {
+			LubikanActivationOutcome::Completed => owned.activation.complete(),
+			LubikanActivationOutcome::Cancelled => owned.activation.reset(),
+		}
+		true
 	}
 
 	/// Apply a lifetime policy. Self remains owned.
@@ -346,6 +411,15 @@ mod tests {
 			Some(12.0)
 		);
 		assert_eq!(ledger.account(other).map(|account| account.charge().current()), Some(9.0));
+		if !ledger.select(Some(LubikanAccountId::SELF)) {
+			return Err(anyhow!("select(Some(Self)) is the same as None"));
+		}
+		assert_eq!(ledger.selection(), crate::LubikanSelection::default());
+		if !ledger.select(None) {
+			return Err(anyhow!("select(None) is the Self fallback"));
+		}
+		assert_eq!(ledger.selection(), crate::LubikanSelection::default());
+		assert_eq!(ledger.account(other).map(|account| account.charge().current()), Some(9.0));
 		Ok(())
 	}
 
@@ -357,13 +431,67 @@ mod tests {
 			Err(LubikanActivationDenied::InsufficientCharge) => {}
 			other => return Err(anyhow!("expected insufficient, got {other:?}")),
 		}
-		ledger.apply_to_equipped(catalog.activation_cost(LubikanDefinitionId::SELF));
-		let activation = ledger.try_activate(&catalog, None)?;
-		assert_eq!(activation.phase, LubikanActivationPhase::Active);
+		let cost = catalog.activation_cost(LubikanDefinitionId::SELF);
+		ledger.apply_to_equipped(cost);
+		let grant = ledger.try_activate(&catalog, None)?;
+		assert_eq!(grant.account, LubikanAccountId::SELF);
+		assert_eq!(grant.spent, -cost);
+		assert_eq!(ledger.equipped().activation().phase, LubikanActivationPhase::Active);
+		assert_eq!(ledger.equipped().charge().current(), 0.0);
 		match ledger.try_activate(&catalog, None) {
-			Err(LubikanActivationDenied::AlreadyActive) => Ok(()),
-			other => Err(anyhow!("expected already-active, got {other:?}")),
+			Err(LubikanActivationDenied::AlreadyActive) => {}
+			other => return Err(anyhow!("expected already-active, got {other:?}")),
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn complete_activation_uses_the_captured_account() -> Result<()> {
+		let catalog = LubikanCatalog::default();
+		let mut ledger = LubikanLedger::default();
+		let extra = extra(40.0);
+		let other = ledger.ensure_owned(extra);
+		ledger.apply_to(LubikanAccountId::SELF, catalog.activation_cost(LubikanDefinitionId::SELF));
+		ledger.apply_to(other, 9.0);
+		let grant = ledger.try_activate(&catalog, None)?;
+		assert_eq!(grant.account, LubikanAccountId::SELF);
+		if !ledger.select(Some(other)) {
+			return Err(anyhow!("switch after activate"));
+		}
+		if !ledger.complete_activation(grant.account) {
+			return Err(anyhow!("complete captured Self"));
+		}
+		assert_eq!(
+			ledger.account(LubikanAccountId::SELF).map(|account| account.activation().phase),
+			Some(LubikanActivationPhase::Completed)
+		);
+		assert_eq!(
+			ledger.account(other).map(|account| account.activation().phase),
+			Some(LubikanActivationPhase::Idle)
+		);
+		assert_eq!(ledger.account(other).map(|account| account.charge().current()), Some(9.0));
+		if !ledger.finish_activation(grant.id, LubikanActivationOutcome::Cancelled) {
+			return Err(anyhow!("cancel still finds the captured session"));
+		}
+		assert_eq!(
+			ledger.account(LubikanAccountId::SELF).map(|account| account.activation().phase),
+			Some(LubikanActivationPhase::Idle)
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn denial_does_not_spend() -> Result<()> {
+		let catalog = LubikanCatalog::default();
+		let mut ledger = LubikanLedger::default();
+		ledger.apply_to_equipped(3.0);
+		match ledger.try_activate(&catalog, None) {
+			Err(LubikanActivationDenied::InsufficientCharge) => {}
+			other => return Err(anyhow!("expected insufficient, got {other:?}")),
+		}
+		assert_eq!(ledger.equipped().charge().current(), 3.0);
+		assert_eq!(ledger.equipped().activation().phase, LubikanActivationPhase::Idle);
+		Ok(())
 	}
 
 	#[test]
