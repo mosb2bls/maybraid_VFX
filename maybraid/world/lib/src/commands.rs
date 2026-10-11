@@ -44,7 +44,16 @@ pub enum PlaygroundCommand {
 	#[cfg(feature = "debug-commands")]
 	#[command(subcommand)]
 	Debug(DebugCommand),
+	/// Auto-capture screenshots via script (debug builds only).
+	#[cfg(feature = "debug-commands")]
+	AutoCapture {
+		/// Path to script file with wait/debug/screenshot/exit commands
+		#[arg(long)]
+		script: PathBuf,
+	},
 }
+
+use std::path::PathBuf;
 
 #[derive(Clone, Subcommand)]
 #[command(rename_all = "kebab-case")]
@@ -129,6 +138,18 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
 			#[cfg(feature = "debug-commands")]
 			PlaygroundCommand::Debug(debug) => debug.react(commands, console),
+			#[cfg(feature = "debug-commands")]
+			PlaygroundCommand::AutoCapture { script } => {
+				match crate::auto_capture::AutoCaptureScript::from_file(&script) {
+					Ok(script_resource) => {
+						commands.insert_resource(script_resource);
+						*console = format!("Auto-capture started from {}", script.display());
+					}
+					Err(e) => {
+						*console = format!("Auto-capture failed: {e}");
+					}
+				}
+			}
 		}
 	}
 

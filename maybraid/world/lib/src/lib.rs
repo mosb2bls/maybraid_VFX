@@ -29,6 +29,9 @@ mod weapon;
 mod world_furnished;
 mod world_layers;
 
+#[cfg(feature = "debug-commands")]
+pub mod auto_capture;
+
 pub use world_furnished::WorldFurnished;
 
 pub use commands::PLAYGROUND_CLI_NAME;
@@ -233,7 +236,10 @@ impl Plugin for WorldPlugin {
 		}
 		app.add_systems(Startup, vsync::apply_startup_vsync)
 			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands))
-			.add_systems(PostStartup, spawn_default_braidman)
+			.add_systems(PostStartup, spawn_default_braidman);
+		
+		#[cfg(feature = "debug-commands")]
+		app.add_systems(Update, auto_capture::run_auto_capture)
 			.add_systems(
 				PreUpdate,
 				(

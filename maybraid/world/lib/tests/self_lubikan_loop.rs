@@ -22,7 +22,7 @@ use lubikans::{
 use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::CharacterIntent;
 use maybraid_world::{control, lubikan_activate, WorldGameplayEnabled, WorldPlaySessionEnded};
-use player::Player;
+use world_player::Player;
 use std::time::Duration;
 
 const DT: f32 = 0.1;
@@ -182,7 +182,7 @@ fn earn_charge_from_hits_activate_via_intent_heal() -> anyhow::Result<()> {
 	// Verify activation was accepted
 	anyhow::ensure!(
 		phase(&app, player) == LubikanActivationPhase::Active,
-		"request_lubikan_activation should have activated"
+		"activation should be active after PowerUseItem intent"
 	);
 	
 	// Verify charge was spent
@@ -235,12 +235,24 @@ fn pause_freezes_heal_via_gameplay_enabled() -> anyhow::Result<()> {
 	let mut app = self_loop_app();
 	let player = spawn_player(&mut app, 10.0, 100.0);
 	
-	// Earn charge and activate
-	let npc = spawn_npc(&mut app);
-	for _ in 0..5 {
-		hit_npc(&mut app, player, npc, 6.0);
-	}
+	// Earn charge and activate (need 25+ points for activation cost)
+	let npc1 = spawn_npc(&mut app);
+	let npc2 = spawn_npc(&mut app);
+	let npc3 = spawn_npc(&mut app);
+	let npc4 = spawn_npc(&mut app);
+	// Kill 4 NPCs + 1 hit = 4×6 + 1×1 = 25 points
+	hit_npc(&mut app, player, npc1, 30.0);
+	hit_npc(&mut app, player, npc2, 30.0);
+	hit_npc(&mut app, player, npc3, 30.0);
+	hit_npc(&mut app, player, npc4, 10.0);
+	hit_npc(&mut app, player, npc4, 20.0); // Kill
+	
 	activate_self(&mut app);
+	
+	anyhow::ensure!(
+		phase(&app, player) == LubikanActivationPhase::Active,
+		"activation should be active"
+	);
 	
 	let hp_before_pause = health_current(&app, player);
 	
