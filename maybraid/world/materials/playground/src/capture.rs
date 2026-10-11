@@ -1,15 +1,17 @@
 //! Env-gated column POM evidence capture for CI / agent hosts.
 //!
-//! Set `MAYBRAID_CAPTURE_DIR` to a writable directory. The playground stamps
-//! `doric_column` on the contract cylinder, walks head-on / grazing poses at
-//! a couple of distances (day and night), writes PNGs, and exits.
+//! Set `MAYBRAID_CAPTURE_DIR` to a writable directory. The playground hides
+//! the command drawer, stamps `doric_column` on the contract cylinder, walks
+//! a raking-light A/B (POM on vs flat) plus a silhouette+cavity pose, writes
+//! PNGs, and exits.
 
 use std::path::PathBuf;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
-use building_shaders::doric_column_ref;
+use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
+use building_shaders::{doric_column_flat_ref, doric_column_ref};
+use game_commands::ui::{DebugHudRoot, GameCommandDrawerVisible};
 
 use crate::camera::CameraController;
 use crate::preview::PreviewConfig;
@@ -17,7 +19,7 @@ use crate::shape::PreviewShape;
 
 pub const CAPTURE_DIR_ENV: &str = "MAYBRAID_CAPTURE_DIR";
 const WARMUP_FRAMES: u32 = 120;
-const SETTLE_FRAMES: u32 = 16;
+const SETTLE_FRAMES: u32 = 18;
 const SAVE_FRAMES: u32 = 28;
 
 #[derive(Component)]
@@ -26,51 +28,57 @@ pub struct KeySun;
 #[derive(Component)]
 pub struct FillSky;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureLight {
+	/// Low key, roughly perpendicular to the view so flute normals read.
+	Rake,
+	Day,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureLook {
+	Pom,
+	Flat,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct CaptureShot {
 	pub name: &'static str,
 	pub camera: Vec3,
 	pub look_at: Vec3,
-	pub night: bool,
+	pub light: CaptureLight,
+	pub look: CaptureLook,
 }
 
-/// Head-on and grazing, close and farther, plus a night pair.
+/// Same grazing pose twice (POM on / flat), then a 3/4 silhouette+cavity shot.
 pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
+	CaptureShot {
+		name: "rake-grazing-pom-on",
+		camera: Vec3::new(1.42, 1.06, 1.08),
+		look_at: Vec3::new(0.12, 1.0, 0.04),
+		light: CaptureLight::Rake,
+		look: CaptureLook::Pom,
+	},
+	CaptureShot {
+		name: "rake-grazing-pom-off",
+		camera: Vec3::new(1.42, 1.06, 1.08),
+		look_at: Vec3::new(0.12, 1.0, 0.04),
+		light: CaptureLight::Rake,
+		look: CaptureLook::Flat,
+	},
+	CaptureShot {
+		name: "rake-silhouette-cavities",
+		camera: Vec3::new(2.55, 1.62, 3.35),
+		look_at: Vec3::new(0.0, 1.0, 0.0),
+		light: CaptureLight::Rake,
+		look: CaptureLook::Pom,
+	},
 	CaptureShot {
 		name: "day-head-on-close",
 		camera: Vec3::new(0.0, 1.15, 3.6),
 		look_at: Vec3::new(0.0, 1.0, 0.0),
-		night: false,
-	},
-	CaptureShot {
-		name: "day-grazing-close",
-		camera: Vec3::new(1.55, 1.12, 1.15),
-		look_at: Vec3::new(0.2, 1.0, 0.1),
-		night: false,
-	},
-	CaptureShot {
-		name: "day-head-on-mid",
-		camera: Vec3::new(0.15, 1.45, 7.8),
-		look_at: Vec3::new(0.0, 1.0, 0.0),
-		night: false,
-	},
-	CaptureShot {
-		name: "day-grazing-far",
-		camera: Vec3::new(11.5, 1.8, 3.4),
-		look_at: Vec3::new(0.15, 1.05, 0.0),
-		night: false,
-	},
-	CaptureShot {
-		name: "night-head-on-close",
-		camera: Vec3::new(0.0, 1.15, 3.6),
-		look_at: Vec3::new(0.0, 1.0, 0.0),
-		night: true,
-	},
-	CaptureShot {
-		name: "night-grazing-close",
-		camera: Vec3::new(1.55, 1.12, 1.15),
-		look_at: Vec3::new(0.2, 1.0, 0.1),
-		night: true,
+		light: CaptureLight::Day,
+		look: CaptureLook::Pom,
 	},
 ];
 
@@ -103,13 +111,25 @@ pub(crate) fn apply_column_preview(mut config: ResMut<PreviewConfig>) {
 	config.shape = PreviewShape::Cylinder;
 }
 
+/// Collapse the command drawer so it does not cover the shaft.
+pub(crate) fn hide_capture_hud(
+	mut visible: ResMut<GameCommandDrawerVisible>,
+	mut roots: Query<&mut Visibility, With<DebugHudRoot>>,
+) {
+	visible.0 = false;
+	for mut root in &mut roots {
+		*root = Visibility::Hidden;
+	}
+}
+
 #[derive(SystemParam)]
 pub(crate) struct CaptureView<'w, 's> {
 	cameras: Query<'w, 's, (&'static mut Transform, &'static mut CameraController), With<Camera3d>>,
-	keys: Query<'w, 's, &'static mut DirectionalLight, With<KeySun>>,
+	keys: Query<'w, 's, (&'static mut Transform, &'static mut DirectionalLight), With<KeySun>>,
 	fills: Query<'w, 's, &'static mut DirectionalLight, (With<FillSky>, Without<KeySun>)>,
 	ambient: ResMut<'w, GlobalAmbientLight>,
 	clear: ResMut<'w, ClearColor>,
+	preview: ResMut<'w, PreviewConfig>,
 }
 
 pub(crate) fn tick_capture(
@@ -174,6 +194,12 @@ pub(crate) fn tick_capture(
 
 impl CaptureView<'_, '_> {
 	fn apply_shot(&mut self, shot: &CaptureShot) {
+		self.preview.material = match shot.look {
+			CaptureLook::Pom => doric_column_ref(),
+			CaptureLook::Flat => doric_column_flat_ref(),
+		};
+		self.preview.shape = PreviewShape::Cylinder;
+
 		if let Ok((mut transform, mut controller)) = self.cameras.single_mut() {
 			*transform = Transform::from_translation(shot.camera).looking_at(shot.look_at, Vec3::Y);
 			let rotation = transform.rotation;
@@ -184,31 +210,46 @@ impl CaptureView<'_, '_> {
 			let sin_pitch = 2.0 * (w * x - y * z);
 			controller.pitch = sin_pitch.asin();
 		}
-		if shot.night {
-			for mut light in self.keys.iter_mut() {
-				light.illuminance = 1400.0;
-				light.color = Color::srgb(0.48, 0.58, 0.92);
-			}
-			for mut light in self.fills.iter_mut() {
-				light.illuminance = 520.0;
-				light.color = Color::srgb(0.32, 0.40, 0.70);
-			}
-			self.ambient.brightness = 70.0;
-			self.ambient.color = Color::srgb(0.28, 0.34, 0.55);
-			self.clear.0 = Color::srgb(0.02, 0.03, 0.055);
-		} else {
-			for mut light in self.keys.iter_mut() {
-				light.illuminance = 9800.0;
-				light.color = Color::srgb(1.0, 0.92, 0.82);
-			}
-			for mut light in self.fills.iter_mut() {
-				light.illuminance = 2400.0;
-				light.color = Color::srgb(0.55, 0.68, 1.0);
-			}
-			self.ambient.brightness = 220.0;
-			self.ambient.color = Color::srgb(0.72, 0.78, 0.92);
-			self.clear.0 = Color::srgb(0.08, 0.09, 0.11);
+
+		match shot.light {
+			CaptureLight::Rake => self.apply_rake(shot),
+			CaptureLight::Day => self.apply_day(),
 		}
+	}
+
+	fn apply_rake(&mut self, shot: &CaptureShot) {
+		let view = (shot.look_at - shot.camera).normalize_or_zero();
+		let side = view.cross(Vec3::Y).normalize_or_zero();
+		let from = shot.look_at + side * 4.2 + Vec3::Y * 0.28 - view * 0.4;
+		for (mut transform, mut light) in self.keys.iter_mut() {
+			*transform = Transform::from_translation(from).looking_at(shot.look_at, Vec3::Y);
+			light.illuminance = 16000.0;
+			light.color = Color::srgb(1.0, 0.93, 0.78);
+		}
+		for mut light in self.fills.iter_mut() {
+			light.illuminance = 380.0;
+			light.color = Color::srgb(0.45, 0.55, 0.78);
+		}
+		self.ambient.brightness = 28.0;
+		self.ambient.color = Color::srgb(0.35, 0.40, 0.52);
+		self.clear.0 = Color::srgb(0.07, 0.08, 0.10);
+	}
+
+	fn apply_day(&mut self) {
+		use std::f32::consts::PI;
+		for (mut transform, mut light) in self.keys.iter_mut() {
+			*transform =
+				Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -PI / 3.0, PI / 5.0, 0.0));
+			light.illuminance = 9800.0;
+			light.color = Color::srgb(1.0, 0.92, 0.82);
+		}
+		for mut light in self.fills.iter_mut() {
+			light.illuminance = 2400.0;
+			light.color = Color::srgb(0.55, 0.68, 1.0);
+		}
+		self.ambient.brightness = 220.0;
+		self.ambient.color = Color::srgb(0.72, 0.78, 0.92);
+		self.clear.0 = Color::srgb(0.08, 0.09, 0.11);
 	}
 }
 
@@ -217,16 +258,23 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn capture_set_covers_angles_distances_and_night() -> Result<(), String> {
-		assert_eq!(COLUMN_CAPTURE_SHOTS.len(), 6);
-		assert!(COLUMN_CAPTURE_SHOTS.iter().any(|shot| shot.name.contains("head-on")));
-		assert!(COLUMN_CAPTURE_SHOTS.iter().any(|shot| shot.name.contains("grazing")));
-		assert!(COLUMN_CAPTURE_SHOTS.iter().any(|shot| shot.name.contains("close")));
-		assert!(COLUMN_CAPTURE_SHOTS
+	fn capture_set_has_rake_ab_and_silhouette() -> Result<(), String> {
+		assert_eq!(COLUMN_CAPTURE_SHOTS.len(), 4);
+		let on = COLUMN_CAPTURE_SHOTS
 			.iter()
-			.any(|shot| shot.name.contains("far") || shot.name.contains("mid")));
-		assert!(COLUMN_CAPTURE_SHOTS.iter().any(|shot| shot.night));
-		assert!(COLUMN_CAPTURE_SHOTS.iter().any(|shot| !shot.night));
+			.find(|shot| shot.name == "rake-grazing-pom-on")
+			.ok_or("missing pom-on")?;
+		let off = COLUMN_CAPTURE_SHOTS
+			.iter()
+			.find(|shot| shot.name == "rake-grazing-pom-off")
+			.ok_or("missing pom-off")?;
+		assert_eq!(on.camera, off.camera);
+		assert_eq!(on.look_at, off.look_at);
+		assert_eq!(on.light, CaptureLight::Rake);
+		assert_eq!(off.light, CaptureLight::Rake);
+		assert_eq!(on.look, CaptureLook::Pom);
+		assert_eq!(off.look, CaptureLook::Flat);
+		assert!(COLUMN_CAPTURE_SHOTS.iter().any(|shot| shot.name.contains("silhouette")));
 		Ok(())
 	}
 }

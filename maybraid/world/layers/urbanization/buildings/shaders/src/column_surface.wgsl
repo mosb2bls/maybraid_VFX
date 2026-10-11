@@ -152,6 +152,11 @@ fn relief_depth_m() -> f32 {
     return DEFAULT_DEPTH_M;
 }
 
+/// Scalar 8. Flat limestone: no march, no flute cavity.
+fn is_flat() -> bool {
+    return material.scalars[2].x >= 0.5;
+}
+
 struct ReliefStyle {
     depth_m: f32,
     width_uv: f32,
@@ -319,14 +324,15 @@ fn fragment(
     let uv0 = column_uv(mesh, N);
     let style = relief_style();
     let camera_distance = length(P - view.world_position.xyz);
+    let flat = is_flat();
 
     let footprint = max(length(dpdx(uv0)), length(dpdy(uv0)));
     let resolution_w = 1.0 - smoothstep(style.width_uv * 0.55, style.width_uv * 1.35, footprint);
     let pom_distance_w = 1.0 - smoothstep(fade_start_m(), fade_end_m(), camera_distance);
     let facing_w = smoothstep(0.03, 0.12, dot(N, V));
-    let pom_w = pom_distance_w * resolution_w * facing_w;
+    let pom_w = select(0.0, pom_distance_w * resolution_w * facing_w, !flat);
 
-    let visual_h = flute_height(uv0);
+    let visual_h = select(1.0, flute_height(uv0), !flat);
     let visual_cavity = mix(style.dark, 1.0, visual_h);
     var look = column_look(P, visual_h);
     look = vec4<f32>(look.xyz * mix(1.0, visual_cavity, facing_w), look.w);

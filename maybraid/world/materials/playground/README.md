@@ -9,6 +9,8 @@ cargo run -p world-materials-playground -- show doric_column
 cargo run -p world-materials-playground -- mesh blast
 cargo run -p world-materials-playground -- mesh ring
 MAYBRAID_CAPTURE_DIR=./column-pom cargo run -p world-materials-playground
+# writes rake-grazing-pom-on/off (same pose), rake-silhouette-cavities, day-head-on-close
+# capture hides the command drawer and uses a low raking key
 ```
 
 In-game (press `/`):

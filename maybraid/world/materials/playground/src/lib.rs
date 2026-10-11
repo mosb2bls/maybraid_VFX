@@ -9,28 +9,42 @@ mod shape;
 mod shoot;
 mod ui;
 
-pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
+pub use commands::{PLAYGROUND_CLI_NAME, PlaygroundCommand};
 pub use game_commands::command::PendingStartupCommand;
 pub use preview::PreviewConfig;
 
 use bevy::prelude::*;
-use game_commands::command::{capture_command_line_input, GameCommandPlugin};
+use game_commands::GameCommandDrawerConfig;
+use game_commands::command::{GameCommandPlugin, capture_command_line_input};
 use ground::setup_ground;
 use preview::sync_preview;
 use shape::setup_meshes;
-use shoot::{fly_shots, tick_shoot, ShootConfig};
+use shoot::{ShootConfig, fly_shots, tick_shoot};
 use world_materials::WorldMaterialsPlugin;
 
 pub struct WorldMaterialsPlaygroundPlugin;
 
 impl Plugin for WorldMaterialsPlaygroundPlugin {
 	fn build(&self, app: &mut App) {
+		let capturing = capture::CaptureSession::from_env();
+		let mut command_plugin =
+			GameCommandPlugin::<PlaygroundCommand>::with_config(ui::ui_config());
+		if capturing.is_some() {
+			command_plugin = command_plugin
+				.with_drawer_config(GameCommandDrawerConfig { open_at_start: false, ..default() });
+		}
 		app.init_resource::<PreviewConfig>()
 			.init_resource::<ShootConfig>()
 			.add_plugins(WorldMaterialsPlugin)
-			.add_plugins(GameCommandPlugin::<PlaygroundCommand>::with_config(ui::ui_config()));
-		if let Some(session) = capture::CaptureSession::from_env() {
-			app.insert_resource(session).add_systems(Startup, capture::apply_column_preview);
+			.add_plugins(command_plugin);
+		if let Some(session) = capturing {
+			app.insert_resource(session).add_systems(
+				Startup,
+				(
+					capture::apply_column_preview,
+					capture::hide_capture_hud.after(game_commands::ui::setup_debug_ui),
+				),
+			);
 		}
 		app.add_systems(
 			Startup,

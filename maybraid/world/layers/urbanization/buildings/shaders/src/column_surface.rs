@@ -13,8 +13,8 @@ use bevy::{
 	shader::ShaderRef,
 };
 use material_ref::{
-	MaterialRasters, MaterialRef, MATERIAL_PALETTE_SLOTS, MATERIAL_RASTER_CHANNELS,
-	MATERIAL_RASTER_WIDTH, MATERIAL_SCALAR_FLOATS,
+	MATERIAL_PALETTE_SLOTS, MATERIAL_RASTER_CHANNELS, MATERIAL_RASTER_WIDTH,
+	MATERIAL_SCALAR_FLOATS, MaterialRasters, MaterialRef,
 };
 
 pub mod shaft;
@@ -32,6 +32,8 @@ pub const DEFAULT_POM_FADE_END_M: f32 = 85.0;
 pub const DEFAULT_POM_MAX_STEPS: f32 = 48.0;
 /// Default flute relief depth in metres. Overridable via scalar 7.
 pub const DEFAULT_RELIEF_DEPTH_M: f32 = 0.055;
+/// Scalar 8: `>= 0.5` skips POM and flute cavity (flat limestone A/B).
+pub const SCALAR_FLAT: usize = 8;
 
 const SCALAR_VEC4S: usize = MATERIAL_SCALAR_FLOATS / 4;
 const DEFAULT_LIMESTONE: Vec4 = Vec4::new(0.84, 0.80, 0.72, 1.0);
@@ -58,6 +60,7 @@ impl Plugin for ColumnSurfaceMaterialPlugin {
 /// - `5` POM fade end metres (`0` → [`DEFAULT_POM_FADE_END_M`])
 /// - `6` max march steps (`0` → [`DEFAULT_POM_MAX_STEPS`])
 /// - `7` relief depth metres (`0` → [`DEFAULT_RELIEF_DEPTH_M`])
+/// - `8` flat / POM-off (`>= 0.5` skips march and flute cavity)
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct ColumnSurfaceUniform {
 	pub colors: [Vec4; MATERIAL_PALETTE_SLOTS],
@@ -165,9 +168,20 @@ pub fn doric_column_ref() -> MaterialRef {
 		.with_scalars([0.0, 0.35, 0.22])
 }
 
+/// Same limestone recipe with POM and flute cavity disabled (review A/B).
+pub fn doric_column_flat_ref() -> MaterialRef {
+	MaterialRef::named(RECIPE_DORIC_COLUMN)
+		.with_palette([
+			Color::srgb(0.84, 0.80, 0.72),
+			Color::srgb(0.58, 0.52, 0.44),
+			Color::srgb(0.46, 0.50, 0.38),
+		])
+		.with_scalars([0.0, 0.35, 0.22, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+}
+
 #[cfg(test)]
 mod tests {
-	use material_ref::{MaterialId, MATERIAL_RASTER_SAMPLES};
+	use material_ref::{MATERIAL_RASTER_SAMPLES, MaterialId};
 
 	use super::*;
 
@@ -204,6 +218,14 @@ mod tests {
 		let material_ref = doric_column_ref();
 		assert_eq!(material_ref.name, MaterialId::named(RECIPE_DORIC_COLUMN));
 		assert_eq!(material_ref.scalar_values(), [0.0, 0.35, 0.22]);
+		Ok(())
+	}
+
+	#[test]
+	fn flat_ref_sets_the_pom_off_scalar() -> anyhow::Result<()> {
+		let material = ColumnSurfaceMaterial::from_material_ref(&doric_column_flat_ref());
+		assert!((material.params.scalars[2].x - 1.0).abs() < 1e-5);
+		assert_eq!(SCALAR_FLAT, 8);
 		Ok(())
 	}
 

@@ -71,8 +71,11 @@ Uniform gameplay scale is fine. Non-uniform scale that stretches U vs V will she
 | 5 | 85 m | POM fade end |
 | 6 | 48 | Max march steps, clamped 12–48 |
 | 7 | 0.055 m | Relief depth |
+| 8 | 0 | Flat / POM-off (`>= 0.5` skips march and flute cavity) |
 
 Far / tiny-footprint / grazing fragments drop to a cheap cavity tint. The march never exceeds the max step cap.
+
+Playground evidence (`MAYBRAID_CAPTURE_DIR`) hides the command drawer, uses a **low raking key** (roughly perpendicular to the view), and writes the same grazing pose twice: `rake-grazing-pom-on` vs `rake-grazing-pom-off` (scalar 8). `rake-silhouette-cavities` is the 3/4 pose that shows shaft outline and flute cavities together.
 
 ## Recipe
 
