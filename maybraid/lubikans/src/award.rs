@@ -10,8 +10,8 @@ use crate::LubikanSystems;
 
 type LiveLubikanOwner = Or<(With<Player>, With<LubikanOwner>)>;
 
-/// Configurable combat → charge weights. Defaults match the old 1 / 2 / 5
-/// hit / head / kill stack.
+/// Configurable combat → charge weights. Defaults are +10 hit / +25 kill;
+/// a lethal hit stacks both.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct LubikanCombatAward {
 	pub hit: f32,
@@ -23,7 +23,7 @@ pub struct LubikanCombatAward {
 
 impl Default for LubikanCombatAward {
 	fn default() -> Self {
-		Self { hit: 1.0, headshot: 2.0, kill: 5.0, stack_kill: true }
+		Self { hit: 10.0, headshot: 10.0, kill: 25.0, stack_kill: true }
 	}
 }
 
@@ -144,11 +144,11 @@ mod tests {
 		assert_eq!(policy.charge_for(applied(50.0, 0.0, 10.0), false), None);
 		assert_eq!(
 			policy.charge_for(applied(50.0, 3.0, 0.0), false),
-			Some((6.0, LubikanChargeReason::COMBAT_KILL))
+			Some((35.0, LubikanChargeReason::COMBAT_KILL))
 		);
 		assert_eq!(
 			policy.charge_for(applied(10.0, 10.0, 4.0), true),
-			Some((2.0, LubikanChargeReason::COMBAT_HIT))
+			Some((10.0, LubikanChargeReason::COMBAT_HIT))
 		);
 	}
 
@@ -213,7 +213,7 @@ mod tests {
 		});
 		app.update();
 		let ledger = app.world().get::<LubikanLedger>(owner).ok_or_else(|| anyhow!("ledger"))?;
-		assert_eq!(ledger.equipped().charge().current(), 6.0);
+		assert_eq!(ledger.equipped().charge().current(), 35.0);
 		Ok(())
 	}
 }

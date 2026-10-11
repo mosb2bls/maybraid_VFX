@@ -106,7 +106,8 @@ impl Plugin for CombatHudPlugin {
 				.after(LubikanSystems::Heal)
 				.after(LubikanSystems::Award),
 		)
-		.add_systems(Startup, spawn_combat_hud);
+		.add_systems(Startup, spawn_combat_hud)
+		.add_systems(Update, sync_combat_hud_root_visibility);
 		
 		// Configure features independently
 		if self.health_bars || self.player_vitals {
@@ -272,6 +273,22 @@ struct LiveTick {
 #[derive(Resource, Default)]
 struct DamageTicks([Option<LiveTick>; INDICATOR_COUNT]);
 
+fn sync_combat_hud_root_visibility(
+	hud: Res<CombatHudVisible>,
+	mut roots: Query<&mut Visibility, With<CombatHudRoot>>,
+) {
+	let next = if hud.0 {
+		Visibility::Inherited
+	} else {
+		Visibility::Hidden
+	};
+	for mut visibility in &mut roots {
+		if *visibility != next {
+			*visibility = next;
+		}
+	}
+}
+
 fn spawn_combat_hud(
 	mut commands: Commands,
 	config: Res<CombatHudConfig>,
@@ -289,6 +306,7 @@ fn spawn_combat_hud(
 				height: Val::Percent(100.0),
 				..default()
 			},
+			Visibility::Inherited,
 			GlobalZIndex(i32::MAX - 8),
 			Pickable::IGNORE,
 		))
@@ -431,7 +449,7 @@ fn ensure_continuous_health_bars(
 	entities: LiveEntities,
 	bars: Query<(Entity, &ContinuousHealthBar)>,
 	config: Res<ContinuousHealthConfig>,
-	players: Query<Entity, With<Player>>,
+	players: Query<Entity, (With<Player>, Without<Downed>)>,
 ) {
 	let Ok(hud) = hud.single() else {
 		return;

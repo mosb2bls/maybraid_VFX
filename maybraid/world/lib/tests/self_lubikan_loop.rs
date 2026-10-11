@@ -157,7 +157,7 @@ fn earn_charge_from_hits_activate_via_intent_heal() -> anyhow::Result<()> {
 	let npc3 = spawn_npc(&mut app);
 	let npc4 = spawn_npc(&mut app);
 	
-	// Hit NPCs (each hit awards 1 charge, kill awards 6 total with stacking)
+	// Hit NPCs (each hit awards 10 charge, kill awards 35 total with stacking)
 	hit_npc(&mut app, player, npc1, 10.0);
 	hit_npc(&mut app, player, npc1, 30.0); // Kill
 	hit_npc(&mut app, player, npc2, 30.0); // Kill
@@ -166,8 +166,8 @@ fn earn_charge_from_hits_activate_via_intent_heal() -> anyhow::Result<()> {
 	
 	let earned = charge(&app, player);
 	anyhow::ensure!(
-		earned >= 25.0,
-		"should have 25+ charge from combat hits, got {earned}"
+		earned >= cost,
+		"should have enough charge from combat hits, got {earned} need {cost}"
 	);
 	
 	// Take damage to enable 70% healing cap
@@ -236,12 +236,12 @@ fn pause_freezes_heal_via_gameplay_enabled() -> anyhow::Result<()> {
 	let mut app = self_loop_app();
 	let player = spawn_player(&mut app, 10.0, 100.0);
 	
-	// Earn charge and activate (need 25+ points for activation cost)
+	// Earn charge and activate (need 80+ points for activation cost)
 	let npc1 = spawn_npc(&mut app);
 	let npc2 = spawn_npc(&mut app);
 	let npc3 = spawn_npc(&mut app);
 	let npc4 = spawn_npc(&mut app);
-	// Kill 4 NPCs + 1 hit = 4×6 + 1×1 = 25 points
+	// Kill 4 NPCs + 1 hit = 4×35 + 10 = 150 points
 	hit_npc(&mut app, player, npc1, 30.0);
 	hit_npc(&mut app, player, npc2, 30.0);
 	hit_npc(&mut app, player, npc3, 30.0);

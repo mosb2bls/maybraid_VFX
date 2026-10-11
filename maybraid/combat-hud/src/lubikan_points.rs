@@ -1,15 +1,17 @@
-//! Flying signed point feedback toward [`LubikanChargeFlyTarget`].
+//! Flying signed point feedback that stacks above the Lubikan slot.
 
 use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use lubikans::{LubikanAccountId, LubikanChargeChanged, LubikanChargeReason, LubikanOwner};
 use player::Player;
 
-use crate::lubikan_charge::LubikanChargeFlyTarget;
+use crate::lubikan_charge::{LubikanChargeFlyTarget, LubikanPointFeedDock};
 use crate::screen_pin::ScreenPin;
 use crate::CombatHudVisible;
 
-const FLY_DURATION: f32 = 0.75;
+const FLY_DURATION: f32 = 0.55;
+const STACK_HOLD: f32 = 2.0;
+const SLOT_H: f32 = 22.0;
 const MAX_FLYERS: usize = 24;
 const EDGE_MARGIN: f32 = 28.0;
 const GAIN: Color = Color::srgb(0.45, 0.95, 0.72);
@@ -115,54 +117,68 @@ fn spawn_flyer(
 	});
 }
 
-type PlayerWithLedger<'w, 's> = Query<'w, 's, (Entity, &'static lubikans::LubikanLedger), (With<Player>, With<LubikanOwner>)>;
+type PlayerWithLedger<'w, 's> =
+	Query<'w, 's, (Entity, &'static lubikans::LubikanLedger), (With<Player>, With<LubikanOwner>)>;
 
 pub(crate) fn update_lubikan_point_flyers(
 	time: Res<Time>,
 	hud: Res<CombatHudVisible>,
 	players: PlayerWithLedger,
+	docks: Query<&UiGlobalTransform, With<LubikanPointFeedDock>>,
 	anchors: Query<&UiGlobalTransform, With<LubikanChargeFlyTarget>>,
 	mut flyers: Query<(Entity, &mut LubikanPointFlyer, &mut Node, &mut TextColor, &mut Visibility)>,
 	mut commands: Commands,
 ) {
 	let now = time.elapsed_secs();
 	let show = hud.0 && players.single().is_ok();
-	
-	// Get the currently displayed account (the equipped Lubikan)
 	let displayed_account = players.single().ok().map(|(_, ledger)| ledger.equipped().id());
-	
-	let anchor = anchors.iter().next().map(|tf| {
-		let t = tf.affine().translation;
-		Vec2::new(t.x, t.y)
-	});
 	if !show {
 		for (entity, _, _, _, _) in &mut flyers {
 			commands.entity(entity).try_despawn();
 		}
 		return;
 	}
-	let end = anchor.unwrap_or(Vec2::new(48.0, 48.0));
-	for (entity, flyer, mut node, mut color, mut visibility) in &mut flyers {
+
+	let dock = docks
+		.iter()
+		.next()
+		.or_else(|| anchors.iter().next())
+		.map(|tf| {
+			let t = tf.affine().translation;
+			Vec2::new(t.x, t.y)
+		})
+		.unwrap_or(Vec2::new(48.0, 48.0));
+
+	let mut order: Vec<(Entity, f32)> =
+		flyers.iter().map(|(entity, flyer, _, _, _)| (entity, flyer.born)).collect();
+	order.sort_by(|left, right| left.1.partial_cmp(&right.1).unwrap_or(std::cmp::Ordering::Equal));
+
+	for (index, (entity, _)) in order.into_iter().enumerate() {
+		let Ok((_, flyer, mut node, mut color, mut visibility)) = flyers.get_mut(entity) else {
+			continue;
+		};
 		let age = now - flyer.born;
-		if age >= FLY_DURATION {
+		if age >= FLY_DURATION + STACK_HOLD {
 			commands.entity(entity).try_despawn();
 			continue;
 		}
-		
-		// If the credited account doesn't match the displayed account, retire the flyer early
 		if Some(flyer.credited) != displayed_account {
 			commands.entity(entity).try_despawn();
 			continue;
 		}
-		
+		let dest = dock + stack_offset(index);
 		let t = (age / FLY_DURATION).clamp(0.0, 1.0);
 		let eased = 1.0 - (1.0 - t).powi(2);
-		let pos = flyer.start.lerp(end, eased);
+		let pos = flyer.start.lerp(dest, eased);
 		node.left = Val::Px(pos.x);
 		node.top = Val::Px(pos.y);
-		color.0 = color.0.with_alpha(1.0 - t * 0.35);
+		color.0 = color.0.with_alpha(1.0);
 		*visibility = Visibility::Visible;
 	}
+}
+
+pub(crate) fn stack_offset(index: usize) -> Vec2 {
+	Vec2::new(0.0, -((index as f32 + 1.0) * SLOT_H))
 }
 
 pub(crate) fn point_label_with_reason(amount: f32, reason: LubikanChargeReason) -> String {
@@ -177,8 +193,6 @@ pub(crate) fn point_label_with_reason(amount: f32, reason: LubikanChargeReason) 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use bevy::app::App;
-	use bevy::MinimalPlugins;
 
 	#[test]
 	fn signed_labels_distinguish_gains_and_penalties() {
@@ -192,6 +206,16 @@ mod tests {
 		);
 	}
 
-	// Note: Flyer account preservation is implemented in update_lubikan_point_flyers.
-	// Flyers retire when their credited account doesn't match the displayed (equipped) account.
+	#[test]
+	fn stack_slots_rise_above_the_dock() {
+		assert_eq!(stack_offset(0), Vec2::new(0.0, -SLOT_H));
+		assert_eq!(stack_offset(1), Vec2::new(0.0, -2.0 * SLOT_H));
+		assert!(stack_offset(0).y > stack_offset(2).y);
+	}
+
+	#[test]
+	fn flyers_linger_after_they_land() {
+		assert!(FLY_DURATION + STACK_HOLD >= 2.0);
+		assert!(STACK_HOLD >= 2.0);
+	}
 }

@@ -131,13 +131,15 @@ pub fn sync_lubikan_session(
 
 pub(crate) fn sync_combat_hud_visible(
 	gameplay: Res<WorldGameplayEnabled>,
+	map: Option<Res<WorldMapView>>,
 	hud: Option<ResMut<combat_hud::CombatHudVisible>>,
 ) {
 	let Some(mut hud) = hud else {
 		return;
 	};
-	if hud.0 != gameplay.0 {
-		hud.0 = gameplay.0;
+	let next = gameplay.0 && !map.is_some_and(|map| map.open);
+	if hud.0 != next {
+		hud.0 = next;
 	}
 }
 

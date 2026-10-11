@@ -15,7 +15,7 @@ use crate::vitals::VITALS_WIDTH;
 use crate::CombatHudVisible;
 
 /// Vertical space reserved for the vitals plate so charge sits above it.
-pub(crate) const VITALS_STACK_OFFSET: f32 = 72.0;
+pub(crate) const VITALS_STACK_OFFSET: f32 = 88.0;
 
 const CHARGE_WIDTH: f32 = VITALS_WIDTH;
 const CHARGE_BAR_HEIGHT: f32 = 12.0;
@@ -99,7 +99,14 @@ pub struct LubikanChargeFlyTarget;
 pub(crate) struct LubikanChargeAmount;
 
 #[derive(Component)]
+pub(crate) struct LubikanChargeName;
+
+#[derive(Component)]
 pub(crate) struct LubikanChargeStatus;
+
+/// Dock above the plate where point flyers stack.
+#[derive(Component)]
+pub(crate) struct LubikanPointFeedDock;
 
 #[derive(Component)]
 pub(crate) struct LubikanChargeFill;
@@ -139,6 +146,7 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 				bottom: Val::Px(HUD_CORNER_INSET + VITALS_STACK_OFFSET),
 				width: Val::Px(CHARGE_WIDTH),
 				flex_direction: FlexDirection::Column,
+				align_items: AlignItems::Center,
 				row_gap: Val::Px(CHARGE_ROW_GAP),
 				padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
 				border: UiRect::all(Val::Px(1.5)),
@@ -151,19 +159,32 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 			Pickable::IGNORE,
 		))
 		.with_children(|plate| {
+			plate.spawn((
+				LubikanPointFeedDock,
+				Node {
+					position_type: PositionType::Absolute,
+					left: Val::Percent(50.0),
+					top: Val::Px(-4.0),
+					width: Val::Px(1.0),
+					height: Val::Px(1.0),
+					..default()
+				},
+				Pickable::IGNORE,
+			));
+			spawn_self_icon(plate);
 			plate
 				.spawn((
 					Node {
 						flex_direction: FlexDirection::Row,
 						align_items: AlignItems::Center,
-						column_gap: Val::Px(CHARGE_ROW_GAP),
+						justify_content: JustifyContent::Center,
+						column_gap: Val::Px(8.0),
 						width: Val::Percent(100.0),
 						..default()
 					},
 					Pickable::IGNORE,
 				))
 				.with_children(|row| {
-					spawn_self_icon(row);
 					row.spawn((
 						Node {
 							flex_grow: 1.0,
@@ -214,6 +235,13 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 						Pickable::IGNORE,
 					));
 				});
+			plate.spawn((
+				LubikanChargeName,
+				Text::new("Self"),
+				fonts.item(HUD_TEXT_CARD_FACE_PX),
+				TextColor(TEXT_YELLOW),
+				Pickable::IGNORE,
+			));
 			plate.spawn((
 				LubikanChargeStatus,
 				Text::new(""),
@@ -336,6 +364,7 @@ pub(crate) fn sync_lubikan_charge(
 		Query<(&mut Text, &mut Visibility), With<LubikanChargeStatus>>,
 		Query<(&mut Node, &mut BackgroundColor), With<LubikanChargeFill>>,
 		Query<&mut Visibility, With<LubikanCategoryCue>>,
+		Query<&mut Text, With<LubikanChargeName>>,
 	)>,
 ) {
 	let mut hide = || {
@@ -363,6 +392,7 @@ pub(crate) fn sync_lubikan_charge(
 	);
 	let finished = pulse.as_deref().and_then(|pulse| pulse.active_label(time.elapsed_secs()));
 	let amount = format_charge(row.charge.current());
+	let name = account_label(row.account);
 	let status = charge_status(&row, heal, finished);
 	let fraction = row.charge.fraction();
 	let fill_color = charge_bar_color(&row);
@@ -397,6 +427,11 @@ pub(crate) fn sync_lubikan_charge(
 	let lubikan_selected = category.as_deref().is_some_and(|cat| cat.is_lubikans());
 	for mut visibility in widgets.p4().iter_mut() {
 		*visibility = if lubikan_selected { Visibility::Visible } else { Visibility::Hidden };
+	}
+	for mut text in widgets.p5().iter_mut() {
+		if text.0 != name {
+			text.0 = name.clone();
+		}
 	}
 }
 
@@ -442,6 +477,14 @@ pub(crate) fn charge_bar_color(row: &LubikanHudRow) -> Color {
 	}
 }
 
+fn account_label(account: LubikanAccountId) -> String {
+	account
+		.definition()
+		.well_known_label()
+		.map(str::to_string)
+		.unwrap_or_else(|| format!("Lubikan {}", account.definition().raw()))
+}
+
 fn format_charge(value: f32) -> String {
 	if value.fract().abs() < 0.05 {
 		format!("{:.0}", value)
@@ -479,5 +522,10 @@ mod tests {
 	fn charge_amount_is_current_not_a_fraction() {
 		assert_eq!(format_charge(3.0), "3");
 		assert_eq!(format_charge(12.5), "12.5");
+	}
+
+	#[test]
+	fn self_account_label_is_self() {
+		assert_eq!(account_label(LubikanAccountId::SELF), "Self");
 	}
 }

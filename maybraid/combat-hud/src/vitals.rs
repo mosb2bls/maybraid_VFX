@@ -1,6 +1,7 @@
 //! Bottom-left player name + continuous health bar.
 
 use bevy::prelude::*;
+use damage::Downed;
 use menu_components::{spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW};
 use player::Player;
 
@@ -46,6 +47,13 @@ pub(crate) fn spawn_player_vitals(
 		PlayerVitalsRoot,
 		HudPlateLayout { width: VITALS_WIDTH, row_gap: 6.0, corner: HudPlateCorner::BottomLeft },
 		|plate| {
+			let bar_entity = spawn_continuous_health_bar_in_builder(
+				plate,
+				player,
+				config,
+				HealthBarLayout::UiChild,
+			);
+			plate.commands().entity(bar_entity).insert(PlayerVitalsHealthBar);
 			spawn_hud_text_card(plate, (), |card| {
 				card.spawn((
 					PlayerVitalsName,
@@ -55,24 +63,13 @@ pub(crate) fn spawn_player_vitals(
 					Pickable::IGNORE,
 				));
 			});
-			
-			// Spawn continuous health bar as UI child with marker
-			let bar_entity = spawn_continuous_health_bar_in_builder(
-				plate,
-				player,
-				config,
-				HealthBarLayout::UiChild,
-			);
-			
-			// Add PlayerVitalsHealthBar marker using commands
-			plate.commands().entity(bar_entity).insert(PlayerVitalsHealthBar);
 		},
 	);
 }
 
 pub(crate) fn sync_player_vitals(
 	hud: Res<crate::CombatHudVisible>,
-	players: Query<(Entity, Option<&Name>), With<Player>>,
+	players: Query<(Entity, Option<&Name>), (With<Player>, Without<Downed>)>,
 	mut roots: Query<&mut Visibility, With<PlayerVitalsRoot>>,
 	mut names: Query<&mut Text, With<PlayerVitalsName>>,
 	mut health_bars: Query<&mut ContinuousHealthBar, With<PlayerVitalsHealthBar>>,
@@ -121,6 +118,53 @@ mod tests {
 		assert_eq!(display_name(None), "Player");
 		assert_eq!(display_name(Some("   ")), "Player");
 		assert_eq!(display_name(Some("Ada")), "Ada");
+	}
+
+	#[test]
+	fn downed_player_hides_the_vitals_plate() {
+		use crate::CombatHudVisible;
+		use crate::CombatHudPlugin;
+
+		let mut app = App::new();
+		app.add_plugins(bevy::MinimalPlugins);
+		app.add_plugins(CombatHudPlugin {
+			health_bars: false,
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
+			score: false,
+		});
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let player = app
+			.world_mut()
+			.spawn((Player, Health::from_max(100.0), Name::new("Ada")))
+			.id();
+		app.update();
+		{
+			let visibility = app
+				.world_mut()
+				.query_filtered::<&Visibility, With<PlayerVitalsRoot>>()
+				.iter(app.world())
+				.next()
+				.copied()
+				.expect("plate");
+			assert_eq!(visibility, Visibility::Visible);
+		}
+		app.world_mut()
+			.entity_mut(player)
+			.insert(Downed { source: None, point: Vec3::ZERO, at: 0.0 });
+		app.update();
+		let visibility = app
+			.world_mut()
+			.query_filtered::<&Visibility, With<PlayerVitalsRoot>>()
+			.iter(app.world())
+			.next()
+			.copied()
+			.expect("plate");
+		assert_eq!(visibility, Visibility::Hidden);
 	}
 
 	#[test]

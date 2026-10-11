@@ -182,7 +182,8 @@ fn spawn_continuous_health_bar_impl(
 	
 	let visibility = match layout {
 		HealthBarLayout::WorldAnchored => Visibility::Hidden,
-		HealthBarLayout::UiChild => Visibility::Visible,
+		// Inherit so a hidden vitals plate (death / respawn) hides the bar too.
+		HealthBarLayout::UiChild => Visibility::Inherited,
 	};
 
 	root.spawn((
@@ -355,7 +356,7 @@ pub fn position_continuous_health_bars(
 
 	for (bar, mut node, mut visibility) in &mut bars {
 		if bar.layout == HealthBarLayout::UiChild {
-			*visibility = Visibility::Visible;
+			*visibility = Visibility::Inherited;
 			continue;
 		}
 
@@ -760,7 +761,11 @@ mod tests {
 			.next()
 			.copied()
 			.expect("bar");
-		assert_eq!(visibility, Visibility::Visible, "UI child bars must unhide with the HUD");
+		assert_eq!(
+			visibility,
+			Visibility::Inherited,
+			"UI child bars follow the vitals plate so death/respawn can hide them"
+		);
 	}
 
 	#[test]

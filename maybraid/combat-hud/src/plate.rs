@@ -30,7 +30,7 @@ impl HudPlateLayout {
 			position_type: PositionType::Absolute,
 			width: Val::Px(self.width),
 			flex_direction: FlexDirection::Column,
-			align_items: AlignItems::Stretch,
+			align_items: AlignItems::Center,
 			row_gap: Val::Px(self.row_gap),
 			padding: UiRect::axes(Val::Px(PLATE_PAD_X), Val::Px(PLATE_PAD_Y)),
 			border: UiRect::all(Val::Px(PLATE_BORDER)),
