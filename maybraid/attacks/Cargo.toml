@@ -10,9 +10,11 @@ publish = { workspace = true }
 rust-version = { workspace = true }
 
 [dependencies]
+avian3d = { workspace = true }
 bevy = { workspace = true }
 combat-targeting = { workspace = true }
 damage = { workspace = true }
+lod-avian = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

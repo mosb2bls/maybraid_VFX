@@ -1,12 +1,15 @@
+use avian3d::prelude::SpatialQuery;
 use bevy::prelude::*;
 use combat_targeting::CombatTargeting;
 use damage::{Health, Hit};
 
 use crate::{
-	aim::{owner_forward, owner_point, resolve_target, targeting_allies},
+	aim::{owner_forward, owner_point, resolve_aim_contact, targeting_allies},
 	cleanup::end_instance,
+	overlap::gather_overlaps,
 	AttackCatalog, AttackEndReason, AttackEnded, AttackInstance, AttackInstanceId,
-	AttackPresentationBinding, AttackPresentationEvent, AttackUser, BeginAttack, HitCandidate,
+	AttackPresentationBinding, AttackPresentationEvent, AttackUser, BeginAttack, HazardShape,
+	HazardSpec, WavefrontSweep,
 };
 
 #[derive(Resource, Default)]
@@ -52,9 +55,9 @@ pub fn begin_attacks(
 		if already_busy && !definition.concurrent {
 			continue;
 		}
-		let exists = |entity| transforms.contains(entity);
 		let targeting = targeting.get(begin.owner).ok();
-		let live_target = resolve_target(begin.target, targeting, exists);
+		let contact = resolve_aim_contact(begin.target, targeting);
+		let live_target = contact.map(|contact| contact.subject);
 		let Ok((owner_transform, owner_global)) = transforms.get(begin.owner) else {
 			continue;
 		};
@@ -67,12 +70,8 @@ pub fn begin_attacks(
 				})
 			})
 			.unwrap_or(origin);
-		let snapshot = match live_target.and_then(|target| transforms.get(target).ok()) {
-			Some((target_transform, target_global)) => crate::AimSnapshot::toward(
-				origin,
-				owner_point(target_transform, target_global),
-				live_target,
-			),
+		let snapshot = match contact {
+			Some(contact) => crate::AimSnapshot::toward(origin, contact.aim_point(false), live_target),
 			None => crate::AimSnapshot::owner_facing(
 				origin,
 				owner_forward(owner_transform, owner_global),
@@ -100,14 +99,15 @@ pub fn begin_attacks(
 	}
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn tick_attacks(
 	time: Res<Time>,
 	catalog: Res<AttackCatalog>,
+	spatial: Option<SpatialQuery>,
 	transforms: Query<(&Transform, Option<&GlobalTransform>)>,
 	health: Query<(), With<Health>>,
 	parents: Query<&ChildOf>,
-	bodies: Query<(Entity, &Transform, Option<&GlobalTransform>, Option<&ChildOf>)>,
+	targeting: Query<&CombatTargeting>,
 	mut users: Query<&mut AttackUser>,
 	mut instances: Query<(Entity, &mut AttackInstance)>,
 	bindings: Query<(Entity, &AttackPresentationBinding)>,
@@ -118,7 +118,6 @@ pub fn tick_attacks(
 ) {
 	let dt = time.delta_secs();
 	let now = time.elapsed_secs();
-	let candidates = collect_candidates(&bodies, &health, &parents);
 	let mut completed = Vec::new();
 	for (entity, mut instance) in &mut instances {
 		let Some(definition) = catalog.get(instance.definition).cloned() else {
@@ -126,17 +125,23 @@ pub fn tick_attacks(
 			continue;
 		};
 		if let Some(target) = instance.live_target {
-			if !transforms.contains(target) {
+			let still_known = targeting
+				.get(instance.owner)
+				.ok()
+				.and_then(|targeting| targeting.contact(target))
+				.is_some();
+			if !still_known {
 				instance.live_target = None;
 			}
 		}
 		if let Ok((owner_transform, owner_global)) = transforms.get(instance.owner) {
 			let origin = owner_point(owner_transform, owner_global);
-			let target_point = instance.live_target.and_then(|target| {
-				transforms
-					.get(target)
-					.ok()
-					.map(|(transform, global)| owner_point(transform, global))
+			let target_point = targeting.get(instance.owner).ok().and_then(|targeting| {
+				instance
+					.live_target
+					.and_then(|target| targeting.contact(target))
+					.or_else(|| targeting.best_contact())
+					.map(|contact| contact.aim_point(false))
 			});
 			instance.refresh_aim(target_point, origin);
 			if let Some(socket) = instance.emission_socket {
@@ -148,7 +153,16 @@ pub fn tick_attacks(
 		let outcome = instance.tick(dt, &definition);
 		if outcome.pulse {
 			for (index, spec) in definition.hazards.iter().enumerate() {
-				for hit in instance.collect_hits(now, index, *spec, &candidates) {
+				for hit in pulse_hits(
+					&mut instance,
+					now,
+					index,
+					*spec,
+					spatial.as_ref(),
+					&health,
+					&parents,
+					&transforms,
+				) {
 					hits.write(hit);
 				}
 			}
@@ -184,28 +198,53 @@ pub fn tick_attacks(
 	}
 }
 
-fn collect_candidates(
-	bodies: &Query<(Entity, &Transform, Option<&GlobalTransform>, Option<&ChildOf>)>,
+#[allow(clippy::too_many_arguments)]
+fn pulse_hits(
+	instance: &mut AttackInstance,
+	now: f32,
+	index: usize,
+	spec: HazardSpec,
+	spatial: Option<&SpatialQuery>,
 	health: &Query<(), With<Health>>,
 	parents: &Query<&ChildOf>,
-) -> Vec<HitCandidate> {
-	let mut candidates = Vec::new();
-	for (entity, transform, global, child) in bodies {
-		let parent = child
-			.map(ChildOf::parent)
-			.or_else(|| parents.get(entity).ok().map(ChildOf::parent));
-		let has_health = health.contains(entity);
-		let parent_has_health = parent.is_some_and(|parent| health.contains(parent));
-		if !has_health && !parent_has_health {
-			continue;
+	transforms: &Query<(&Transform, Option<&GlobalTransform>)>,
+) -> Vec<Hit> {
+	let Some(spatial) = spatial else {
+		return Vec::new();
+	};
+	match spec.shape {
+		HazardShape::Wavefront(wave) => {
+			let motions = instance.live_wave_motions(index, spec, wave);
+			let mut hits = Vec::new();
+			for (wave_index, motion) in motions {
+				let sweep = WavefrontSweep {
+					emission: motion.emission,
+					heading: motion.heading,
+					from: motion.from,
+					to: motion.to,
+				};
+				let pose = wave.pose(motion.emission, motion.heading, motion.to);
+				let candidates = gather_overlaps(
+					spatial,
+					spec,
+					pose,
+					Some(sweep),
+					instance.owner,
+					health,
+					parents,
+					transforms,
+				);
+				hits.extend(instance.collect_one_wave(
+					now, index, spec, wave, wave_index, motion, &candidates,
+				));
+			}
+			hits
 		}
-		candidates.push(HitCandidate {
-			entity,
-			parent,
-			has_health,
-			parent_has_health,
-			point: owner_point(transform, global),
-		});
+		_ => {
+			let pose = instance.hazard_pose(spec);
+			let candidates =
+				gather_overlaps(spatial, spec, pose, None, instance.owner, health, parents, transforms);
+			instance.collect_hits(now, index, spec, &candidates)
+		}
 	}
-	candidates
 }

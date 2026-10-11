@@ -54,6 +54,7 @@ wait_state() {
 
 wait_state WINDUP "$PREVIEW/playground-windup-telegraph.png"
 wait_state EXECUTE "$PREVIEW/playground-execute-hazard.png"
+cp "$PREVIEW/playground-execute-hazard.png" "$PREVIEW/playground-execute-side.png"
 wait_state CANCELLED "$PREVIEW/playground-cancelled.png"
 
 # Let the process write DONE / exit itself.

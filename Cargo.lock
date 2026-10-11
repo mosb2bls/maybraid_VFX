@@ -551,9 +551,11 @@ name = "attacks"
 version = "0.1.3"
 dependencies = [
  "anyhow",
+ "avian3d",
  "bevy",
  "combat-targeting",
  "damage",
+ "lod-avian",
 ]
 
 [[package]]
@@ -561,8 +563,11 @@ name = "attacks-playground"
 version = "0.1.3"
 dependencies = [
  "attacks",
+ "avian3d",
  "bevy",
+ "combat-targeting",
  "damage",
+ "lod-avian",
 ]
 
 [[package]]

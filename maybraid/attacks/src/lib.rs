@@ -11,13 +11,14 @@ mod defaults;
 mod definition;
 mod hazard;
 mod instance;
+mod overlap;
 mod placeholder;
 mod plugin;
 mod presentation;
 mod preview;
 mod tick;
 
-pub use aim::{resolve_target, AimPolicy, AimSnapshot};
+pub use aim::{resolve_aim_contact, AimPolicy, AimSnapshot};
 pub use catalog::AttackCatalog;
 pub use cleanup::{AttackRetired, AttackSuspended};
 pub use command::{AttackEndReason, AttackEnded, BeginAttack, CancelAttacks};

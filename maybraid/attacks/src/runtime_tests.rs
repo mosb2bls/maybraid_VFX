@@ -1,10 +1,14 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
+use avian3d::prelude::{Collider, PhysicsPlugins, Sensor};
+use bevy::asset::AssetPlugin;
+use bevy::mesh::MeshPlugin;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
-use combat_targeting::{CombatTargeting, TargetSource};
+use combat_targeting::{CombatContact, CombatTargeting, TargetSource};
 use damage::{apply_hits, DamageApplied, Died, Downed, Health, Hit};
+use lod_avian::PhysicsInteractionLayer;
 
 use crate::{
 	placeholder_svg, AimPolicy, AttackCatalog, AttackDefinition, AttackEndReason, AttackEnded,
@@ -45,9 +49,16 @@ fn wave_def() -> AttackDefinition {
 
 fn attack_app(dt: f32) -> App {
 	let mut app = App::new();
-	app.add_plugins(MinimalPlugins)
-		.add_plugins(TransformPlugin)
-		.add_plugins(AttacksPlugin)
+	app.add_plugins((
+		MinimalPlugins,
+		TransformPlugin,
+		PhysicsPlugins::default(),
+		AssetPlugin::default(),
+		MeshPlugin,
+		AttacksPlugin,
+	));
+	app.finish();
+	app
 		.add_message::<DamageApplied>()
 		.add_message::<Died>()
 		.add_systems(PostUpdate, apply_hits)
@@ -84,8 +95,30 @@ fn spawn_target(app: &mut App, translation: Vec3, health: f32) -> Entity {
 			Health::from_max(health),
 			Transform::from_translation(translation),
 			GlobalTransform::from_translation(translation),
+			Collider::capsule(0.4, 1.0),
+			Sensor,
+			PhysicsInteractionLayer::animated_layers(),
 		))
 		.id()
+}
+
+fn observe(app: &mut App, owner: Entity, target: Entity, point: Vec3) {
+	let mut targeting = app.world().get::<CombatTargeting>(owner).cloned().unwrap_or_default();
+	targeting.upsert_contact(CombatContact {
+		subject: target,
+		position: point,
+		movement_vector: Vec3::ZERO,
+		visible_point: point,
+		visible_head: None,
+		last_spotted_at: 0.0,
+	});
+	targeting.rebalance(0.0);
+	app.world_mut().entity_mut(owner).insert(targeting);
+}
+
+fn cast(app: &mut App, owner: Entity, definition: AttackId, target: Entity, point: Vec3) {
+	observe(app, owner, target, point);
+	app.world_mut().write_message(BeginAttack::new(owner, definition).with_target(target));
 }
 
 fn live_instances(app: &mut App) -> usize {
@@ -115,8 +148,7 @@ fn attack_applies_hit_without_a_presenter() -> Result<()> {
 	let mut app = attack_app(0.1);
 	let owner = spawn_owner(&mut app, Vec3::ZERO);
 	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
-	app.world_mut()
-		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	cast(&mut app, owner, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
 	step(&mut app, 0.1);
 	step(&mut app, 0.4);
 	let hits = drain_hits(&mut app);
@@ -134,8 +166,7 @@ fn stage_boundaries_spawn_and_clear_volumes() -> Result<()> {
 	let mut app = attack_app(0.1);
 	let owner = spawn_owner(&mut app, Vec3::ZERO);
 	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
-	app.world_mut()
-		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	cast(&mut app, owner, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
 	step(&mut app, 0.1);
 	let instance =
 		first_instance(&mut app).ok_or_else(|| anyhow!("expected a live instance in windup"))?;
@@ -174,8 +205,7 @@ fn cancel_removes_hazards_and_warning_bindings() -> Result<()> {
 			kind: crate::AttackPresentationBindingKind::Telegraph,
 		})
 		.id();
-	app.world_mut()
-		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	cast(&mut app, owner, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
 	step(&mut app, 0.1);
 	let instance_id = first_instance(&mut app)
 		.map(|instance| instance.id)
@@ -208,13 +238,19 @@ fn multiple_colliders_on_one_target_make_one_hit() -> Result<()> {
 		ChildOf(body),
 		Transform::from_translation(Vec3::new(0.2, 1.0, 0.0)),
 		GlobalTransform::from_translation(Vec3::new(0.2, 1.0, 0.0)),
+		Collider::capsule(0.3, 0.6),
+		Sensor,
+		PhysicsInteractionLayer::animated_layers(),
 	));
 	app.world_mut().spawn((
 		ChildOf(body),
 		Transform::from_translation(Vec3::new(-0.2, 1.0, 0.0)),
 		GlobalTransform::from_translation(Vec3::new(-0.2, 1.0, 0.0)),
+		Collider::capsule(0.3, 0.6),
+		Sensor,
+		PhysicsInteractionLayer::animated_layers(),
 	));
-	app.world_mut().write_message(BeginAttack::new(owner, COLUMN).with_target(body));
+	cast(&mut app, owner, COLUMN, body, Vec3::new(0.0, 1.0, 0.0));
 	step(&mut app, 0.1);
 	step(&mut app, 0.4);
 	let hits: Vec<_> = drain_hits(&mut app).into_iter().filter(|hit| hit.target == body).collect();
@@ -229,8 +265,7 @@ fn frame_rate_variation_does_not_dump_or_skip_execute() -> Result<()> {
 	let mut fine = attack_app(1.0 / 60.0);
 	let owner = spawn_owner(&mut fine, Vec3::ZERO);
 	let target = spawn_target(&mut fine, Vec3::new(0.0, 1.0, 0.0), 100.0);
-	fine.world_mut()
-		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	cast(&mut fine, owner, COLUMN, target, Vec3::new(0.0, 1.0, 0.0));
 	for _ in 0..24 {
 		step(&mut fine, 1.0 / 60.0);
 	}
@@ -239,9 +274,7 @@ fn frame_rate_variation_does_not_dump_or_skip_execute() -> Result<()> {
 	let mut hitch = attack_app(2.0);
 	let owner = spawn_owner(&mut hitch, Vec3::ZERO);
 	let target = spawn_target(&mut hitch, Vec3::new(0.0, 1.0, 0.0), 100.0);
-	hitch
-		.world_mut()
-		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	cast(&mut hitch, owner, COLUMN, target, Vec3::new(0.0, 1.0, 0.0));
 	step(&mut hitch, 2.0);
 	let hitch_hits = drain_hits(&mut hitch).len();
 	if hitch_hits == 0 {
@@ -258,7 +291,7 @@ fn target_loss_keeps_last_snapshot() -> Result<()> {
 	let mut app = attack_app(0.1);
 	let owner = spawn_owner(&mut app, Vec3::ZERO);
 	let target = spawn_target(&mut app, Vec3::new(0.0, 0.0, -4.0), 100.0);
-	app.world_mut().write_message(BeginAttack::new(owner, WAVE).with_target(target));
+	cast(&mut app, owner, WAVE, target, Vec3::new(0.0, 0.0, -4.0));
 	step(&mut app, 0.1);
 	let before = first_instance(&mut app)
 		.map(|instance| instance.snapshot)
@@ -267,8 +300,8 @@ fn target_loss_keeps_last_snapshot() -> Result<()> {
 	step(&mut app, 0.1);
 	let after =
 		first_instance(&mut app).ok_or_else(|| anyhow!("instance should survive target loss"))?;
-	if after.live_target.is_some() {
-		return Err(anyhow!("lost target should clear live_target"));
+	if after.snapshot.aim_point != before.aim_point {
+		return Err(anyhow!("aim must stay on the last observed point, not a live transform"));
 	}
 	if after.snapshot.direction != before.direction {
 		return Err(anyhow!("snapshot should stay at last known aim"));
@@ -281,8 +314,7 @@ fn owner_despawn_cleans_instance_and_bindings() -> Result<()> {
 	let mut app = attack_app(0.1);
 	let owner = spawn_owner(&mut app, Vec3::ZERO);
 	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
-	app.world_mut()
-		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	cast(&mut app, owner, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
 	step(&mut app, 0.1);
 	let instance_id = first_instance(&mut app)
 		.map(|instance| instance.id)
@@ -311,10 +343,8 @@ fn sleep_and_retirement_interrupt_live_attacks() -> Result<()> {
 	let sleeper = spawn_owner(&mut app, Vec3::ZERO);
 	let retired = spawn_owner(&mut app, Vec3::new(6.0, 0.0, 0.0));
 	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
-	app.world_mut()
-		.write_message(BeginAttack::new(sleeper, COLUMN).with_target(target));
-	app.world_mut()
-		.write_message(BeginAttack::new(retired, COLUMN).with_target(target));
+	cast(&mut app, sleeper, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
+	cast(&mut app, retired, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
 	step(&mut app, 0.1);
 	if live_instances(&mut app) != 2 {
 		return Err(anyhow!("both owners should share the same definition"));
@@ -336,8 +366,7 @@ fn death_interrupts_live_attacks() -> Result<()> {
 	let mut app = attack_app(0.1);
 	let owner = spawn_owner(&mut app, Vec3::ZERO);
 	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
-	app.world_mut()
-		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	cast(&mut app, owner, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
 	step(&mut app, 0.1);
 	app.world_mut()
 		.entity_mut(owner)
@@ -365,9 +394,12 @@ fn targeting_membership_is_used_without_fabricating_contacts() -> Result<()> {
 	app.world_mut().write_message(BeginAttack::new(owner, COLUMN));
 	step(&mut app, 0.1);
 	let instance = first_instance(&mut app)
-		.ok_or_else(|| anyhow!("expected instance from targeting membership"))?;
-	if instance.live_target != Some(target) {
-		return Err(anyhow!("expected objective member, got {:?}", instance.live_target));
+		.ok_or_else(|| anyhow!("expected instance even without observed knowledge"))?;
+	if instance.live_target.is_some() {
+		return Err(anyhow!("membership without contact must not aim at a live transform"));
+	}
+	if (instance.snapshot.aim_point - instance.snapshot.origin).length() > 1e-4 {
+		return Err(anyhow!("without contact, AimPoint must stay on the owner"));
 	}
 	if app
 		.world()
@@ -421,6 +453,7 @@ fn wavefront_hits_once_per_wave_and_exposes_kinematics() -> Result<()> {
 	let owner = spawn_owner(&mut app, Vec3::ZERO);
 	let target = spawn_target(&mut app, Vec3::new(0.0, 0.0, -2.0), 100.0);
 	let mouth = Vec3::new(0.0, 0.0, -0.2);
+	observe(&mut app, owner, target, Vec3::new(0.0, 0.0, -2.0));
 	app.world_mut().write_message(
 		BeginAttack::new(owner, wave).with_target(target).with_emission(mouth),
 	);
@@ -449,6 +482,19 @@ fn wavefront_hits_once_per_wave_and_exposes_kinematics() -> Result<()> {
 	if (wavefront.radius - 1.4).abs() > 1e-4 {
 		return Err(anyhow!("presenter missing ring radius"));
 	}
+	if (wavefront.thickness - 0.6).abs() > 1e-4 {
+		return Err(anyhow!("presenter missing ring thickness"));
+	}
+	if !presented.iter().any(|event| matches!(
+		&event.kind,
+		crate::AttackPresentationKind::Hazard {
+			wave: Some(wave),
+			phase: crate::PresentationPhase::Updated,
+			..
+		} if (wave.position - wave.origin).length() > 0.2
+	)) {
+		return Err(anyhow!("updated wave should carry a current position away from the mouth"));
+	}
 	step(&mut app, 0.4);
 	let second = drain_hits(&mut app);
 	if second.len() != 1 {
@@ -460,6 +506,50 @@ fn wavefront_hits_once_per_wave_and_exposes_kinematics() -> Result<()> {
 		crate::AttackPresentationKind::Hazard { wave: Some(wave), .. } if wave.wave_index == 1
 	)) {
 		return Err(anyhow!("second wave should announce wave_index 1"));
+	}
+	Ok(())
+}
+
+#[test]
+fn aim_point_is_observed_and_distinct_from_owner() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::new(0.0, 1.0, 4.0));
+	let seen = Vec3::new(6.0, 2.0, -5.0);
+	let target = spawn_target(&mut app, seen, 100.0);
+	cast(&mut app, owner, COLUMN, target, seen);
+	step(&mut app, 0.1);
+	let instance = first_instance(&mut app).ok_or_else(|| anyhow!("missing instance"))?;
+	if (instance.snapshot.origin - Vec3::new(0.0, 1.0, 4.0)).length() > 1e-3 {
+		return Err(anyhow!("owner origin should stay on the caster"));
+	}
+	if (instance.snapshot.aim_point - seen).length() > 1e-3 {
+		return Err(anyhow!("AimPoint must be the observed world point, got {:?}", instance.snapshot.aim_point));
+	}
+	if (HazardOrigin::AimPoint.resolve(instance.snapshot) - seen).length() > 1e-3 {
+		return Err(anyhow!("God Beam style AimPoint resolved to the attacker"));
+	}
+	if (HazardOrigin::Owner.resolve(instance.snapshot) - instance.snapshot.origin).length() > 1e-3 {
+		return Err(anyhow!("Owner origin should remain the caster"));
+	}
+	Ok(())
+}
+
+#[test]
+fn hazard_hits_collider_extent_not_just_origin() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let id = AttackId::new("close-sphere");
+	app.world_mut().resource_mut::<AttackCatalog>().insert(
+		AttackDefinition::with_authored_defaults(id, 0.1, 0.4, 0.1, AimPolicy::TargetAtWindup)
+			.authored_hazard(HazardShape::Sphere { radius: 1.0 }, HazardOrigin::Owner),
+	);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(1.25, 0.0, 0.0), 100.0);
+	cast(&mut app, owner, id, target, Vec3::new(1.25, 0.0, 0.0));
+	step(&mut app, 0.1);
+	step(&mut app, 0.2);
+	let hits = drain_hits(&mut app);
+	if hits.is_empty() {
+		return Err(anyhow!("capsule intersecting the sphere must hit even if origin is outside"));
 	}
 	Ok(())
 }

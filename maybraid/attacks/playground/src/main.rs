@@ -12,9 +12,12 @@ use attacks::{
 	AttackPlaceholderPresentationPlugin, AttackStage, AttackUser, AttacksPlugin, BeginAttack,
 	CancelAttacks, HazardOrigin, HazardShape, HazardSpec, TelegraphSpec, WavefrontSpec,
 };
+use avian3d::prelude::{Collider, PhysicsPlugins, Sensor};
 use bevy::app::AppExit;
 use bevy::prelude::*;
+use combat_targeting::{CombatContact, CombatTargeting};
 use damage::{apply_hits, DamageApplied, Died, Health};
+use lod_avian::PhysicsInteractionLayer;
 
 const COLUMN: AttackId = AttackId("column");
 const WAVE: AttackId = AttackId("wave");
@@ -36,6 +39,7 @@ fn main() {
 	.insert_resource(if capture { PreviewMode::Capture } else { PreviewMode::Loop })
 	.insert_resource(CaptureIo::from_env())
 	.insert_resource(PreviewStats::default())
+	.add_plugins(PhysicsPlugins::default())
 	.add_plugins(AttacksPlugin)
 	.add_plugins(AttackPlaceholderPresentationPlugin)
 	.add_message::<DamageApplied>()
@@ -167,10 +171,15 @@ fn setup(
 			}),
 		);
 
+	let camera = if *mode == PreviewMode::Capture {
+		Transform::from_xyz(8.2, 1.85, 2.7).looking_at(Vec3::new(0.0, 1.75, 2.5), Vec3::Y)
+	} else {
+		Transform::from_xyz(9.5, 6.5, 9.0).looking_at(Vec3::new(0.0, 2.0, 3.0), Vec3::Y)
+	};
 	commands.spawn((
 		Camera3d::default(),
 		AmbientLight { brightness: 420.0, ..default() },
-		Transform::from_xyz(9.5, 6.5, 9.0).looking_at(Vec3::new(0.0, 2.0, 3.0), Vec3::Y),
+		camera,
 	));
 	commands.spawn((
 		DirectionalLight { illuminance: 8_000.0, ..default() },
@@ -203,6 +212,9 @@ fn setup(
 			Mesh3d(meshes.add(Capsule3d::new(0.45, 1.3))),
 			MeshMaterial3d(materials.add(Color::srgb(0.55, 0.72, 0.84))),
 			Transform::from_xyz(0.0, 1.2, 2.4),
+			Collider::capsule(0.45, 1.3),
+			Sensor,
+			PhysicsInteractionLayer::animated_layers(),
 		))
 		.id();
 	let mouth = commands
@@ -210,9 +222,21 @@ fn setup(
 			Name::new("mouth"),
 			ChildOf(owner),
 			Transform::from_xyz(0.0, 0.55, -0.65),
+			Mesh3d(meshes.add(Sphere::new(0.16))),
+			MeshMaterial3d(materials.add(Color::srgb(0.85, 0.55, 0.4))),
 		))
 		.id();
-	commands.entity(owner).insert((PreviewTarget(target), PreviewSocket(mouth)));
+	let mut targeting = CombatTargeting::default();
+	targeting.upsert_contact(CombatContact {
+		subject: target,
+		position: Vec3::new(0.0, 1.2, 2.4),
+		movement_vector: Vec3::ZERO,
+		visible_point: Vec3::new(0.0, 1.2, 2.4),
+		visible_head: Some(Vec3::new(0.0, 2.0, 2.4)),
+		last_spotted_at: 0.0,
+	});
+	targeting.rebalance(0.0);
+	commands.entity(owner).insert((PreviewTarget(target), PreviewSocket(mouth), targeting));
 
 	commands.spawn((
 		PreviewHud,

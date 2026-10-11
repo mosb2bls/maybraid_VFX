@@ -16,7 +16,8 @@ pub enum HazardOrigin {
 impl HazardOrigin {
 	pub fn resolve(self, snapshot: AimSnapshot) -> Vec3 {
 		match self {
-			Self::Owner | Self::AimPoint => snapshot.origin,
+			Self::Owner => snapshot.origin,
+			Self::AimPoint => snapshot.aim_point,
 			Self::AlongAim { distance } => snapshot.origin + snapshot.direction * distance.max(0.0),
 			Self::Emission => snapshot.emission,
 		}
@@ -302,6 +303,8 @@ pub struct HitCandidate {
 	pub has_health: bool,
 	pub parent_has_health: bool,
 	pub point: Vec3,
+	/// Spatial overlap already confirmed the collider intersects the hazard.
+	pub confirmed: bool,
 }
 
 impl HitCandidate {
@@ -367,7 +370,7 @@ fn collect_hazard_hits(pass: HazardHitPass<'_>) -> Vec<Hit> {
 		if !friendly_fire.admits(owner, target, allies) {
 			continue;
 		}
-		if !volume_contains(spec, pose, sweep, candidate.point) {
+		if !candidate.confirmed && !volume_contains(spec, pose, sweep, candidate.point) {
 			continue;
 		}
 		let distance = volume_distance(spec, pose, sweep, candidate.point);
@@ -385,7 +388,8 @@ fn collect_hazard_hits(pass: HazardHitPass<'_>) -> Vec<Hit> {
 			Some(wave) => wave.hits.get(&(wave.spec_index, wave.wave_index, target)).copied(),
 			None => hit_clock.get(&target).copied(),
 		};
-		if !cadence_ready(last, now, spec.damage.cadence) {
+		let cadence = if wave.is_some() { 0.0 } else { spec.damage.cadence };
+		if !cadence_ready(last, now, cadence) {
 			continue;
 		}
 		let amount = spec.damage.amount_at(distance);
@@ -445,7 +449,14 @@ mod tests {
 	use super::*;
 
 	fn candidate(entity: Entity, point: Vec3) -> HitCandidate {
-		HitCandidate { entity, parent: None, has_health: true, parent_has_health: false, point }
+		HitCandidate {
+			entity,
+			parent: None,
+			has_health: true,
+			parent_has_health: false,
+			point,
+			confirmed: false,
+		}
 	}
 
 	#[test]
@@ -477,6 +488,18 @@ mod tests {
 			sweep: None,
 			wave: None,
 		}
+	}
+
+	#[test]
+	fn origin_variants_keep_owner_aim_and_emission_distinct() {
+		let snapshot = AimSnapshot::toward(Vec3::new(0.0, 1.0, 4.0), Vec3::new(3.0, 2.0, -2.0), None)
+			.with_emission(Vec3::new(0.1, 1.6, 3.4));
+		assert!((HazardOrigin::Owner.resolve(snapshot) - snapshot.origin).length() < 1e-4);
+		assert!((HazardOrigin::AimPoint.resolve(snapshot) - snapshot.aim_point).length() < 1e-4);
+		assert!((HazardOrigin::Emission.resolve(snapshot) - snapshot.emission).length() < 1e-4);
+		assert!((snapshot.aim_point - snapshot.origin).length() > 1.0);
+		let along = HazardOrigin::AlongAim { distance: 2.0 }.resolve(snapshot);
+		assert!((along - (snapshot.origin + snapshot.direction * 2.0)).length() < 1e-4);
 	}
 
 	#[test]
@@ -588,6 +611,7 @@ mod tests {
 				has_health: false,
 				parent_has_health: true,
 				point: Vec3::new(0.2, 0.0, 0.0),
+				confirmed: false,
 			},
 			HitCandidate {
 				entity: b,
@@ -595,6 +619,7 @@ mod tests {
 				has_health: false,
 				parent_has_health: true,
 				point: Vec3::new(0.4, 0.0, 0.0),
+				confirmed: false,
 			},
 		];
 		let mut clock = std::collections::HashMap::new();

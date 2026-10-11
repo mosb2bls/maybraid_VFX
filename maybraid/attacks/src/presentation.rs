@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::{
 	AimSnapshot, AttackEndReason, AttackId, AttackInstanceId, AttackStage, HazardPose, HazardShape,
 };
+use crate::hazard::WavefrontSpec;
 
 /// Gameplay announcement. VFX crates subscribe; they do not own timing or Hits.
 #[derive(Message, Clone, Debug)]
@@ -27,15 +28,43 @@ pub enum AttackPresentationKind {
 	Ended { reason: AttackEndReason },
 }
 
-/// Discrete traveling ring. Presenters get kinematics; they do not own Hits.
+/// Authoritative per-wave state. Presenters follow this; they do not simulate motion.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WavefrontPresentation {
+	/// Mouth / socket at emit time.
 	pub origin: Vec3,
+	/// World-space travel heading.
 	pub direction: Vec3,
+	/// Current ring center.
+	pub position: Vec3,
 	pub speed: f32,
 	pub range: f32,
 	pub radius: f32,
+	/// Full thickness along travel (`2 * half_depth`).
+	pub thickness: f32,
 	pub wave_index: u8,
+}
+
+impl WavefrontPresentation {
+	pub fn from_wave(
+		wave: WavefrontSpec,
+		emission: Vec3,
+		heading: Vec3,
+		travel: f32,
+		wave_index: u8,
+	) -> Self {
+		let pose = wave.pose(emission, heading, travel);
+		Self {
+			origin: emission,
+			direction: heading,
+			position: pose.origin,
+			speed: wave.speed,
+			range: wave.range,
+			radius: wave.radius,
+			thickness: wave.half_depth.max(0.0) * 2.0,
+			wave_index,
+		}
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

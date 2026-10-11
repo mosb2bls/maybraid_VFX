@@ -75,11 +75,11 @@ pub struct AttackInstance {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct WaveMotion {
-	emission: Vec3,
-	heading: Vec3,
-	from: f32,
-	to: f32,
+pub(crate) struct WaveMotion {
+	pub emission: Vec3,
+	pub heading: Vec3,
+	pub from: f32,
+	pub to: f32,
 }
 
 pub struct TickOutcome {
@@ -179,6 +179,37 @@ impl AttackInstance {
 		}
 	}
 
+	#[allow(clippy::too_many_arguments)]
+	pub(crate) fn collect_one_wave(
+		&mut self,
+		now: f32,
+		spec_index: usize,
+		spec: HazardSpec,
+		wave: crate::WavefrontSpec,
+		wave_index: u8,
+		motion: WaveMotion,
+		candidates: &[HitCandidate],
+	) -> Vec<damage::Hit> {
+		crate::hazard::HazardHitPass {
+			owner: self.owner,
+			friendly_fire: self.friendly_fire,
+			allies: &self.allies,
+			now,
+			spec,
+			pose: wave.pose(motion.emission, motion.heading, motion.to),
+			candidates,
+			hit_clock: &mut self.hit_clock,
+			sweep: Some(WavefrontSweep {
+				emission: motion.emission,
+				heading: motion.heading,
+				from: motion.from,
+				to: motion.to,
+			}),
+			wave: Some(WaveHitClock { spec_index, wave_index, hits: &mut self.wave_hits }),
+		}
+		.collect()
+	}
+
 	fn collect_wave_hits(
 		&mut self,
 		now: f32,
@@ -231,6 +262,25 @@ impl AttackInstance {
 		*self.wave_emissions.entry((spec_index, wave_index)).or_insert_with(|| {
 			(origin.resolve(self.snapshot), wave.heading(self.snapshot))
 		})
+	}
+
+	pub(crate) fn live_wave_motions(
+		&mut self,
+		spec_index: usize,
+		spec: HazardSpec,
+		wave: WavefrontSpec,
+	) -> Vec<(u8, WaveMotion)> {
+		let prev = self.pulse_from_age;
+		let execute_age = self.execute_age;
+		let mut motions = Vec::new();
+		for wave_index in 0..wave.wave_count() {
+			if let Some(motion) =
+				self.wave_motion(spec_index, spec.origin, wave, wave_index, prev, execute_age)
+			{
+				motions.push((wave_index, motion));
+			}
+		}
+		motions
 	}
 
 	fn wave_motion(
@@ -343,14 +393,8 @@ impl AttackInstance {
 					let (emission, heading) = self.wave_spawn(index, spec.origin, wave, wave_index);
 					let travel = wave.travel(execute_age - emit);
 					let pose = wave.pose(emission, heading, travel);
-					let presentation = WavefrontPresentation {
-						origin: emission,
-						direction: heading,
-						speed: wave.speed,
-						range: wave.range,
-						radius: wave.radius,
-						wave_index,
-					};
+					let presentation =
+						WavefrontPresentation::from_wave(wave, emission, heading, travel, wave_index);
 					let was_emitted = previous_execute_age >= emit;
 					let retired_now = wave.retired(execute_age, wave_index);
 					let retired_before = wave.retired(previous_execute_age, wave_index);
@@ -459,14 +503,13 @@ impl AttackInstance {
 							phase: PresentationPhase::Despawned,
 							pose: wave.pose(emission, heading, travel),
 							shape: spec.shape,
-							wave: Some(WavefrontPresentation {
-								origin: emission,
-								direction: heading,
-								speed: wave.speed,
-								range: wave.range,
-								radius: wave.radius,
+							wave: Some(WavefrontPresentation::from_wave(
+								wave,
+								emission,
+								heading,
+								travel,
 								wave_index,
-							}),
+							)),
 						});
 					}
 				}
@@ -626,6 +669,12 @@ mod tests {
 		}
 		if (first.radius - 1.25).abs() >= 1e-4 {
 			return Err(anyhow::anyhow!("radius should be constant ring size"));
+		}
+		if (first.thickness - 0.7).abs() >= 1e-4 {
+			return Err(anyhow::anyhow!("thickness should be 2 * half_depth"));
+		}
+		if (first.position - (first.origin + first.direction * 5.0 * 0.05)).length() >= 1e-3 {
+			return Err(anyhow::anyhow!("position should be origin + direction * travel"));
 		}
 		let second = instance.tick(0.4, &def);
 		if !second.events.iter().any(|event| matches!(

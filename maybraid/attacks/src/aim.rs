@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use combat_targeting::{CombatTargeting, TargetSource};
 
-/// When the instance snapshots aim. Live transforms only; never writes contacts.
+/// When the instance snapshots aim from observed contact knowledge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AimPolicy {
 	/// Owner origin and facing at windup start.
@@ -17,13 +17,16 @@ pub enum AimPolicy {
 }
 
 /// Frozen (or last-known) aim used by telegraphs and hazards.
+///
+/// `origin` is the owner. `aim_point` is the observed world aim (from
+/// [`CombatContact`]), never implied to equal the owner. `emission` is the
+/// mouth / socket.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AimSnapshot {
 	pub origin: Vec3,
+	pub aim_point: Vec3,
 	pub direction: Vec3,
 	pub target: Option<Entity>,
-	/// Mouth / socket used by [`crate::HazardOrigin::Emission`]. Defaults to
-	/// [`Self::origin`].
 	pub emission: Vec3,
 }
 
@@ -31,6 +34,7 @@ impl AimSnapshot {
 	pub fn owner_facing(origin: Vec3, forward: Vec3) -> Self {
 		Self {
 			origin,
+			aim_point: origin,
 			direction: flatten_direction(forward),
 			target: None,
 			emission: origin,
@@ -40,6 +44,7 @@ impl AimSnapshot {
 	pub fn toward(origin: Vec3, target_point: Vec3, target: Option<Entity>) -> Self {
 		Self {
 			origin,
+			aim_point: target_point,
 			direction: flatten_direction(target_point - origin),
 			target,
 			emission: origin,
@@ -80,29 +85,19 @@ impl AimSnapshot {
 	}
 }
 
-/// Pick a subject without fabricating visual contacts.
+/// Observed aim knowledge. Membership alone is not enough to aim.
 ///
-/// Order: explicit begin target if it still exists, else a ranked/active
-/// [`CombatTargeting`] member, else none (owner facing).
-pub fn resolve_target(
+/// Order: contact for an explicit begin target, else [`CombatTargeting::best_contact`].
+/// Never reads a live target transform. Missing memory falls back to owner facing.
+pub fn resolve_aim_contact(
 	explicit: Option<Entity>,
 	targeting: Option<&CombatTargeting>,
-	exists: impl Fn(Entity) -> bool,
-) -> Option<Entity> {
-	if let Some(target) = explicit.filter(|target| exists(*target)) {
-		return Some(target);
-	}
+) -> Option<combat_targeting::CombatContact> {
 	let targeting = targeting?;
-	if let Some(best) =
-		targeting.best().map(|ranked| ranked.entity).filter(|target| exists(*target))
-	{
-		return Some(best);
+	if let Some(target) = explicit {
+		return targeting.contact(target).copied();
 	}
-	targeting
-		.active
-		.iter()
-		.find(|(entity, member)| member.is_member() && exists(**entity))
-		.map(|(entity, _)| *entity)
+	targeting.best_contact().copied()
 }
 
 pub fn owner_point(transform: &Transform, global: Option<&GlobalTransform>) -> Vec3 {
@@ -140,30 +135,42 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn resolve_target_prefers_explicit_alive_entity() {
+	fn resolve_aim_contact_requires_memory() {
 		let explicit = Entity::from_bits(4);
-		let chosen = resolve_target(Some(explicit), None, |entity| entity == explicit);
-		assert_eq!(chosen, Some(explicit));
+		assert!(resolve_aim_contact(Some(explicit), None).is_none());
 	}
 
 	#[test]
-	fn resolve_target_ignores_missing_explicit_and_does_not_invent_contacts() {
-		let gone = Entity::from_bits(5);
-		let chosen = resolve_target(Some(gone), None, |_| false);
-		assert_eq!(chosen, None);
-	}
-
-	#[test]
-	fn resolve_target_uses_membership_not_contact_memory() -> anyhow::Result<()> {
-		let subject = Entity::from_bits(9);
+	fn resolve_aim_contact_ignores_membership_without_memory() {
+		let subject = Entity::from_bits(5);
 		let mut targeting = CombatTargeting::default();
 		targeting.include(subject, TargetSource::OBJECTIVE);
 		targeting.rebalance(0.0);
-		let chosen = resolve_target(None, Some(&targeting), |entity| entity == subject);
-		if chosen != Some(subject) {
-			return Err(anyhow::anyhow!("expected objective member, got {chosen:?}"));
-		}
+		assert!(resolve_aim_contact(Some(subject), Some(&targeting)).is_none());
+		assert!(resolve_aim_contact(None, Some(&targeting)).is_none());
 		assert!(targeting.contact(subject).is_none());
+	}
+
+	#[test]
+	fn resolve_aim_contact_uses_observed_aim_point() -> anyhow::Result<()> {
+		let subject = Entity::from_bits(9);
+		let seen = Vec3::new(4.0, 1.5, -6.0);
+		let mut targeting = CombatTargeting::default();
+		targeting.upsert_contact(combat_targeting::CombatContact {
+			subject,
+			position: seen,
+			movement_vector: Vec3::ZERO,
+			visible_point: seen,
+			visible_head: Some(seen + Vec3::Y),
+			last_spotted_at: 0.0,
+		});
+		targeting.rebalance(0.0);
+		let Some(contact) = resolve_aim_contact(None, Some(&targeting)) else {
+			return Err(anyhow::anyhow!("expected best_contact"));
+		};
+		if contact.aim_point(false) != seen {
+			return Err(anyhow::anyhow!("aim must come from contact, got {:?}", contact.aim_point(false)));
+		}
 		Ok(())
 	}
 }

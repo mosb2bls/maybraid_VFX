@@ -1,5 +1,6 @@
 use bevy::ecs::schedule::ApplyDeferred;
 use bevy::prelude::*;
+use combat_targeting::CombatTargetingSystems;
 use damage::Hit;
 
 use crate::{
@@ -29,7 +30,12 @@ impl Plugin for AttacksPlugin {
 			.add_message::<Hit>()
 			.configure_sets(
 				Update,
-				(AttackSystems::Command, AttackSystems::Interrupt, AttackSystems::Advance).chain(),
+				(
+					AttackSystems::Command.after(CombatTargetingSystems::Rank),
+					AttackSystems::Interrupt,
+					AttackSystems::Advance,
+				)
+					.chain(),
 			)
 			.add_systems(
 				Update,
