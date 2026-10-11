@@ -453,9 +453,6 @@ fn agent_chunk_loads(
 	time: Res<Time>,
 	added: Query<Entity, Added<CascadeChunk>>,
 ) {
-	if !runtime.ready {
-		return;
-	}
 	let added = added.iter().count() as u32;
 	if added == 0 {
 		return;
