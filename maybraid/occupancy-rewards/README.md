@@ -7,10 +7,15 @@ Resolve an actor from world position onto the forest / grove / planting /
 urban keys used by HCSG generation. Cached metadata is published into a
 Gimme-backed store; rules never scan vegetation and never read rendered
 meshes. Periodic evaluation emits [`OccupancyAward`](src/occupancy.rs) values
-that a thin adapter turns into [`OccupancyChargeRequest`](src/charge.rs)
-using the shared [`lubikans`](../lubikans) types from
+that a thin adapter turns into [`LubikanChargeRequest`](../lubikans/src/change.rs)
+(`LubikanChargeReason::OCCUPANCY`) using the shared
+[`lubikans`](../lubikans) types from
 [#1107](https://github.com/ramate-io/maybraid/issues/1107) /
 [PR #1142](https://github.com/ramate-io/maybraid/pull/1142).
+[`LubikanSystems::Award`](../lubikans/src/award.rs)
+([#1108](https://github.com/ramate-io/maybraid/issues/1108) /
+[PR #1154](https://github.com/ramate-io/maybraid/pull/1154)) applies each
+request once and emits one `LubikanChargeChanged`.
 
 ```text
 GlobalTransform
@@ -18,9 +23,8 @@ GlobalTransform
     → enter / exit + timers
     → RewardRule match against CellMetadataStore
     → OccupancyAward
-    → OccupancyChargeRequest   (LubikanAccountId, OCCUPANCY, signed f32, origin)
-    → LubikanLedger::apply_to  → LubikanChargeMutation   (#1108 will own this)
-    → LubikanChargeChanged     (#1108; not emitted here)
+    → LubikanChargeRequest   (account, OCCUPANCY, signed f32, origin)
+    → LubikanSystems::Award  → LubikanChargeChanged
 ```
 
 ## Matching granularity
@@ -41,11 +45,13 @@ rule that should require a construction in the occupied grove tile must set
 
 This crate depends on `lubikans` and does not invent a parallel account
 model. Awards snapshot [`LubikanSelection::resolved`](../lubikans/src/selection.rs)
-(Self when nothing external is equipped). The adapter stops at
-`OccupancyChargeRequest`. Applying that request produces a
-`LubikanChargeMutation`. Authoritative `LubikanChargeChanged` routing is
-[#1108](https://github.com/ramate-io/maybraid/issues/1108) and is not
-emitted here.
+(Self when nothing external is equipped). Occupancy writes
+`LubikanChargeRequest` and does not mutate ledgers or emit
+`LubikanChargeChanged`.
+
+Evaluation runs in PostUpdate after [`LubikanSystems::Owner`](../lubikans/src/plugin.rs)
+(PreUpdate attach/restore) and before [`LubikanSystems::Award`](../lubikans/src/award.rs).
+Actors without a ledger that frame are skipped.
 
 ## Pause, re-entry, streaming
 
@@ -63,5 +69,6 @@ dependency.
 
 The ordinary world (`maybraid-world`) registers this plugin through
 `WorldOccupancyPlugin`. That publisher fills `CellMetadataStore` from HCSG
-`ChicoForest` / `ChicoGrove` cell facts — not vegetation meshes — and attaches
-Self plus `OccupancyRewardsUser` to the player.
+`ChicoForest` / `ChicoGrove` cell facts — not vegetation meshes — and inserts
+only `OccupancyRewardsUser`. Ledgers come from [`LubikansPlugin`](../lubikans);
+evaluation skips a player until a ledger is present.

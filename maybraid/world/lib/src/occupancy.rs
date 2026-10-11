@@ -1,9 +1,10 @@
-//! World occupancy: publish HCSG cell facts and attach Self to the player.
+//! World occupancy: publish HCSG cell facts and mark the world player.
 //!
 //! [#1111](https://github.com/ramate-io/maybraid/issues/1111). Reads
 //! [`ChicoForest`] / [`ChicoGrove`] from [`HcsgStorage`] — selected cell
 //! metadata, not vegetation meshes or [`chico::ChicoGroveHost`]. The ordinary
 //! world registers this plugin so occupancy runs with Self and no Bikanwarda.
+//! Ledgers are created only by [`LubikansPlugin`] ([#1149](https://github.com/ramate-io/maybraid/pull/1149)).
 
 use std::collections::BTreeSet;
 
@@ -12,15 +13,18 @@ use bevy::prelude::*;
 use chico::{ChicoForest, ChicoGrove, ForestGroveKind, ForestLayer, GROVE_PRESENT_RADIUS_M};
 use lod::hcsg::{Busy, HcsgStorage};
 use lod::LodViewer;
-use lubikans::{LubikanLedger, LubikanOwner, LubikanSelfConfig};
+use lubikans::LubikansPlugin;
 use occupancy_rewards::{
 	CellMetadata, CellMetadataStore, ConstructionTag, ForestInfo, GroveInfo, GroveKindTag,
-	GroveLayerId, GroveTileId, LayeringTag, OccupancyRewardsPlugin, OccupancyRewardsSystems,
-	OccupancyRewardsUser, SemanticCellKey, VegetationLayer,
+	GroveLayerId, GroveTileId, LayeringTag, OccupancyRewardsPlugin, OccupancyRewardsUser,
+	SemanticCellKey, VegetationLayer,
 };
 use world_player::Player as VegetationPlayer;
 
-/// Occupancy metadata publish and player attach, before evaluation.
+/// Occupancy metadata publish and player mark.
+///
+/// Runs in Update: after [`lubikans::LubikanSystems::Owner`] (PreUpdate) and
+/// before occupancy evaluate / [`lubikans::LubikanSystems::Award`] (PostUpdate).
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WorldOccupancySystems {
 	Publish,
@@ -33,19 +37,16 @@ pub struct WorldOccupancyPlugin;
 
 impl Plugin for WorldOccupancyPlugin {
 	fn build(&self, app: &mut App) {
+		if !app.is_plugin_added::<LubikansPlugin>() {
+			app.add_plugins(LubikansPlugin);
+		}
 		if !app.is_plugin_added::<OccupancyRewardsPlugin>() {
 			app.add_plugins(OccupancyRewardsPlugin::default());
 		}
-		app.init_resource::<LubikanSelfConfig>()
-			.init_resource::<WorldOccupancyPublishState>()
+		app.init_resource::<WorldOccupancyPublishState>()
 			.configure_sets(
 				Update,
-				(
-					WorldOccupancySystems::Publish.before(OccupancyRewardsSystems::Evaluate),
-					WorldOccupancySystems::Attach
-						.after(WorldOccupancySystems::Publish)
-						.before(OccupancyRewardsSystems::Evaluate),
-				),
+				WorldOccupancySystems::Attach.after(WorldOccupancySystems::Publish),
 			)
 			.add_systems(
 				Update,
@@ -71,17 +72,8 @@ type OccupancyViewers<'w, 's> = Query<
 	Or<(With<VegetationPlayer>, With<OccupancyRewardsUser>, With<LodViewer>)>,
 >;
 
-type OccupancyPlayers<'w, 's> = Query<
-	'w,
-	's,
-	(
-		Entity,
-		Option<&'static OccupancyRewardsUser>,
-		Option<&'static LubikanOwner>,
-		Option<&'static LubikanLedger>,
-	),
-	With<VegetationPlayer>,
->;
+type OccupancyPlayers<'w, 's> =
+	Query<'w, 's, (Entity, Option<&'static OccupancyRewardsUser>), With<VegetationPlayer>>;
 
 /// Copy selected forest / grove facts into [`CellMetadataStore`].
 ///
@@ -105,22 +97,11 @@ pub fn publish_world_occupancy_metadata(
 	scan.publish(&mut store, &mut published);
 }
 
-/// Give the world player occupancy tracking and a Self ledger when missing.
-pub fn attach_world_occupancy_player(
-	mut commands: Commands,
-	config: Res<LubikanSelfConfig>,
-	players: OccupancyPlayers,
-) {
-	for (entity, user, owner, ledger) in &players {
-		let mut entity_commands = commands.entity(entity);
+/// Mark the world player for occupancy. Does not create a ledger.
+pub fn attach_world_occupancy_player(mut commands: Commands, players: OccupancyPlayers) {
+	for (entity, user) in &players {
 		if user.is_none() {
-			entity_commands.insert(OccupancyRewardsUser::default());
-		}
-		if owner.is_none() {
-			entity_commands.insert(LubikanOwner);
-		}
-		if ledger.is_none() {
-			entity_commands.insert(LubikanLedger::with_self(&config));
+			commands.entity(entity).insert(OccupancyRewardsUser::default());
 		}
 	}
 }
@@ -378,9 +359,12 @@ mod tests {
 	use bevy::math::bounding::Aabb3d;
 	use chico::{ForestExtent, ForestSelection, LayeringKind};
 	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
-	use lubikans::{LubikanAccountId, LubikanChargeChanged, LubikanChargeReason};
+	use lubikans::{
+		LubikanAccountId, LubikanChargeChanged, LubikanChargeReason, LubikanChargeRequest,
+		LubikanLedger, LubikansPlugin,
+	};
 	use occupancy_rewards::{
-		evaluate_occupancy_rewards, OccupancyChargeRequest, OccupancyIdentity, RewardRule,
+		evaluate_occupancy_rewards, OccupancyIdentity, OccupancyRewardsPaused, RewardRule,
 		RewardRuleSet, SemanticCellKey,
 	};
 
@@ -422,14 +406,23 @@ mod tests {
 		app.world_mut()
 			.spawn((
 				VegetationPlayer,
+				player::Player,
 				Transform::from_translation(at),
 				GlobalTransform::from_translation(at),
 			))
 			.id()
 	}
 
-	fn drain_requests(world: &mut World) -> Vec<OccupancyChargeRequest> {
-		world.resource_mut::<Messages<OccupancyChargeRequest>>().drain().collect()
+	fn attach_runtime_ledger(app: &mut App) {
+		app.update();
+	}
+
+	fn drain_requests(world: &mut World) -> Vec<LubikanChargeRequest> {
+		world.resource_mut::<Messages<LubikanChargeRequest>>().drain().collect()
+	}
+
+	fn drain_changes(world: &mut World) -> Vec<LubikanChargeChanged> {
+		world.resource_mut::<Messages<LubikanChargeChanged>>().drain().collect()
 	}
 
 	fn evaluate_with(app: &mut App, dt: Duration) -> anyhow::Result<()> {
@@ -442,17 +435,42 @@ mod tests {
 		Ok(())
 	}
 
+	/// Apply pending [`LubikanChargeRequest`]s through Award without ticking occupancy.
+	fn flush_award(app: &mut App) {
+		app.world_mut().resource_mut::<OccupancyRewardsPaused>().0 = true;
+		app.update();
+		app.world_mut().resource_mut::<OccupancyRewardsPaused>().0 = false;
+	}
+
 	#[test]
 	fn world_occupancy_plugin_installs_self_rules_without_replacing_them() -> anyhow::Result<()> {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(WorldOccupancyPlugin);
 		assert!(app.is_plugin_added::<OccupancyRewardsPlugin>());
+		assert!(app.is_plugin_added::<LubikansPlugin>());
 		let rules = app.world().resource::<RewardRuleSet>();
 		let rule = rules
 			.rule(occupancy_rewards::RuleId::SELF_DEMONSTRATION)
 			.ok_or_else(|| anyhow::anyhow!("ordinary world should ship the Self demonstration"))?;
 		assert_eq!(rule.credited, LubikanAccountId::SELF);
 		assert_eq!(rule.interval, Duration::from_secs(5));
+		Ok(())
+	}
+
+	#[test]
+	fn occupancy_attach_does_not_create_a_ledger() -> anyhow::Result<()> {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins).add_plugins(WorldOccupancyPlugin);
+		let player = app
+			.world_mut()
+			.spawn((VegetationPlayer, Transform::IDENTITY, GlobalTransform::IDENTITY))
+			.id();
+		app.world_mut()
+			.run_system_once(attach_world_occupancy_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let entity = app.world().entity(player);
+		anyhow::ensure!(entity.contains::<OccupancyRewardsUser>());
+		anyhow::ensure!(!entity.contains::<LubikanLedger>(), "occupancy must not create ledgers");
 		Ok(())
 	}
 
@@ -467,6 +485,7 @@ mod tests {
 		app.world_mut()
 			.run_system_once(attach_world_occupancy_player)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		attach_runtime_ledger(&mut app);
 		let identity = OccupancyIdentity::from_position(STAND);
 		let store = app.world().resource::<CellMetadataStore>();
 		anyhow::ensure!(store.get(SemanticCellKey::Forest(identity.forest)).is_some());
@@ -479,50 +498,70 @@ mod tests {
 		anyhow::ensure!(view.constructions_grove.contains(&ConstructionTag::SOPES_BANYAN));
 		let entity = app.world().entity(player);
 		anyhow::ensure!(entity.contains::<OccupancyRewardsUser>());
-		anyhow::ensure!(entity.contains::<LubikanOwner>());
 		let ledger = entity
 			.get::<LubikanLedger>()
-			.ok_or_else(|| anyhow::anyhow!("ordinary world player should own Self"))?;
+			.ok_or_else(|| anyhow::anyhow!("#1149 runtime should attach Self"))?;
 		anyhow::ensure!(ledger.selection().resolved() == LubikanAccountId::SELF);
 		Ok(())
 	}
 
 	#[test]
-	fn player_in_qualifying_grove_accrues_self_requests_at_configured_interval(
-	) -> anyhow::Result<()> {
+	fn player_in_qualifying_grove_accrues_self_charge_at_configured_interval() -> anyhow::Result<()> {
 		let storage = publish_lush_origin_cells()?;
 		let mut app = occupancy_app(storage);
-		spawn_player(&mut app, STAND);
+		let player = spawn_player(&mut app, STAND);
 		app.world_mut()
 			.run_system_once(publish_world_occupancy_metadata)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		app.world_mut()
 			.run_system_once(attach_world_occupancy_player)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		attach_runtime_ledger(&mut app);
+		let _ = drain_requests(app.world_mut());
+		let _ = drain_changes(app.world_mut());
+		let expected = RewardRule::self_demonstration().amount;
+		let charge_before = app
+			.world()
+			.get::<LubikanLedger>(player)
+			.ok_or_else(|| anyhow::anyhow!("#1149 runtime should attach Self"))?
+			.equipped()
+			.charge()
+			.current();
+		anyhow::ensure!(charge_before == 0.0, "fresh Self ledger starts at 0");
 
 		evaluate_with(&mut app, Duration::from_secs(4))?;
+		flush_award(&mut app);
 		anyhow::ensure!(
-			drain_requests(app.world_mut()).is_empty(),
-			"Self demonstration is 5 s; 4 s must not award"
+			drain_changes(app.world_mut()).is_empty(),
+			"Self demonstration is 5 s; 4 s must not emit LubikanChargeChanged"
 		);
+		let charge_at_four = app
+			.world()
+			.get::<LubikanLedger>(player)
+			.ok_or_else(|| anyhow::anyhow!("ledger"))?
+			.equipped()
+			.charge()
+			.current();
+		anyhow::ensure!(charge_at_four == 0.0, "4 s must not mutate charge");
 
 		evaluate_with(&mut app, Duration::from_secs(1))?;
-		let requests = drain_requests(app.world_mut());
-		let request = requests
-			.first()
-			.copied()
-			.ok_or_else(|| anyhow::anyhow!("expected one OccupancyChargeRequest at 5 s"))?;
-		assert_eq!(requests.len(), 1);
-		assert_eq!(request.lubikan, LubikanAccountId::SELF);
-		assert_eq!(request.requested, RewardRule::self_demonstration().amount);
-		assert_eq!(request.reason, LubikanChargeReason::OCCUPANCY);
-		assert_eq!(request.origin, Some(STAND));
-		let changed: Vec<_> = app
-			.world_mut()
-			.resource_mut::<Messages<LubikanChargeChanged>>()
-			.drain()
-			.collect();
-		anyhow::ensure!(changed.is_empty(), "#1108 owns LubikanChargeChanged");
+		flush_award(&mut app);
+		let changed = drain_changes(app.world_mut());
+		anyhow::ensure!(changed.len() == 1, "exactly one LubikanChargeChanged at 5 s");
+		let change = changed[0];
+		assert_eq!(change.recipient, player);
+		assert_eq!(change.lubikan, LubikanAccountId::SELF);
+		assert_eq!(change.amount, expected);
+		assert_eq!(change.reason, LubikanChargeReason::OCCUPANCY);
+		assert_eq!(change.origin, Some(STAND));
+		let charge_after = app
+			.world()
+			.get::<LubikanLedger>(player)
+			.ok_or_else(|| anyhow::anyhow!("ledger"))?
+			.equipped()
+			.charge()
+			.current();
+		anyhow::ensure!(charge_after == expected, "Award must credit the ledger");
 		Ok(())
 	}
 }

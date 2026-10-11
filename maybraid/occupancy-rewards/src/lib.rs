@@ -1,12 +1,15 @@
 //! Semantic cell occupancy, periodic timers, and occupancy reward rules.
 //!
 //! [#1111](https://github.com/ramate-io/maybraid/issues/1111) is the occupancy
-//! lane. Charge identity and mutation types come from
+//! lane. Charge identity comes from
 //! [`lubikans`](https://github.com/ramate-io/maybraid/pull/1142)
 //! ([#1107](https://github.com/ramate-io/maybraid/issues/1107)). This crate
-//! emits [`OccupancyChargeRequest`] values those APIs accept; authoritative
-//! [`lubikans::LubikanChargeChanged`] routing is
-//! [#1108](https://github.com/ramate-io/maybraid/issues/1108).
+//! emits [`lubikans::LubikanChargeRequest`] with
+//! [`lubikans::LubikanChargeReason::OCCUPANCY`];
+//! [`lubikans::LubikanSystems::Award`]
+//! ([#1108](https://github.com/ramate-io/maybraid/issues/1108) /
+//! [PR #1154](https://github.com/ramate-io/maybraid/pull/1154)) applies each
+//! request once and emits one [`lubikans::LubikanChargeChanged`].
 
 mod charge;
 mod evaluate;
@@ -18,7 +21,7 @@ mod rule;
 mod tag;
 mod timer;
 
-pub use charge::{adapt_award, OccupancyChargeRequest};
+pub use charge::adapt_award;
 pub use evaluate::{step_occupancy, OccupancyStep};
 pub use identity::{
 	ForestCellId, GroveLayerId, GroveTileId, OccupancyIdentity, OccupancyMatchKey, OccupiedRegion,

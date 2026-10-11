@@ -1,19 +1,20 @@
 //! Bevy plugin: resolve occupancy from transforms and emit awards / requests.
 
 use bevy::prelude::*;
-use lubikans::{LubikanInterfacePlugin, LubikanLedger, LubikanSystems};
+use lubikans::{LubikanChargeRequest, LubikanInterfacePlugin, LubikanLedger, LubikanSystems};
 
-use crate::charge::{adapt_award, OccupancyChargeRequest};
+use crate::charge::adapt_award;
 use crate::evaluate::step_occupancy;
 use crate::identity::OccupancyIdentity;
 use crate::metadata::CellMetadataStore;
 use crate::occupancy::{OccupancyAward, OccupancyEvent, OccupancySession};
 use crate::rule::RewardRuleSet;
 
+/// Occupancy evaluation. Runs in PostUpdate after [`LubikanSystems::Owner`]
+/// (PreUpdate) and before [`LubikanSystems::Award`].
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum OccupancyRewardsSystems {
 	Evaluate,
-	Award,
 }
 
 /// Global evaluation gate. Identity still updates so leaving while paused is
@@ -63,18 +64,12 @@ impl Plugin for OccupancyRewardsPlugin {
 			.insert_resource(self.rules.clone())
 			.add_message::<OccupancyEvent>()
 			.add_message::<OccupancyAward>()
-			.add_message::<OccupancyChargeRequest>()
 			.configure_sets(
-				Update,
-				(
-					OccupancyRewardsSystems::Evaluate.before(LubikanSystems::Award),
-					OccupancyRewardsSystems::Award
-						.after(OccupancyRewardsSystems::Evaluate)
-						.before(LubikanSystems::Award),
-				),
+				PostUpdate,
+				OccupancyRewardsSystems::Evaluate.before(LubikanSystems::Award),
 			)
 			.add_systems(
-				Update,
+				PostUpdate,
 				evaluate_occupancy_rewards.in_set(OccupancyRewardsSystems::Evaluate),
 			);
 	}
@@ -89,10 +84,14 @@ pub fn evaluate_occupancy_rewards(
 	mut users: Query<(Entity, &GlobalTransform, &mut OccupancyRewardsUser, Option<&LubikanLedger>)>,
 	mut events: MessageWriter<OccupancyEvent>,
 	mut awards: MessageWriter<OccupancyAward>,
-	mut charges: MessageWriter<OccupancyChargeRequest>,
+	mut charges: MessageWriter<LubikanChargeRequest>,
 ) {
 	let dt = time.delta();
 	for (entity, transform, mut user, ledger) in &mut users {
+		// [`LubikansPlugin`] owns ledger attach/restore. Skip until it has.
+		let Some(ledger) = ledger else {
+			continue;
+		};
 		let identity = OccupancyIdentity::resolve(transform.translation(), store.as_ref());
 		let locally_paused = paused.0 || !user.enabled;
 		let stepped = step_occupancy(
@@ -104,7 +103,7 @@ pub fn evaluate_occupancy_rewards(
 			dt,
 			locally_paused,
 		);
-		let selection = ledger.map(LubikanLedger::selection).unwrap_or_default();
+		let selection = ledger.selection();
 		for event in stepped.events {
 			events.write(event);
 		}
@@ -122,7 +121,7 @@ mod tests {
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
 	use lubikans::fixtures::LubikanFixture;
-	use lubikans::{LubikanAccountId, LubikanChargeReason};
+	use lubikans::{LubikanAccountId, LubikanChargeReason, LubikanChargeRequest};
 
 	use super::*;
 	use crate::identity::{GroveLayerId, OccupancyIdentity, SemanticCellKey, VegetationLayer};
@@ -154,8 +153,8 @@ mod tests {
 		);
 	}
 
-	fn drain_requests(world: &mut World) -> Vec<OccupancyChargeRequest> {
-		world.resource_mut::<Messages<OccupancyChargeRequest>>().drain().collect()
+	fn drain_requests(world: &mut World) -> Vec<LubikanChargeRequest> {
+		world.resource_mut::<Messages<LubikanChargeRequest>>().drain().collect()
 	}
 
 	#[test]
@@ -176,24 +175,16 @@ mod tests {
 			.first()
 			.copied()
 			.ok_or_else(|| anyhow::anyhow!("expected a charge-mutation request"))?;
-		assert_eq!(request.lubikan, LubikanAccountId::SELF);
+		assert_eq!(request.lubikan, Some(LubikanAccountId::SELF));
 		assert_eq!(request.requested, 1.0);
 		assert_eq!(request.reason, LubikanChargeReason::OCCUPANCY);
 		assert!(request.origin.is_some());
-		let mut ledger = fixture
-			.ledger_mut(app.world_mut())
-			.ok_or_else(|| anyhow::anyhow!("expected Self ledger"))?;
-		let mutation = request
-			.apply_to_ledger(&mut ledger)
-			.ok_or_else(|| anyhow::anyhow!("Self account must accept the apply"))?;
-		assert_eq!(mutation.requested, 1.0);
-		assert_eq!(mutation.applied, 1.0);
 		let changed: Vec<_> = app
 			.world_mut()
 			.resource_mut::<Messages<lubikans::LubikanChargeChanged>>()
 			.drain()
 			.collect();
-		assert!(changed.is_empty());
+		assert!(changed.is_empty(), "Award owns LubikanChargeChanged");
 		Ok(())
 	}
 
@@ -225,18 +216,35 @@ mod tests {
 		})
 		.insert_resource(store)
 		.insert_resource(time);
+		for at in [Vec3::ZERO, Vec3::new(1.0, 0.0, 1.0)] {
+			let fixture = LubikanFixture::spawn_in(&mut app);
+			app.world_mut()
+				.entity_mut(fixture.owner)
+				.insert((GlobalTransform::from_translation(at), OccupancyRewardsUser::default()));
+		}
+		app.world_mut()
+			.run_system_once(evaluate_occupancy_rewards)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(drain_requests(app.world_mut()).len(), 2);
+		Ok(())
+	}
+
+	#[test]
+	fn missing_ledger_is_skipped_that_frame() -> anyhow::Result<()> {
+		let mut store = CellMetadataStore::default();
+		publish_demo(&mut store, Vec3::ZERO);
+		let mut app = app_with(
+			store,
+			RewardRuleSet::new([RewardRule::self_always(Duration::from_secs(1), 1.0)]),
+		);
 		app.world_mut().spawn((
 			GlobalTransform::from_translation(Vec3::ZERO),
-			OccupancyRewardsUser::default(),
-		));
-		app.world_mut().spawn((
-			GlobalTransform::from_translation(Vec3::new(1.0, 0.0, 1.0)),
 			OccupancyRewardsUser::default(),
 		));
 		app.world_mut()
 			.run_system_once(evaluate_occupancy_rewards)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert_eq!(drain_requests(app.world_mut()).len(), 2);
+		assert!(drain_requests(app.world_mut()).is_empty());
 		Ok(())
 	}
 }
