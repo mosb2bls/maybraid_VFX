@@ -25,3 +25,12 @@ fields; they are never implied at runtime.
 ```shell
 cargo run -p attacks-playground
 ```
+
+Software-Vulkan captures of the playground (windup telegraph, execute hazard + hits, post-cancel cleanup):
+
+```shell
+cargo build -p attacks-playground
+xvfb-run -a -s "-screen 0 1280x720x24" maybraid/attacks/preview/capture.sh
+```
+
+Images land in [`preview/`](preview/).
