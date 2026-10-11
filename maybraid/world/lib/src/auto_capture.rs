@@ -94,7 +94,7 @@ pub fn run_auto_capture(
 	mut script: Option<ResMut<AutoCaptureScript>>,
 	players: Query<(Entity, &damage::Health), With<player::Player>>,
 	lubikan_ledgers: Query<&lubikans::LubikanLedger>,
-	heal_channels: Query<&lubikans::LubikanSelfHealChannel>,
+	lubikan_heal: Res<lubikans::LubikanSelfHeal>,
 ) {
 	let Some(ref mut script) = script else {
 		return;
@@ -120,13 +120,11 @@ pub fn run_auto_capture(
 			.map(|ledger| ledger.equipped().charge().current())
 			.unwrap_or(0.0);
 		
-		let heal_status = heal_channels.get(player_entity)
-			.map(|ch| if ch.active {
-				format!("healing {:.1} HP/s", ch.rate)
-			} else {
-				"idle".to_string()
-			})
-			.unwrap_or_else(|_| "no-channel".to_string());
+		let heal_status = if lubikan_heal.active {
+			format!("healing {:.1} HP/s (rem {:.1})", lubikan_heal.rate, lubikan_heal.remaining)
+		} else {
+			"idle".to_string()
+		};
 		
 		eprintln!(
 			"[STATE] frame={} hp={:.1}/{:.1} charge={:.1} heal={}",

@@ -1,0 +1,17 @@
+# Simple test: just activate and heal
+debug peaceful
+wait 60
+
+# Grant 75 charge
+debug grant-points 75
+wait 10
+
+# Take damage
+debug take-damage 60
+wait 5
+
+# Activate
+debug activate
+wait 30
+
+exit

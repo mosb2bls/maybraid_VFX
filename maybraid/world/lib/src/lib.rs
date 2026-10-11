@@ -239,7 +239,10 @@ impl Plugin for WorldPlugin {
 			.add_systems(PostStartup, spawn_default_braidman);
 		
 		#[cfg(feature = "debug-commands")]
-		app.add_systems(Update, auto_capture::run_auto_capture)
+		app.add_systems(
+			Update,
+			auto_capture::run_auto_capture.after(lubikans::LubikanSystems::Heal),
+		)
 			.add_systems(
 				PreUpdate,
 				(
@@ -314,14 +317,13 @@ impl Plugin for WorldPlugin {
 			app.init_resource::<DebugPeacefulMode>();
 			app.add_systems(
 				Update,
-				(
-					apply_debug_grant_points,
-					apply_debug_take_damage,
-					apply_debug_spawn_npc,
-					apply_debug_activate,
-					apply_debug_peaceful,
-					restore_player_health_in_peaceful,
-				),
+			(
+				apply_debug_grant_points,
+				apply_debug_take_damage,
+				apply_debug_spawn_npc,
+				apply_debug_activate,
+				apply_debug_peaceful,
+			),
 			);
 		}
 	}
@@ -353,12 +355,25 @@ fn apply_debug_take_damage(
 	requests: Query<(Entity, &commands::RequestTakeDamage)>,
 	players: Query<Entity, With<player::Player>>,
 	mut healths: Query<&mut damage::Health>,
+	mut damage_events: MessageWriter<damage::DamageApplied>,
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
 		if let Ok(player) = players.single() {
 			if let Ok(mut health) = healths.get_mut(player) {
-				health.take_damage(request.amount);
+				let before = health.current;
+				let applied = health.take_damage(request.amount);
+				let after = health.current;
+				
+				// Write DamageApplied event so lubikan healing cap latches correctly
+				damage_events.write(damage::DamageApplied {
+					target: player,
+					source: None,
+					amount: request.amount,
+					applied,
+					remaining: after,
+					point: Vec3::ZERO,
+				});
 			}
 		}
 		commands.entity(entity).despawn();
@@ -397,22 +412,6 @@ fn apply_debug_peaceful(
 	}
 }
 
-#[cfg(feature = "debug-commands")]
-fn restore_player_health_in_peaceful(
-	peaceful: Res<DebugPeacefulMode>,
-	mut players: Query<&mut damage::Health, With<player::Player>>,
-) {
-	if !peaceful.0 {
-		return;
-	}
-	
-	// Keep player at full health in peaceful mode
-	for mut health in &mut players {
-		if health.current < health.max {
-			health.current = health.max;
-		}
-	}
-}
 
 #[cfg(feature = "debug-commands")]
 fn apply_debug_spawn_npc(
