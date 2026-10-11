@@ -80,15 +80,15 @@ pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
 	},
 	CaptureShot {
 		name: "rake-taper-pom-on",
-		camera: Vec3::new(1.55, 2.95, 1.25),
-		look_at: Vec3::new(0.10, 2.89, 0.04),
+		camera: Vec3::new(2.05, 3.05, 2.15),
+		look_at: Vec3::new(0.0, 2.89, 0.0),
 		light: CaptureLight::Rake,
 		look: CaptureLook::Pom,
 		shape: PreviewShape::Taper,
 	},
 	CaptureShot {
 		name: "rake-taper-silhouette",
-		camera: Vec3::new(2.15, 3.15, 2.85),
+		camera: Vec3::new(3.35, 3.20, 4.35),
 		look_at: Vec3::new(0.0, 2.89, 0.0),
 		light: CaptureLight::Rake,
 		look: CaptureLook::Pom,
