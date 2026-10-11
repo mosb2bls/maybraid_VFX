@@ -146,6 +146,39 @@ impl MobKnowledge {
 		targeting.include(subject, TargetSource::SHARED)
 	}
 
+	/// Whether [`Self::share_targets_into`] would write anything for `recipient`.
+	pub fn has_targets_for(&self, recipient: Entity, targeting: &CombatTargeting) -> bool {
+		self.targets.iter().any(|subject| {
+			*subject != recipient
+				&& targeting
+					.active_target(*subject)
+					.is_none_or(|target| !target.has_source(TargetSource::SHARED))
+		})
+	}
+
+	/// Whether [`Self::adopt_first_hand_threats`] would insert a new board id.
+	pub fn would_adopt_first_hand_threats(
+		&self,
+		knowledge: &ThreatKnowledge,
+		host: Entity,
+		roster: &MobRoster,
+		registry: &ThreatRegistry,
+		members: &Query<&MemberOf>,
+	) -> bool {
+		knowledge.iter().any(|known| {
+			known.sources.is_first_hand()
+				&& !self.threats.contains(&known.id)
+				&& !subject_is_pack_mate_id(known.id, host, roster, registry, members)
+		})
+	}
+
+	/// Whether [`Self::adopt_shareable_targets`] would insert a new board entity.
+	pub fn would_adopt_shareable_targets(&self, targeting: &CombatTargeting) -> bool {
+		targeting.active.iter().any(|(subject, target)| {
+			target.active_sources().intersects(SHAREABLE_TARGETS) && !self.targets.contains(subject)
+		})
+	}
+
 	pub fn share_into<'a>(
 		&self,
 		recipients: impl IntoIterator<Item = ThreatShareRecipient<'a>>,
@@ -275,6 +308,15 @@ pub(crate) fn share_mob_threats(
 			let Ok((_, _, _, _, knowledge)) = recipients.get(plant) else {
 				continue;
 			};
+			if !board.would_adopt_first_hand_threats(
+				knowledge,
+				host,
+				roster,
+				&registry,
+				&members,
+			) {
+				continue;
+			}
 			board.adopt_first_hand_threats(knowledge, host, roster, &registry, &members);
 		}
 		for plant in plants_of(&by_mob, host) {
@@ -314,16 +356,22 @@ pub(crate) fn share_mob_targets(
 		}
 		for plant in plants_of(&by_mob, host) {
 			if let Ok((_, _, targeting)) = recipients.get(plant) {
+				if !board.would_adopt_shareable_targets(targeting) {
+					continue;
+				}
 				board.adopt_shareable_targets(targeting);
 			}
 		}
 		for plant in plants_of(&by_mob, host) {
-			let Ok((plant, _, mut targeting)) = recipients.get_mut(plant) else {
+			let Ok((plant, _, targeting)) = recipients.get(plant) else {
 				continue;
 			};
-			if board.targets.iter().all(|subject| *subject == plant) {
+			if !board.has_targets_for(plant, targeting) {
 				continue;
 			}
+			let Ok((_, _, mut targeting)) = recipients.get_mut(plant) else {
+				continue;
+			};
 			board.share_targets_into([(plant, &mut *targeting)]);
 		}
 	}
