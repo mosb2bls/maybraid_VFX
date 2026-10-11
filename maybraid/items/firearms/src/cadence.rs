@@ -156,6 +156,14 @@ pub struct WeaponRecoil(pub f32);
 pub struct WeaponFired {
 	pub shooter: Entity,
 	pub recoil: f32,
+	/// Seconds before now that the round left the muzzle.
+	pub age: f32,
+}
+
+impl WeaponFired {
+	pub fn new(shooter: Entity, recoil: f32) -> Self {
+		Self { shooter, recoil, age: 0.0 }
+	}
 }
 
 pub fn trigger_allows_fire(control: Option<&mut FireControl>, manual: bool, held: bool) -> bool {

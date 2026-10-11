@@ -66,6 +66,7 @@ impl Plugin for VirtualPadPlugin {
 			.init_resource::<MenuNavPad>()
 			.init_resource::<PadCursor>()
 			.add_message::<rumble::PadRumble>()
+			.init_resource::<rumble::DelayedPadRumble>()
 			.configure_sets(
 				PreUpdate,
 				VirtualPadSystems::Produce.after(InputSystems).before(VirtualPadSystems::Derive),
