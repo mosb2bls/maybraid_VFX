@@ -110,6 +110,7 @@ members = [
   "maybraid/projectiles",
   "maybraid/damage",
   "maybraid/items/firearms-components",
+  "maybraid/items/icons",
   "maybraid/items/firearms",
   "maybraid/items/firearm-user",
   "maybraid/items/grenades",
@@ -360,6 +361,7 @@ movement-realization = { path = "maybraid/movement-realization" }
 projectiles = { path = "maybraid/projectiles" }
 damage = { path = "maybraid/damage" }
 firearms-components = { path = "maybraid/items/firearms-components" }
+item-icons = { path = "maybraid/items/icons" }
 firearms = { path = "maybraid/items/firearms" }
 firearm-user = { path = "maybraid/items/firearm-user" }
 grenades = { path = "maybraid/items/grenades" }

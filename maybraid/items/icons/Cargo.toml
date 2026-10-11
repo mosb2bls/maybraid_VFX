@@ -1,0 +1,24 @@
+[package]
+name = "item-icons"
+version = { workspace = true }
+edition  = { workspace = true }
+license  = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+character-items = { workspace = true }
+character-persist = { workspace = true }
+firearms-components = { workspace = true }
+screen-capture = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

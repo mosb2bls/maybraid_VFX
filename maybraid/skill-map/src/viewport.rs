@@ -7,17 +7,18 @@ use bevy::render::render_resource::{TextureDimension, TextureFormat, TextureUsag
 use bevy::ui::widget::ViewportNode;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventoryItem};
+use item_icons::ItemIconCache;
 use menu_components::{
-	spawn_hud_text_card, spawn_hud_text_card_label, HudFonts, HUD_TEXT_CARD_FACE_PX,
-	PANEL_BLOCK_FONT_SIZE, TEXT_YELLOW,
+	HUD_TEXT_CARD_FACE_PX, HudFonts, PANEL_BLOCK_FONT_SIZE, TEXT_YELLOW, spawn_hud_text_card,
+	spawn_hud_text_card_label,
 };
 
+use crate::SkillMapEnabled;
 use crate::cursor::SkillMapCursor;
-use crate::map::{authored_map_from_spec, render_layer, AuthoredMap, SkillMapId};
+use crate::map::{AuthoredMap, SkillMapId, authored_map_from_spec, render_layer};
 use crate::tile_material::SkillMapTileAssets;
 use crate::tiles::spawn_map_tiles;
 use crate::user::{SkillMapEquip, SkillMapHeld, SkillMapMember, SkillMapSession, SkillMapUser};
-use crate::SkillMapEnabled;
 
 pub(crate) const VIEWPORT_PX: f32 = 228.0;
 /// `WindowSize` area is viewport pixels times this. 1.0 showed almost the whole 256 map.
@@ -42,6 +43,7 @@ const FIREARM_CARD_FILL: Color = Color::srgba(0.52, 0.52, 0.56, 0.82);
 const FIREARM_CARD_STROKE: Color = Color::srgba(0.78, 0.78, 0.82, 0.9);
 const GRENADE_SILHOUETTE_PX: f32 = 28.0;
 const GRENADE_SILHOUETTE_STROKE: f32 = 2.0;
+const FIREARM_SILHOUETTE_PX: f32 = 72.0;
 
 /// Kenney outline Xbox **RB** (hold to steer the map).
 pub const SKILL_MAP_RB_ICON: &str = "iconography/kenney/input-prompts/xbox_rb_outline.png";
@@ -70,6 +72,12 @@ pub struct SkillMapFirearmName;
 
 #[derive(Component)]
 pub(crate) struct SkillMapFirearmSilhouette;
+
+#[derive(Component)]
+pub(crate) struct SkillMapFirearmSilhouettePlaceholder;
+
+#[derive(Component)]
+pub(crate) struct SkillMapFirearmSilhouetteImage;
 
 #[derive(Component)]
 pub(crate) struct SkillMapGrenadeSilhouette;
@@ -433,6 +441,36 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 		.spawn((
 			SkillMapFirearmSilhouette,
 			Node {
+				width: Val::Px(FIREARM_SILHOUETTE_PX),
+				height: Val::Px(FIREARM_SILHOUETTE_PX * 0.55),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			Visibility::Inherited,
+			Pickable::IGNORE,
+		))
+		.with_children(|gun| {
+			spawn_firearm_silhouette_placeholder(gun);
+			gun.spawn((
+				SkillMapFirearmSilhouetteImage,
+				ImageNode { color: TEXT_YELLOW, ..default() },
+				Node {
+					width: Val::Px(FIREARM_SILHOUETTE_PX),
+					height: Val::Px(FIREARM_SILHOUETTE_PX * 0.55),
+					..default()
+				},
+				Visibility::Hidden,
+				Pickable::IGNORE,
+			));
+		});
+}
+
+fn spawn_firearm_silhouette_placeholder(parent: &mut ChildSpawnerCommands) {
+	parent
+		.spawn((
+			SkillMapFirearmSilhouettePlaceholder,
+			Node {
 				width: Val::Px(96.0),
 				height: Val::Px(28.0),
 				flex_direction: FlexDirection::Row,
@@ -550,6 +588,7 @@ pub fn sync_viewport_chrome(
 pub fn sync_firearm_chrome(
 	users: Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
 	bags: Query<&Inventory>,
+	icons: Option<Res<ItemIconCache>>,
 	members: Query<&SkillMapMember, With<SkillMapFirearmHud>>,
 	mut blocks: Query<(&SkillMapMember, &mut Visibility), With<SkillMapFirearmHud>>,
 	mut names: Query<(&SkillMapMember, &mut Text), With<SkillMapFirearmName>>,
@@ -557,12 +596,31 @@ pub fn sync_firearm_chrome(
 		&mut Visibility,
 		(With<SkillMapFirearmSilhouette>, Without<SkillMapFirearmHud>),
 	>,
+	mut placeholders: Query<
+		&mut Visibility,
+		(
+			With<SkillMapFirearmSilhouettePlaceholder>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+		),
+	>,
+	mut silhouettes: Query<
+		(&mut ImageNode, &mut Visibility),
+		(
+			With<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapFirearmSilhouettePlaceholder>,
+		),
+	>,
 	mut orbs: Query<
 		&mut Visibility,
 		(
 			With<SkillMapGrenadeSilhouette>,
 			Without<SkillMapFirearmHud>,
 			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapFirearmSilhouettePlaceholder>,
+			Without<SkillMapFirearmSilhouetteImage>,
 		),
 	>,
 	mut fills: Query<(&mut Node, &mut BackgroundColor), With<SkillMapGrenadeChargeFill>>,
@@ -581,8 +639,26 @@ pub fn sync_firearm_chrome(
 	let weapon = primary_weapon(member.user, &users, &bags);
 	let grenade = weapon.and_then(grenade_charge);
 	let show_orb = grenade.is_some();
+	let silhouette =
+		weapon.and_then(|item| icons.as_ref().and_then(|cache| cache.silhouette_for_item(item)));
 	for mut visibility in &mut guns {
 		*visibility = if show_orb { Visibility::Hidden } else { Visibility::Inherited };
+	}
+	for mut visibility in &mut placeholders {
+		*visibility = if show_orb || silhouette.is_some() {
+			Visibility::Hidden
+		} else {
+			Visibility::Inherited
+		};
+	}
+	for (mut image, mut visibility) in &mut silhouettes {
+		if let Some(handle) = silhouette.as_ref() {
+			image.image = handle.clone();
+			image.color = TEXT_YELLOW;
+			*visibility = if show_orb { Visibility::Hidden } else { Visibility::Inherited };
+		} else {
+			*visibility = Visibility::Hidden;
+		}
 	}
 	for mut visibility in &mut orbs {
 		*visibility = if show_orb { Visibility::Inherited } else { Visibility::Hidden };
@@ -753,6 +829,16 @@ mod tests {
 	}
 
 	#[test]
+	fn firearm_hud_keeps_placeholder_until_silhouette_is_ready() {
+		use character_items::{FirearmMesh, InventoryItem};
+
+		let item = InventoryItem::firearm(FirearmMesh::Bullpup);
+		let cache = ItemIconCache::default();
+		assert!(cache.silhouette_for_item(&item).is_none());
+		assert!(item.capture_id_label().is_some());
+	}
+
+	#[test]
 	fn grenade_charge_fills_as_recharge_elapses() {
 		use character_items::{GrenadeRecharge, GrenadeSpec, GrenadeStats, InventoryItem};
 
@@ -769,7 +855,9 @@ mod tests {
 		};
 		assert!((grenade_charge(&ready).unwrap() - 1.0).abs() < 1e-4);
 		assert!((grenade_charge(&half).unwrap() - 0.5).abs() < 1e-4);
-		assert!(grenade_charge(&InventoryItem::firearm(character_items::FirearmMesh::Bullpup))
-			.is_none());
+		assert!(
+			grenade_charge(&InventoryItem::firearm(character_items::FirearmMesh::Bullpup))
+				.is_none()
+		);
 	}
 }

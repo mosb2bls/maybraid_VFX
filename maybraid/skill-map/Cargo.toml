@@ -16,6 +16,7 @@ bevy_hanabi = { workspace = true }
 combat-targeting = { workspace = true }
 character-items = { workspace = true }
 character-inventory-user = { workspace = true }
+item-icons = { workspace = true }
 damage = { workspace = true }
 evasion-intelligence = { workspace = true }
 lod-avian = { workspace = true }

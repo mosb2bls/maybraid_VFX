@@ -261,6 +261,25 @@ impl InventoryItem {
 		}
 	}
 
+	/// Stable screen-capture identity. Grenades and skill maps have no 3D icon.
+	pub fn capture_id_label(&self) -> Option<String> {
+		match self {
+			Self::Firearm { spec, .. } => Some(format!("firearm:{}", spec.identity_label())),
+			Self::Clothing { mesh, material, .. } => Some(format!(
+				"clothing:{}:{}:{}",
+				mesh.label(),
+				material.id.label(),
+				material.color.label()
+			)),
+			Self::Grenade { .. } | Self::SkillMap { .. } => None,
+		}
+	}
+
+	/// Catalog thumbnail key in a namespace that does not collide with skill maps.
+	pub fn icon_catalog_key(&self) -> Option<u64> {
+		Some(icon_catalog_key_for_label(&self.capture_id_label()?))
+	}
+
 	/// Authored identity: spec/stats/kind match, excluding transient grenade recharge.
 	pub fn same_catalog_identity(&self, other: &Self) -> bool {
 		match (self, other) {
@@ -632,11 +651,7 @@ impl ItemRng {
 		let den = u64::from(denominator);
 		let base = (product / den) as usize;
 		let rem = (product % den) as u32;
-		if rem > 0 && self.in_range(0, denominator - 1) < rem {
-			base + 1
-		} else {
-			base
-		}
+		if rem > 0 && self.in_range(0, denominator - 1) < rem { base + 1 } else { base }
 	}
 
 	/// `count` distinct indices in `0..len`, in shuffled order.
@@ -650,6 +665,21 @@ impl ItemRng {
 		indices.truncate(count);
 		indices
 	}
+}
+
+/// High-word tag so item-icon keys never collide with [`SkillMapSpec::catalog_key`].
+pub const ITEM_ICON_CATALOG_TAG: u64 = 0xC0DE_0000_0000_0000;
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0100_0000_01b3;
+
+/// FNV-1a catalog key for a capture-id label.
+pub fn icon_catalog_key_for_label(label: &str) -> u64 {
+	let mut hash = FNV_OFFSET;
+	for byte in label.as_bytes() {
+		hash ^= u64::from(*byte);
+		hash = hash.wrapping_mul(FNV_PRIME);
+	}
+	ITEM_ICON_CATALOG_TAG | (hash & 0x0000_FFFF_FFFF_FFFF)
 }
 
 fn remap_selected(selected: &[usize], remap: &[Option<usize>]) -> Vec<usize> {
@@ -750,9 +780,11 @@ mod tests {
 		meshes.sort_by_key(|mesh| mesh.label());
 		meshes.dedup();
 		assert_eq!(meshes.len(), STARTER_CLOTHING_COUNT);
-		assert!(items
-			.iter()
-			.all(|item| item.clothing_stats().is_some_and(|stats| stats.weight > 0)));
+		assert!(
+			items
+				.iter()
+				.all(|item| item.clothing_stats().is_some_and(|stats| stats.weight > 0))
+		);
 		assert_eq!(items[0].mesh().map(ClothingMesh::kind), Some(ClothingKind::Lower));
 		assert_eq!(items[1].mesh().map(ClothingMesh::kind), Some(ClothingKind::Upper));
 		assert!(ClothingKind::STARTER_LOWERS.contains(&items[0].mesh().unwrap()));
@@ -1123,6 +1155,50 @@ mod tests {
 		let taken = all.take_fraction(&mut ItemRng::from_seed(1), LootFraction::ALL);
 		assert_eq!(taken.items.len(), 3);
 		assert!(all.items.is_empty());
+	}
+
+	#[test]
+	fn capture_ids_are_stable_and_distinct() -> anyhow::Result<()> {
+		let bullpup = InventoryItem::firearm(FirearmMesh::Bullpup);
+		let reltor = InventoryItem::firearm(FirearmMesh::Reltor);
+		let pants = InventoryItem::clothing(
+			ClothingMesh::Pants,
+			ClothingMaterial::Cloth,
+			ItemColor::Natural,
+		);
+		let painted =
+			InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Red);
+		let a = bullpup.capture_id_label().ok_or_else(|| anyhow::anyhow!("bullpup"))?;
+		let b = reltor.capture_id_label().ok_or_else(|| anyhow::anyhow!("reltor"))?;
+		assert_ne!(a, b);
+		assert_eq!(a, bullpup.capture_id_label().ok_or_else(|| anyhow::anyhow!("stable"))?);
+		assert_ne!(
+			pants.capture_id_label().ok_or_else(|| anyhow::anyhow!("pants"))?,
+			painted.capture_id_label().ok_or_else(|| anyhow::anyhow!("painted"))?
+		);
+		assert!(InventoryItem::standard_grenade().capture_id_label().is_none());
+		assert!(
+			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1))
+				.capture_id_label()
+				.is_none()
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn icon_catalog_keys_stay_out_of_the_skill_map_namespace() -> anyhow::Result<()> {
+		let item = InventoryItem::firearm(FirearmMesh::Bullpup);
+		let key = item.icon_catalog_key().ok_or_else(|| anyhow::anyhow!("firearm key"))?;
+		assert_eq!(key & ITEM_ICON_CATALOG_TAG, ITEM_ICON_CATALOG_TAG);
+		let map = SkillMapSpec::new(SkillMapKind::Fireball, u32::MAX).catalog_key();
+		assert_ne!(key & ITEM_ICON_CATALOG_TAG, map & ITEM_ICON_CATALOG_TAG);
+		assert_eq!(
+			icon_catalog_key_for_label(
+				&item.capture_id_label().ok_or_else(|| anyhow::anyhow!("label"))?
+			),
+			key
+		);
+		Ok(())
 	}
 
 	#[test]

@@ -6103,6 +6103,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "item-icons"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "character-items",
+ "character-persist",
+ "firearms-components",
+ "screen-capture",
+ "tempfile",
+]
+
+[[package]]
 name = "items-playground"
 version = "0.1.3"
 dependencies = [
@@ -6899,6 +6912,7 @@ dependencies = [
  "combat-targeting",
  "damage",
  "evasion-intelligence",
+ "item-icons",
  "lod-avian",
  "maybraid-character-controller",
  "maybraid-input",
@@ -6965,6 +6979,7 @@ dependencies = [
  "ground-avian",
  "hiding-intelligence",
  "intelligence-lod",
+ "item-icons",
  "language-layer-model",
  "layer-stack",
  "lod",
@@ -6993,7 +7008,6 @@ dependencies = [
  "poi-intelligence",
  "richmond",
  "routing-intelligence",
- "screen-capture",
  "serde",
  "serde_json",
  "spotting-intelligence",
@@ -7063,6 +7077,7 @@ dependencies = [
 name = "menu-playground"
 version = "0.1.3"
 dependencies = [
+ "anyhow",
  "bevy",
  "camera-controls",
  "character-creation-menus",
@@ -7078,6 +7093,7 @@ dependencies = [
  "firearms-components",
  "game-commands",
  "grenades",
+ "item-icons",
  "lod",
  "maybraid-character-ui-menu-renderer",
  "maybraid-input",
