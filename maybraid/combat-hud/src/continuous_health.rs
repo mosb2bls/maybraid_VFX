@@ -406,10 +406,6 @@ pub fn update_continuous_health_bar_content(
 		let target_fraction = health.fraction();
 		if (anim_state.target_fraction - target_fraction).abs() > 0.001 {
 			// Health changed - update target
-			info!(
-				"[continuous_health] bar target={:?} layout={:?} HP={:.1}/{:.1} fraction={:.3} -> {:.3}",
-				bar.target, bar.layout, health.current, health.max, anim_state.target_fraction, target_fraction
-			);
 			anim_state.target_fraction = target_fraction;
 		}
 
@@ -477,14 +473,6 @@ pub fn update_continuous_health_bar_content(
 						let fill_percent = anim_state.current_fraction * 100.0;
 						fill_node.width = Val::Percent(fill_percent);
 						fill_color.0 = health_fill_color(&config, anim_state.current_fraction);
-						
-						// Log fill updates for UI child bars (vitals)
-						if bar.layout == HealthBarLayout::UiChild {
-							info!(
-								"[continuous_health] UI fill node width set to {:.1}% for target={:?}",
-								fill_percent, bar.target
-							);
-						}
 						
 						// Add healing pulse effect
 						if is_healing {

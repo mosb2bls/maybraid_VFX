@@ -1,0 +1,52 @@
+# Auto-capture script for Self Lubikan loop screenshots
+# Shot 01: partial charge (40)
+wait 30
+debug peaceful
+debug camera third-person
+wait 10
+debug grant-points 40
+wait 30
+screenshot /workspace/shot-01-charge-40.png
+
+# Shot 02: +5 flyer mid-flight (trigger a charge gain)
+wait 20
+debug grant-points 5
+wait 10
+screenshot /workspace/shot-02-flyer-plus-5.png
+
+# Shot 03: ready (charge at 100)
+wait 20
+debug grant-points 55
+wait 30
+screenshot /workspace/shot-03-ready.png
+
+# Damage to 40 HP, then activate
+wait 10
+debug take-damage 60
+wait 30
+debug activate
+wait 30
+
+# Shot 04: mid-heal (HP about 50)
+wait 30
+screenshot /workspace/shot-04-mid-heal.png
+
+# Take damage during heal to latch the cap
+wait 10
+debug take-damage 5
+wait 30
+
+# Shot 05: HP about 66-70 with cap marker
+wait 30
+screenshot /workspace/shot-05-cap-latched.png
+
+# Shot 06: within 1s of LubikanActivationFinished
+wait 30
+screenshot /workspace/shot-06-finished.png
+
+# Shot 07: paused
+wait 10
+screenshot /workspace/shot-07-paused.png
+
+wait 10
+exit
