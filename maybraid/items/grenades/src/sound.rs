@@ -15,8 +15,8 @@ pub const CHARGE_RUMBLE: &str = "sound-effects/environment/explosions/rumble_001
 /// Foley for the throw windup.
 pub const CHARGE_THROW: &str = "sound-effects/weapons/charges/throw_jingle_001.wav";
 
-pub const IMPACT_VOLUME: f32 = 1.0;
-pub const RUMBLE_VOLUME: f32 = 0.85;
+pub const IMPACT_VOLUME: f32 = 1.2;
+pub const RUMBLE_VOLUME: f32 = 1.0;
 pub const THROW_VOLUME: f32 = 0.7;
 pub const BOUNCE_VOLUME: f32 = 0.7;
 pub const IMPACT_SPATIAL_SCALE: f32 = 0.04;
