@@ -12,6 +12,8 @@ rust-version = { workspace = true }
 [features]
 # Test fixtures for crates that test against the world (e.g. `UnitXTile`).
 test-support = ["lod/test-support"]
+# Debug commands for preview evidence capture (grant-points, take-damage, spawn-npc).
+debug-commands = []
 
 [dependencies]
 layer-stack = { workspace = true }

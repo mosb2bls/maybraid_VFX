@@ -11,11 +11,11 @@
 
 mod camera;
 pub mod commands;
-mod control;
+pub mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
-mod lubikan_activate;
+pub mod lubikan_activate;
 mod map_view;
 mod pitch;
 mod player_lifecycle;
@@ -33,7 +33,7 @@ pub use world_furnished::WorldFurnished;
 
 pub use commands::PLAYGROUND_CLI_NAME;
 pub use commands::PlaygroundCommand;
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 pub use commands::{RequestGrantPoints, RequestSpawnNpc, RequestTakeDamage};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
@@ -303,7 +303,7 @@ impl Plugin for WorldPlugin {
 			);
 		}
 		lubikan_activate::configure(app);
-		#[cfg(debug_assertions)]
+		#[cfg(feature = "debug-commands")]
 		{
 			app.add_systems(
 				Update,
@@ -313,7 +313,7 @@ impl Plugin for WorldPlugin {
 	}
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 fn apply_debug_grant_points(
 	requests: Query<(Entity, &commands::RequestGrantPoints)>,
 	players: Query<Entity, With<player::Player>>,
@@ -334,7 +334,7 @@ fn apply_debug_grant_points(
 	}
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 fn apply_debug_take_damage(
 	requests: Query<(Entity, &commands::RequestTakeDamage)>,
 	players: Query<Entity, With<player::Player>>,
@@ -351,7 +351,7 @@ fn apply_debug_take_damage(
 	}
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 fn apply_debug_spawn_npc(
 	requests: Query<(Entity, &commands::RequestSpawnNpc)>,
 	players: Query<&GlobalTransform, With<player::Player>>,

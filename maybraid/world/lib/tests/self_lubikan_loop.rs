@@ -1,20 +1,28 @@
 //! Validate the complete Self Lubikan loop: points → charge → activation → healing.
 //!
-//! These tests use the real Lubikan plugins (LubikansPlugin, LubikanDamagePlugin) and
-//! verify charge flows through LubikanChargeRequest → LubikanSystems::Award, not direct
-//! ledger writes. The world control systems (owner granting, session sync, activation
-//! request mapping) are tested implicitly through the lubikans plugin tests and the
-//! full world app manual testing.
+//! These tests use the real Lubikan plugins (LubikansPlugin, LubikanDamagePlugin) plus
+//! world-side wiring systems to exercise activation from PowerUseItem intent and points
+//! from DamageApplied hits. Headless-safe systems tested:
+//! - grant_world_player_lubikan_owner
+//! - sync_lubikan_session  
+//! - request_lubikan_activation (PowerUseItem → LubikanActivationRequest)
+//! - sync_lubikan_healing_enabled
+//!
+//! **Not tested headless:** Rendering (VFX, HUD), full WorldPlugin layers (terrain,
+//! vegetation, sky), combat intelligence, weapon systems.
 
 use bevy::prelude::*;
 use bevy::time::{TimeUpdateStrategy, Virtual};
-use damage::{DamageApplied, Health};
+use damage::{Health, Hit};
+use game_commands::command::TextEntryFocus;
 use lubikans::{
-	LubikanActivationFinished, LubikanActivationOutcome, LubikanActivationPhase,
-	LubikanActivationRequest, LubikanChargeReason, LubikanChargeRequest, LubikanLedger,
-	LubikanOwner, LubikanOwnerLifetime, LubikanOwnerLifetimeKind, LubikanSelfHeal, LubikansPlugin,
+	LubikanActivationFinished, LubikanActivationOutcome, LubikanActivationPhase, LubikanLedger,
+	LubikanOwner, LubikanSelfHeal, LubikanSystems, LubikansPlugin,
 };
 use lubikans_damage::LubikanDamagePlugin;
+use maybraid_character_controller::CharacterIntent;
+use maybraid_world::{control, lubikan_activate, WorldGameplayEnabled, WorldPlaySessionEnded};
+use player::Player;
 use std::time::Duration;
 
 const DT: f32 = 0.1;
@@ -24,50 +32,59 @@ fn self_loop_app() -> App {
 	app.add_plugins(MinimalPlugins)
 		.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(DT)))
 		.add_plugins(LubikansPlugin)
-		.add_plugins(LubikanDamagePlugin);
+		.add_plugins(LubikanDamagePlugin)
+		.init_resource::<WorldGameplayEnabled>()
+		.init_resource::<Messages<CharacterIntent>>()
+		.init_resource::<Messages<WorldPlaySessionEnded>>()
+		.init_resource::<Messages<lubikans::LubikanOwnerLifetime>>()
+		.insert_resource(TextEntryFocus(false));
+	
+	// Add world-side wiring systems (headless-safe subset)
+	app.add_systems(
+		PreUpdate,
+		(
+			control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
+			control::sync_lubikan_session.before(LubikanSystems::Owner),
+		),
+	);
+	lubikan_activate::configure(&mut app);
+	
 	app.world_mut()
 		.resource_mut::<Time<Virtual>>()
 		.set_max_delta(Duration::from_secs(10));
 	app
 }
 
-fn spawn_owner(app: &mut App, current_hp: f32, max_hp: f32) -> Entity {
-	let owner = app
+fn spawn_player(app: &mut App, current_hp: f32, max_hp: f32) -> Entity {
+	// Spawn as Player so world systems grant LubikanOwner
+	let player = app
 		.world_mut()
-		.spawn((LubikanOwner, Health { current: current_hp, max: max_hp }, Name::new("Owner")))
+		.spawn((Player, Health { current: current_hp, max: max_hp }, Name::new("Player")))
 		.id();
 	app.update();
-	owner
+	player
 }
 
-fn award_charge_via_request(app: &mut App, owner: Entity, amount: f32) {
-	// Go through LubikanChargeRequest -> Award path, not direct ledger write
-	app.world_mut().write_message(LubikanChargeRequest::equipped(
-		owner,
-		amount,
-		LubikanChargeReason::COMBAT_HIT,
-		Some(Vec3::ZERO),
-	));
+fn spawn_npc(app: &mut App) -> Entity {
+	app.world_mut()
+		.spawn((Health { current: 30.0, max: 30.0 }, GlobalTransform::default(), Name::new("NPC")))
+		.id()
+}
+
+fn hit_npc(app: &mut App, player: Entity, npc: Entity, damage: f32) {
+	// Use Hit message -> DamageApplied -> LubikanChargeRequest flow
+	// DamagePlugin's apply_hits system processes Hit messages and applies health changes
+	app.world_mut().write_message(Hit {
+		target: npc,
+		source: Some(player),
+		amount: damage,
+		point: Vec3::ZERO,
+	});
 	app.update();
 }
 
-fn apply_damage_via_event(app: &mut App, target: Entity, amount: f32) {
-	// Calculate remaining health first
-	let remaining = app
-		.world()
-		.get::<Health>(target)
-		.map(|h| (h.current - amount).max(0.0))
-		.unwrap_or(0.0);
-	
-	// Simulate damage through DamageApplied
-	app.world_mut().write_message(DamageApplied {
-		target,
-		source: None,
-		amount,
-		applied: amount,
-		remaining,
-		point: Vec3::ZERO,
-	});
+fn take_damage(app: &mut App, target: Entity, amount: f32) {
+	// Direct damage for test setup (bypasses Hit flow)
 	if let Some(mut health) = app.world_mut().get_mut::<Health>(target) {
 		health.take_damage(amount);
 	}
@@ -97,9 +114,10 @@ fn health_current(app: &App, player: Entity) -> f32 {
 		.unwrap_or(0.0)
 }
 
-fn activate_self(app: &mut App, owner: Entity) {
+fn activate_self(app: &mut App) {
+	// Use PowerUseItem intent -> request_lubikan_activation -> LubikanActivationRequest
 	app.world_mut()
-		.write_message(LubikanActivationRequest::equipped(owner));
+		.write_message(CharacterIntent::PowerUseItem);
 	app.update();
 }
 
@@ -111,18 +129,18 @@ fn drain_activation_finished(app: &mut App) -> Vec<LubikanActivationFinished> {
 }
 
 #[test]
-fn earn_charge_via_request_activate_heal_finish() -> anyhow::Result<()> {
+fn earn_charge_from_hits_activate_via_intent_heal() -> anyhow::Result<()> {
 	let mut app = self_loop_app();
-	let owner = spawn_owner(&mut app, 40.0, 100.0);
+	let player = spawn_player(&mut app, 40.0, 100.0);
 	
-	// Verify owner has Self ledger
+	// Verify world systems granted LubikanOwner
 	anyhow::ensure!(
-		app.world().get::<LubikanOwner>(owner).is_some(),
-		"should have LubikanOwner"
+		app.world().get::<LubikanOwner>(player).is_some(),
+		"grant_world_player_lubikan_owner should have granted LubikanOwner"
 	);
 	anyhow::ensure!(
-		app.world().get::<LubikanLedger>(owner).is_some(),
-		"should have LubikanLedger"
+		app.world().get::<LubikanLedger>(player).is_some(),
+		"should have LubikanLedger from LubikansPlugin"
 	);
 	
 	// Get activation cost
@@ -132,174 +150,159 @@ fn earn_charge_via_request_activate_heal_finish() -> anyhow::Result<()> {
 		.self_definition()
 		.activation_cost;
 	
-	// Award charge through LubikanChargeRequest (not direct ledger write)
-	award_charge_via_request(&mut app, owner, 30.0);
+	// Earn charge through combat: Hit -> DamageApplied -> award_combat_hits -> LubikanChargeRequest
+	let npc1 = spawn_npc(&mut app);
+	let npc2 = spawn_npc(&mut app);
+	let npc3 = spawn_npc(&mut app);
+	let npc4 = spawn_npc(&mut app);
 	
-	let earned = charge(&app, owner);
+	// Hit NPCs (each hit awards 1 charge, kill awards 6 total with stacking)
+	hit_npc(&mut app, player, npc1, 10.0);
+	hit_npc(&mut app, player, npc1, 30.0); // Kill
+	hit_npc(&mut app, player, npc2, 30.0); // Kill
+	hit_npc(&mut app, player, npc3, 30.0); // Kill
+	hit_npc(&mut app, player, npc4, 30.0); // Kill
+	
+	let earned = charge(&app, player);
 	anyhow::ensure!(
 		earned >= 25.0,
-		"should have 25+ charge via LubikanChargeRequest, got {earned}"
+		"should have 25+ charge from combat hits, got {earned}"
 	);
 	
 	// Take damage to enable 70% healing cap
-	apply_damage_via_event(&mut app, owner, 20.0);
-	
+	take_damage(&mut app, player, 20.0);
 	anyhow::ensure!(
-		health_current(&app, owner) == 20.0,
+		health_current(&app, player) == 20.0,
 		"should be at 20 HP after damage"
 	);
 	
-	// Activate Self
-	activate_self(&mut app, owner);
+	// Activate via PowerUseItem intent (world system maps to LubikanActivationRequest)
+	activate_self(&mut app);
 	
 	// Verify activation was accepted
 	anyhow::ensure!(
-		phase(&app, owner) == LubikanActivationPhase::Active,
-		"activation should be active"
+		phase(&app, player) == LubikanActivationPhase::Active,
+		"request_lubikan_activation should have activated"
 	);
 	
 	// Verify charge was spent
-	let after_activation = charge(&app, owner);
+	let after_activation = charge(&app, player);
 	anyhow::ensure!(
 		after_activation < earned - cost + 1.0,
-		"charge should be spent, earned {earned}, cost {cost}, remaining {after_activation}"
+		"charge should be spent"
 	);
 	
 	// Verify healing channel is active
 	let heal = app.world().resource::<LubikanSelfHeal>();
 	anyhow::ensure!(heal.active, "heal should be active");
-	anyhow::ensure!(heal.owner == Some(owner), "heal owner should match");
+	anyhow::ensure!(heal.owner == Some(player), "heal owner should be player");
 	
-	// Let healing run (5% per second, so 5 HP per second for max 100)
-	// With DT=0.1s per update, healing rate is 0.5 HP per update
-	// From 20 HP to 70 HP = 50 HP = 100 updates minimum
-	let start_hp = health_current(&app, owner);
+	// Let healing run
+	let start_hp = health_current(&app, player);
 	for i in 0..600 {
 		app.update();
-		let current = health_current(&app, owner);
-		// Check if healing finished (stopped at cap or completed)
 		if !app.world().resource::<LubikanSelfHeal>().active {
-			eprintln!("Healing finished after {} updates at {} HP", i + 1, current);
+			eprintln!("Healing finished after {} updates", i + 1);
 			break;
 		}
 	}
 	
-	// Verify healing reached 70% cap or close
-	let healed_hp = health_current(&app, owner);
+	// Verify healing reached 70% cap
+	let healed_hp = health_current(&app, player);
 	anyhow::ensure!(
 		healed_hp >= 65.0,
-		"should heal near 70% cap, got {healed_hp} from {start_hp}"
+		"should heal near 70% cap, got {healed_hp}"
 	);
-	anyhow::ensure!(
-		healed_hp > start_hp,
-		"should have healed from {start_hp} to {healed_hp}"
-	);
+	anyhow::ensure!(healed_hp > start_hp, "should have healed");
 	
-	// Drain any activation finished messages that occurred
+	// Verify completion
 	let finished = drain_activation_finished(&mut app);
-	if finished.is_empty() {
-		eprintln!("No LubikanActivationFinished at {} HP, phase {:?}", 
-			healed_hp, phase(&app, owner));
-	}
 	anyhow::ensure!(!finished.is_empty(), "should emit LubikanActivationFinished");
 	anyhow::ensure!(
 		finished[0].outcome == LubikanActivationOutcome::Completed,
-		"should complete successfully"
-	);
-	
-	// Verify return to Idle
-	anyhow::ensure!(
-		phase(&app, owner) == LubikanActivationPhase::Idle,
-		"should return to Idle after completion"
+		"should complete"
 	);
 	anyhow::ensure!(
-		!app.world().resource::<LubikanSelfHeal>().active,
-		"heal channel should be inactive"
+		phase(&app, player) == LubikanActivationPhase::Idle,
+		"should return to Idle"
 	);
 	
 	Ok(())
 }
 
 #[test]
-fn pause_freezes_heal_not_ledger() -> anyhow::Result<()> {
+fn pause_freezes_heal_via_gameplay_enabled() -> anyhow::Result<()> {
 	let mut app = self_loop_app();
-	let owner = spawn_owner(&mut app, 10.0, 100.0);
+	let player = spawn_player(&mut app, 10.0, 100.0);
 	
-	// Get activation cost and award via request
-	let cost = app
-		.world()
-		.resource::<lubikans::LubikanCatalog>()
-		.self_definition()
-		.activation_cost;
+	// Earn charge and activate
+	let npc = spawn_npc(&mut app);
+	for _ in 0..5 {
+		hit_npc(&mut app, player, npc, 6.0);
+	}
+	activate_self(&mut app);
 	
-	award_charge_via_request(&mut app, owner, cost);
+	let hp_before_pause = health_current(&app, player);
 	
-	// Activate
-	activate_self(&mut app, owner);
+	// Pause via WorldGameplayEnabled (world system syncs to LubikanHealingEnabled)
+	app.world_mut().resource_mut::<WorldGameplayEnabled>().0 = false;
+	app.update(); // sync_lubikan_healing_enabled runs
 	
-	let hp_before_pause = health_current(&app, owner);
-	
-	// Pause healing (LubikanHealingEnabled)
-	app.world_mut()
-		.resource_mut::<lubikans::LubikanHealingEnabled>()
-		.0 = false;
 	for _ in 0..5 {
 		app.update();
 	}
 	
 	// Verify healing is frozen
-	let hp_during_pause = health_current(&app, owner);
+	let hp_during_pause = health_current(&app, player);
 	anyhow::ensure!(
 		(hp_during_pause - hp_before_pause).abs() < 1.0,
-		"health should not change while healing disabled"
+		"sync_lubikan_healing_enabled should freeze healing"
 	);
 	anyhow::ensure!(
-		phase(&app, owner) == LubikanActivationPhase::Active,
-		"activation should remain active during pause"
+		phase(&app, player) == LubikanActivationPhase::Active,
+		"activation should remain active"
 	);
 	
 	// Resume
-	app.world_mut()
-		.resource_mut::<lubikans::LubikanHealingEnabled>()
-		.0 = true;
+	app.world_mut().resource_mut::<WorldGameplayEnabled>().0 = true;
+	app.update();
 	for _ in 0..5 {
 		app.update();
 	}
 	
 	// Verify healing resumed
-	let hp_after_resume = health_current(&app, owner);
+	let hp_after_resume = health_current(&app, player);
 	anyhow::ensure!(
 		hp_after_resume > hp_during_pause,
-		"healing should resume after unpause"
+		"healing should resume"
 	);
 	
 	Ok(())
 }
 
 #[test]
-fn session_restart_resets_charge() -> anyhow::Result<()> {
+fn session_restart_via_world_event_resets_charge() -> anyhow::Result<()> {
 	let mut app = self_loop_app();
-	let owner = spawn_owner(&mut app, 50.0, 100.0);
+	let player = spawn_player(&mut app, 50.0, 100.0);
 	
-	// Award charge via request
-	award_charge_via_request(&mut app, owner, 20.0);
+	// Earn charge from hits
+	let npc = spawn_npc(&mut app);
+	for _ in 0..4 {
+		hit_npc(&mut app, player, npc, 5.0);
+	}
 	
-	let earned = charge(&app, owner);
-	anyhow::ensure!(earned > 0.0, "should have earned charge via request");
+	let earned = charge(&app, player);
+	anyhow::ensure!(earned > 0.0, "should have earned charge from hits");
 	
-	// Send session restart signal
-	app.world_mut().write_message(LubikanOwnerLifetime::new(
-		None,
-		None,
-		LubikanOwnerLifetimeKind::RestartSession,
-	));
-	app.update();
+	// Send session restart (world control system processes this)
+	app.world_mut().write_message(maybraid_world::WorldPlaySessionEnded);
+	app.update(); // sync_lubikan_session runs
 	
 	// Verify charge is reset
-	let after_restart = charge(&app, owner);
+	let after_restart = charge(&app, player);
 	anyhow::ensure!(
 		after_restart == 0.0,
-		"charge should reset to 0 after session restart, got {after_restart}"
+		"sync_lubikan_session should reset charge, got {after_restart}"
 	);
 	
 	Ok(())

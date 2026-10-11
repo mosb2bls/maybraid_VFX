@@ -96,7 +96,7 @@ fn discovery_xz(
 /// attaches the Self ledger in `LubikanSystems::Owner`; do not insert
 /// `LubikanLedger::with_self` here. [#1112](https://github.com/ramate-io/maybraid/issues/1112)
 /// can drop its temporary attach once this grant is on the stack.
-pub(crate) fn grant_world_player_lubikan_owner(
+pub fn grant_world_player_lubikan_owner(
 	mut commands: Commands,
 	players: Query<Entity, (With<Player>, Without<lubikans::LubikanOwner>)>,
 ) {
@@ -105,7 +105,7 @@ pub(crate) fn grant_world_player_lubikan_owner(
 	}
 }
 
-pub(crate) fn sync_lubikan_session(
+pub fn sync_lubikan_session(
 	mut ended: MessageReader<WorldPlaySessionEnded>,
 	mut lives: MessageWriter<lubikans::LubikanOwnerLifetime>,
 ) {

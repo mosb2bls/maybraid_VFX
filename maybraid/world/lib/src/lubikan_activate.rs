@@ -10,7 +10,7 @@ use crate::control::WorldGameplayEnabled;
 use crate::map_view::WorldMapView;
 
 /// Default Self activation binding: pad **X** + fire (`PowerUseItem`).
-pub(crate) fn configure(app: &mut App) {
+pub fn configure(app: &mut App) {
 	app.add_systems(
 		Update,
 		(

@@ -41,7 +41,7 @@ pub enum PlaygroundCommand {
 	#[command(subcommand)]
 	Sky(Sky),
 	/// Debug commands for testing (debug builds only).
-	#[cfg(debug_assertions)]
+	#[cfg(feature = "debug-commands")]
 	#[command(subcommand)]
 	Debug(DebugCommand),
 }
@@ -89,7 +89,7 @@ pub enum Stats {
 	Vsync,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 #[derive(Clone, Subcommand)]
 #[command(rename_all = "kebab-case")]
 pub enum DebugCommand {
@@ -127,7 +127,7 @@ impl PlaygroundCommand {
 			}
 			PlaygroundCommand::Stats(stats) => stats.react(commands, console),
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
-			#[cfg(debug_assertions)]
+			#[cfg(feature = "debug-commands")]
 			PlaygroundCommand::Debug(debug) => debug.react(commands, console),
 		}
 	}
@@ -217,23 +217,23 @@ pub(crate) fn apply_sky_commands(
 	}
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RequestGrantPoints {
 	pub amount: f32,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RequestTakeDamage {
 	pub amount: f32,
 }
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RequestSpawnNpc;
 
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug-commands")]
 impl DebugCommand {
 	fn react(self, commands: &mut Commands, console: &mut String) {
 		match self {
