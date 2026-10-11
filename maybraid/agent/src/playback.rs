@@ -43,9 +43,24 @@ struct Scheduled {
 
 #[derive(Debug, Clone)]
 enum Active {
-	Wait { id: u32, remaining: f32 },
-	Hold { id: u32, remaining: f32, intent: PadIntent },
-	Goto { id: u32, xz: [f32; 2], timeout: f32, radius: f32, sprint: bool, elapsed: f32 },
+	Wait {
+		id: u32,
+		remaining: f32,
+	},
+	Hold {
+		id: u32,
+		remaining: f32,
+		intent: PadIntent,
+	},
+	Goto {
+		id: u32,
+		xz: [f32; 2],
+		timeout: f32,
+		radius: f32,
+		sprint: bool,
+		look: Option<[f32; 2]>,
+		elapsed: f32,
+	},
 }
 
 #[derive(Debug, Clone, Default)]
@@ -161,8 +176,8 @@ fn start_command(
 			effects.push(TickEffect::Finished { id, cmd: label });
 			true
 		}
-		AgentCommand::Goto { xz, timeout, radius, sprint } => {
-			*active = Some(Active::Goto { id, xz, timeout, radius, sprint, elapsed: 0.0 });
+		AgentCommand::Goto { xz, timeout, radius, sprint, look } => {
+			*active = Some(Active::Goto { id, xz, timeout, radius, sprint, look, elapsed: 0.0 });
 			false
 		}
 		command => {
@@ -198,7 +213,7 @@ fn step_active(
 				Step::Continue(Active::Hold { id, remaining: remaining - dt, intent: hold })
 			}
 		}
-		Active::Goto { id, xz, timeout, radius, sprint, elapsed } => {
+		Active::Goto { id, xz, timeout, radius, sprint, look, elapsed } => {
 			let elapsed = elapsed + dt;
 			if let Some(from) = view.player_xz {
 				let remaining = xz_distance(from, xz);
@@ -210,7 +225,7 @@ fn step_active(
 					});
 					return Step::Done { leftover: 0.0 };
 				}
-				*intent = steer_goto(from, xz, view.yaw, sprint);
+				*intent = steer_goto(from, xz, view.yaw, sprint, look);
 			}
 			if elapsed >= timeout {
 				let remaining = view.player_xz.map(|from| xz_distance(from, xz)).unwrap_or(timeout);
@@ -222,14 +237,23 @@ fn step_active(
 				});
 				return Step::Done { leftover: 0.0 };
 			}
-			Step::Continue(Active::Goto { id, xz, timeout, radius, sprint, elapsed })
+			Step::Continue(Active::Goto { id, xz, timeout, radius, sprint, look, elapsed })
 		}
 	}
 }
 
-fn steer_goto(from: [f32; 2], to: [f32; 2], yaw: f32, sprint: bool) -> PadIntent {
-	let mut intent =
-		PadIntent { move_stick: camera_relative_move(from, to, yaw), ..PadIntent::default() };
+fn steer_goto(
+	from: [f32; 2],
+	to: [f32; 2],
+	yaw: f32,
+	sprint: bool,
+	look: Option<[f32; 2]>,
+) -> PadIntent {
+	let mut intent = PadIntent {
+		move_stick: camera_relative_move(from, to, yaw),
+		look_stick: look.map(crate::pad::clamp_stick).unwrap_or([0.0, 0.0]),
+		..PadIntent::default()
+	};
 	if sprint {
 		intent.hold_button(crate::command::AgentButton::Sprint);
 	}
@@ -327,6 +351,7 @@ mod tests {
 			timeout: 5.0,
 			radius: 3.0,
 			sprint: false,
+			look: None,
 		}]);
 		let near = reached.tick(0.1, &TickView { player_xz: Some([8.0, 0.0]), yaw: 0.0 });
 		assert!(near
@@ -340,10 +365,12 @@ mod tests {
 			timeout: 0.2,
 			radius: 3.0,
 			sprint: true,
+			look: Some([0.4, 0.0]),
 		}]);
 		let first = timed.tick(0.1, &TickView { player_xz: Some([0.0, 0.0]), yaw: 0.0 });
 		assert!(first.intent.buttons.contains(&AgentButton::Sprint));
 		assert!(first.intent.move_stick[0] > 0.5);
+		assert!((first.intent.look_stick[0] - 0.4).abs() < 1e-5);
 		let second = timed.tick(0.2, &TickView { player_xz: Some([1.0, 0.0]), yaw: 0.0 });
 		assert!(second.effects.iter().any(|effect| matches!(
 			effect,

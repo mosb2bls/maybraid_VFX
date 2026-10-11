@@ -121,6 +121,9 @@ pub enum AgentCommand {
 		radius: f32,
 		#[serde(default)]
 		sprint: bool,
+		/// Optional look-stick while steering (same gamepad −1..1 as `hold`).
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		look: Option<[f32; 2]>,
 	},
 	/// Utility: snap the player to XZ (Y from terrain when omitted).
 	Teleport {
@@ -210,6 +213,26 @@ mod tests {
 				timeout: DEFAULT_GOTO_TIMEOUT,
 				radius: DEFAULT_GOTO_RADIUS,
 				sprint: false,
+				look: None,
+			}
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn parse_goto_look() -> anyhow::Result<()> {
+		let cmd = AgentCommand::parse_line(
+			r#"{"cmd":"goto","xz":[40,10],"sprint":true,"look":[0.25,0]}"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(
+			cmd,
+			AgentCommand::Goto {
+				xz: [40.0, 10.0],
+				timeout: DEFAULT_GOTO_TIMEOUT,
+				radius: DEFAULT_GOTO_RADIUS,
+				sprint: true,
+				look: Some([0.25, 0.0]),
 			}
 		);
 		Ok(())

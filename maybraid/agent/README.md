@@ -33,7 +33,7 @@ with `"cmd"`.
 | `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
 | `press` | `button` | one frame |
 | `wait` | `secs` | idle |
-| `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint` | steer until reached |
+| `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
