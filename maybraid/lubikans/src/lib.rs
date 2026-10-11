@@ -29,7 +29,7 @@ pub use activation::{
 pub use catalog::{
 	LubikanCatalog, LubikanSelfConfig, DEFAULT_SELF_ACTIVATION_COST, DEFAULT_SELF_CAPACITY,
 };
-pub use change::{LubikanChargeChanged, LubikanChargeReason};
+pub use change::{LubikanChargeChanged, LubikanChargeReason, LubikanChargeRequest};
 pub use charge::{LubikanCharge, LubikanChargeMutation};
 pub use identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
 pub use ledger::{LubikanAccount, LubikanAccountBinding, LubikanLedger, LubikanOwner};
@@ -47,7 +47,7 @@ pub enum LubikanSystems {
 	/// Sole owner of [`LubikanActivationRequest`]s: spend once and emit a
 	/// [`LubikanActivationSession`], or emit [`LubikanActivationRefused`].
 	Activate,
-	/// Apply charge rules and emit [`LubikanChargeChanged`].
+	/// Apply [`LubikanChargeRequest`]s and emit [`LubikanChargeChanged`].
 	Award,
 }
 
@@ -58,6 +58,7 @@ pub struct LubikanInterfacePlugin;
 impl Plugin for LubikanInterfacePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_message::<LubikanChargeChanged>()
+			.add_message::<LubikanChargeRequest>()
 			.add_message::<LubikanActivationRequest>()
 			.add_message::<LubikanActivationSession>()
 			.add_message::<LubikanActivationRefused>()
@@ -75,6 +76,7 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(LubikanInterfacePlugin);
 		assert!(app.world().get_resource::<Messages<LubikanChargeChanged>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanChargeRequest>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRequest>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationSession>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRefused>>().is_some());
