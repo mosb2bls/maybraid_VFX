@@ -18,11 +18,21 @@ nix develop --command bash -lc '
 '
 ```
 
-CSV summaries land in [`captures/`](captures/). `*.tracy` files are gitignored
-(often tens of MB); keep them next to the CSVs locally when size allows.
-Do **not** write `tracy-csvexport -u` unwrap CSVs — they are hundreds of MB
-to multi-GB. Zone means come from the aggregate export.
+## Capture output stays out of git
+
+`tracy-flight.sh` writes under `profiling/captures/` by default
+(override with `MAYBRAID_TRACY_CAPTURES`). That directory, `*.tracy`,
+unwrap/zone/message CSVs, event JSONL, and capture/game logs are
+`.gitignore`d. Do not commit them.
+
+Do **not** write `tracy-csvexport -u` unwrap CSVs — they are hundreds of
+MB to multi-GB. Zone means come from the aggregate export.
+
+Publish tables and per-scenario summaries as a **secret GitHub Gist**
+(`gh gist create`, default secret — not `--public`) and link the Gist
+from the PR. Do not upload `.tracy` files unless one is specifically
+worth sharing; mention it instead of attaching a large binary.
 
 `tracy-flight.sh` starts `tracy-capture` first, then the game with
-`MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone / message
-CSVs plus a top-zone summary.
+`MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone /
+message CSVs plus a top-zone summary.

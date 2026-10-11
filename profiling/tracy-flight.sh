@@ -42,7 +42,9 @@ if pgrep -x maybraid >/dev/null; then
 fi
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-out_dir="$root/profiling/captures/${phase}/${scenario}/r${repeat}"
+# Default is gitignored. Override with MAYBRAID_TRACY_CAPTURES if needed.
+captures_root="${MAYBRAID_TRACY_CAPTURES:-$root/profiling/captures}"
+out_dir="${captures_root}/${phase}/${scenario}/r${repeat}"
 mkdir -p "$out_dir"
 base="${out_dir}/${scenario}-${phase}-r${repeat}-${stamp}"
 
