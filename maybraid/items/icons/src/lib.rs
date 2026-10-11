@@ -1,6 +1,7 @@
 //! First-encounter item icons. Discovery stays in the host, capture in `screen-capture`.
 
 mod host;
+mod prune;
 
 use bevy::prelude::*;
 use character_items::{icon_catalog_key_for_label, Inventory, InventoryItem};
@@ -17,6 +18,10 @@ use screen_capture::{
 };
 
 pub use host::ItemCaptureSubjects;
+pub use prune::{
+	kept_icon_file_names, prune_icon_cache, prune_icon_cache_to_saved_inventories,
+	RequestPruneItemIconCache,
+};
 pub use screen_capture::{CaptureClient, CaptureId, CaptureMode};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -126,6 +131,7 @@ impl Plugin for ItemIconPlugin {
 			.init_resource::<ItemCaptureSubjects>()
 			.configure_sets(Update, ItemIconSystems::Store.after(ItemIconSystems::Discover))
 			.add_systems(Update, realize_capture_hosts)
+			.add_systems(Update, prune::prune_icon_cache_on_request)
 			.add_systems(
 				Update,
 				(store_completed_icons, store_failed_icons)

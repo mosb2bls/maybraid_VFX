@@ -13,6 +13,9 @@ Inventory catalogs look up **shaded** handles by
 up **silhouette** handles from [`ItemIconCache`]. Pending and failed captures
 leave those lookups empty so callers can keep a placeholder.
 
+Home-menu load spawns [`RequestPruneItemIconCache`], which deletes PNG files
+whose names are not in any saved character inventory.
+
 ```rust
 use item_icons::{request_inventory_icons, ItemIconPlugin};
 

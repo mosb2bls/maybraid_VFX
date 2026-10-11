@@ -12,6 +12,7 @@ rust-version = { workspace = true }
 [dependencies]
 bevy = { workspace = true }
 character-items = { workspace = true }
+character-inventory-user = { workspace = true }
 character-persist = { workspace = true }
 character-shaders = { workspace = true }
 characters = { workspace = true }
