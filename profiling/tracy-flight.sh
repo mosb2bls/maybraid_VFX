@@ -143,6 +143,14 @@ python3 "$root/profiling/summarize-zones.py" \
 	--scenario "$scenario" \
 	--out "$summary_txt"
 
+# Measure-window stats. The unwrap export is streamed, never written.
+tracy-csvexport -u "$tracy_file" | python3 "$root/profiling/window-zones.py" \
+	--messages "$messages_csv" \
+	--scenario "$scenario" \
+	--json "${base}-window.json" \
+	--out "${base}-window.txt" >/dev/null || echo "window stats failed" >&2
+
 echo "wrote $zones_csv"
 echo "wrote $summary_txt"
+echo "wrote ${base}-window.txt"
 ls -lh "$tracy_file" "$zones_csv" "$events_jsonl"
