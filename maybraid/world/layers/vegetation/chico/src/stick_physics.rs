@@ -33,11 +33,17 @@ pub const MIN_STICK_COLLIDER_LENGTH_M: f32 = 0.1;
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StickPhysicsBudget {
 	pub hosts_per_frame: u32,
+	/// Unattached producers probed for a playable band when the queue needs work.
+	///
+	/// The drain only builds [`Self::hosts_per_frame`] compounds; a full producer
+	/// walk every Update is wasted while thousands of Low / UltraLow plants wait.
+	/// `u32::MAX` restores the old walk.
+	pub inspect_per_frame: u32,
 }
 
 impl Default for StickPhysicsBudget {
 	fn default() -> Self {
-		Self { hosts_per_frame: 8 }
+		Self { hosts_per_frame: 8, inspect_per_frame: 256 }
 	}
 }
 
@@ -60,6 +66,7 @@ pub(crate) struct StickPhysicsAttached;
 struct StickPhysicsQueue {
 	pending: VecDeque<Entity>,
 	pending_entities: HashSet<Entity>,
+	inspect_cursor: u32,
 }
 
 impl StickPhysicsQueue {
@@ -138,26 +145,47 @@ fn playable_level_for(world: &World, entity: Entity) -> Option<LodSceneLevel> {
 	None
 }
 
+fn refill_pending_producers(world: &mut World, inspect_limit: u32) {
+	if inspect_limit == 0 {
+		return;
+	}
+	let start = world.resource::<StickPhysicsQueue>().inspect_cursor;
+	let entities: Vec<Entity> = {
+		let mut sources = world
+			.query_filtered::<Entity, (With<StickPhysicsProducer>, Without<StickPhysicsAttached>)>(
+			);
+		sources.iter(world).collect()
+	};
+	let len = entities.len() as u32;
+	if len == 0 {
+		world.resource_mut::<StickPhysicsQueue>().inspect_cursor = 0;
+		return;
+	}
+	let start = start % len;
+	let take = inspect_limit.min(len);
+	let mut found = Vec::new();
+	for offset in 0..take {
+		let entity = entities[((start + offset) % len) as usize];
+		if playable_level_for(world, entity).is_some() {
+			found.push(entity);
+		}
+	}
+	let mut queue = world.resource_mut::<StickPhysicsQueue>();
+	queue.inspect_cursor = if take < len { (start + take) % len } else { 0 };
+	for entity in found {
+		queue.enqueue(entity);
+	}
+}
+
 fn sync_stick_colliders(world: &mut World) {
-	let limit = world.resource::<StickPhysicsBudget>().hosts_per_frame;
+	let budget = *world.resource::<StickPhysicsBudget>();
 	// Skip the producer walk while the drain already has a full frame of work.
 	// Discovery resumes as soon as the queue drops below the budget; compounds
 	// and attach stamps stay the same, only later hosts wait a few extra frames.
-	if (world.resource::<StickPhysicsQueue>().pending.len() as u32) < limit {
-		let pending: Vec<_> = {
-			let mut sources = world
-				.query_filtered::<Entity, (With<StickPhysicsProducer>, Without<StickPhysicsAttached>)>(
-				);
-			sources
-				.iter(world)
-				.filter(|entity| playable_level_for(world, *entity).is_some())
-				.collect()
-		};
-		for entity in pending {
-			world.resource_mut::<StickPhysicsQueue>().enqueue(entity);
-		}
+	if (world.resource::<StickPhysicsQueue>().pending.len() as u32) < budget.hosts_per_frame {
+		refill_pending_producers(world, budget.inspect_per_frame);
 	}
-	for _ in 0..limit {
+	for _ in 0..budget.hosts_per_frame {
 		let Some(entity) = world.resource_mut::<StickPhysicsQueue>().pop_front() else {
 			break;
 		};
@@ -449,7 +477,7 @@ mod tests {
 	fn empty_hosts_do_not_starve_later_playable_hosts() {
 		let mut app = App::new();
 		app.add_plugins(StickPhysicsPlugin);
-		app.insert_resource(StickPhysicsBudget { hosts_per_frame: 1 });
+		app.insert_resource(StickPhysicsBudget { hosts_per_frame: 1, ..Default::default() });
 		for _ in 0..3 {
 			app.world_mut().spawn((empty_sticks(), LodSceneHost, LodSceneLevel::High));
 		}
@@ -470,7 +498,7 @@ mod tests {
 	fn backlog_skips_rescan_until_queue_drops_below_budget() {
 		let mut app = App::new();
 		app.add_plugins(StickPhysicsPlugin);
-		app.insert_resource(StickPhysicsBudget { hosts_per_frame: 1 });
+		app.insert_resource(StickPhysicsBudget { hosts_per_frame: 1, ..Default::default() });
 		let first: Vec<_> = (0..3)
 			.map(|_| {
 				app.world_mut()
@@ -497,5 +525,31 @@ mod tests {
 		// Queue is empty; the next scan discovers the late host.
 		app.update();
 		assert!(has_compound(app.world(), late));
+	}
+
+	#[test]
+	fn inspect_budget_still_attaches_every_playable_host() {
+		let mut app = App::new();
+		app.add_plugins(StickPhysicsPlugin);
+		app.insert_resource(StickPhysicsBudget { hosts_per_frame: 8, inspect_per_frame: 2 });
+		let hosts: Vec<_> = (0..5)
+			.map(|_| {
+				app.world_mut()
+					.spawn((playable_trunk(), LodSceneHost, LodSceneLevel::High))
+					.id()
+			})
+			.collect();
+		app.update();
+		let attached = hosts
+			.iter()
+			.filter(|entity| app.world().get::<StickPhysicsAttached>(**entity).is_some())
+			.count();
+		assert_eq!(attached, 2);
+
+		app.update();
+		app.update();
+		for host in hosts {
+			assert!(has_compound(app.world(), host));
+		}
 	}
 }
