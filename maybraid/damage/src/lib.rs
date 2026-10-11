@@ -17,7 +17,10 @@ pub use history::{
 	maintain_damage_history, ClearDamageHistory, DamageHistory, DamageHistoryPolicy, DamageRecord,
 	TimeInterval,
 };
-pub use lifecycle::{mark_downed, tick_queued_despawns, DespawnAfter, Downed};
+pub use lifecycle::{
+	down_zero_health, ensure_downed_have_despawn, mark_downed, tick_queued_despawns, DespawnAfter,
+	Downed, DEFAULT_CORPSE_SECS,
+};
 
 /// Default DPC used when a bolt is spawned without catalog stats.
 pub const DEFAULT_HIT: f32 = 25.0;
@@ -161,6 +164,8 @@ pub struct Hit {
 	pub source: Option<Entity>,
 	pub amount: f32,
 	pub point: Vec3,
+	/// Own-weapon volumes stay ignored. Blast / other authored self-hits set this.
+	pub allow_self: bool,
 }
 
 /// One accepted apply. [`Self::amount`] is the requested/scaled injury;
@@ -226,7 +231,12 @@ impl Plugin for DamagePlugin {
 					maintain_damage_history.in_set(DamageSystems::History),
 				),
 			)
-			.add_systems(PostUpdate, mark_downed.in_set(DamageSystems::Down))
+			.add_systems(
+				PostUpdate,
+				(mark_downed, down_zero_health, ensure_downed_have_despawn)
+					.chain()
+					.in_set(DamageSystems::Down),
+			)
 			.add_systems(Last, tick_queued_despawns);
 	}
 }

@@ -8,7 +8,7 @@
 //! Neck knobs follow [`crate::rigs::quadruped::apply::apply_neck_axes`]:
 //! **flex** is neck tilt, **twist** is neck nod, and **swing** is neck turn.
 
-use crate::animations::smoothstep;
+use crate::animations::{burst_envelope, smoothstep, DEFAULT_BURST_EDGE};
 
 const DEFAULT_GRAZE_NECK: f32 = 0.68;
 const DEFAULT_GRAZE_PITCH: f32 = 0.45;
@@ -115,18 +115,10 @@ impl QuadrupedIdle {
 		if t < Self::LOOK_END || t >= Self::SHAKE_END {
 			return 0.0;
 		}
-		burst_envelope((t - Self::LOOK_END) / (Self::SHAKE_END - Self::LOOK_END))
-	}
-}
-
-fn burst_envelope(u: f32) -> f32 {
-	let edge = 0.22;
-	if u < edge {
-		smoothstep(u / edge)
-	} else if u > 1.0 - edge {
-		smoothstep((1.0 - u) / edge)
-	} else {
-		1.0
+		burst_envelope(
+			(t - Self::LOOK_END) / (Self::SHAKE_END - Self::LOOK_END),
+			DEFAULT_BURST_EDGE,
+		)
 	}
 }
 

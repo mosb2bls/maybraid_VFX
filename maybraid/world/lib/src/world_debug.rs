@@ -81,6 +81,7 @@ fn apply_debug_take_damage(
 				source: None,
 				amount: request.amount,
 				point: Vec3::ZERO,
+				allow_self: false,
 			});
 		}
 		commands.entity(entity).despawn();

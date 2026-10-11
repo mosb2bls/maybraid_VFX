@@ -79,6 +79,7 @@ fn hit_npc(app: &mut App, player: Entity, npc: Entity, damage: f32) {
 		source: Some(player),
 		amount: damage,
 		point: Vec3::ZERO,
+		allow_self: false,
 	});
 	app.update();
 }

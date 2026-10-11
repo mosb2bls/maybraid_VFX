@@ -464,7 +464,9 @@ mod tests {
 		persist_changed_player_inventory, read_player_loadout, route_home_choice,
 		sync_world_loadout_from_editor, sync_world_shadows, GameFlow, PlaySession,
 	};
-	use maybraid_world::{ShadowQuality, WorldPlayerLoadout, WorldSurfaceReady};
+	use maybraid_world::{
+		ShadowQuality, WorldPlaySessionEnded, WorldPlayerLoadout, WorldSurfaceReady,
+	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
 	};
@@ -520,6 +522,7 @@ mod tests {
 	#[test]
 	fn leave_drops_the_session() -> anyhow::Result<()> {
 		let mut world = World::new();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
 		world.insert_resource(PlaySession::Discovery);
 		world.insert_resource(GameMode::new("Elsewhere"));
 		world.insert_resource(WorldSurfaceReady(true));
@@ -529,6 +532,8 @@ mod tests {
 		assert_eq!(*world.resource::<PlaySession>(), PlaySession::None);
 		assert_eq!(world.resource::<GameMode>().label, "Discovery");
 		assert!(!world.resource::<WorldSurfaceReady>().0);
+		let ended = world.resource_mut::<Messages<WorldPlaySessionEnded>>().drain().count();
+		assert_eq!(ended, 1, "leave should emit WorldPlaySessionEnded for Lubikan teardown");
 		Ok(())
 	}
 

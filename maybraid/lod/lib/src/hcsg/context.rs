@@ -62,12 +62,6 @@ impl<'a> GenerationContext<'a> {
 		}
 	}
 
-	/// Crate-only escape hatch. Schemes must read through `get` / `entry` so
-	/// reach is recorded.
-	pub(crate) fn storage(&self) -> &HcsgStorage {
-		self.storage
-	}
-
 	pub fn is_stale(&self) -> bool {
 		(self.stale)()
 	}
@@ -133,12 +127,38 @@ impl<'a> GenerationContext<'a> {
 		Some(value)
 	}
 
+	/// The stored value for `id` and its published bounds after generate.
+	pub fn get_or_generate_stored<T: GenerationScheme>(
+		&mut self,
+		id: Id,
+	) -> Option<(Arc<T>, Aabb3d)> {
+		let value = self.get_or_generate::<T>(id)?;
+		let bounds = self.stored_bounds::<T>(id)?;
+		Some((value, bounds))
+	}
+
 	/// Every `T` originating in `region` that exists, in id order.
 	pub fn get_or_generate_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<Arc<T>> {
 		self.sorted_ids_for::<T>(region)
 			.into_iter()
 			.filter_map(|id| self.get_or_generate::<T>(id))
 			.collect()
+	}
+
+	/// Like [`get_or_generate_in`], but sorted narrowest `footprint` first.
+	///
+	/// Overlapping cells at different resolutions sample correctly when the
+	/// finest cell covering a point should win.
+	pub fn get_or_generate_in_finest_first<T: GenerationScheme>(
+		&mut self,
+		region: Aabb3d,
+		footprint: impl Fn(&T) -> Aabb3d,
+	) -> Vec<Arc<T>> {
+		let mut cells = self.get_or_generate_in::<T>(region);
+		cells.sort_by(|a, b| {
+			aabb3_span_x(footprint(a)).total_cmp(&aabb3_span_x(footprint(b)))
+		});
+		cells
 	}
 
 	/// Every `T` originating in `region`, in id order; `None` if one of them
@@ -163,4 +183,8 @@ impl<'a> GenerationContext<'a> {
 		ids.dedup();
 		ids
 	}
+}
+
+fn aabb3_span_x(bounds: Aabb3d) -> f32 {
+	bounds.max.x - bounds.min.x
 }
