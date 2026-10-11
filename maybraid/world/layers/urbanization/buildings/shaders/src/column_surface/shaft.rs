@@ -1,9 +1,8 @@
 //! Placeholder Doric shaft meshes that satisfy the column POM UV contract.
 //!
 //! Fluting is POM, not silhouette. Caps are omitted so capital / pedestal stay
-//! real kit parts. Authored **D = 1** (lower diameter), neck **0.8**, shaft
-//! **5.5** tall; runtime applies a single uniform scale `s = D`. See
-//! [#1144](https://github.com/ramate-io/maybraid/pull/1144) `AUTHORING.md`.
+//! real kit parts. Authored **D = 1**; shaft height and neck follow [#1144](https://github.com/ramate-io/maybraid/pull/1144)
+//! `DoricColumnRatios` / `AUTHORING.md`. Runtime applies a single uniform scale `s = D`.
 
 use std::f32::consts::{PI, TAU};
 
@@ -15,8 +14,8 @@ use bevy::{
 pub const PLACEHOLDER_AUTHORED_D: f32 = 1.0;
 /// Top diameter / D. Classical Doric necking (0.8).
 pub const PLACEHOLDER_SHAFT_TAPER: f32 = 0.8;
-/// Authored shaft height in D (kit shaft ≈ 5.5; column 6–7 including plinth + abacus).
-pub const PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D: f32 = 5.5;
+/// Authored shaft height in D — `#1144` `DoricColumnRatios::shaft_height_d()` default (6.5 − 0.4 − 0.5).
+pub const PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D: f32 = 5.6;
 
 /// Compact **cylinder** preview at authored D = 1 (radius 0.5).
 pub const PLACEHOLDER_SHAFT_RADIUS_M: f32 = PLACEHOLDER_AUTHORED_D * 0.5;
@@ -35,7 +34,7 @@ pub fn placeholder_shaft_mesh() -> Mesh {
 	PlaceholderShaft::default().build()
 }
 
-/// Open **tapered** shaft at authored D = 1: neck 0.8, height 5.5.
+/// Open **tapered** shaft at authored D = 1 using `#1144` `DoricColumnRatios`.
 pub fn placeholder_tapered_shaft_mesh() -> Mesh {
 	PlaceholderShaft::tapered_from_lower_diameter(PLACEHOLDER_AUTHORED_D).build()
 }
@@ -387,8 +386,8 @@ mod tests {
 		let taper = PlaceholderShaft::tapered_from_lower_diameter(PLACEHOLDER_AUTHORED_D);
 		assert_eq!(taper.recommended_height_map_width(20), 1920);
 		assert!((PlaceholderShaft::texels_per_authored_d_v() - 384.0).abs() < 1e-4);
-		assert_eq!(taper.recommended_height_map_height(), 2112);
-		assert_eq!(PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D, 5.5);
+		assert_eq!(taper.recommended_height_map_height(), 2150);
+		assert_eq!(PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D, 5.6);
 		assert_eq!(PLACEHOLDER_AUTHORED_D, 1.0);
 		Ok(())
 	}

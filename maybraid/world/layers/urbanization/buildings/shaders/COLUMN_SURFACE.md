@@ -8,11 +8,11 @@ POM owns **surface relief only**. Shaft outline, capital, pedestal, and cover co
 
 ## Authored unit and runtime scale
 
-Convention shared with [#1144](https://github.com/ramate-io/maybraid/pull/1144):
+Convention shared with [#1144](https://github.com/ramate-io/maybraid/pull/1144) [`AUTHORING.md`](../../../mobs/architectural/doric-column/AUTHORING.md) / `DoricColumnRatios`:
 
 - **Authored D = 1.** Every part is modeled with **lower shaft diameter = 1**. Proportions are real D-relative numbers in that unit mesh.
-- **Shaft** ≈ **5.5** tall, neck ≈ **0.8** (top diameter). U still wraps once while circumference shrinks up V.
-- Full column ≈ **6–7** (square plinth + shaft + square abacus). Plinth and abacus are real geometry, not this material.
+- **Shaft height and neck** are [`DoricColumnRatios::shaft_height_d`](https://github.com/ramate-io/maybraid/pull/1144) / `shaft_upper_diameter_d` — do not keep a second copy here. U still wraps once while circumference shrinks up V.
+- Full column, square plinth, and square abacus are also those ratios. Plinth and abacus are real geometry, not this material.
 - **Pivot:** bottom-center on the shaft axis, **+Y up**, mesh `Y ∈ [0, H]`.
 - **Runtime:** one **uniform scale `s = D`**, where D is the gameplay lower-shaft diameter in metres. Do not split XZ-diameter vs Y-height — that shears U vs V and the flute Jacobian.
 
@@ -64,12 +64,12 @@ POM itself marches in screen-space UV Jacobian (same solver family as clothing /
 
 Bake on the **D = 1** mesh. `s = D` does not change the authored map; world texel density falls as D grows. Do not rebake per encounter scale.
 
-| Axis | Target per authored D | Kit shaft (H = 5.5) |
-|------|------------------------|---------------------|
-| **U** | **64–128 texels per flute** | 96 texels/flute × 20 → **1920** px wide. Angular; bake against the **base** circumference `π` so the 0.8 neck is slightly denser. |
-| **V** | **256–512 texels per authored D** of shaft height | 384 texels/D × 5.5 → **2112** px tall. Compact cylinder preview (H = 2.52) → **968** px. |
+| Axis | Target per authored D | Worked example |
+|------|------------------------|----------------|
+| **U** | **64–128 texels per flute** | 96 texels/flute × 20 → **1920** px wide. Angular; bake against the **base** circumference `π` so the neck is slightly denser. |
+| **V** | **256–512 texels per authored D** of shaft height | 384 texels/D × [`shaft_height_d()`](https://github.com/ramate-io/maybraid/pull/1144) (5.6 in #1144 `DoricColumnRatios` defaults) → **≈ 2150** px tall. Compact cylinder preview (H = 2.52) → **968** px. |
 
-`texels_per_authored_d_v() = 384`. Map height = that × authored H (H is already in D).
+`texels_per_authored_d_v() = 384`. Map height = that × authored H, and authored H is `#1144`'s `shaft_height_d()`.
 
 Non-uniform scale that stretches U vs V will shear flutes; don’t.
 
@@ -93,7 +93,7 @@ Far / tiny-footprint / grazing fragments drop to a cheap cavity tint. The march 
 
 **Depth default.** 5.5 cm still read as a softly banded cylinder under a raking key: the A/B against flat was real, but a reviewer could not count 20 carved channels. **0.11 D** (9 cm-equivalent at D = 0.84 m) is the kit default. Because it is D-relative, a uniformly scaled encounter shaft keeps the same cut in shaft-diameters.
 
-Playground evidence (`MAYBRAID_CAPTURE_DIR`) hides the command drawer, uses a **low raking key**, and writes `rake-grazing-pom-on` / `off` (scalar 8), `rake-silhouette-cavities`, and `rake-taper-*` (0.8 neck, 5.5 tall).
+Playground evidence (`MAYBRAID_CAPTURE_DIR`) hides the command drawer, uses a **low raking key**, and writes `rake-grazing-pom-on` / `off` (scalar 8), `rake-silhouette-cavities`, and `rake-taper-*` (kit `DoricColumnRatios` taper).
 
 ## Recipe
 
@@ -106,5 +106,5 @@ Alias `doric` is accepted. Preview:
 ```text
 cargo run -p world-materials-playground -- show doric_column
 # then /mesh cylinder    (compact unit-D cylinder)
-# or   /mesh taper       (authored D = 1, 0.8 neck, 5.5 tall)
+# or   /mesh taper       (authored D = 1, #1144 DoricColumnRatios)
 ```

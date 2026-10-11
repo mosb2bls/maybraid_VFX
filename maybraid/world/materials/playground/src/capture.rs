@@ -52,7 +52,7 @@ pub struct CaptureShot {
 }
 
 /// Shaft sits on the preview root (y = 1): compact cylinder mid ≈ 2.26,
-/// tapered 5.5 D mid ≈ 3.75.
+/// tapered `#1144` shaft (`shaft_height_d` = 5.6) mid ≈ 3.8.
 pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
 	CaptureShot {
 		name: "rake-grazing-pom-on",
@@ -81,7 +81,7 @@ pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
 	CaptureShot {
 		name: "rake-taper-pom-on",
 		camera: Vec3::new(2.15, 3.90, 2.25),
-		look_at: Vec3::new(0.0, 3.75, 0.0),
+		look_at: Vec3::new(0.0, 3.80, 0.0),
 		light: CaptureLight::Rake,
 		look: CaptureLook::Pom,
 		shape: PreviewShape::Taper,
@@ -89,7 +89,7 @@ pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
 	CaptureShot {
 		name: "rake-taper-silhouette",
 		camera: Vec3::new(4.20, 4.10, 5.40),
-		look_at: Vec3::new(0.0, 3.75, 0.0),
+		look_at: Vec3::new(0.0, 3.80, 0.0),
 		light: CaptureLight::Rake,
 		look: CaptureLook::Pom,
 		shape: PreviewShape::Taper,
