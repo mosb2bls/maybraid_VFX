@@ -201,7 +201,8 @@ fn apply_preview(
 			};
 			let delta = target - ledger.equipped().charge().current();
 			ledger.apply_to_equipped(delta);
-			ledger.reset_activation();
+			let account = ledger.equipped().id();
+			ledger.reset_activation(account);
 			if phase == 2 {
 				ledger.try_activate(&catalog, None).ok();
 			}
@@ -219,7 +220,8 @@ fn apply_preview(
 	if let Ok(mut ledger) = ledgers.get_mut(owner.0) {
 		let current = ledger.equipped().charge().current();
 		ledger.apply_to_equipped(step.charge - current);
-		ledger.reset_activation();
+		let account = ledger.equipped().id();
+		ledger.reset_activation(account);
 		match step.activation {
 			LubikanActivationPhase::Idle => {}
 			LubikanActivationPhase::Active => {
@@ -227,7 +229,7 @@ fn apply_preview(
 			}
 			LubikanActivationPhase::Completed => {
 				ledger.try_activate(&catalog, None).ok();
-				ledger.complete_activation();
+				ledger.complete_activation(ledger.equipped().id());
 			}
 		}
 		let account = ledgers
