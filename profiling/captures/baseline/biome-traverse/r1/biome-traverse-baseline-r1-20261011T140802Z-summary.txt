@@ -1,0 +1,60 @@
+aggregate recurring zones (biome-traverse-baseline-r1-20261011T140802Z-zones.csv)
+zone                                                                           n   mean_ms    max_ms
+----------------------------------------------------------------------------------------------------
+update                                                                      1513    18.208  1033.646
+sub app{name=RenderExtractApp}                                              1513     7.236  1025.009
+schedule{name=Update}                                                       1513     5.193    86.396
+schedule{name=FixedPostUpdate}                                              1717     2.850    15.243
+system{name="bevy_render::renderer::render_system"}                         1513     1.955    11.014
+system{name="terrain_chunk_ref::fulfill_terrain_chunk_refs<render_ite...    1513     1.944     2.087
+schedule{name=PostUpdate}                                                   1513     1.641    15.716
+schedule{name=PhysicsSchedule}                                              1717     0.742    11.530
+system{name="bevy_render::batching::gpu_preprocessing::write_binned_i...    1513     0.691     6.615
+schedule{name=ExtractSchedule}                                              1513     0.623     5.764
+schedule{name=PreUpdate}                                                    1513     0.337     3.548
+system{name="lod::scene::refresh::cull_regions::cache::fill_lod_cull_...    1513     0.312     3.682
+system{name="scene_ref::fulfill::fulfill_multi_scene_merge_roots"}          1513     0.267    19.818
+system{name="lod::scene::refresh::sync::chunk::begin::begin_chunk_lod...    1513     0.201    64.704
+system{name="durham::terrain::collider::queue_terrain_trimesh_collide...    1513     0.179     3.914
+system{name="bevy_camera::visibility::check_visibility_cpu_culling"}        1513     0.162     1.060
+system{name="bevy_render::render_resource::sparse_buffer_vec::update_...    1513     0.154     2.542
+system{name="bevy_pbr::render::mesh::extract_meshes_for_gpu_building"}      1513     0.117     0.705
+system{name="lod::scene::refresh::levels::produce::fill_lod_produce_c...    1513     0.116     3.993
+system{name="chico::stick_physics::sync_stick_colliders"}                   1513     0.114     2.163
+system{name="lod_gimme::host::reindex_moved_hosts"}                         1513     0.102     0.361
+system{name="lod::scene::refresh::sync::chunk::drain::drain_chunk_lod...    1513     0.093     2.174
+system{name="bevy_camera::visibility::visibility_propagate_system"}         1513     0.089     0.403
+par_for_each{query="(bevy_ecs::entity::Entity, &bevy_camera::visibili...   20606     0.006     0.107
+system{name="render_item::mesh::handle::enqueue_mesh_fulfillment<rend...    1513     0.084    10.586
+
+unwrapped (biome-traverse-baseline-r1-20261011T140802Z-unwrap.csv)
+window t=[19.285114, None] s
+zone                                                                           n   mean_ms    max_ms
+----------------------------------------------------------------------------------------------------
+update                                                                       456    18.927  1033.646
+sub app{name=RenderExtractApp}                                               456     8.799  1025.009
+schedule{name=Update}                                                        456     4.139    10.512
+schedule{name=FixedPostUpdate}                                               502     3.285    14.288
+system{name="bevy_render::renderer::render_system"}                          458     2.074    11.014
+system{name="terrain_chunk_ref::fulfill_terrain_chunk_refs<render_ite...     456     2.005     2.017
+schedule{name=PostUpdate}                                                    456     1.597     3.146
+schedule{name=PhysicsSchedule}                                               502     0.790     2.229
+system{name="bevy_render::batching::gpu_preprocessing::write_binned_i...     457     0.796     6.615
+schedule{name=ExtractSchedule}                                               457     0.583     1.253
+schedule{name=PreUpdate}                                                     456     0.329     0.877
+system{name="bevy_camera::visibility::check_visibility_cpu_culling"}         912     0.159     0.249
+system{name="lod::scene::refresh::cull_regions::cache::fill_lod_cull_...     456     0.307     1.429
+system{name="lod::scene::refresh::levels::produce::fill_lod_produce_c...     456     0.142     3.993
+system{name="lod_gimme::host::reindex_moved_hosts"}                          456     0.117     0.273
+system{name="bevy_pbr::render::mesh::extract_meshes_for_gpu_building"}       457     0.116     0.262
+system{name="bevy_camera::visibility::visibility_propagate_system"}          456     0.091     0.144
+par_for_each{query="(bevy_ecs::entity::Entity, &bevy_camera::visibili...    6398     0.006     0.081
+system{name="avian3d::collision::narrow_phase::update_narrow_phase<av...     502     0.081     0.150
+system{name="bevy_render::extract_plugin::apply_extract_commands"}           457     0.079     0.147
+system{name="avian3d::dynamics::solver::solver_body::plugin::update_s...    3012     0.011     0.803
+system{name="bevy_render::batching::gpu_preprocessing::write_binned_i...     458     0.075     0.423
+system{name="bevy_pbr::prepass::update_mesh_previous_global_transforms"}     456     0.073     0.635
+system{name="lod::scene::refresh::sync::chunk::begin::begin_chunk_lod...     912     0.034     2.805
+system{name="bevy_camera::visibility::update_skinned_mesh_bounds"}           912     0.029     0.068
+
+events measure=biome-traverse window=(19.285114, None)

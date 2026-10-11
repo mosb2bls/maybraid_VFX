@@ -1,0 +1,30 @@
+aggregate recurring zones (origin-idle-after-r1-20261011T141940Z-zones.csv)
+zone                                                                           n   mean_ms    max_ms
+----------------------------------------------------------------------------------------------------
+update                                                                      2805    17.107   132.912
+sub app{name=RenderExtractApp}                                              2805     7.264   101.358
+schedule{name=Update}                                                       2805     4.549    94.202
+schedule{name=FixedPostUpdate}                                              3082     2.642    15.540
+system{name="bevy_render::renderer::render_system"}                         2805     2.074     6.667
+system{name="terrain_chunk_ref::fulfill_terrain_chunk_refs<render_ite...    2805     1.969     2.102
+schedule{name=PostUpdate}                                                   2805     1.521    16.835
+system{name="bevy_render::batching::gpu_preprocessing::write_binned_i...    2805     0.758     3.865
+schedule{name=PhysicsSchedule}                                              3082     0.584    12.487
+schedule{name=ExtractSchedule}                                              2805     0.607     5.848
+schedule{name=PreUpdate}                                                    2805     0.345     3.646
+system{name="lod::scene::refresh::cull_regions::cache::fill_lod_cull_...    2805     0.301     3.246
+system{name="bevy_render::render_resource::sparse_buffer_vec::update_...    2805     0.251     1.179
+system{name="bevy_camera::visibility::check_visibility_cpu_culling"}        2805     0.161     2.784
+system{name="scene_ref::fulfill::fulfill_multi_scene_merge_roots"}          2805     0.153    15.173
+system{name="lod::scene::refresh::sync::chunk::begin::begin_chunk_lod...    2805     0.116    79.875
+system{name="bevy_pbr::render::mesh::extract_meshes_for_gpu_building"}      2805     0.112     0.481
+system{name="lod::scene::refresh::levels::produce::fill_lod_produce_c...    2805     0.110     1.291
+system{name="lod_gimme::host::reindex_moved_hosts"}                         2805     0.093     0.485
+system{name="durham::terrain::collider::queue_terrain_trimesh_collide...    2805     0.090     2.453
+system{name="bevy_camera::visibility::visibility_propagate_system"}         2805     0.088     0.230
+par_for_each{query="(bevy_ecs::entity::Entity, &bevy_camera::visibili...   36517     0.006     0.141
+system{name="bevy_render::extract_plugin::apply_extract_commands"}          2805     0.083     0.289
+system{name="chico::stick_physics::sync_stick_colliders"}                   2805     0.074     2.082
+system{name="bevy_pbr::prepass::update_mesh_previous_global_transforms"}    2805     0.071     0.247
+
+events measure=origin-idle window=(23.159113, 48.158127)
