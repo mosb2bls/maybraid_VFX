@@ -56,6 +56,65 @@ fn perf_eviction_sweep_large_store() {
 	);
 }
 
+/// Eviction only on a full store (refill removed ids each round). Matches the
+/// worker sweep hot path more closely than rebuilding the store every round.
+#[test]
+#[ignore]
+fn perf_eviction_sweep_evict_only() {
+	const ENTRIES: usize = 20_000;
+	const ROUNDS: usize = 100;
+	let keep = vec![span(64.0 * 800.0, 64.0 * 32.0)];
+	let mut store = fill_store(ENTRIES);
+
+	let started = Instant::now();
+	for round in 0..ROUNDS {
+		let removed = store.evict_outside(&keep, round as u64 + 1);
+		assert!(removed.len() > ENTRIES * 9 / 10);
+		for id in removed {
+			let bounds = id.origin_cell_bounds().unwrap_or(cell(0.0));
+			store.put(
+				id,
+				StoredEntry { value: 0, bounds, version: Version(1) },
+				round as u64 + 2,
+			);
+		}
+	}
+	let elapsed = started.elapsed();
+	eprintln!(
+		"perf_eviction_sweep_evict_only: {} rounds × {} entries → {:?} ({:.2?} per evict+refill)",
+		ROUNDS,
+		ENTRIES,
+		elapsed,
+		elapsed / ROUNDS as u32
+	);
+}
+
+/// Measures [`NodeStore::evict_outside`] alone on a dense store with a small
+/// retention window (typical worker sweep after a camera move).
+#[test]
+#[ignore]
+fn perf_eviction_sweep_evict_alone() {
+	const ENTRIES: usize = 20_000;
+	const ROUNDS: usize = 200;
+	let keep = vec![span(64.0 * 800.0, 64.0 * 32.0)];
+
+	let mut evict_total = std::time::Duration::ZERO;
+	for round in 0..ROUNDS {
+		let mut store = fill_store(ENTRIES);
+		let started = Instant::now();
+		let removed = store.evict_outside(&keep, round as u64 + 1);
+		evict_total += started.elapsed();
+		assert!(removed.len() > ENTRIES * 9 / 10);
+	}
+	eprintln!(
+		"perf_eviction_sweep_evict_alone: {} rounds × {} entries → {:?} ({:.2?} per evict)",
+		ROUNDS,
+		ENTRIES,
+		evict_total,
+		evict_total / ROUNDS as u32
+	);
+}
+
 /// Spatial overlapping queries over a dense store (generation discovery helpers).
 #[test]
 #[ignore]
