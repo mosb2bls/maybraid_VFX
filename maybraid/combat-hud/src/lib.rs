@@ -17,7 +17,10 @@ use continuous_health::{
 use damage::{DamageApplied, Downed, HeadshotBand, Health};
 use lubikans::LubikanSystems;
 use player::{Npc, Player};
-use lubikan_charge::{spawn_lubikan_charge, sync_lubikan_charge};
+use lubikan_charge::{
+	ingest_lubikan_activation_finished_pulse, spawn_lubikan_charge, sync_lubikan_charge,
+	LubikanActivationFinishedHudPulse,
+};
 use lubikan_points::{ingest_lubikan_point_flyers, update_lubikan_point_flyers};
 use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
@@ -93,7 +96,11 @@ impl Plugin for CombatHudPlugin {
 		}
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
-			.init_resource::<CombatHudInventoryCycleCategory>()
+			.init_resource::<CombatHudInventoryCycleCategory>();
+		if self.lubikan_charge {
+			app.init_resource::<LubikanActivationFinishedHudPulse>();
+		}
+		app
 			.configure_sets(
 				PostUpdate,
 				CombatHudSystems::Health
@@ -128,6 +135,7 @@ impl Plugin for CombatHudPlugin {
 				PostUpdate,
 				(
 					sync_player_vitals,
+					ingest_lubikan_activation_finished_pulse,
 					sync_lubikan_charge,
 					ingest_lubikan_point_flyers,
 					update_lubikan_point_flyers,
@@ -138,7 +146,11 @@ impl Plugin for CombatHudPlugin {
 		} else if self.player_vitals && self.lubikan_charge {
 			app.add_systems(
 				PostUpdate,
-				(sync_player_vitals, sync_lubikan_charge)
+				(
+					sync_player_vitals,
+					ingest_lubikan_activation_finished_pulse,
+					sync_lubikan_charge,
+				)
 					.chain()
 					.in_set(CombatHudSystems::Health),
 			);
@@ -147,12 +159,22 @@ impl Plugin for CombatHudPlugin {
 		} else if self.lubikan_charge && self.lubikan_point_feedback {
 			app.add_systems(
 				PostUpdate,
-				(sync_lubikan_charge, ingest_lubikan_point_flyers, update_lubikan_point_flyers)
+				(
+					ingest_lubikan_activation_finished_pulse,
+					sync_lubikan_charge,
+					ingest_lubikan_point_flyers,
+					update_lubikan_point_flyers,
+				)
 					.chain()
 					.in_set(CombatHudSystems::Health),
 			);
 		} else if self.lubikan_charge {
-			app.add_systems(PostUpdate, sync_lubikan_charge.in_set(CombatHudSystems::Health));
+			app.add_systems(
+				PostUpdate,
+				(ingest_lubikan_activation_finished_pulse, sync_lubikan_charge)
+					.chain()
+					.in_set(CombatHudSystems::Health),
+			);
 		} else if self.lubikan_point_feedback {
 			app.add_systems(
 				PostUpdate,

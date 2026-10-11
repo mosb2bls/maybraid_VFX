@@ -2,8 +2,9 @@
 
 use bevy::prelude::*;
 use lubikans::{
-	LubikanAccountId, LubikanActivation, LubikanActivationPhase, LubikanCatalog, LubikanCharge,
-	LubikanLedger, LubikanOwner, LubikanReadiness, LubikanSelfHeal, LubikanSelfHealChannel,
+	LubikanAccountId, LubikanActivation, LubikanActivationFinished, LubikanActivationOutcome,
+	LubikanActivationPhase, LubikanCatalog, LubikanCharge, LubikanLedger, LubikanOwner,
+	LubikanReadiness, LubikanSelfHeal, LubikanSelfHealChannel,
 };
 use menu_components::{
 	spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW,
@@ -30,6 +31,63 @@ const BAR_LOW: Color = Color::srgb(0.86, 0.28, 0.22);
 const BAR_MID: Color = Color::srgb(0.95, 0.72, 0.22);
 const BAR_FULL: Color = TEXT_YELLOW;
 const MUTED: Color = Color::srgb(0.72, 0.74, 0.78);
+const ACTIVATION_FINISHED_PULSE_SECS: f32 = 1.25;
+
+/// Brief status from [`LubikanActivationFinished`] (read-only; not ledger phase).
+#[derive(Resource, Default)]
+pub(crate) struct LubikanActivationFinishedHudPulse {
+	until: f32,
+	outcome: Option<LubikanActivationOutcome>,
+}
+
+impl LubikanActivationFinishedHudPulse {
+	pub(crate) fn record(&mut self, at: f32, outcome: LubikanActivationOutcome) {
+		self.until = at + ACTIVATION_FINISHED_PULSE_SECS;
+		self.outcome = Some(outcome);
+	}
+
+	pub(crate) fn clear(&mut self) {
+		self.until = 0.0;
+		self.outcome = None;
+	}
+
+	pub(crate) fn active_label(&self, now: f32) -> Option<&'static str> {
+		if now >= self.until {
+			return None;
+		}
+		match self.outcome {
+			Some(LubikanActivationOutcome::Completed) => Some("completed"),
+			Some(LubikanActivationOutcome::Cancelled) => Some("cancelled"),
+			None => None,
+		}
+	}
+}
+
+#[allow(clippy::type_complexity)]
+pub(crate) fn ingest_lubikan_activation_finished_pulse(
+	time: Res<Time>,
+	hud: Res<CombatHudVisible>,
+	players: Query<(Entity, &LubikanLedger), (With<Player>, With<LubikanOwner>)>,
+	mut finished: MessageReader<LubikanActivationFinished>,
+	mut pulse: ResMut<LubikanActivationFinishedHudPulse>,
+) {
+	if !hud.0 {
+		finished.clear();
+		pulse.clear();
+		return;
+	}
+	let Some((owner, ledger)) = players.iter().next() else {
+		finished.clear();
+		return;
+	};
+	let equipped = ledger.equipped().id();
+	let now = time.elapsed_secs();
+	for event in finished.read() {
+		if event.owner == owner && event.account == equipped {
+			pulse.record(now, event.outcome);
+		}
+	}
+}
 
 #[derive(Component)]
 pub(crate) struct LubikanChargeRoot;
@@ -167,7 +225,6 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 		});
 }
 
-#[allow(clippy::type_complexity)]
 /// Read-only Self heal presentation from [`LubikanSelfHeal`] / [`LubikanSelfHealChannel`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct LubikanHudSelfHeal {
@@ -188,12 +245,14 @@ pub(crate) fn self_heal_for_owner(
 		.map(|heal| LubikanHudSelfHeal { remaining: heal.remaining, rate: heal.rate })
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn sync_lubikan_charge(
+	time: Res<Time>,
 	hud: Res<CombatHudVisible>,
 	catalog: Option<Res<LubikanCatalog>>,
 	category: Option<Res<CombatHudInventoryCycleCategory>>,
 	self_heal: Option<Res<LubikanSelfHeal>>,
+	pulse: Option<Res<LubikanActivationFinishedHudPulse>>,
 	players: Query<(Entity, &LubikanLedger), (With<Player>, With<LubikanOwner>)>,
 	heal_channels: Query<&LubikanSelfHealChannel>,
 	mut widgets: ParamSet<(
@@ -227,8 +286,9 @@ pub(crate) fn sync_lubikan_charge(
 		self_heal.as_deref(),
 		heal_channels.get(owner).ok(),
 	);
+	let finished = pulse.as_deref().and_then(|pulse| pulse.active_label(time.elapsed_secs()));
 	let headline = charge_title(&row);
-	let status = charge_status(&row, heal);
+	let status = charge_status(&row, heal, finished);
 	let fraction = row.charge.fraction();
 	let fill_color = charge_bar_color(&row);
 	let ready = row.readiness.can_activate;
@@ -267,7 +327,14 @@ pub(crate) fn charge_title(row: &LubikanHudRow) -> String {
 	format!("{name}  {current}/{capacity}")
 }
 
-pub(crate) fn charge_status(row: &LubikanHudRow, heal: Option<LubikanHudSelfHeal>) -> String {
+pub(crate) fn charge_status(
+	row: &LubikanHudRow,
+	heal: Option<LubikanHudSelfHeal>,
+	finished: Option<&str>,
+) -> String {
+	if let Some(label) = finished {
+		return label.to_string();
+	}
 	if let Some(heal) = heal.filter(|heal| row.account.is_self() && heal.remaining > 0.0) {
 		if heal.rate > 0.0 {
 			return format!(
@@ -283,10 +350,17 @@ pub(crate) fn charge_status(row: &LubikanHudRow, heal: Option<LubikanHudSelfHeal
 			String::from("Activating")
 		}
 		LubikanActivationPhase::Active => String::from("Active"),
-		LubikanActivationPhase::Completed => String::from("Completing"),
-		LubikanActivationPhase::Idle if row.charge.current() <= 0.0 => String::from("Empty"),
-		LubikanActivationPhase::Idle if row.readiness.can_activate => String::from("Ready"),
-		LubikanActivationPhase::Idle => {
+		LubikanActivationPhase::Completed | LubikanActivationPhase::Idle
+			if row.charge.current() <= 0.0 =>
+		{
+			String::from("Empty")
+		}
+		LubikanActivationPhase::Completed | LubikanActivationPhase::Idle
+			if row.readiness.can_activate =>
+		{
+			String::from("Ready")
+		}
+		LubikanActivationPhase::Completed | LubikanActivationPhase::Idle => {
 			let need = (row.readiness.activation_cost - row.charge.current()).max(0.0);
 			format!("Need {:.0} more", need.ceil())
 		}
@@ -337,14 +411,15 @@ mod tests {
 			readiness: LubikanReadiness::from_charge(LubikanAccountId::SELF, LubikanCharge::new(30.0, 100.0), 25.0, false),
 			activation: LubikanActivation::idle(LubikanAccountId::SELF),
 		};
-		assert_eq!(charge_status(&ready, None), "Ready");
+		assert_eq!(charge_status(&ready, None, None), "Ready");
 		let healing = LubikanHudSelfHeal { remaining: 55.0, rate: 5.0 };
-		assert_eq!(charge_status(&ready, Some(healing)), "Healing 55 (5/s)");
+		assert_eq!(charge_status(&ready, Some(healing), None), "Healing 55 (5/s)");
+		assert_eq!(charge_status(&ready, Some(healing), Some("completed")), "completed");
 		let empty = LubikanHudRow {
 			charge: LubikanCharge::new(0.0, 100.0),
 			..ready
 		};
-		assert_eq!(charge_status(&empty, None), "Empty");
+		assert_eq!(charge_status(&empty, None, None), "Empty");
 	}
 
 	#[test]
