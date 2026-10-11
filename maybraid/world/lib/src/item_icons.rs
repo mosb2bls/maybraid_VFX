@@ -1,13 +1,15 @@
 //! World first-encounter: request icons when [`WorldPlayerLoadout`] changes.
 
 use bevy::prelude::*;
-use item_icons::{CaptureClient, ItemIconDiscovery, ItemIconSystems, request_inventory_icons};
+use item_icons::{
+	request_inventory_icons, CaptureClient, ItemCaptureSubjects, ItemIconDiscovery, ItemIconSystems,
+};
 
 use crate::weapon::WorldPlayerLoadout;
 
 pub use item_icons::{
-	ITEM_ICON_RESOLUTION, InventoryItemSubject, ItemIconCache,
-	ItemIconPlugin as ItemIconsCorePlugin, discover_icon_cache_dir, item_icon_requests,
+	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
+	ItemIconPlugin as ItemIconsCorePlugin, ITEM_ICON_RESOLUTION,
 };
 
 /// World wrapper: core icon plugin plus loadout discovery.
@@ -25,6 +27,7 @@ impl Plugin for ItemIconPlugin {
 fn discover_loadout_items(
 	loadout: Option<Res<WorldPlayerLoadout>>,
 	mut discovery: ResMut<ItemIconDiscovery>,
+	mut subjects: ResMut<ItemCaptureSubjects>,
 	mut client: CaptureClient,
 ) {
 	let Some(loadout) = loadout else {
@@ -33,5 +36,5 @@ fn discover_loadout_items(
 	if !loadout.is_changed() && discovery.requested_len() > 0 {
 		return;
 	}
-	request_inventory_icons(&loadout.inventory, &mut discovery, &mut client);
+	request_inventory_icons(&loadout.inventory, &mut discovery, &mut subjects, &mut client);
 }

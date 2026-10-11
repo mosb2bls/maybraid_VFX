@@ -6110,7 +6110,12 @@ dependencies = [
  "bevy",
  "character-items",
  "character-persist",
+ "character-shaders",
+ "characters",
+ "firearm-user",
  "firearms-components",
+ "lod",
+ "material-ref",
  "screen-capture",
  "tempfile",
 ]

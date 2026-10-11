@@ -102,16 +102,9 @@ impl<T> NodeStore<T> {
 					ids
 				} else {
 					let mut ids = ids;
-					ids.extend(
-						self.unindexed
-							.iter()
-							.copied()
-							.filter(|id| {
-								self.entries
-									.get(id)
-									.is_some_and(|entry| entry.bounds.intersects(&region))
-							}),
-					);
+					ids.extend(self.unindexed.iter().copied().filter(|id| {
+						self.entries.get(id).is_some_and(|entry| entry.bounds.intersects(&region))
+					}));
 					ids.sort();
 					ids
 				}
@@ -123,9 +116,7 @@ impl<T> NodeStore<T> {
 					.copied()
 					.filter(|id| *id != Id::Universal)
 					.filter(|id| {
-						self.entries
-							.get(id)
-							.is_some_and(|entry| entry.bounds.intersects(&region))
+						self.entries.get(id).is_some_and(|entry| entry.bounds.intersects(&region))
 					})
 					.collect::<Vec<_>>();
 				ids.sort();

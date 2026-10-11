@@ -1,14 +1,22 @@
 //! First-encounter item icons. Discovery stays in the host, capture in `screen-capture`.
 
+mod host;
+
 use bevy::prelude::*;
-use character_items::{Inventory, InventoryItem, icon_catalog_key_for_label};
+use character_items::{icon_catalog_key_for_label, Inventory, InventoryItem};
 use character_persist::SaveRoot;
 use firearms_components::firearm_preview_camera;
+use host::{
+	install_capture_hosts, mark_capture_hosts_ready, realize_capture_hosts, remember_item,
+	strip_silhouette_shader_materials, HOST_CLOTHING, HOST_FIREARM,
+};
 use screen_capture::{
 	CaptureCompleted, CaptureFailed, CaptureLighting, CaptureRequest, CaptureResolution,
 	CaptureRevision, CaptureScene, CaptureSubject, CaptureView, ScreenCapturePlugin,
+	ScreenCaptureSystems,
 };
 
+pub use host::ItemCaptureSubjects;
 pub use screen_capture::{CaptureClient, CaptureId, CaptureMode};
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -110,14 +118,25 @@ impl Plugin for ItemIconPlugin {
 		if !app.is_plugin_added::<ScreenCapturePlugin>() {
 			app.add_plugins(ScreenCapturePlugin::new(discover_icon_cache_dir()));
 		}
+		if app.get_sub_app(bevy::render::RenderApp).is_some() {
+			install_capture_hosts(app);
+		}
 		app.init_resource::<ItemIconCache>()
 			.init_resource::<ItemIconDiscovery>()
+			.init_resource::<ItemCaptureSubjects>()
 			.configure_sets(Update, ItemIconSystems::Store.after(ItemIconSystems::Discover))
+			.add_systems(Update, realize_capture_hosts)
 			.add_systems(
 				Update,
 				(store_completed_icons, store_failed_icons)
 					.chain()
 					.in_set(ItemIconSystems::Store),
+			)
+			.add_systems(
+				PostUpdate,
+				(strip_silhouette_shader_materials, mark_capture_hosts_ready)
+					.chain()
+					.before(ScreenCaptureSystems::Advance),
 			);
 	}
 }
@@ -143,17 +162,17 @@ impl InventoryItemSubject {
 	pub fn from_item(item: &InventoryItem) -> Option<Self> {
 		let id = CaptureId::new(item.capture_id_label()?);
 		match item {
-			InventoryItem::Firearm { spec, .. } => {
+			InventoryItem::Firearm { .. } => {
 				let (eye, look_at) = firearm_preview_camera(CaptureView::DEFAULT_FOV);
 				Some(Self {
-					id,
-					scene: CaptureScene::scene_ref(spec.kit.body.path()),
+					id: id.clone(),
+					scene: CaptureScene::host(HOST_FIREARM, id.as_str()),
 					view: CaptureView::look_at(eye, look_at).perspective(CaptureView::DEFAULT_FOV),
 				})
 			}
-			InventoryItem::Clothing { mesh, .. } => Some(Self {
-				id,
-				scene: CaptureScene::scene_ref(mesh.path()),
+			InventoryItem::Clothing { .. } => Some(Self {
+				id: id.clone(),
+				scene: CaptureScene::host(HOST_CLOTHING, id.as_str()),
 				view: CaptureView::look_at(CLOTHING_EYE, CLOTHING_LOOK)
 					.perspective(CaptureView::DEFAULT_FOV),
 			}),
@@ -196,6 +215,7 @@ pub fn item_icon_requests(
 pub fn request_inventory_icons(
 	inventory: &Inventory,
 	discovery: &mut ItemIconDiscovery,
+	subjects: &mut ItemCaptureSubjects,
 	client: &mut CaptureClient,
 ) {
 	let revision = CaptureRevision::CURRENT;
@@ -204,7 +224,7 @@ pub fn request_inventory_icons(
 		discovery.revision = revision;
 	}
 	for request in
-		pending_inventory_icons(inventory, discovery, CaptureLighting::studio(), revision)
+		pending_inventory_icons(inventory, discovery, subjects, CaptureLighting::studio(), revision)
 	{
 		client.request(request);
 	}
@@ -213,6 +233,7 @@ pub fn request_inventory_icons(
 pub fn pending_inventory_icons(
 	inventory: &Inventory,
 	discovery: &mut ItemIconDiscovery,
+	subjects: &mut ItemCaptureSubjects,
 	lighting: CaptureLighting,
 	revision: CaptureRevision,
 ) -> Vec<CaptureRequest> {
@@ -224,6 +245,7 @@ pub fn pending_inventory_icons(
 		if !discovery.requested.insert(subject.capture_id()) {
 			continue;
 		}
+		remember_item(subjects, item);
 		out.extend(item_icon_requests(item, lighting, revision));
 	}
 	out
@@ -317,21 +339,53 @@ mod tests {
 			InventoryItem::firearm(FirearmMesh::Bullpup),
 		]);
 		let mut discovery = ItemIconDiscovery::default();
+		let mut subjects = ItemCaptureSubjects::default();
 		let first = pending_inventory_icons(
 			&inventory,
 			&mut discovery,
+			&mut subjects,
 			CaptureLighting::studio(),
 			CaptureRevision::CURRENT,
 		);
 		let second = pending_inventory_icons(
 			&inventory,
 			&mut discovery,
+			&mut subjects,
 			CaptureLighting::studio(),
 			CaptureRevision::CURRENT,
 		);
 		assert_eq!(first.len(), 2);
 		assert!(second.is_empty());
 		assert_eq!(discovery.requested_len(), 1);
+		assert!(subjects.get(&first[0].id).is_some());
+		Ok(())
+	}
+
+	#[test]
+	fn firearm_subject_is_a_generated_kit_host() -> anyhow::Result<()> {
+		let item = InventoryItem::firearm(FirearmMesh::Silopup);
+		let subject =
+			InventoryItemSubject::from_item(&item).ok_or_else(|| anyhow::anyhow!("subject"))?;
+		assert!(matches!(
+			subject.capture_scene(),
+			CaptureScene::Host { kind, .. } if kind == HOST_FIREARM
+		));
+		Ok(())
+	}
+
+	#[test]
+	fn clothing_subject_is_a_preview_host() -> anyhow::Result<()> {
+		let item = InventoryItem::clothing(
+			ClothingMesh::Pants,
+			ClothingMaterial::Cloth,
+			ItemColor::Natural,
+		);
+		let subject =
+			InventoryItemSubject::from_item(&item).ok_or_else(|| anyhow::anyhow!("subject"))?;
+		assert!(matches!(
+			subject.capture_scene(),
+			CaptureScene::Host { kind, .. } if kind == HOST_CLOTHING
+		));
 		Ok(())
 	}
 

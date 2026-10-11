@@ -651,7 +651,11 @@ impl ItemRng {
 		let den = u64::from(denominator);
 		let base = (product / den) as usize;
 		let rem = (product % den) as u32;
-		if rem > 0 && self.in_range(0, denominator - 1) < rem { base + 1 } else { base }
+		if rem > 0 && self.in_range(0, denominator - 1) < rem {
+			base + 1
+		} else {
+			base
+		}
 	}
 
 	/// `count` distinct indices in `0..len`, in shuffled order.
@@ -780,11 +784,9 @@ mod tests {
 		meshes.sort_by_key(|mesh| mesh.label());
 		meshes.dedup();
 		assert_eq!(meshes.len(), STARTER_CLOTHING_COUNT);
-		assert!(
-			items
-				.iter()
-				.all(|item| item.clothing_stats().is_some_and(|stats| stats.weight > 0))
-		);
+		assert!(items
+			.iter()
+			.all(|item| item.clothing_stats().is_some_and(|stats| stats.weight > 0)));
 		assert_eq!(items[0].mesh().map(ClothingMesh::kind), Some(ClothingKind::Lower));
 		assert_eq!(items[1].mesh().map(ClothingMesh::kind), Some(ClothingKind::Upper));
 		assert!(ClothingKind::STARTER_LOWERS.contains(&items[0].mesh().unwrap()));
@@ -1177,11 +1179,9 @@ mod tests {
 			painted.capture_id_label().ok_or_else(|| anyhow::anyhow!("painted"))?
 		);
 		assert!(InventoryItem::standard_grenade().capture_id_label().is_none());
-		assert!(
-			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1))
-				.capture_id_label()
-				.is_none()
-		);
+		assert!(InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1))
+			.capture_id_label()
+			.is_none());
 		Ok(())
 	}
 

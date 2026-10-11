@@ -19,10 +19,14 @@ pub trait CaptureSubject: Send + Sync + Clone + 'static {
 ///
 /// Prefer [`CaptureScene::SceneRef`] when the subject is a single GLB. Mesh
 /// primitives exist for tests and headless demos that should not load assets.
+/// [`CaptureScene::Host`] is an empty isolated root; the application realizes
+/// the posed subject and stamps [`crate::CaptureHostReady`] when meshes and
+/// materials are in place.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CaptureScene {
 	SceneRef(SceneRef),
 	Mesh(CaptureMesh),
+	Host { kind: String, fragment: String },
 }
 
 /// Procedural mesh used when a GLB is not required.
@@ -46,10 +50,15 @@ impl CaptureScene {
 		Self::Mesh(CaptureMesh { kind: CaptureMeshKind::Cuboid, color })
 	}
 
+	pub fn host(kind: impl Into<String>, fragment: impl Into<String>) -> Self {
+		Self::Host { kind: kind.into(), fragment: fragment.into() }
+	}
+
 	pub fn cache_fragment(&self) -> String {
 		match self {
 			Self::SceneRef(scene) => format!("ref:{}", scene.labeled_path()),
 			Self::Mesh(mesh) => mesh.cache_fragment(),
+			Self::Host { kind, fragment } => format!("host:{kind}:{fragment}"),
 		}
 	}
 }
@@ -143,6 +152,13 @@ mod tests {
 			scene.capture_id().as_str(),
 			"items/guns/concepts/bullpup_full_concept.glb#Scene0"
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn host_cache_fragment_names_the_application_kind() -> anyhow::Result<()> {
+		let scene = CaptureScene::host("generated-firearm", "firearm:body=silopup");
+		assert_eq!(scene.cache_fragment(), "host:generated-firearm:firearm:body=silopup");
 		Ok(())
 	}
 }

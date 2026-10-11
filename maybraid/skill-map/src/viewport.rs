@@ -9,16 +9,16 @@ use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventoryItem};
 use item_icons::ItemIconCache;
 use menu_components::{
-	HUD_TEXT_CARD_FACE_PX, HudFonts, PANEL_BLOCK_FONT_SIZE, TEXT_YELLOW, spawn_hud_text_card,
-	spawn_hud_text_card_label,
+	spawn_hud_text_card, spawn_hud_text_card_label, HudFonts, HUD_TEXT_CARD_FACE_PX,
+	PANEL_BLOCK_FONT_SIZE, TEXT_YELLOW,
 };
 
-use crate::SkillMapEnabled;
 use crate::cursor::SkillMapCursor;
-use crate::map::{AuthoredMap, SkillMapId, authored_map_from_spec, render_layer};
+use crate::map::{authored_map_from_spec, render_layer, AuthoredMap, SkillMapId};
 use crate::tile_material::SkillMapTileAssets;
 use crate::tiles::spawn_map_tiles;
 use crate::user::{SkillMapEquip, SkillMapHeld, SkillMapMember, SkillMapSession, SkillMapUser};
+use crate::SkillMapEnabled;
 
 pub(crate) const VIEWPORT_PX: f32 = 228.0;
 /// `WindowSize` area is viewport pixels times this. 1.0 showed almost the whole 256 map.
@@ -855,9 +855,7 @@ mod tests {
 		};
 		assert!((grenade_charge(&ready).unwrap() - 1.0).abs() < 1e-4);
 		assert!((grenade_charge(&half).unwrap() - 0.5).abs() < 1e-4);
-		assert!(
-			grenade_charge(&InventoryItem::firearm(character_items::FirearmMesh::Bullpup))
-				.is_none()
-		);
+		assert!(grenade_charge(&InventoryItem::firearm(character_items::FirearmMesh::Bullpup))
+			.is_none());
 	}
 }

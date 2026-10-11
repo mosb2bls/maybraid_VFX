@@ -27,10 +27,10 @@ pub use id::CaptureId;
 pub use key::CaptureCacheKey;
 pub use lighting::{CaptureDirectionalLight, CaptureLighting, CaptureLightingPreset};
 pub use mode::CaptureMode;
-pub use plugin::{CaptureCacheRoot, CaptureClient, ScreenCapturePlugin};
+pub use plugin::{CaptureCacheRoot, CaptureClient, ScreenCapturePlugin, ScreenCaptureSystems};
 pub use queue::CaptureTicket;
 pub use request::{CaptureRequest, CaptureResolution, CaptureRevision};
-pub use session::CAPTURE_RENDER_LAYER;
+pub use session::{CaptureHostReady, CaptureHostRoot, CaptureSilhouetteRoot, CAPTURE_RENDER_LAYER};
 pub use subject::{CaptureMesh, CaptureMeshKind, CaptureScene, CaptureSubject, MeshCaptureSubject};
 pub use view::{CaptureProjection, CaptureView};
 
@@ -100,7 +100,7 @@ mod tests {
 			CaptureMode::Silhouette,
 			CaptureResolution::ICON,
 			CaptureLighting::studio(),
-			CaptureRevision::new(2),
+			CaptureRevision::new(3),
 		);
 		assert_ne!(CaptureCacheKey::from_request(&a), CaptureCacheKey::from_request(&b));
 		Ok(())

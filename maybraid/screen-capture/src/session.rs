@@ -25,6 +25,21 @@ const SLOT_SPACING: f32 = 24.0;
 const SLOT_ORIGIN_X: f32 = 8_000.0;
 const SILHOUETTE_GRAY: f32 = 0.72;
 
+/// Isolated capture root. Application hosts parent posed subjects here.
+#[derive(Component)]
+pub struct CaptureHostRoot {
+	pub kind: String,
+	pub id: crate::CaptureId,
+}
+
+/// Application finished realizing a [`CaptureScene::Host`] (meshes + materials).
+#[derive(Component)]
+pub struct CaptureHostReady;
+
+/// Silhouette session root. Hosts may strip custom materials under this marker.
+#[derive(Component)]
+pub struct CaptureSilhouetteRoot;
+
 #[derive(Component)]
 pub(crate) struct CaptureRoot;
 
@@ -83,7 +98,7 @@ pub(crate) fn spawn_session(
 	let origin = Vec3::new(SLOT_ORIGIN_X + slot as f32 * SLOT_SPACING, 0.0, 0.0);
 	let layers = RenderLayers::layer(layer);
 	let target = images.add(render_target_image(request.resolution));
-	let root = spawn_subject(commands, meshes, materials, &request.scene, origin, layers.clone());
+	let root = spawn_subject(commands, meshes, materials, &request, origin, layers.clone());
 	let camera = spawn_camera(commands, &request, origin, target.clone(), layers.clone());
 	let mut extras = Vec::new();
 	if request.mode == CaptureMode::Shaded {
@@ -118,12 +133,13 @@ fn spawn_subject(
 	commands: &mut Commands,
 	meshes: &mut Assets<Mesh>,
 	materials: &mut Assets<StandardMaterial>,
-	scene: &CaptureScene,
+	request: &CaptureRequest,
 	origin: Vec3,
 	layers: RenderLayers,
 ) -> Entity {
 	let transform = Transform::from_translation(origin);
-	match scene {
+	let silhouette = request.mode == CaptureMode::Silhouette;
+	let root = match &request.scene {
 		CaptureScene::SceneRef(scene_ref) => commands
 			.spawn((
 				SceneRefRoot(scene_ref.clone()),
@@ -155,7 +171,21 @@ fn spawn_subject(
 				))
 				.id()
 		}
+		CaptureScene::Host { kind, .. } => commands
+			.spawn((
+				CaptureHostRoot { kind: kind.clone(), id: request.id.clone() },
+				transform,
+				Visibility::default(),
+				layers,
+				CaptureRoot,
+				Name::new("capture_host"),
+			))
+			.id(),
+	};
+	if silhouette {
+		commands.entity(root).insert(CaptureSilhouetteRoot);
 	}
+	root
 }
 
 fn spawn_camera(
@@ -222,6 +252,7 @@ pub(crate) fn scene_ready(
 	world_roots: &Query<&WorldAssetRoot>,
 	mesh_entities: &Query<Entity, With<Mesh3d>>,
 	children: &Query<&Children>,
+	hosts: &Query<(), With<CaptureHostReady>>,
 ) -> bool {
 	match &session.request.scene {
 		CaptureScene::Mesh(_) => mesh_entities.get(session.root).is_ok(),
@@ -229,15 +260,27 @@ pub(crate) fn scene_ready(
 			if world_roots.get(session.root).is_err() {
 				return false;
 			}
-			let mut found = false;
-			visit_descendants(session.root, children, &mut |entity| {
-				if mesh_entities.get(entity).is_ok() {
-					found = true;
-				}
-			});
-			found || matches!(session.phase, CapturePhase::Load { frames } if frames > 8)
+			descendant_has_mesh(session.root, children, mesh_entities)
+		}
+		CaptureScene::Host { .. } => {
+			hosts.get(session.root).is_ok()
+				&& descendant_has_mesh(session.root, children, mesh_entities)
 		}
 	}
+}
+
+fn descendant_has_mesh(
+	root: Entity,
+	children: &Query<&Children>,
+	mesh_entities: &Query<Entity, With<Mesh3d>>,
+) -> bool {
+	let mut found = false;
+	visit_descendants(root, children, &mut |entity| {
+		if mesh_entities.get(entity).is_ok() {
+			found = true;
+		}
+	});
+	found
 }
 
 pub(crate) fn apply_silhouette(
@@ -258,28 +301,27 @@ pub(crate) fn apply_silhouette(
 		if meshes.get(entity).is_err() {
 			return;
 		}
-		let Ok(handle) = standard.get(entity) else {
-			custom += 1;
-			return;
+		let silhouette = match standard.get(entity).ok().and_then(|handle| materials.get(&handle.0))
+		{
+			Some(original) => silhouette_from_standard(original),
+			None => {
+				custom += 1;
+				silhouette_from_standard(&StandardMaterial::default())
+			}
 		};
-		let Some(original) = materials.get(&handle.0).cloned() else {
-			custom += 1;
-			return;
-		};
-		let silhouette = silhouette_from_standard(&original);
 		commands.entity(entity).insert(MeshMaterial3d(materials.add(silhouette)));
 		converted += 1;
 	});
-	if converted == 0 && custom > 0 {
+	if converted == 0 {
 		return Err(CaptureError::UnsupportedCustomMaterial {
-			reason: format!("{custom} mesh(es) have no StandardMaterial outline"),
+			reason: String::from("silhouette scene has no Mesh3d outline"),
 		});
 	}
 	if custom > 0 {
 		warning = Some(CaptureWarning {
 			key: session.key.clone(),
 			warning: CaptureWarningKind::UnsupportedCustomMaterial {
-				reason: format!("{custom} custom mesh(es) skipped for silhouette"),
+				reason: format!("{custom} mesh(es) had no StandardMaterial; used unlit gray"),
 			},
 		});
 	}
@@ -380,5 +422,15 @@ mod tests {
 		assert!(silhouette.unlit);
 		assert_eq!(silhouette.alpha_mode, AlphaMode::Mask(0.5));
 		Ok(())
+	}
+
+	#[test]
+	fn unlit_gray_covers_meshes_without_a_standard_material() {
+		let silhouette = silhouette_from_standard(&StandardMaterial::default());
+		assert!(silhouette.unlit);
+		assert_eq!(
+			silhouette.base_color,
+			Color::srgba(SILHOUETTE_GRAY, SILHOUETTE_GRAY, SILHOUETTE_GRAY, 1.0)
+		);
 	}
 }

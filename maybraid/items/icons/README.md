@@ -2,7 +2,10 @@
 
 Maybraid first-encounter wiring on top of [`screen-capture`](../../screen-capture).
 Hosts request both [`CaptureMode::Shaded`] and [`CaptureMode::Silhouette`] the
-first time an inventory item is seen. The crate never mutates the live scene.
+first time an inventory item is seen. The crate never mutates the live scene. Isolated captures spawn the same
+posed hosts the inspect preview uses: [`firearm_user::GeneratedFirearm`] for
+kits and a bind-pose clothing preview with catalog materials. Silhouette
+mode strips clothing/face shaders so the capture crate can stamp unlit gray.
 
 Inventory catalogs look up **shaded** handles by
 [`character_items::InventoryItem::icon_catalog_key`]. The skill-map HUD looks

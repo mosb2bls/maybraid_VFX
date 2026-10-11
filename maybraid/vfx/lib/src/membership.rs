@@ -3,9 +3,7 @@
 use bevy::ecs::relationship::RelationshipTarget;
 use bevy::prelude::*;
 
-use crate::spawn::{
-	VfxEmitter, VfxEmitterArmed, VfxEmitterBurst, VfxInstance, VfxLayerLife,
-};
+use crate::spawn::{VfxEmitter, VfxEmitterArmed, VfxEmitterBurst, VfxInstance, VfxLayerLife};
 
 /// Links one spawned part to its owning [`VfxInstance`].
 #[derive(Component, Debug, Clone, Copy)]
@@ -19,10 +17,7 @@ impl VfxMemberOf {
 
 	/// Whether the owning instance has passed the emitter readiness gate.
 	pub fn instance_armed(&self, instances: &Query<&VfxInstance>) -> bool {
-		instances
-			.get(self.root())
-			.map(|instance| instance.armed)
-			.unwrap_or(true)
+		instances.get(self.root()).map(|instance| instance.armed).unwrap_or(true)
 	}
 
 	/// Same as [`Self::instance_armed`] for unit tests that hold a [`World`].
@@ -46,12 +41,7 @@ impl VfxInstanceMembers {
 		&self,
 		emitters: &Query<(&VfxEmitter, Has<VfxEmitterArmed>, Has<VfxEmitterBurst>)>,
 	) -> bool {
-		self.emitters_ready_with(|member| {
-			emitters
-				.get(member)
-				.ok()
-				.map(|(_, armed, _)| armed)
-		})
+		self.emitters_ready_with(|member| emitters.get(member).ok().map(|(_, armed, _)| armed))
 	}
 
 	/// Every registered layer life has finished its clock.
@@ -59,10 +49,7 @@ impl VfxInstanceMembers {
 		self.layers_finished_with(|member| lives.get(member).ok().cloned())
 	}
 
-	fn emitters_ready_with(
-		&self,
-		mut armed: impl FnMut(Entity) -> Option<bool>,
-	) -> bool {
+	fn emitters_ready_with(&self, mut armed: impl FnMut(Entity) -> Option<bool>) -> bool {
 		for member in self.iter() {
 			if armed(member) == Some(false) {
 				return false;
@@ -71,10 +58,7 @@ impl VfxInstanceMembers {
 		true
 	}
 
-	fn layers_finished_with(
-		&self,
-		mut life: impl FnMut(Entity) -> Option<VfxLayerLife>,
-	) -> bool {
+	fn layers_finished_with(&self, mut life: impl FnMut(Entity) -> Option<VfxLayerLife>) -> bool {
 		let mut saw = false;
 		for member in self.iter() {
 			let Some(life) = life(member) else {

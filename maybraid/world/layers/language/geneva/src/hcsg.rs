@@ -32,10 +32,7 @@ use richmond::DEVELOPMENT_CELL_SIZE;
 use crate::named::{Forests, Groves, Named, Places, Regions, Stamp, Urban, Waters};
 use crate::places::LanguageGround;
 use crate::present::{present_language_overlay, LanguageOverlay, Nearby};
-use crate::tiles::{
-	large_tile_aabb, large_tile_index, large_tile_origin, LargeTile,
-	LARGE_TILE,
-};
+use crate::tiles::{large_tile_aabb, large_tile_index, large_tile_origin, LargeTile, LARGE_TILE};
 
 /// Language tiles stay generated within this XZ radius of the viewer.
 const LANGUAGE_GENERATE_RADIUS: f32 = 40_000.0;

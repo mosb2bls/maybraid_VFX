@@ -13,9 +13,16 @@ use crate::error::{
 use crate::queue::CaptureQueue;
 use crate::session::{
 	apply_silhouette, despawn_session, scene_ready, spawn_readback, spawn_session,
-	stamp_layers_on_descendants, take_pixels, CapturePhase, CapturePixels, CaptureReadback,
-	CaptureSession, CAPTURE_RENDER_LAYER,
+	stamp_layers_on_descendants, take_pixels, CaptureHostReady, CapturePhase, CapturePixels,
+	CaptureReadback, CaptureSession, CAPTURE_RENDER_LAYER,
 };
+
+/// Isolated capture schedule. Hosts realize posed subjects before [`Self::Advance`].
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ScreenCaptureSystems {
+	Isolate,
+	Advance,
+}
 
 /// Writable cache directory and isolated-scene settings.
 #[derive(Resource, Clone, Debug)]
@@ -86,8 +93,13 @@ impl Plugin for ScreenCapturePlugin {
 		.add_message::<CaptureCompleted>()
 		.add_message::<CaptureFailed>()
 		.add_message::<CaptureWarning>()
+		.configure_sets(
+			PostUpdate,
+			ScreenCaptureSystems::Advance.after(ScreenCaptureSystems::Isolate),
+		)
 		.add_systems(Update, ingest_requests)
-		.add_systems(PostUpdate, (stamp_isolate_layers, advance_sessions).chain());
+		.add_systems(PostUpdate, stamp_isolate_layers.in_set(ScreenCaptureSystems::Isolate))
+		.add_systems(PostUpdate, advance_sessions.in_set(ScreenCaptureSystems::Advance));
 	}
 }
 
@@ -192,6 +204,7 @@ fn advance_sessions(
 	world_roots: Query<&WorldAssetRoot>,
 	mesh_entities: Query<Entity, With<Mesh3d>>,
 	children: Query<&Children>,
+	hosts: Query<(), With<CaptureHostReady>>,
 	standard: Query<&MeshMaterial3d<StandardMaterial>>,
 	pixels: Query<(Entity, &CaptureReadback, &CapturePixels)>,
 	mut completed: MessageWriter<CaptureCompleted>,
@@ -267,7 +280,7 @@ fn advance_sessions(
 				active.session = None;
 				return;
 			}
-			if scene_ready(session, &world_roots, &mesh_entities, &children) {
+			if scene_ready(session, &world_roots, &mesh_entities, &children, &hosts) {
 				match apply_silhouette(
 					&mut commands,
 					session,

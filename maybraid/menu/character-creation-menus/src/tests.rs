@@ -5,9 +5,9 @@ use characters::species::{
 };
 
 use crate::{
-	MenuEvent,
 	character::{CharacterMenu, ConceptSpecies},
 	characters::{braidman::BraidmanMenu, brodler::BrodlerMenu, tuberwaber::TuberwaberMenu},
+	MenuEvent,
 };
 
 #[test]
@@ -538,7 +538,7 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 
 #[test]
 fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
-	use character_items::{InventoryItem, SKILL_MAP_QUEUE_LIMIT, SkillMapKind, SkillMapSpec};
+	use character_items::{InventoryItem, SkillMapKind, SkillMapSpec, SKILL_MAP_QUEUE_LIMIT};
 
 	let items = vec![
 		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
@@ -660,16 +660,12 @@ fn saved_menu_locks_body_and_keeps_inventory() -> anyhow::Result<()> {
 	let MenuNode::SectionSelect { children, .. } = &nodes[1] else {
 		anyhow::bail!("expected species SectionSelect so body attributes stay visible");
 	};
-	assert!(
-		children
-			.iter()
-			.any(|node| matches!(node, MenuNode::Section { label: "Body", .. }))
-	);
-	assert!(
-		children
-			.iter()
-			.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. }))
-	);
+	assert!(children
+		.iter()
+		.any(|node| matches!(node, MenuNode::Section { label: "Body", .. })));
+	assert!(children
+		.iter()
+		.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. })));
 	assert!(nodes.iter().all(|node| !matches!(node, MenuNode::Action { .. })));
 	assert!(!menu.overlay_editable("Species"));
 	assert!(!menu.overlay_editable("Body"));

@@ -15,13 +15,13 @@ use bevy::math::DVec3;
 use bevy::prelude::*;
 use durham::TerrainMeshBuilder;
 use lod::gen::{Id, OriginalId};
-use procedural_common::union_aabb3_iter;
 use lod::hcsg::universal_bounds;
 use lod::hcsg::{
 	self, register_session_seed, GenerationContext, HcsgClass, PresentationPlugin, ViewerHcsgBounds,
 };
 use lod::lod_ref::LodRef;
 use lod::scene::{LodScene, LodSceneLevel, LodSceneStatus};
+use procedural_common::union_aabb3_iter;
 use render_item::mesh::{IdentifiedMesh, MeshBuilder};
 use render_item::NormalizeChunk;
 use richmond::{PaddedTerrain, Richmond, RichmondGround};
@@ -744,7 +744,7 @@ mod tests {
 
 	use super::{
 		forest_of, forest_with_neighbors, push_grove_ids_for_tile, ChicoGrove, ForestSelection,
-		GROVE_PRESENT_RADIUS_M, GroveNeighborhood,
+		GroveNeighborhood, GROVE_PRESENT_RADIUS_M,
 	};
 
 	/// Per-tile `forest_with_neighbors` (pre-optimization discovery).
@@ -762,8 +762,10 @@ mod tests {
 	#[test]
 	fn grove_discovery_matches_per_tile_forest_lookup() {
 		let region = GroveNeighborhood::around(Vec3::ZERO, GROVE_PRESENT_RADIUS_M);
-		let selection =
-			ForestSelection { layering: Some(LayeringKind::LushJungle), ..ForestSelection::default() };
+		let selection = ForestSelection {
+			layering: Some(LayeringKind::LushJungle),
+			..ForestSelection::default()
+		};
 		let storage = HcsgStorage::default();
 		storage.seed(selection, universal_bounds());
 		let mut naive_cx = GenerationContext::new(&storage);
@@ -785,8 +787,10 @@ mod tests {
 		use std::time::Instant;
 
 		let region = GroveNeighborhood::around(Vec3::ZERO, GROVE_PRESENT_RADIUS_M);
-		let selection =
-			ForestSelection { layering: Some(LayeringKind::LushJungle), ..ForestSelection::default() };
+		let selection = ForestSelection {
+			layering: Some(LayeringKind::LushJungle),
+			..ForestSelection::default()
+		};
 		let runs = 30;
 
 		let bench = |naive: bool| -> std::time::Duration {

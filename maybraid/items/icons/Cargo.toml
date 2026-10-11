@@ -13,7 +13,12 @@ rust-version = { workspace = true }
 bevy = { workspace = true }
 character-items = { workspace = true }
 character-persist = { workspace = true }
+character-shaders = { workspace = true }
+characters = { workspace = true }
+firearm-user = { workspace = true }
 firearms-components = { workspace = true }
+lod = { workspace = true }
+material-ref = { workspace = true }
 screen-capture = { workspace = true }
 
 [dev-dependencies]

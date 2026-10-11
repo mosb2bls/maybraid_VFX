@@ -450,12 +450,7 @@ mod scheme_perf_tests {
 		storage.seed(TerrainStampConfigs::from_world_seed(seed), universal_bounds());
 		storage.seed(WatershedConfigs::default().with_seed(seed), universal_bounds());
 		storage.seed(
-			mesh_assets(
-				TerrainConfig::new(seed),
-				Handle::default(),
-				TerrainCoverage::FinePatch,
-				1,
-			),
+			mesh_assets(TerrainConfig::new(seed), Handle::default(), TerrainCoverage::FinePatch, 1),
 			universal_bounds(),
 		);
 	}
@@ -466,8 +461,7 @@ mod scheme_perf_tests {
 	) -> Vec<WatershedLeafBounds> {
 		let high = cx.get_or_generate_all_in::<PocketWatersHighPass>(bounds).unwrap();
 		let low = cx.get_or_generate_all_in::<PocketWatersLowPass>(bounds).unwrap();
-		high
-			.iter()
+		high.iter()
 			.map(|leaf| leaf.leaf_bounds())
 			.chain(low.iter().map(|leaf| leaf.leaf_bounds()))
 			.collect()
@@ -506,8 +500,7 @@ mod scheme_perf_tests {
 		cx.get_or_generate::<WatershedAproningCell>(id)?;
 		let layout = cx.get::<TerrainCellLayout>(Id::Universal).unwrap_or_default();
 		let assets = cx.get_or_generate::<TerrainMeshAssets>(Id::Universal)?;
-		let _terrain =
-			Terrain::compose(bounds, &pre, marazion_leaves, complex, &layout, &assets);
+		let _terrain = Terrain::compose(bounds, &pre, marazion_leaves, complex, &layout, &assets);
 		Some(())
 	}
 

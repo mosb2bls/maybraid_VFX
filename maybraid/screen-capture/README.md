@@ -30,7 +30,8 @@ A [`CaptureSubject`] supplies:
 
 - a stable, serializable [`CaptureId`] (visual identity; distinct for
   procedural or customized variants)
-- a [`CaptureScene`] (`SceneRef` or a mesh primitive)
+- a [`CaptureScene`] (`SceneRef`, a mesh primitive, or an application
+  [`CaptureScene::Host`] realized by the caller)
 - a preferred [`CaptureView`] (eye, look-at, projection)
 
 Requests specify mode, resolution, lighting, and an explicit capture revision.
@@ -43,8 +44,8 @@ reported with [`CaptureCompleted`] / [`CaptureFailed`].
   preset (studio or a world key/fill pair).
 - **Silhouette** — uniform grayscale on a transparent background, with MSAA
   edges. Geometry and standard-material cutouts that affect the outline are
-  preserved. Custom materials that cannot contribute an outline are reported
-  explicitly.
+  preserved. Meshes without a `StandardMaterial` still get unlit gray so
+  clothing/firearm shaders can be stripped by the host before readback.
 
 Capture always uses an isolated scene, camera, and render layer. The live
 item is never mutated.

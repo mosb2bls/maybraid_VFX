@@ -8,29 +8,29 @@ use character_creation_menus::{CharacterMenu, MenuEvent};
 use character_items::{Inventory, InventoryItem};
 use character_ui_menu::{AssetThumbnailDisplay, MenuComponent};
 use item_icons::{
-	CaptureClient, ItemIconCache, ItemIconDiscovery, ItemIconPlugin, ItemIconSystems,
-	request_inventory_icons,
+	request_inventory_icons, CaptureClient, ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery,
+	ItemIconPlugin, ItemIconSystems,
 };
 use maybraid_character_ui_menu_renderer::{
+	find_overlay_node, overlay_closes_on_pick, render_overlay_body, spawn_overlay_shell,
 	CharacterHudSystems, CharacterMenuEvent, MaybraidCharacterMenuRendererPlugin, MaybraidMenuSink,
 	MenuButton, MenuJustify, MenuSink, MenuThumbnailContext, OverlayClose, OverlayOpen,
-	OverlaySelectRoot, OverlaySelectViewport, RenderContext, find_overlay_node,
-	overlay_closes_on_pick, render_overlay_body, spawn_overlay_shell,
+	OverlaySelectRoot, OverlaySelectViewport, RenderContext,
 };
 use maybraid_menu_controller::MenuController;
 use maybraid_skill_map::{
-	SkillMapCatalogPreview, SkillMapMember, SkillMapSpinRevealHud, SkillMapSpinRevealHudView,
-	SkillMapTileAssets, SkillMapTileMaterialPlugin, spawn_skill_map_catalog_preview,
-	spawn_skill_map_spin_reveal_hud,
+	spawn_skill_map_catalog_preview, spawn_skill_map_spin_reveal_hud, SkillMapCatalogPreview,
+	SkillMapMember, SkillMapSpinRevealHud, SkillMapSpinRevealHudView, SkillMapTileAssets,
+	SkillMapTileMaterialPlugin,
 };
 use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
 use menu_components::{
-	ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu, MenuActivate, MenuFocus,
-	PANEL_ROW_GAP, SPIN_REVEAL_SLOT_SIZE, ScreenBack, ShortTextChange, TEXT_YELLOW,
-	TEXT_YELLOW_FAINT, spawn_corner_action, spawn_scroll_pane,
+	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
+	HudOverlayMenu, MenuActivate, MenuFocus, ScreenBack, ShortTextChange, PANEL_ROW_GAP,
+	SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use menu_screens::{
-	MenuScreen, SpinRevealCurrent, SpinRevealItems, SpinRevealScreen, take_menu_show_request,
+	take_menu_show_request, MenuScreen, SpinRevealCurrent, SpinRevealItems, SpinRevealScreen,
 };
 
 use crate::leave_prompt::CharacterLeavePromptPlugin;
@@ -557,6 +557,7 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 fn discover_menu_item_icons(
 	menu_state: Res<CharacterMenuState>,
 	mut discovery: ResMut<ItemIconDiscovery>,
+	mut subjects: ResMut<ItemCaptureSubjects>,
 	mut client: CaptureClient,
 ) {
 	let Some(inventory) = menu_state.0.inventory.as_ref() else {
@@ -565,7 +566,7 @@ fn discover_menu_item_icons(
 	if !menu_state.is_changed() && discovery.requested_len() > 0 {
 		return;
 	}
-	request_inventory_icons(inventory, &mut discovery, &mut client);
+	request_inventory_icons(inventory, &mut discovery, &mut subjects, &mut client);
 }
 
 fn ensure_skill_map_menu_previews(
@@ -767,7 +768,7 @@ fn on_short_text_change(
 
 #[cfg(test)]
 mod tests {
-	use super::{CharacterEditBaseline, save_chrome};
+	use super::{save_chrome, CharacterEditBaseline};
 	use character_creation_menus::CharacterMenu;
 	use character_items::Inventory;
 

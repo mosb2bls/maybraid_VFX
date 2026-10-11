@@ -90,9 +90,7 @@ mod tests {
 		assert!((rumble_presence(0.0, 10.5, 13.0) - 1.0).abs() < 1e-4);
 		assert!(rumble_presence(40.0, 10.5, 13.0) > 0.0);
 		assert_eq!(blast_presence(40.0, 10.5, 13.0), 0.0);
-		assert!(
-			feel_radius(10.5, 13.0, RUMBLE_RANGE) > feel_radius(10.5, 13.0, SHAKE_RANGE) * 2.0
-		);
+		assert!(feel_radius(10.5, 13.0, RUMBLE_RANGE) > feel_radius(10.5, 13.0, SHAKE_RANGE) * 2.0);
 	}
 
 	#[test]
