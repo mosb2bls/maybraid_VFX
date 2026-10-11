@@ -15,7 +15,9 @@ if [[ ! -f "$script" ]]; then
 	exit 2
 fi
 
-bin="$root/target/release/maybraid"
+# MAYBRAID_BIN lets an A/B pass alternate a saved baseline binary with the
+# current build so both see the same machine conditions.
+bin="${MAYBRAID_BIN:-$root/target/release/maybraid}"
 if [[ ! -x "$bin" ]]; then
 	echo "missing $bin — build with:" >&2
 	echo "  cargo build -p maybraid --release --features bevy/trace_tracy" >&2

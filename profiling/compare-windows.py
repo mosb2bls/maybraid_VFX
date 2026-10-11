@@ -23,6 +23,7 @@ SUMMARY_KEYS = (
 	("main_app_ms", "main app"),
 	("main_app_p95_ms", "main app p95"),
 	("render_app_ms", "render app"),
+	("present_wait_ms", "present wait"),
 )
 
 

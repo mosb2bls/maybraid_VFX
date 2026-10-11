@@ -36,3 +36,18 @@ worth sharing; mention it instead of attaching a large binary.
 `tracy-flight.sh` starts `tracy-capture` first, then the game with
 `MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone /
 message CSVs plus a top-zone summary.
+
+## A/B on a shared Mac
+
+macOS can switch the game into a throttled regime mid-session (render
+thread blocked ~12 ms in `prepare_windows`, main thread waiting in
+`RenderExtractApp`, multi-ms preemption spikes in ordinary systems).
+`present wait` in `compare-windows.py` output flags it. Before/after
+blocks captured minutes apart can land in different regimes, so
+interleave them instead: save the baseline binary and alternate it with
+the current build via `MAYBRAID_BIN`.
+
+```bash
+MAYBRAID_BIN=/tmp/maybraid-base profiling/tracy-flight.sh crowd-16 ab-base 1
+profiling/tracy-flight.sh crowd-16 ab-after 1
+```
