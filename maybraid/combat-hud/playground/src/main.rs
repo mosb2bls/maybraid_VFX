@@ -229,7 +229,7 @@ fn apply_preview(
 			}
 			LubikanActivationPhase::Completed => {
 				ledger.try_activate(&catalog, None).ok();
-				ledger.complete_activation(ledger.equipped().id());
+				ledger.complete_activation(account);
 			}
 		}
 		let account = ledgers
