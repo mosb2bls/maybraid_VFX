@@ -102,7 +102,8 @@ fn discovery_xz(
 pub fn grant_world_player_lubikan_owner(
 	mut commands: Commands,
 	// Match world players that don't have generic player::Player marker
-	world_only: Query<Entity, (With<Player>, Without<MaybraidPlayer>)>,
+	// This runs when the world player spawns AND when it respawns after death
+	world_only: Query<Entity, (With<Player>, Without<MaybraidPlayer>, Added<Player>)>,
 ) {
 	for player in &world_only {
 		commands.entity(player).insert((

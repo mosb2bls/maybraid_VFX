@@ -318,6 +318,7 @@ impl Plugin for WorldPlugin {
 			app.add_systems(
 				Update,
 			(
+				log_player_lifecycle.before(apply_debug_take_damage),
 				apply_debug_grant_points,
 				apply_debug_take_damage,
 				apply_debug_spawn_npc,
@@ -508,6 +509,33 @@ fn apply_debug_teleport(
 
 fn spawn_default_braidman(mut commands: Commands) {
 	commands.spawn(RequestSetCharacter { species: CharacterSpecies::Braidman });
+}
+
+#[cfg(feature = "debug-commands")]
+fn log_player_lifecycle(
+	frame: Res<Time<()>>,
+	added: Query<Entity, Added<WorldPlayer>>,
+	mut removed: RemovedComponents<WorldPlayer>,
+	existing: Query<Entity, With<WorldPlayer>>,
+	auto_capture: Option<Res<auto_capture::AutoCaptureScript>>,
+) {
+	// Only log during auto-capture to reduce noise
+	if auto_capture.is_none() {
+		return;
+	}
+	
+	let frame_count = frame.elapsed().as_secs_f32() * 60.0; // Approximate frame count
+	if frame_count >= 100.0 && frame_count <= 180.0 {
+		for entity in &added {
+			eprintln!("[LIFECYCLE] frame~{:.0} Added<WorldPlayer>: {:?}", frame_count, entity);
+		}
+		for entity in removed.read() {
+			eprintln!("[LIFECYCLE] frame~{:.0} RemovedComponents<WorldPlayer>: {:?}", frame_count, entity);
+		}
+		if existing.is_empty() {
+			eprintln!("[LIFECYCLE] frame~{:.0} No WorldPlayer entities exist!", frame_count);
+		}
+	}
 }
 
 #[cfg(test)]
