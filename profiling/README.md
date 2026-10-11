@@ -20,6 +20,8 @@ nix develop --command bash -lc '
 
 CSV summaries land in [`captures/`](captures/). `*.tracy` files are gitignored
 (often tens of MB); keep them next to the CSVs locally when size allows.
+Do **not** write `tracy-csvexport -u` unwrap CSVs — they are hundreds of MB
+to multi-GB. Zone means come from the aggregate export.
 
 `tracy-flight.sh` starts `tracy-capture` first, then the game with
 `MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone / message
