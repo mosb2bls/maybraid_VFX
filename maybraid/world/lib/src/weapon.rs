@@ -11,7 +11,11 @@ use firearm_user::{
 };
 use grenade_user::{spawn_held_grenade, GrenadeThrow, GrenadeUser, GrenadeUserSettings};
 use grenades::GrenadeDetonated;
-use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
+use maybraid_character_controller::{
+	CharacterControlSystems, CharacterIntent, InventoryCyclingCategory,
+};
+
+use crate::inventory_cycling::ActiveInventoryCyclingCategory;
 use maybraid_skill_map::{spawn_skill_maps, SkillMapEquip, SkillMapSystems};
 use maybraid_vfx::{SpawnVfxExt, VfxLibrary, VfxSpawn};
 use player::{
@@ -227,6 +231,7 @@ fn teardown_held_weapon(
 fn begin_weapon_swap(
 	mut intents: MessageReader<CharacterIntent>,
 	gameplay: Res<WorldGameplayEnabled>,
+	category: Res<ActiveInventoryCyclingCategory>,
 	mut commands: Commands,
 	players: Query<
 		(Entity, &InventoryUser, Has<WeaponSwap>, Option<&GrenadeThrow>),
@@ -234,7 +239,14 @@ fn begin_weapon_swap(
 	>,
 	bags: Query<&Inventory>,
 ) {
-	if !gameplay.0 || !intents.read().any(|intent| matches!(intent, CharacterIntent::SwapActive)) {
+	let intents = intents.read().collect::<Vec<_>>();
+	let weapon_cycle = category.0 == InventoryCyclingCategory::Weapons
+		&& intents.iter().any(|intent| match intent {
+			CharacterIntent::SwapActive => true,
+			CharacterIntent::CycleEquippedQueue(dir) => *dir > 0,
+			_ => false,
+		});
+	if !gameplay.0 || !weapon_cycle {
 		return;
 	}
 	for (player, user, swapping, grenade) in &players {
@@ -283,38 +295,6 @@ fn commit_weapon_swap(
 			hold_primary_weapon(&mut commands, player, &snapshot);
 		}
 		swap.mark_swapped();
-	}
-}
-
-fn cycle_skill_maps(
-	mut intents: MessageReader<CharacterIntent>,
-	gameplay: Res<WorldGameplayEnabled>,
-	mut commands: Commands,
-	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
-	players: Query<(Entity, &InventoryUser), With<VegetationPlayer>>,
-	mut bags: Query<&mut Inventory>,
-) {
-	if !gameplay.0 {
-		return;
-	}
-	let Some(dir) = intents.read().find_map(|intent| match *intent {
-		CharacterIntent::CycleSkillMap(dir) => Some(dir),
-		_ => None,
-	}) else {
-		return;
-	};
-	for (player, user) in &players {
-		let Ok(mut bag) = bags.get_mut(user.bag) else {
-			continue;
-		};
-		if !bag.cycle_skills(dir) {
-			continue;
-		}
-		let snapshot = bag.clone();
-		if let Some(loadout) = loadout.as_deref_mut() {
-			loadout.retarget_inventory(snapshot.clone());
-			commands.entity(player).insert(AppliedWorldPlayerLoadout(loadout.clone()));
-		}
 	}
 }
 
@@ -373,8 +353,8 @@ pub(crate) fn configure(app: &mut App) {
 				.chain()
 				.after(CharacterControlSystems)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
-			(cycle_skill_maps, sync_skill_map_equip)
-				.chain()
+			sync_skill_map_equip
+				.after(crate::inventory_cycling::InventoryCyclingSystems)
 				.after(CharacterControlSystems)
 				.before(SkillMapSystems::Spawn)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
@@ -651,18 +631,20 @@ mod tests {
 	}
 
 	#[test]
-	fn dpad_cycles_the_presented_skill_map() -> anyhow::Result<()> {
+	fn y_cycles_the_presented_skill_map_in_the_selected_category() -> anyhow::Result<()> {
 		use character_inventory_user::InventoryUser;
 		use character_items::{SkillMapKind, SkillMapSpec};
-		use maybraid_character_controller::CharacterIntent;
+		use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
 		use maybraid_skill_map::SkillMapEquip;
 
-		use crate::weapon::{cycle_skill_maps, sync_skill_map_equip};
+		use crate::inventory_cycling::{cycle_equipped_inventory_queues, ActiveInventoryCyclingCategory};
+		use crate::weapon::sync_skill_map_equip;
 
 		let inventory = two_map_bag();
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
 		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(ActiveInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps));
 		world.insert_resource(WorldPlayerLoadout::new(
 			"active",
 			CharacterAppearance::default(),
@@ -678,11 +660,11 @@ mod tests {
 			.id();
 		world
 			.run_system_once(|mut writer: MessageWriter<CharacterIntent>| {
-				writer.write(CharacterIntent::CycleSkillMap(1));
+				writer.write(CharacterIntent::SwapActive);
 			})
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		world
-			.run_system_once(cycle_skill_maps)
+			.run_system_once(cycle_equipped_inventory_queues)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		world
 			.run_system_once(sync_skill_map_equip)

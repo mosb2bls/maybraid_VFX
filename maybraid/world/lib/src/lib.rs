@@ -15,6 +15,7 @@ mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
+mod inventory_cycling;
 mod map_view;
 mod pitch;
 mod player_lifecycle;
@@ -41,8 +42,10 @@ pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
+pub use inventory_cycling::ActiveInventoryCyclingCategory;
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
+use lubikans::{LubikanInterfacePlugin, LubikanSelfConfig};
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
 pub use maybraid_sky::{
 	ShadowQuality, SkyClock, SkyCommand, SKY_BLUE, SKY_CLEAR, SKY_HORIZON, SKY_NADIR, SKY_ZENITH,
@@ -172,6 +175,8 @@ impl Plugin for WorldPlugin {
 				debug_overlay: self.input_debug_enabled,
 				..default()
 			}))
+			.add_plugins(LubikanInterfacePlugin)
+			.init_resource::<LubikanSelfConfig>()
 			.add_plugins(CharacterControllerPlugin)
 			.add_plugins(PlayerPresentationPlugin)
 			.add_plugins(PlayerCameraPlugin)
@@ -254,6 +259,7 @@ impl Plugin for WorldPlugin {
 				),
 			);
 		camera::configure(app);
+		inventory_cycling::configure(app);
 		weapon::configure(app);
 		app.configure_sets(
 			Update,

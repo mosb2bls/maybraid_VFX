@@ -49,6 +49,7 @@ intelligence-lod = { workspace = true }
 log = { workspace = true }
 lod = { workspace = true }
 lod-avian = { workspace = true }
+lubikans = { workspace = true }
 maybraid-game-mode-discover = { workspace = true }
 material-ref = { workspace = true }
 world-materials = { workspace = true }
@@ -88,6 +89,7 @@ vegetation-layer-model = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+lubikans = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 
 [lints]

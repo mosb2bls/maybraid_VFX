@@ -73,13 +73,7 @@ pub fn produce_keyboard(
 	if keyboard.pressed(KeyCode::KeyY) {
 		pad.hold_digital(PadButton::Y);
 	}
-	// Brackets cycle skill maps. Arrows already walk and feed the analog D-Pad.
-	if keyboard.pressed(KeyCode::BracketLeft) {
-		pad.hold_digital(PadButton::DpadLeft);
-	}
-	if keyboard.pressed(KeyCode::BracketRight) {
-		pad.hold_digital(PadButton::DpadRight);
-	}
+	// Brackets cycle the active equipped queue in character intent production.
 
 	pad.keys = keyboard.clone();
 	for event in key_reader.read() {
@@ -169,14 +163,4 @@ mod tests {
 		assert!(pad.digital_held(PadButton::BumperFire));
 	}
 
-	#[test]
-	fn brackets_hold_dpad() {
-		let mut pad = VirtualPad::default();
-		let mut keyboard = ButtonInput::<KeyCode>::default();
-		keyboard.press(KeyCode::BracketLeft);
-		if keyboard.pressed(KeyCode::BracketLeft) {
-			pad.hold_digital(PadButton::DpadLeft);
-		}
-		assert!(pad.digital_held(PadButton::DpadLeft));
-	}
 }
