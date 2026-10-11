@@ -12,6 +12,9 @@ use maybraid_sky::{
 	SKY_PHASE_NIGHT, SKY_PHASE_NOON,
 };
 
+use mob_scenes::MobKind;
+
+use crate::mob_spawn::RequestSpawnMobs;
 use crate::{RequestRenderScale, RequestVsyncToggle};
 
 pub const PLAYGROUND_CLI_NAME: &str = "maybraid-world";
@@ -43,6 +46,75 @@ pub enum PlaygroundCommand {
 	/// Internal 3D shading scale (`scale ×` window physical size).
 	#[command(subcommand)]
 	Render(Render),
+	/// Debug mob placement (Tracy actor-density flights).
+	#[command(subcommand)]
+	Mobs(Mobs),
+}
+
+#[derive(Clone, Subcommand)]
+#[command(rename_all = "kebab-case")]
+pub enum Mobs {
+	/// Place `count` hosts of one family on a square grid. Rosters are fixed by `--seed`.
+	Spawn {
+		kind: MobKindArg,
+		count: u32,
+		/// Grid center `X,Z`; defaults to the player.
+		#[arg(long, value_parser = parse_xz, allow_hyphen_values = true)]
+		at: Option<Vec2>,
+		#[arg(long, default_value_t = 24.0)]
+		spacing: f32,
+		#[arg(long, default_value_t = 1)]
+		seed: u32,
+	},
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum MobKindArg {
+	Herd,
+	Pack,
+	Raider,
+	Guard,
+	Pleb,
+	Rambles,
+	Brawler,
+}
+
+impl From<MobKindArg> for MobKind {
+	fn from(kind: MobKindArg) -> Self {
+		match kind {
+			MobKindArg::Herd => Self::Herd,
+			MobKindArg::Pack => Self::Pack,
+			MobKindArg::Raider => Self::Raider,
+			MobKindArg::Guard => Self::Guard,
+			MobKindArg::Pleb => Self::Pleb,
+			MobKindArg::Rambles => Self::Rambles,
+			MobKindArg::Brawler => Self::Brawler,
+		}
+	}
+}
+
+fn parse_xz(raw: &str) -> Result<Vec2, String> {
+	let (x, z) = raw.split_once(',').ok_or_else(|| format!("expected X,Z, got {raw:?}"))?;
+	let x = x.trim().parse::<f32>().map_err(|error| format!("x: {error}"))?;
+	let z = z.trim().parse::<f32>().map_err(|error| format!("z: {error}"))?;
+	Ok(Vec2::new(x, z))
+}
+
+impl Mobs {
+	fn react(self, commands: &mut Commands, console: &mut String) {
+		match self {
+			Mobs::Spawn { kind, count, at, spacing, seed } => {
+				commands.spawn(RequestSpawnMobs {
+					kind: kind.into(),
+					count,
+					at,
+					spacing: spacing.max(1.0),
+					seed,
+				});
+				*console = format!("mobs spawn {kind:?} x{count}: pending");
+			}
+		}
+	}
 }
 
 #[derive(Clone, Subcommand)]
@@ -122,6 +194,7 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Stats(stats) => stats.react(commands, console),
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
 			PlaygroundCommand::Render(render) => render.react(commands, console),
+			PlaygroundCommand::Mobs(mobs) => mobs.react(commands, console),
 		}
 	}
 
@@ -271,6 +344,26 @@ mod tests {
 		assert!(
 			matches!(rate, PlaygroundCommand::Sky(Sky::Rate { seconds }) if (seconds - 1200.0).abs() < 1e-3)
 		);
+	}
+
+	#[test]
+	fn parse_mobs_spawn() {
+		let cmd =
+			PlaygroundCommand::parse_line("mobs spawn pleb 6 --at 40,-12.5 --seed 3").unwrap();
+		let PlaygroundCommand::Mobs(Mobs::Spawn { kind, count, at, spacing, seed }) = cmd else {
+			panic!("expected mobs spawn");
+		};
+		assert_eq!(kind, MobKindArg::Pleb);
+		assert_eq!(count, 6);
+		assert_eq!(at, Some(Vec2::new(40.0, -12.5)));
+		assert_eq!(spacing, 24.0);
+		assert_eq!(seed, 3);
+		let west = PlaygroundCommand::parse_line("mobs spawn herd 1 --at -40,8").unwrap();
+		assert!(matches!(
+			west,
+			PlaygroundCommand::Mobs(Mobs::Spawn { at: Some(at), .. }) if at == Vec2::new(-40.0, 8.0)
+		));
+		assert!(PlaygroundCommand::parse_line("mobs spawn pleb 2 --at 4").is_err());
 	}
 
 	#[test]

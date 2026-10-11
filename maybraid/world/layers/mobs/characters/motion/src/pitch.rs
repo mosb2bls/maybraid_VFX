@@ -32,11 +32,32 @@ impl CharacterHeading {
 		Self(xz_dir(rotation * Vec3::Z).unwrap_or(Vec3::Z))
 	}
 
+	/// Heading on the ground plane, initializing an unset heading from `visual` without writing.
+	///
+	/// A stored planar heading is returned as-is so a second `normalize` cannot drift by an ulp
+	/// and mark [`CharacterHeading`] changed every frame.
+	pub fn facing(&self, visual: &Transform) -> Vec3 {
+		if self.0.y == 0.0 && self.0.length_squared() >= 1e-6 {
+			return self.0;
+		}
+		xz_dir(self.0).or_else(|| xz_dir(-*visual.forward())).unwrap_or(Vec3::Z)
+	}
+
 	/// Return a normalized heading, initializing an unset heading from `visual`.
 	pub fn resolve(&mut self, visual: &Transform) -> Vec3 {
-		let facing = xz_dir(self.0).or_else(|| xz_dir(-*visual.forward())).unwrap_or(Vec3::Z);
-		self.0 = facing;
+		let facing = self.facing(visual);
+		if self.0 != facing {
+			self.0 = facing;
+		}
 		facing
+	}
+
+	/// Whether [`Self::turn_toward`] would write heading or visual this frame.
+	pub fn would_turn_toward(&self, visual: &Transform, wish: Vec3) -> bool {
+		let Some(target) = xz_dir(wish) else {
+			return false;
+		};
+		self.facing(visual).angle_between(target) >= HEADING_DEADZONE
 	}
 
 	/// Store `facing` and write its yaw to the visual.
@@ -50,7 +71,7 @@ impl CharacterHeading {
 
 	/// Slerp this ground-plane heading toward a movement wish.
 	pub fn turn_toward(&mut self, visual: &mut Transform, wish: Vec3, dt: f32) {
-		let current = self.resolve(visual);
+		let current = self.facing(visual);
 		let Some(target) = xz_dir(wish) else {
 			return;
 		};
@@ -64,7 +85,7 @@ impl CharacterHeading {
 }
 
 /// Last probe locations for gizmos. Written by [`crate::elevation::apply_terrain_pitch`].
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TerrainPitchProbe {
 	pub origin: Vec3,
 	pub front: Vec3,
@@ -78,7 +99,7 @@ pub struct TerrainPitchProbe {
 }
 
 /// Live girdle world points from prepare. `None` means the bone was not in the map.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TerrainPitchGirdles {
 	pub shoulder_l: Option<Vec3>,
 	pub shoulder_r: Option<Vec3>,
@@ -88,6 +109,14 @@ pub struct TerrainPitchGirdles {
 	pub hind: Option<Vec3>,
 	/// True when [`sagittal_axis`] accepted the front/hind midpoints.
 	pub sagittal_ok: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct GirdleSnapshot {
+	girdles: TerrainPitchGirdles,
+	sagittal: Option<Vec3>,
+	half_span: Option<f32>,
+	half_width: Option<f32>,
 }
 
 /// Visual tilt plus the rest support span used to sample terrain.
@@ -129,6 +158,17 @@ impl TerrainPitch {
 		}
 	}
 
+	/// Whether [`Self::record_girdles`] would write any stored field.
+	pub fn would_record_girdles(
+		&self,
+		shoulder_l: Option<Vec3>,
+		shoulder_r: Option<Vec3>,
+		hip_l: Option<Vec3>,
+		hip_r: Option<Vec3>,
+	) -> bool {
+		self.girdle_write(Self::girdle_snapshot(shoulder_l, shoulder_r, hip_l, hip_r))
+	}
+
 	/// Store live girdle world points for gizmos. Rest [`Self::half_span`] /
 	/// [`Self::half_width`] lock on the first long enough shoulder–hip run so a
 	/// pitched chord cannot shrink the next sample. [`Self::sagittal`] stays live
@@ -140,28 +180,63 @@ impl TerrainPitch {
 		hip_l: Option<Vec3>,
 		hip_r: Option<Vec3>,
 	) {
+		self.apply_girdle_snapshot(Self::girdle_snapshot(shoulder_l, shoulder_r, hip_l, hip_r));
+	}
+
+	fn girdle_snapshot(
+		shoulder_l: Option<Vec3>,
+		shoulder_r: Option<Vec3>,
+		hip_l: Option<Vec3>,
+		hip_r: Option<Vec3>,
+	) -> GirdleSnapshot {
 		let front = Self::girdle_midpoint([shoulder_l, shoulder_r].into_iter().flatten());
 		let hind = Self::girdle_midpoint([hip_l, hip_r].into_iter().flatten());
 		let left = Self::girdle_midpoint([shoulder_l, hip_l].into_iter().flatten());
 		let right = Self::girdle_midpoint([shoulder_r, hip_r].into_iter().flatten());
-		let mut sagittal_ok = false;
-		if let (Some(f), Some(h)) = (front, hind) {
-			if let Some(axis) = Self::sagittal_axis(f, h) {
-				sagittal_ok = true;
-				self.sagittal = axis;
-				if !self.support_locked {
-					if let Some(span) = Self::measured_support_half(front, hind) {
-						self.half_span = span;
-					}
-					if let Some(width) = Self::measured_support_half(left, right) {
-						self.half_width = width;
-					}
-					self.support_locked = true;
+		let sagittal = match (front, hind) {
+			(Some(f), Some(h)) => Self::sagittal_axis(f, h),
+			_ => None,
+		};
+		GirdleSnapshot {
+			girdles: TerrainPitchGirdles {
+				shoulder_l,
+				shoulder_r,
+				hip_l,
+				hip_r,
+				front,
+				hind,
+				sagittal_ok: sagittal.is_some(),
+			},
+			sagittal,
+			half_span: Self::measured_support_half(front, hind),
+			half_width: Self::measured_support_half(left, right),
+		}
+	}
+
+	fn girdle_write(&self, snapshot: GirdleSnapshot) -> bool {
+		if self.girdles != snapshot.girdles {
+			return true;
+		}
+		let Some(axis) = snapshot.sagittal else {
+			return false;
+		};
+		self.sagittal != axis || !self.support_locked
+	}
+
+	fn apply_girdle_snapshot(&mut self, snapshot: GirdleSnapshot) {
+		if let Some(axis) = snapshot.sagittal {
+			self.sagittal = axis;
+			if !self.support_locked {
+				if let Some(span) = snapshot.half_span {
+					self.half_span = span;
 				}
+				if let Some(width) = snapshot.half_width {
+					self.half_width = width;
+				}
+				self.support_locked = true;
 			}
 		}
-		self.girdles =
-			TerrainPitchGirdles { shoulder_l, shoulder_r, hip_l, hip_r, front, hind, sagittal_ok };
+		self.girdles = snapshot.girdles;
 	}
 
 	/// Midpoint of named bones in XZ, if at least one exists.
@@ -504,6 +579,17 @@ mod tests {
 	}
 
 	#[test]
+	fn heading_resolve_does_not_rewrite_an_already_set_facing() {
+		let visual = Transform::from_rotation(Quat::from_rotation_y(0.7));
+		let mut heading = CharacterHeading::from_rotation(visual.rotation);
+		let before = heading.0;
+		heading.resolve(&visual);
+		assert_eq!(heading.0, before);
+		assert!(!heading.would_turn_toward(&visual, Vec3::ZERO));
+		assert!(!heading.would_turn_toward(&visual, heading.0));
+	}
+
+	#[test]
 	fn heading_accepts_small_real_turns() {
 		let mut visual = Transform::IDENTITY;
 		let mut heading = CharacterHeading::from_rotation(visual.rotation);
@@ -560,6 +646,15 @@ mod tests {
 		assert!((pitch.half_span - 1.0).abs() < 1e-5);
 		assert!((pitch.sagittal - Vec3::X).length() < 1e-5);
 		assert_eq!(pitch.girdles.front, Some(Vec3::new(4.0, 1.0, 0.0)));
+	}
+
+	#[test]
+	fn settled_girdles_do_not_need_another_record() {
+		let mut pitch = TerrainPitch::new(RigSkeletonKind::Quadruped, 1.2, 0.45);
+		let front = Some(Vec3::new(0.0, 1.0, 2.0));
+		let hind = Some(Vec3::new(0.0, 1.0, 0.0));
+		pitch.record_girdles(front, front, hind, hind);
+		assert!(!pitch.would_record_girdles(front, front, hind, hind));
 	}
 
 	#[test]

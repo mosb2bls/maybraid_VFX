@@ -203,6 +203,37 @@ fn writeback_clears_a_culled_pointer_without_respawn() {
 }
 
 #[test]
+fn settled_writeback_leaves_roster_unchanged() -> anyhow::Result<()> {
+	let mut world = World::new();
+	let pose = Vec3::new(8.0, 0.9, -2.0);
+	let host = spawn_host(
+		&mut world,
+		MobId(41),
+		vec![RosterMember::new(Personality::Grazer, pose).with_armed(false)],
+	);
+	let plant = world.spawn((Transform::from_translation(pose), MobSlot(0), MobId(41))).id();
+	world.run_system_once(bind_mob_members).expect("bind");
+	world.flush();
+	world.entity_mut(plant).insert(Health::from_max(40.0));
+	world.run_system_once(write_back_mob_roster).expect("writeback");
+	let before = world
+		.entity(host)
+		.get_change_ticks::<MobRoster>()
+		.ok_or_else(|| anyhow::anyhow!("missing roster"))?
+		.changed
+		.get();
+	world.run_system_once(write_back_mob_roster).expect("writeback");
+	let after = world
+		.entity(host)
+		.get_change_ticks::<MobRoster>()
+		.ok_or_else(|| anyhow::anyhow!("missing roster"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled writeback rewrote roster: {before} -> {after}");
+	Ok(())
+}
+
+#[test]
 fn downed_schedules_a_replacement_and_queues_despawn() {
 	let mut world = World::new();
 	world.init_resource::<Time>();

@@ -9,6 +9,7 @@
 //! Painted furniture is a generate pass over Richmond High slots, presented as
 //! flattened 50 m cell hosts in a neighborhood around the camera.
 
+mod agent;
 mod camera;
 pub mod commands;
 mod control;
@@ -16,6 +17,7 @@ mod crate_loot;
 mod first_wave;
 mod intelligence;
 mod map_view;
+mod mob_spawn;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
@@ -31,6 +33,7 @@ mod world_layers;
 
 pub use world_furnished::WorldFurnished;
 
+pub use agent::AgentDrive;
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldSceneryVisible, WorldSurfaceReady,
@@ -227,8 +230,14 @@ impl Plugin for WorldPlugin {
 		} else {
 			app.init_resource::<TextEntryFocus>();
 		}
-		app.add_systems(Startup, vsync::apply_startup_vsync)
-			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands));
+		app.add_systems(Startup, vsync::apply_startup_vsync).add_systems(
+			Update,
+			(
+				vsync::toggle_vsync,
+				commands::apply_sky_commands,
+				mob_spawn::apply_spawn_mob_requests,
+			),
+		);
 		render_scale::configure(app);
 		app.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
@@ -283,6 +292,9 @@ impl Plugin for WorldPlugin {
 				ui::draw_npc_behavior_gizmos.run_if(resource_equals(WorldMobHudEnabled(true))),
 			),
 		);
+		if app.world().contains_resource::<AgentDrive>() {
+			app.add_plugins(agent::WorldAgentPlugin);
+		}
 		if self.debug_chrome {
 			app.add_systems(Startup, ui::spawn_mob_debug_hud).add_systems(
 				Update,

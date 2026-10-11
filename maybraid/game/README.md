@@ -13,6 +13,17 @@ scale, mob HUD); Back / Escape returns home.
 cargo run -p maybraid
 ```
 
+Headless / Tracy flights can inject pad input from a script (same
+`VirtualPad` path as a gamepad). See [`maybraid/agent/README.md`](../agent/README.md).
+
+```bash
+MAYBRAID_VSYNC=off cargo run -p maybraid -- \
+  --start-at=0,0 \
+  --agent-script maybraid/agent/scripts/origin-walk.jsonl \
+  --agent-events /tmp/maybraid-events.jsonl \
+  --agent-quit
+```
+
 Assets live in this crate’s `assets/` symlink (`maybraid/assets`). A packaged
 `.app` reads `Contents/Resources/assets` instead; see [packaging/](../../packaging/).
 
