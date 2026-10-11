@@ -1,0 +1,405 @@
+use std::time::Duration;
+
+use anyhow::{anyhow, Result};
+use bevy::prelude::*;
+use bevy::time::TimeUpdateStrategy;
+use combat_targeting::{CombatTargeting, TargetSource};
+use damage::{apply_hits, DamageApplied, Died, Downed, Health, Hit};
+
+use crate::{
+	placeholder_svg, AimPolicy, AttackCatalog, AttackDefinition, AttackEndReason, AttackEnded,
+	AttackId, AttackInstance, AttackPlaceholderPresentationPlugin, AttackPresentationBinding,
+	AttackPresentationEvent, AttackRetired, AttackStage, AttackSuspended, AttackUser,
+	AttacksPlugin, BeginAttack, CancelAttacks, HazardOrigin, HazardPose, HazardShape, HazardSpec,
+	TelegraphSpec,
+};
+
+const COLUMN: AttackId = AttackId("column");
+const WAVE: AttackId = AttackId("wave");
+
+fn column_def() -> AttackDefinition {
+	AttackDefinition::with_authored_defaults(COLUMN, 0.4, 0.8, 0.2, AimPolicy::TargetAtWindup)
+		.with_telegraph(TelegraphSpec {
+			shape: HazardShape::Sphere { radius: 1.5 },
+			origin: HazardOrigin::AimPoint,
+			persist_into_execute: false,
+		})
+		.authored_hazard(HazardShape::Cylinder { radius: 1.5, height: 7.0 }, HazardOrigin::AimPoint)
+}
+
+fn wave_def() -> AttackDefinition {
+	AttackDefinition::with_authored_defaults(WAVE, 0.3, 1.0, 0.2, AimPolicy::TrackUntilExecute)
+		.with_telegraph(TelegraphSpec {
+			shape: HazardShape::Line { length: 8.0, half_width: 0.4 },
+			origin: HazardOrigin::AimPoint,
+			persist_into_execute: true,
+		})
+		.with_hazard(HazardSpec {
+			shape: HazardShape::Wavefront { radius: 1.25, speed: 8.0, length: 8.0 },
+			origin: HazardOrigin::AimPoint,
+			damage: crate::DamageSpec::authored(),
+		})
+}
+
+fn attack_app(dt: f32) -> App {
+	let mut app = App::new();
+	app.add_plugins(MinimalPlugins)
+		.add_plugins(TransformPlugin)
+		.add_plugins(AttacksPlugin)
+		.add_message::<DamageApplied>()
+		.add_message::<Died>()
+		.add_systems(PostUpdate, apply_hits)
+		.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(dt)));
+	app.world_mut()
+		.resource_mut::<Time<Virtual>>()
+		.set_max_delta(Duration::from_secs(30));
+	app.world_mut()
+		.resource_mut::<AttackCatalog>()
+		.insert(column_def())
+		.insert(wave_def());
+	app.update();
+	app
+}
+
+fn step(app: &mut App, dt: f32) {
+	app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(dt)));
+	app.update();
+}
+
+fn spawn_owner(app: &mut App, translation: Vec3) -> Entity {
+	app.world_mut()
+		.spawn((
+			AttackUser::default(),
+			Transform::from_translation(translation),
+			GlobalTransform::from_translation(translation),
+		))
+		.id()
+}
+
+fn spawn_target(app: &mut App, translation: Vec3, health: f32) -> Entity {
+	app.world_mut()
+		.spawn((
+			Health::from_max(health),
+			Transform::from_translation(translation),
+			GlobalTransform::from_translation(translation),
+		))
+		.id()
+}
+
+fn live_instances(app: &mut App) -> usize {
+	let mut query = app.world_mut().query::<&AttackInstance>();
+	query.iter(app.world()).count()
+}
+
+fn first_instance(app: &mut App) -> Option<AttackInstance> {
+	let mut query = app.world_mut().query::<&AttackInstance>();
+	query.iter(app.world()).next().cloned()
+}
+
+fn drain_hits(app: &mut App) -> Vec<Hit> {
+	app.world_mut().resource_mut::<Messages<Hit>>().drain().collect()
+}
+
+fn drain_ended(app: &mut App) -> Vec<AttackEnded> {
+	app.world_mut().resource_mut::<Messages<AttackEnded>>().drain().collect()
+}
+
+#[test]
+fn attack_applies_hit_without_a_presenter() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	app.world_mut()
+		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	step(&mut app, 0.1);
+	step(&mut app, 0.4);
+	let hits = drain_hits(&mut app);
+	if hits.is_empty() {
+		return Err(anyhow!("disabled VFX must still write Hit"));
+	}
+	assert_eq!(hits[0].target, target);
+	assert_eq!(hits[0].source, Some(owner));
+	assert!((hits[0].amount - crate::AttackDefaults::AUTHORED.damage).abs() < 1e-4);
+	Ok(())
+}
+
+#[test]
+fn stage_boundaries_spawn_and_clear_volumes() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	app.world_mut()
+		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	step(&mut app, 0.1);
+	let instance =
+		first_instance(&mut app).ok_or_else(|| anyhow!("expected a live instance in windup"))?;
+	if instance.stage != AttackStage::Windup {
+		return Err(anyhow!("expected windup, got {:?}", instance.stage));
+	}
+	if instance.age <= 0.0 {
+		return Err(anyhow!("tick should advance age, got {}", instance.age));
+	}
+	step(&mut app, 0.4);
+	let instance = first_instance(&mut app).ok_or_else(|| anyhow!("expected execute"))?;
+	if instance.stage != AttackStage::Execute {
+		return Err(anyhow!("expected execute, got {:?}", instance.stage));
+	}
+	step(&mut app, 0.8);
+	let instance = first_instance(&mut app).ok_or_else(|| anyhow!("expected recover"))?;
+	if instance.stage != AttackStage::Recover {
+		return Err(anyhow!("expected recover, got {:?}", instance.stage));
+	}
+	step(&mut app, 0.3);
+	if live_instances(&mut app) != 0 {
+		return Err(anyhow!("instance should complete after recover"));
+	}
+	Ok(())
+}
+
+#[test]
+fn cancel_removes_hazards_and_warning_bindings() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	let binding = app
+		.world_mut()
+		.spawn(AttackPresentationBinding {
+			instance: crate::AttackInstanceId(1),
+			kind: crate::AttackPresentationBindingKind::Telegraph,
+		})
+		.id();
+	app.world_mut()
+		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	step(&mut app, 0.1);
+	let instance_id = first_instance(&mut app)
+		.map(|instance| instance.id)
+		.ok_or_else(|| anyhow!("missing instance"))?;
+	app.world_mut().entity_mut(binding).insert(AttackPresentationBinding {
+		instance: instance_id,
+		kind: crate::AttackPresentationBindingKind::Hazard { index: 0 },
+	});
+	app.world_mut().write_message(CancelAttacks::all(owner));
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 0 {
+		return Err(anyhow!("cancel should despawn the instance"));
+	}
+	if app.world().get_entity(binding).is_ok() {
+		return Err(anyhow!("cancel should despawn presentation bindings"));
+	}
+	let ended = drain_ended(&mut app);
+	if !ended.iter().any(|event| event.reason == AttackEndReason::Cancelled) {
+		return Err(anyhow!("expected cancelled end"));
+	}
+	Ok(())
+}
+
+#[test]
+fn multiple_colliders_on_one_target_make_one_hit() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let body = spawn_target(&mut app, Vec3::new(0.0, 1.0, 0.0), 100.0);
+	app.world_mut().spawn((
+		ChildOf(body),
+		Transform::from_translation(Vec3::new(0.2, 1.0, 0.0)),
+		GlobalTransform::from_translation(Vec3::new(0.2, 1.0, 0.0)),
+	));
+	app.world_mut().spawn((
+		ChildOf(body),
+		Transform::from_translation(Vec3::new(-0.2, 1.0, 0.0)),
+		GlobalTransform::from_translation(Vec3::new(-0.2, 1.0, 0.0)),
+	));
+	app.world_mut().write_message(BeginAttack::new(owner, COLUMN).with_target(body));
+	step(&mut app, 0.1);
+	step(&mut app, 0.4);
+	let hits: Vec<_> = drain_hits(&mut app).into_iter().filter(|hit| hit.target == body).collect();
+	if hits.len() != 1 {
+		return Err(anyhow!("expected one remounted hit, got {}", hits.len()));
+	}
+	Ok(())
+}
+
+#[test]
+fn frame_rate_variation_does_not_dump_or_skip_execute() -> Result<()> {
+	let mut fine = attack_app(1.0 / 60.0);
+	let owner = spawn_owner(&mut fine, Vec3::ZERO);
+	let target = spawn_target(&mut fine, Vec3::new(0.0, 1.0, 0.0), 100.0);
+	fine.world_mut()
+		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	for _ in 0..24 {
+		step(&mut fine, 1.0 / 60.0);
+	}
+	let fine_hits = drain_hits(&mut fine).len();
+
+	let mut hitch = attack_app(2.0);
+	let owner = spawn_owner(&mut hitch, Vec3::ZERO);
+	let target = spawn_target(&mut hitch, Vec3::new(0.0, 1.0, 0.0), 100.0);
+	hitch
+		.world_mut()
+		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	step(&mut hitch, 2.0);
+	let hitch_hits = drain_hits(&mut hitch).len();
+	if hitch_hits == 0 {
+		return Err(anyhow!("a hitch must still pulse execute"));
+	}
+	if hitch_hits > fine_hits {
+		return Err(anyhow!("hitch dumped extra hits: hitch={hitch_hits} fine={fine_hits}"));
+	}
+	Ok(())
+}
+
+#[test]
+fn target_loss_keeps_last_snapshot() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 0.0, -4.0), 100.0);
+	app.world_mut().write_message(BeginAttack::new(owner, WAVE).with_target(target));
+	step(&mut app, 0.1);
+	let before = first_instance(&mut app)
+		.map(|instance| instance.snapshot)
+		.ok_or_else(|| anyhow!("missing snapshot"))?;
+	app.world_mut().entity_mut(target).despawn();
+	step(&mut app, 0.1);
+	let after =
+		first_instance(&mut app).ok_or_else(|| anyhow!("instance should survive target loss"))?;
+	if after.live_target.is_some() {
+		return Err(anyhow!("lost target should clear live_target"));
+	}
+	if after.snapshot.direction != before.direction {
+		return Err(anyhow!("snapshot should stay at last known aim"));
+	}
+	Ok(())
+}
+
+#[test]
+fn owner_despawn_cleans_instance_and_bindings() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	app.world_mut()
+		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	step(&mut app, 0.1);
+	let instance_id = first_instance(&mut app)
+		.map(|instance| instance.id)
+		.ok_or_else(|| anyhow!("missing instance"))?;
+	let binding = app
+		.world_mut()
+		.spawn(AttackPresentationBinding {
+			instance: instance_id,
+			kind: crate::AttackPresentationBindingKind::Telegraph,
+		})
+		.id();
+	app.world_mut().entity_mut(owner).despawn();
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 0 {
+		return Err(anyhow!("owner despawn should retire the instance"));
+	}
+	if app.world().get_entity(binding).is_ok() {
+		return Err(anyhow!("owner despawn should clear bindings"));
+	}
+	Ok(())
+}
+
+#[test]
+fn sleep_and_retirement_interrupt_live_attacks() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let sleeper = spawn_owner(&mut app, Vec3::ZERO);
+	let retired = spawn_owner(&mut app, Vec3::new(6.0, 0.0, 0.0));
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	app.world_mut()
+		.write_message(BeginAttack::new(sleeper, COLUMN).with_target(target));
+	app.world_mut()
+		.write_message(BeginAttack::new(retired, COLUMN).with_target(target));
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 2 {
+		return Err(anyhow!("both owners should share the same definition"));
+	}
+	app.world_mut().entity_mut(sleeper).insert(AttackSuspended);
+	app.world_mut().entity_mut(retired).insert(AttackRetired);
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 0 {
+		return Err(anyhow!("sleep and retirement must clean up"));
+	}
+	let ended = drain_ended(&mut app);
+	assert!(ended.iter().any(|event| event.reason == AttackEndReason::OwnerSuspended));
+	assert!(ended.iter().any(|event| event.reason == AttackEndReason::OwnerRetired));
+	Ok(())
+}
+
+#[test]
+fn death_interrupts_live_attacks() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	app.world_mut()
+		.write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	step(&mut app, 0.1);
+	app.world_mut()
+		.entity_mut(owner)
+		.insert(Downed { source: None, point: Vec3::ZERO, at: 0.0 });
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 0 {
+		return Err(anyhow!("death must clean up hazards and telegraphs"));
+	}
+	let ended = drain_ended(&mut app);
+	if !ended.iter().any(|event| event.reason == AttackEndReason::OwnerDowned) {
+		return Err(anyhow!("expected owner-downed end"));
+	}
+	Ok(())
+}
+
+#[test]
+fn targeting_membership_is_used_without_fabricating_contacts() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	let mut targeting = CombatTargeting::default();
+	targeting.include(target, TargetSource::OBJECTIVE);
+	targeting.rebalance(0.0);
+	app.world_mut().entity_mut(owner).insert(targeting);
+	app.world_mut().write_message(BeginAttack::new(owner, COLUMN));
+	step(&mut app, 0.1);
+	let instance = first_instance(&mut app)
+		.ok_or_else(|| anyhow!("expected instance from targeting membership"))?;
+	if instance.live_target != Some(target) {
+		return Err(anyhow!("expected objective member, got {:?}", instance.live_target));
+	}
+	if app
+		.world()
+		.get::<CombatTargeting>(owner)
+		.and_then(|targeting| targeting.contact(target))
+		.is_some()
+	{
+		return Err(anyhow!("attack runtime must not fabricate contacts"));
+	}
+	Ok(())
+}
+
+#[test]
+fn placeholder_preview_svg_records_telegraph_and_hazard() -> Result<()> {
+	let telegraph = (
+		HazardPose::new(Vec3::ZERO, Quat::IDENTITY),
+		HazardShape::Line { length: 8.0, half_width: 0.35 },
+	);
+	let hazard = (
+		HazardPose::new(Vec3::new(0.0, 0.0, 2.0), Quat::IDENTITY),
+		HazardShape::Wavefront { radius: 1.2, speed: 4.0, length: 8.0 },
+	);
+	let svg = placeholder_svg(telegraph, hazard);
+	let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+		.join("preview/placeholder-telegraph-hazard.svg");
+	if let Some(parent) = path.parent() {
+		std::fs::create_dir_all(parent)?;
+	}
+	std::fs::write(&path, svg)?;
+	let written = std::fs::read_to_string(path)?;
+	if !written.contains("#f0c12a") || !written.contains("#c42b24") {
+		return Err(anyhow!("preview svg missing placeholder colors"));
+	}
+	Ok(())
+}
+
+#[test]
+fn placeholder_plugin_is_optional() {
+	let _ = AttackPlaceholderPresentationPlugin;
+	let _ = std::any::type_name::<AttackPresentationEvent>();
+}
