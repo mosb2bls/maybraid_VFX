@@ -2,6 +2,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Script API version. Bump when a command is added or its meaning changes;
+/// record each bump in `maybraid/agent/README.md`.
+pub const SCRIPT_API_VERSION: u32 = 2;
+
 const DEFAULT_GOTO_TIMEOUT: f32 = 30.0;
 const DEFAULT_GOTO_RADIUS: f32 = 3.0;
 
@@ -94,6 +98,10 @@ pub enum ScenarioMark {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum AgentCommand {
+	/// Spawn at world XZ. Before the first duration command it replaces
+	/// `--start-at` so the player and streaming start there; later it acts
+	/// like `teleport`.
+	Start { xz: [f32; 2] },
 	/// Hold sticks / buttons for `secs` of game time.
 	Hold {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,6 +158,7 @@ impl AgentCommand {
 
 	pub fn label(&self) -> String {
 		match self {
+			Self::Start { xz } => format!("start {:.1},{:.1}", xz[0], xz[1]),
 			Self::Hold { .. } => "hold".into(),
 			Self::Press { button } => format!("press {}", button.as_str()),
 			Self::Wait { .. } => "wait".into(),
@@ -248,6 +257,15 @@ mod tests {
 		let console = AgentCommand::parse_line(r#"{"cmd":"console","line":"stats vsync"}"#)
 			.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(console, AgentCommand::Console { line: "stats vsync".into() });
+		Ok(())
+	}
+
+	#[test]
+	fn parse_start() -> anyhow::Result<()> {
+		let cmd = AgentCommand::parse_line(r#"{"cmd":"start","xz":[-1500,-600]}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(cmd, AgentCommand::Start { xz: [-1500.0, -600.0] });
+		assert!(!cmd.is_duration());
 		Ok(())
 	}
 
