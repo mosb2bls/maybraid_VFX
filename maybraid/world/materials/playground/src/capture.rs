@@ -124,9 +124,24 @@ pub(crate) fn hide_capture_hud(
 
 #[derive(SystemParam)]
 pub(crate) struct CaptureView<'w, 's> {
-	cameras: Query<'w, 's, (&'static mut Transform, &'static mut CameraController), With<Camera3d>>,
-	keys: Query<'w, 's, (&'static mut Transform, &'static mut DirectionalLight), With<KeySun>>,
-	fills: Query<'w, 's, &'static mut DirectionalLight, (With<FillSky>, Without<KeySun>)>,
+	cameras: Query<
+		'w,
+		's,
+		(&'static mut Transform, &'static mut CameraController),
+		(With<Camera3d>, Without<KeySun>, Without<FillSky>),
+	>,
+	keys: Query<
+		'w,
+		's,
+		(&'static mut Transform, &'static mut DirectionalLight),
+		(With<KeySun>, Without<Camera3d>, Without<FillSky>),
+	>,
+	fills: Query<
+		'w,
+		's,
+		&'static mut DirectionalLight,
+		(With<FillSky>, Without<KeySun>, Without<Camera3d>),
+	>,
 	ambient: ResMut<'w, GlobalAmbientLight>,
 	clear: ResMut<'w, ClearColor>,
 	preview: ResMut<'w, PreviewConfig>,
