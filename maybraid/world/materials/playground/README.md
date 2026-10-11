@@ -9,7 +9,7 @@ cargo run -p world-materials-playground -- show doric_column
 cargo run -p world-materials-playground -- mesh blast
 cargo run -p world-materials-playground -- mesh ring
 MAYBRAID_CAPTURE_DIR=./column-pom cargo run -p world-materials-playground
-# writes rake-grazing-pom-on/off (same pose), rake-silhouette-cavities, day-head-on-close
+# writes rake-grazing-pom-on/off, rake-silhouette-cavities, rake-taper-*, day-head-on-close
 # capture hides the command drawer and uses a low raking key
 ```
 
@@ -20,6 +20,7 @@ In-game (press `/`):
 - `show <recipe>` — any world recipe name (`furniture_wood`, …)
 - `mesh sphere|capsule` — solid baselines (the original hosts)
 - `mesh cylinder` — open Doric shaft (UV / tangent contract)
+- `mesh taper` — open tapered shaft (0.8 D neck, 4.5 D tall)
 - `mesh core` — tiny orb
 - `mesh shell` — faceted energy hull
 - `mesh ring` — flat shockwave annulus

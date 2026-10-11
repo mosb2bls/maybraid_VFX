@@ -161,6 +161,16 @@ mod tests {
 	}
 
 	#[test]
+	fn parses_mesh_taper() -> Result<(), String> {
+		let command = <PlaygroundCommand as GameCommand>::parse_line("mesh taper")?;
+		let PlaygroundCommand::Mesh { shape } = command else {
+			return Err("expected mesh".into());
+		};
+		assert_eq!(shape, crate::shape::PreviewShape::Taper);
+		Ok(())
+	}
+
+	#[test]
 	fn show_doric_uses_the_column_recipe() -> Result<(), String> {
 		let material = commands::material_for_show("doric");
 		assert_eq!(material.name, material_ref::MaterialId::named("doric_column"));

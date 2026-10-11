@@ -2,8 +2,8 @@
 //!
 //! Set `MAYBRAID_CAPTURE_DIR` to a writable directory. The playground hides
 //! the command drawer, stamps `doric_column` on the contract cylinder, walks
-//! a raking-light A/B (POM on vs flat) plus a silhouette+cavity pose, writes
-//! PNGs, and exits.
+//! a raking-light A/B (POM on vs flat), a silhouette+cavity pose, and a
+//! tapered 0.8 D neck, writes PNGs, and exits.
 
 use std::path::PathBuf;
 
@@ -48,37 +48,59 @@ pub struct CaptureShot {
 	pub look_at: Vec3,
 	pub light: CaptureLight,
 	pub look: CaptureLook,
+	pub shape: PreviewShape,
 }
 
-/// Same grazing pose twice (POM on / flat), then a 3/4 silhouette+cavity shot.
+/// Shaft sits on the preview root (y = 1): compact cylinder mid ≈ 2.26,
+/// tapered 4.5 D mid ≈ 2.89.
 pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
 	CaptureShot {
 		name: "rake-grazing-pom-on",
-		camera: Vec3::new(1.42, 1.06, 1.08),
-		look_at: Vec3::new(0.12, 1.0, 0.04),
+		camera: Vec3::new(1.42, 2.32, 1.08),
+		look_at: Vec3::new(0.12, 2.26, 0.04),
 		light: CaptureLight::Rake,
 		look: CaptureLook::Pom,
+		shape: PreviewShape::Cylinder,
 	},
 	CaptureShot {
 		name: "rake-grazing-pom-off",
-		camera: Vec3::new(1.42, 1.06, 1.08),
-		look_at: Vec3::new(0.12, 1.0, 0.04),
+		camera: Vec3::new(1.42, 2.32, 1.08),
+		look_at: Vec3::new(0.12, 2.26, 0.04),
 		light: CaptureLight::Rake,
 		look: CaptureLook::Flat,
+		shape: PreviewShape::Cylinder,
 	},
 	CaptureShot {
 		name: "rake-silhouette-cavities",
-		camera: Vec3::new(2.55, 1.62, 3.35),
-		look_at: Vec3::new(0.0, 1.0, 0.0),
+		camera: Vec3::new(1.85, 2.55, 2.45),
+		look_at: Vec3::new(0.0, 2.26, 0.0),
 		light: CaptureLight::Rake,
 		look: CaptureLook::Pom,
+		shape: PreviewShape::Cylinder,
+	},
+	CaptureShot {
+		name: "rake-taper-pom-on",
+		camera: Vec3::new(1.55, 2.95, 1.25),
+		look_at: Vec3::new(0.10, 2.89, 0.04),
+		light: CaptureLight::Rake,
+		look: CaptureLook::Pom,
+		shape: PreviewShape::Taper,
+	},
+	CaptureShot {
+		name: "rake-taper-silhouette",
+		camera: Vec3::new(2.15, 3.15, 2.85),
+		look_at: Vec3::new(0.0, 2.89, 0.0),
+		light: CaptureLight::Rake,
+		look: CaptureLook::Pom,
+		shape: PreviewShape::Taper,
 	},
 	CaptureShot {
 		name: "day-head-on-close",
-		camera: Vec3::new(0.0, 1.15, 3.6),
-		look_at: Vec3::new(0.0, 1.0, 0.0),
+		camera: Vec3::new(0.0, 2.40, 4.2),
+		look_at: Vec3::new(0.0, 2.26, 0.0),
 		light: CaptureLight::Day,
 		look: CaptureLook::Pom,
+		shape: PreviewShape::Cylinder,
 	},
 ];
 
@@ -123,6 +145,7 @@ pub(crate) fn hide_capture_hud(
 }
 
 #[derive(SystemParam)]
+#[allow(clippy::type_complexity)]
 pub(crate) struct CaptureView<'w, 's> {
 	cameras: Query<
 		'w,
@@ -213,7 +236,7 @@ impl CaptureView<'_, '_> {
 			CaptureLook::Pom => doric_column_ref(),
 			CaptureLook::Flat => doric_column_flat_ref(),
 		};
-		self.preview.shape = PreviewShape::Cylinder;
+		self.preview.shape = shot.shape;
 
 		if let Ok((mut transform, mut controller)) = self.cameras.single_mut() {
 			*transform = Transform::from_translation(shot.camera).looking_at(shot.look_at, Vec3::Y);
@@ -242,10 +265,10 @@ impl CaptureView<'_, '_> {
 			light.color = Color::srgb(1.0, 0.93, 0.78);
 		}
 		for mut light in self.fills.iter_mut() {
-			light.illuminance = 380.0;
+			light.illuminance = 1100.0;
 			light.color = Color::srgb(0.45, 0.55, 0.78);
 		}
-		self.ambient.brightness = 28.0;
+		self.ambient.brightness = 70.0;
 		self.ambient.color = Color::srgb(0.35, 0.40, 0.52);
 		self.clear.0 = Color::srgb(0.07, 0.08, 0.10);
 	}
@@ -274,7 +297,7 @@ mod tests {
 
 	#[test]
 	fn capture_set_has_rake_ab_and_silhouette() -> Result<(), String> {
-		assert_eq!(COLUMN_CAPTURE_SHOTS.len(), 4);
+		assert_eq!(COLUMN_CAPTURE_SHOTS.len(), 6);
 		let on = COLUMN_CAPTURE_SHOTS
 			.iter()
 			.find(|shot| shot.name == "rake-grazing-pom-on")
@@ -289,7 +312,13 @@ mod tests {
 		assert_eq!(off.light, CaptureLight::Rake);
 		assert_eq!(on.look, CaptureLook::Pom);
 		assert_eq!(off.look, CaptureLook::Flat);
+		assert_eq!(on.shape, PreviewShape::Cylinder);
 		assert!(COLUMN_CAPTURE_SHOTS.iter().any(|shot| shot.name.contains("silhouette")));
+		assert!(
+			COLUMN_CAPTURE_SHOTS
+				.iter()
+				.any(|shot| { shot.name.contains("taper") && shot.shape == PreviewShape::Taper })
+		);
 		Ok(())
 	}
 }

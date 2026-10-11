@@ -7,8 +7,9 @@ mod material_lib;
 mod urban_surface;
 
 pub use column_surface::shaft::{
-	PLACEHOLDER_SHAFT_HEIGHT_M, PLACEHOLDER_SHAFT_RADIUS_M, PlaceholderShaft,
-	placeholder_shaft_mesh,
+	PLACEHOLDER_LOWER_DIAMETER_M, PLACEHOLDER_SHAFT_HEIGHT_M, PLACEHOLDER_SHAFT_RADIUS_M,
+	PLACEHOLDER_SHAFT_TAPER, PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D, PlaceholderShaft,
+	placeholder_shaft_mesh, placeholder_tapered_shaft_mesh,
 };
 pub use column_surface::{
 	ColumnSurfaceMaterial, ColumnSurfaceMaterialPlugin, ColumnSurfaceUniform, DEFAULT_FLUTE_COUNT,

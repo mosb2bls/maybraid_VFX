@@ -31,7 +31,11 @@ pub const DEFAULT_POM_FADE_END_M: f32 = 85.0;
 /// Hard cap on the implicit-surface march. Overridable via scalar 6, clamped.
 pub const DEFAULT_POM_MAX_STEPS: f32 = 48.0;
 /// Default flute relief depth in metres. Overridable via scalar 7.
-pub const DEFAULT_RELIEF_DEPTH_M: f32 = 0.055;
+///
+/// 5.5 cm (≈ 0.065 D at the 0.84 m preview) still read as soft corrugation
+/// under a raking key. 9 cm ≈ 0.11 D is the kit default; scale with D on
+/// giant shafts, or override down for a more classical cut (clamp 12 cm).
+pub const DEFAULT_RELIEF_DEPTH_M: f32 = 0.09;
 /// Scalar 8: `>= 0.5` skips POM and flute cavity (flat limestone A/B).
 pub const SCALAR_FLAT: usize = 8;
 
@@ -235,7 +239,7 @@ mod tests {
 		assert_eq!(DEFAULT_POM_FADE_START_M, 28.0);
 		assert_eq!(DEFAULT_POM_FADE_END_M, 85.0);
 		assert_eq!(DEFAULT_POM_MAX_STEPS, 48.0);
-		assert_eq!(DEFAULT_RELIEF_DEPTH_M, 0.055);
+		assert_eq!(DEFAULT_RELIEF_DEPTH_M, 0.09);
 		assert!(DEFAULT_POM_FADE_END_M > DEFAULT_POM_FADE_START_M);
 		Ok(())
 	}

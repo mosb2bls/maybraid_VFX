@@ -4,6 +4,9 @@
 // Relief lives in mesh UV (see COLUMN_SURFACE.md):
 //   U wraps once around the shaft, seam at U = 0/1 (local -Z)
 //   V runs 0..1 up the authored shaft
+//   On a taper, circumference shrinks up V (πD → ~0.8πD);
+//   U stays angular so flute count is constant. The UV
+//   Jacobian maps a metre-depth ray into more ΔU at the neck.
 // Color-only relief: no silhouette, displaced depth, or
 // self-shadow ray. Shaft outline stays real geometry.
 //
@@ -36,7 +39,7 @@ const KIND_DORIC: u32 = 0u;
 const DEFAULT_FLUTE_COUNT: f32 = 20.0;
 const MIN_FLUTE_COUNT: f32 = 8.0;
 const MAX_FLUTE_COUNT: f32 = 32.0;
-const DEFAULT_DEPTH_M: f32 = 0.055;
+const DEFAULT_DEPTH_M: f32 = 0.09;
 const MIN_DEPTH_M: f32 = 0.008;
 const MAX_DEPTH_M: f32 = 0.12;
 const DEFAULT_FADE_START_M: f32 = 28.0;
@@ -164,7 +167,7 @@ struct ReliefStyle {
 }
 
 fn relief_style() -> ReliefStyle {
-    return ReliefStyle(relief_depth_m(), 1.0 / flute_count(), 0.28);
+    return ReliefStyle(relief_depth_m(), 1.0 / flute_count(), 0.12);
 }
 
 /// Periodic in U so the U = 0/1 seam does not jump.

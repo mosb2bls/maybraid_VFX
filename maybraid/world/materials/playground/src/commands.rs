@@ -31,7 +31,7 @@ pub enum PlaygroundCommand {
 	},
 	/// Switch the preview / shot hull. `sphere` and `capsule` are the solid baselines.
 	Mesh {
-		/// `sphere`, `capsule`, `core`, `shell`, `ring`, `cards`, `blast`, or `cylinder`.
+		/// `sphere`, `capsule`, `core`, `shell`, `ring`, `cards`, `blast`, `cylinder`, or `taper`.
 		shape: PreviewShape,
 	},
 	/// Fire repeating copies of the current hull. `shoot stop` cancels.
