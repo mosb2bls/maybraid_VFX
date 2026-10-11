@@ -105,6 +105,7 @@ impl LubikanFixture {
 mod tests {
 	use super::*;
 	use crate::identity::{LubikanAccountId, LubikanDefinitionId};
+	use crate::{LubikanActivationRefused, LubikanActivationReport, LubikanActivationSession};
 	use anyhow::{anyhow, Result};
 
 	#[test]
@@ -119,6 +120,9 @@ mod tests {
 		assert!(app.world().get_resource::<LubikanCatalog>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanChargeChanged>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRequest>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationSession>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationRefused>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationReport>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanOwnerLifetime>>().is_some());
 		let extra = LubikanDefinition::new(LubikanDefinitionId::from_raw(2), 15.0, 5.0);
 		let id = fixture.unlock(app.world_mut(), extra).ok_or_else(|| anyhow!("unlock"))?;

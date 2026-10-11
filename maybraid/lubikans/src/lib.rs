@@ -22,7 +22,9 @@ pub mod fixtures;
 use bevy::prelude::*;
 
 pub use activation::{
-	LubikanActivation, LubikanActivationDenied, LubikanActivationPhase, LubikanActivationRequest,
+	LubikanActivation, LubikanActivationDenied, LubikanActivationGrant, LubikanActivationOutcome,
+	LubikanActivationPhase, LubikanActivationRefused, LubikanActivationReport,
+	LubikanActivationRequest, LubikanActivationSession, LubikanActivationSessionId,
 	LubikanReadiness,
 };
 pub use catalog::{
@@ -44,7 +46,8 @@ pub use selection::LubikanSelection;
 pub enum LubikanSystems {
 	/// Attach, snapshot, and restore owner ledgers.
 	Owner,
-	/// Consume [`LubikanActivationRequest`]s.
+	/// Sole owner of [`LubikanActivationRequest`]s: spend once and emit a
+	/// [`LubikanActivationSession`], or emit [`LubikanActivationRefused`].
 	Activate,
 	/// Apply charge rules and emit [`LubikanChargeChanged`].
 	Award,
@@ -58,6 +61,9 @@ impl Plugin for LubikanInterfacePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_message::<LubikanChargeChanged>()
 			.add_message::<LubikanActivationRequest>()
+			.add_message::<LubikanActivationSession>()
+			.add_message::<LubikanActivationRefused>()
+			.add_message::<LubikanActivationReport>()
 			.add_message::<LubikanOwnerLifetime>();
 	}
 }
@@ -72,6 +78,9 @@ mod tests {
 		app.add_plugins(LubikanInterfacePlugin);
 		assert!(app.world().get_resource::<Messages<LubikanChargeChanged>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRequest>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationSession>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationRefused>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationReport>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanOwnerLifetime>>().is_some());
 	}
 }
