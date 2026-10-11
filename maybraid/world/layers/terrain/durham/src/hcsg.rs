@@ -298,8 +298,10 @@ mod tests {
 	use std::time::Duration;
 
 	use bevy::scene::ScenePlugin;
-	use lod::gen::{OriginalId, Version};
-	use lod::hcsg::{HcsgBoundsPlugin, HcsgDemand, HcsgNode, HcsgRestartRequest};
+	use lod::gen::OriginalId;
+	use lod::hcsg::{
+		hcsg_hosts, settle_presentation, HcsgBoundsPlugin, HcsgRestartRequest, SettlePresentation,
+	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 
@@ -348,28 +350,8 @@ mod tests {
 		app
 	}
 
-	/// Restart and subscribe, let the worker finish, then spawn and fulfill hosts.
 	fn settle(app: &mut App) -> anyhow::Result<()> {
-		for _ in 0..2 {
-			app.update();
-			let demand = app.world().resource::<HcsgDemand>().clone();
-			anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-		}
-		for _ in 0..4 {
-			app.update();
-		}
-		Ok(())
-	}
-
-	fn hosts<T: lod::hcsg::HcsgValue>(app: &mut App) -> Vec<(Id, Version)> {
-		let mut hosts: Vec<_> = app
-			.world_mut()
-			.query::<&HcsgNode<T>>()
-			.iter(app.world())
-			.map(|node| (node.id, node.version))
-			.collect();
-		hosts.sort();
-		hosts
+		settle_presentation(app, SettlePresentation::durham_integration(IDLE)).map_err(Into::into)
 	}
 
 	/// Height inside the patch, off the noise lattice (noise is zero on it).
@@ -394,9 +376,9 @@ mod tests {
 			.map(|OriginalId(id)| id)
 			.collect();
 		cells.sort();
-		let terrain: Vec<Id> = hosts::<Terrain>(&mut app).into_iter().map(|(id, _)| id).collect();
+		let terrain: Vec<Id> = hcsg_hosts::<Terrain>(&mut app).into_iter().map(|(id, _)| id).collect();
 		assert_eq!(terrain, cells, "one terrain host per layout cell");
-		let water: Vec<Id> = hosts::<Water>(&mut app).into_iter().map(|(id, _)| id).collect();
+		let water: Vec<Id> = hcsg_hosts::<Water>(&mut app).into_iter().map(|(id, _)| id).collect();
 		let mut wet = app
 			.world()
 			.resource::<HcsgStorage>()
@@ -419,12 +401,12 @@ mod tests {
 	fn a_restart_replaces_every_host_with_the_new_session() -> anyhow::Result<()> {
 		let mut app = app();
 		settle(&mut app)?;
-		let before = hosts::<Terrain>(&mut app);
+		let before = hcsg_hosts::<Terrain>(&mut app);
 		let height = patch_height(&app)?;
 
 		seed_resources(&mut app, 2);
 		settle(&mut app)?;
-		let after = hosts::<Terrain>(&mut app);
+		let after = hcsg_hosts::<Terrain>(&mut app);
 
 		assert_eq!(after.len(), before.len());
 		for ((id, old), (new_id, new)) in before.iter().zip(&after) {

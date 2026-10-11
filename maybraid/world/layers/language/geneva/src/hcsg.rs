@@ -305,7 +305,10 @@ mod tests {
 		fine_patch_cell_layout, Durham, DurhamWindow, TerrainConfig, TerrainMeshAssets,
 		TerrainMeshLodBand, TerrainStampConfigs, WaterMeshAssets, WatershedConfigs,
 	};
-	use lod::hcsg::{Gated, HcsgBoundsPlugin, HcsgDemand, HcsgGate, HcsgRestartRequest};
+	use lod::hcsg::{
+		Gated, HcsgBoundsPlugin, HcsgGate, HcsgRestartRequest, SettlePresentation,
+		settle_presentation,
+	};
 	use lod::lod_ref::LodNodePose;
 	use richmond::{
 		AuthoredDevelopment, AuthoredDevelopments, DevelopmentConfig, DevelopmentKind,
@@ -362,15 +365,7 @@ mod tests {
 	}
 
 	fn settle(app: &mut App) -> anyhow::Result<()> {
-		for _ in 0..3 {
-			app.update();
-			let demand = app.world().resource::<HcsgDemand>().clone();
-			anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-		}
-		for _ in 0..8 {
-			app.update();
-		}
-		Ok(())
+		settle_presentation(app, SettlePresentation::geneva_integration(IDLE)).map_err(Into::into)
 	}
 
 	fn region_names(app: &App) -> Vec<(i32, i32, String)> {
