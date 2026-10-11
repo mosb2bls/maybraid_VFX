@@ -6755,6 +6755,7 @@ dependencies = [
  "characters-playground",
  "clap",
  "layer-stack",
+ "maybraid-agent",
  "maybraid-character-controller",
  "maybraid-game-mode-discover",
  "maybraid-game-mode-reliquary",
@@ -6983,6 +6984,7 @@ dependencies = [
  "log",
  "maputo",
  "material-ref",
+ "maybraid-agent",
  "maybraid-character-controller",
  "maybraid-game-mode-discover",
  "maybraid-input",
@@ -7026,6 +7028,7 @@ name = "maybraid-world-playground"
 version = "0.1.3"
 dependencies = [
  "bevy",
+ "maybraid-agent",
  "maybraid-input",
  "maybraid-world",
 ]

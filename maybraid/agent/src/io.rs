@@ -3,11 +3,12 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::Mutex;
 use std::thread;
 
 /// Non-blocking inbox. A helper thread blocks on `read_line`.
 pub struct LineInbox {
-	rx: Receiver<String>,
+	rx: Mutex<Receiver<String>>,
 }
 
 impl LineInbox {
@@ -18,13 +19,16 @@ impl LineInbox {
 			.name("maybraid-agent-pipe".into())
 			.spawn(move || read_loop(path, tx))
 			.map_err(|error| format!("agent pipe {label}: {error}"))?;
-		Ok(Self { rx })
+		Ok(Self { rx: Mutex::new(rx) })
 	}
 
 	pub fn try_recv_all(&self) -> Vec<String> {
+		let Ok(rx) = self.rx.lock() else {
+			return Vec::new();
+		};
 		let mut lines = Vec::new();
 		loop {
-			match self.rx.try_recv() {
+			match rx.try_recv() {
 				Ok(line) => lines.push(line),
 				Err(TryRecvError::Empty) => break,
 				Err(TryRecvError::Disconnected) => break,

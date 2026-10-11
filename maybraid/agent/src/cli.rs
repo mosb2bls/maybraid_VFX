@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::Args;
 
 pub const AGENT_SCRIPT_ENV: &str = "MAYBRAID_AGENT_SCRIPT";
 pub const AGENT_EVENTS_ENV: &str = "MAYBRAID_AGENT_EVENTS";
@@ -11,7 +11,7 @@ pub const AGENT_PIPE_ENV: &str = "MAYBRAID_AGENT_PIPE";
 pub const AGENT_QUIT_ENV: &str = "MAYBRAID_AGENT_QUIT";
 
 /// Flags the game / world playground accept. Empty means the agent is off.
-#[derive(Parser, Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Args, Debug, Clone, Default, PartialEq, Eq)]
 #[command(rename_all = "kebab-case")]
 pub struct AgentArgs {
 	/// Line-delimited JSON script played on the game clock (no round trip).
