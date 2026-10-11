@@ -21,6 +21,10 @@ pub enum ConceptAnimation {
 	Prone,
 	LateralUndulation,
 	DorsoventralUndulation,
+	EpiphantBray,
+	EpiphantSleepEnter,
+	EpiphantSleepHold,
+	EpiphantWake,
 }
 
 impl ConceptAnimation {
@@ -41,6 +45,10 @@ impl ConceptAnimation {
 		Self::Prone,
 		Self::LateralUndulation,
 		Self::DorsoventralUndulation,
+		Self::EpiphantBray,
+		Self::EpiphantSleepEnter,
+		Self::EpiphantSleepHold,
+		Self::EpiphantWake,
 	];
 
 	pub const fn label(self) -> &'static str {
@@ -61,6 +69,10 @@ impl ConceptAnimation {
 			Self::Prone => "prone",
 			Self::LateralUndulation => "lateral-undulation",
 			Self::DorsoventralUndulation => "dorsoventral-undulation",
+			Self::EpiphantBray => "epiphant-bray",
+			Self::EpiphantSleepEnter => "epiphant-sleep-enter",
+			Self::EpiphantSleepHold => "epiphant-sleep-hold",
+			Self::EpiphantWake => "epiphant-wake",
 		}
 	}
 }

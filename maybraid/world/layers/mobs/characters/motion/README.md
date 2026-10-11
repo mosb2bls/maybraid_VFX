@@ -106,6 +106,11 @@ Order elevation after physics / locomotion.
 Insert `AnimRefRoot(AnimRef::new(AnimClip::walk()))` on the **body** rig host.
 The mailbox transitions on `AnimId` (variant), not knob values.
 
+Epiphant Bray / sleep clips expose normalized gameplay cues on [`AnimClipCues`](src/cue.rs)
+(`sonic_emit`, `ground_impact`). Constants live on the animation definitions
+(`SONIC_EMIT_NORM`, `SLEEP_ENTER_IMPACT_NORM`, `WAKE_IMPACT_NORM`); gameplay reads
+[`AnimClipCues::crossed`] after [`tick_anim_clip_cues`], not pose sampling.
+
 ### Gate work by LOD
 
 Host markers + `With<>` on expensive systems. [`motion_policy`](src/policy.rs) is

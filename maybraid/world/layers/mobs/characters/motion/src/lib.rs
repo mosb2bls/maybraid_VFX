@@ -11,6 +11,7 @@
 
 pub mod clip;
 pub mod clip_cache;
+pub mod cue;
 pub mod elevation;
 pub mod mailbox;
 pub mod markers;
@@ -25,6 +26,10 @@ pub mod sync;
 pub use clip::{
 	AnimClip, AnimId, AnimRef, AnimRefRoot, JabParams, JumpParams, TuckParams, TuckedFlipParams,
 	TwoFootedTuckedFlipParams,
+};
+pub use cue::{
+	AnimClipCues, AnimCueKind, AnimCueMarker, AnimCueSheet, cue_sheet, prepare_anim_clip_cues,
+	tick_anim_clip_cues,
 };
 pub use clip_cache::{
 	apply_evaluated_sample, clip_bone_mask, parameters_key, AnimClipCache, AnimClipCacheSettings,

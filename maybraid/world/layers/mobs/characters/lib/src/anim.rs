@@ -3,9 +3,9 @@
 //! `From<ConceptAnimation>` stays here so motion does not depend on recipes.
 
 pub use character_motion::{
-	apply_anim_mailbox, prepare_anim_mailbox, tick_anim_mailbox, AnimBone, AnimClip, AnimId,
-	AnimMailbox, AnimProgress, AnimRef, AnimRefRoot, JabParams, JumpParams, TuckParams,
-	TuckedFlipParams, TwoFootedTuckedFlipParams,
+	apply_anim_mailbox, prepare_anim_mailbox, tick_anim_mailbox, AnimBone, AnimClip, AnimClipCues,
+	AnimCueKind, AnimCueSheet, AnimId, AnimMailbox, AnimProgress, AnimRef, AnimRefRoot, JabParams,
+	JumpParams, TuckParams, TuckedFlipParams, TwoFootedTuckedFlipParams, cue_sheet,
 };
 
 use crate::concepts::ConceptAnimation;
@@ -35,6 +35,10 @@ impl From<ConceptAnimation> for AnimClip {
 			ConceptAnimation::Prone => Self::prone(),
 			ConceptAnimation::LateralUndulation => Self::lateral_undulation(),
 			ConceptAnimation::DorsoventralUndulation => Self::dorsoventral_undulation(),
+			ConceptAnimation::EpiphantBray => Self::epiphant_bray(),
+			ConceptAnimation::EpiphantSleepEnter => Self::epiphant_sleep_enter(),
+			ConceptAnimation::EpiphantSleepHold => Self::epiphant_sleep_hold(),
+			ConceptAnimation::EpiphantWake => Self::epiphant_wake(),
 		}
 	}
 }

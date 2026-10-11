@@ -12,8 +12,9 @@ use bevy::ecs::query::{Has, Or};
 use bevy::prelude::*;
 use character_animations::{
 	animations::{
-		Idle, Jab, Prone, QuadrupedIdle, QuadrupedLeap, QuadrupedRun, Squat, SquatDescent, Tuck,
-		TwoFootedTuckedFlip, UprightLeap,
+		Idle, Jab, Prone,
+		QuadrupedIdle, QuadrupedLeap, QuadrupedRun, Squat, SquatDescent, Tuck, TwoFootedTuckedFlip,
+		UprightLeap,
 	},
 	Animation, Effects,
 };
@@ -138,6 +139,11 @@ impl AnimMailbox {
 
 	fn blending(&self) -> bool {
 		self.blend_progress < 1.0
+	}
+
+	/// Mailbox sample clock in clip seconds (before policy remap).
+	pub fn clip_time_secs(&self) -> f32 {
+		self.clip_progress
 	}
 }
 
@@ -787,7 +793,11 @@ fn sample_humanoid(
 		AnimClip::Gallop(_)
 		| AnimClip::QuadrupedRun(_)
 		| AnimClip::LateralUndulation(_)
-		| AnimClip::DorsoventralUndulation(_) => Effects::default(),
+		| AnimClip::DorsoventralUndulation(_)
+		| AnimClip::EpiphantBray(_)
+		| AnimClip::EpiphantSleepEnter(_)
+		| AnimClip::EpiphantSleepHold(_)
+		| AnimClip::EpiphantWake(_) => Effects::default(),
 	}
 }
 
@@ -817,6 +827,18 @@ fn sample_quadruped(
 		),
 		AnimClip::Still => {
 			sample_split(&QuadrupedIdle::default(), rig, progress, write_bones, write_effects)
+		}
+		AnimClip::EpiphantBray(bray) => {
+			sample_split(&bray, rig, progress, write_bones, write_effects)
+		}
+		AnimClip::EpiphantSleepEnter(enter) => {
+			sample_split(&enter, rig, progress, write_bones, write_effects)
+		}
+		AnimClip::EpiphantSleepHold(hold) => {
+			sample_split(&hold, rig, progress, write_bones, write_effects)
+		}
+		AnimClip::EpiphantWake(wake) => {
+			sample_split(&wake, rig, progress, write_bones, write_effects)
 		}
 		_ => Effects::default(),
 	}
@@ -1018,6 +1040,37 @@ mod tests {
 		let b = Entity::from_bits(2);
 		assert_ne!(clip_progress(AnimClip::Still, 0.0, a), clip_progress(AnimClip::Still, 0.0, b));
 		assert_eq!(clip_progress(AnimClip::walk(), 0.3, a), 0.3);
+	}
+
+	#[test]
+	fn epiphant_bray_flicks_then_recovers_on_quadruped() {
+		let mut rig = QuadrupedV0Rig::for_clip_test();
+		sample_quadruped(AnimClip::epiphant_bray(), &mut rig, 0.34, true, true);
+		let peak = rig.rotation("neck") * Vec3::Y;
+		sample_quadruped(AnimClip::epiphant_bray(), &mut rig, 1.0, true, true);
+		let end = rig.rotation("neck") * Vec3::Y;
+		assert!(peak.x.abs() > 0.05);
+		assert!((end - Vec3::Y).length() < 0.15, "recovery near rest, got {end:?}");
+	}
+
+	#[test]
+	fn quadruped_run_still_samples_after_epiphant_clips() {
+		let mut rig = QuadrupedV0Rig::for_clip_test();
+		sample_quadruped(AnimClip::epiphant_sleep_hold(), &mut rig, 0.2, true, true);
+		sample_quadruped(AnimClip::quadruped_run(), &mut rig, 0.35, true, true);
+		assert!(rig.posed_angle("anterior_thigh.L").abs() > 0.05);
+	}
+
+	#[test]
+	fn sleep_hold_interrupt_blends_to_idle_pose() {
+		let mut rig = QuadrupedV0Rig::for_clip_test();
+		sample_quadruped(AnimClip::epiphant_sleep_hold(), &mut rig, 0.4, true, true);
+		let folded = rig.posed_angle("anterior_shin.L");
+		sample_quadruped(AnimClip::Still, &mut rig, 0.0, true, true);
+		assert!(
+			rig.posed_angle("anterior_shin.L") < folded,
+			"idle should unfold after sleep interrupt"
+		);
 	}
 
 	#[test]
