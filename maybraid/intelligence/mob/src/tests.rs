@@ -254,6 +254,38 @@ fn cull_does_not_respawn_when_the_policy_is_missing() {
 	let member = world.get::<MobRoster>(host).and_then(|roster| roster.get(0)).expect("slot");
 	assert!(member.respawn_at.is_none());
 	assert_eq!(member.replacements_used, 0);
+	assert!(world.get::<damage::DespawnAfter>(plant).is_some());
+}
+
+#[test]
+fn downed_still_queues_despawn_when_the_roster_pointer_is_stale() {
+	let mut world = World::new();
+	world.init_resource::<Time>();
+	let host = spawn_host(
+		&mut world,
+		MobId(16),
+		vec![RosterMember::new(Personality::Grazer, Vec3::ZERO).with_armed(false)],
+	);
+	world
+		.entity_mut(host)
+		.insert(MobRespawn { corpse_secs: 0.5, ..MobRespawn::default() });
+	let plant = world.spawn((Transform::default(), MobSlot(0), MobId(16))).id();
+	world.run_system_once(bind_mob_members).expect("bind");
+	world.flush();
+	if let Some(mut roster) = world.get_mut::<MobRoster>(host) {
+		if let Some(member) = roster.get_mut(0) {
+			member.entity = None;
+		}
+	}
+	world.entity_mut(plant).insert((
+		Health::from_max(40.0),
+		damage::Downed { source: None, point: Vec3::ZERO, at: 0.0 },
+	));
+	world.run_system_once(queue_downed_member_deaths).expect("downed");
+	world.flush();
+	assert!(world.get::<damage::DespawnAfter>(plant).is_some());
+	let member = world.get::<MobRoster>(host).and_then(|roster| roster.get(0)).expect("slot");
+	assert!(member.respawn_at.is_none());
 }
 
 #[test]

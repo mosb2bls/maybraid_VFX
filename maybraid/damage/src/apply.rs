@@ -95,6 +95,32 @@ mod tests {
 	}
 
 	#[test]
+	#[test]
+	fn already_dead_health_ignores_further_hits() -> Result<()> {
+		let mut app = App::new();
+		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
+		app.add_systems(Update, apply_hits);
+		let target = app.world_mut().spawn(Health { current: 0.0, max: 100.0 }).id();
+		app.world_mut().write_message(Hit {
+			target,
+			source: None,
+			amount: 25.0,
+			point: Vec3::ZERO,
+			allow_self: false,
+		});
+		app.update();
+		let remaining = app.world().get::<Health>(target).map(|health| health.current);
+		if remaining != Some(0.0) {
+			return Err(anyhow!("dead health should stay at zero, got {remaining:?}"));
+		}
+		let died: Vec<_> = app.world_mut().resource_mut::<Messages<Died>>().drain().collect();
+		if !died.is_empty() {
+			return Err(anyhow!("already-dead hits must not emit Died, got {}", died.len()));
+		}
+		Ok(())
+	}
+
+	#[test]
 	fn allow_self_injures_the_source() -> Result<()> {
 		let mut app = App::new();
 		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();

@@ -37,10 +37,17 @@ pub(crate) fn queue_downed_member_deaths(
 ) {
 	let now = time.elapsed_secs();
 	for (entity, membership, transform, global, parented, health) in &downed {
-		let Ok((mut roster, respawn)) = rosters.get_mut(membership.mob) else {
+		let policy = rosters
+			.get(membership.mob)
+			.ok()
+			.map(|(_, respawn)| policy(respawn))
+			.unwrap_or_else(MobRespawn::never);
+		// Always queue the corpse. Roster misses used to `continue` first, so a
+		// stale live pointer left a 0-HP plant that `apply_hits` then ignored.
+		commands.entity(entity).try_insert(DespawnAfter::seconds(policy.corpse_secs));
+		let Ok((mut roster, _)) = rosters.get_mut(membership.mob) else {
 			continue;
 		};
-		let policy = policy(respawn);
 		let Some(member) = roster.get_mut(membership.slot) else {
 			continue;
 		};
@@ -52,7 +59,6 @@ pub(crate) fn queue_downed_member_deaths(
 			member.health = *health;
 		}
 		schedule_respawn(member, membership.slot, policy, now);
-		commands.entity(entity).try_insert(DespawnAfter::seconds(policy.corpse_secs));
 	}
 }
 
