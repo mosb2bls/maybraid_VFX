@@ -8,8 +8,8 @@ use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
 use bevy::window::PrimaryWindow;
 use character_creation_menus::{
-	spin_reveal_firearm_focus, spin_reveal_focus, CharacterField, CharacterMenu, ConceptSpecies,
-	MenuEvent, BODY_FOCUS,
+	spin_reveal_firearm_focus, spin_reveal_focus, spin_reveal_grenade_focus, CharacterField,
+	CharacterMenu, ConceptSpecies, MenuEvent, BODY_FOCUS,
 };
 use character_items::{ClothingHost, ClothingMesh, FirearmSpec, InventoryItem, ItemColor};
 use character_persist::SaveRoot;
@@ -26,6 +26,7 @@ use firearms_components::{
 	add_firearm_components_host, firearm_bounds, firearm_preview_camera, spawn_firearm_components,
 	FirearmComponentsPlugin, FirearmRoot,
 };
+use grenades::{grenade_material, grenade_mesh, GrenadeMaterial, GrenadeMaterialPlugin};
 use lod::lod_ref::LodRef;
 use lod::scene::LodScene;
 use lod::scene::LodSceneLevel;
@@ -43,6 +44,11 @@ use crate::weapon_gallery::{RequestShowWeapons, WeaponGalleryScreen};
 
 #[derive(Component)]
 pub struct CharacterPreviewRoot;
+
+/// Menu inspect orb for a starter grenade. Realized after spawn so [`Assets`]
+/// can own the mesh / material.
+#[derive(Component)]
+struct GrenadePreview;
 
 /// Menu-playground key / fill lights. Composed applications can put these on
 /// the same render layer as [`CharacterPreviewRoot`].
@@ -283,6 +289,9 @@ impl Plugin for CharacterPreviewPlugin {
 		if !app.is_plugin_added::<FirearmComponentsPlugin>() {
 			app.add_plugins(FirearmComponentsPlugin);
 		}
+		if !app.is_plugin_added::<GrenadeMaterialPlugin>() {
+			app.add_plugins(GrenadeMaterialPlugin);
+		}
 		add_firearm_components_host::<GeneratedFirearm>(app);
 		app.init_resource::<PreviewSyncState>()
 			.init_resource::<PendingCameraFocus>()
@@ -296,6 +305,7 @@ impl Plugin for CharacterPreviewPlugin {
 				Update,
 				(
 					sync_preview.after(SpinRevealSystems::Apply),
+					realize_preview_grenades.after(sync_preview),
 					stamp_preview_animation
 						.after(sync_preview)
 						.after(CharacterHostSystems::Membership)
@@ -378,9 +388,12 @@ fn sync_preview(
 				commands.entity(entity).despawn();
 			}
 			spawn_from_item(&mut commands, &spin.item);
-			let focus = match spin.item.firearm_mesh() {
-				Some(_) => spin_reveal_firearm_focus(),
-				None => spin.item.mesh().map_or(BODY_FOCUS, |mesh| spin_reveal_focus(mesh.kind())),
+			let focus = if spin.item.firearm_mesh().is_some() {
+				spin_reveal_firearm_focus()
+			} else if spin.item.grenade_spec().is_some() {
+				spin_reveal_grenade_focus()
+			} else {
+				spin.item.mesh().map_or(BODY_FOCUS, |mesh| spin_reveal_focus(mesh.kind()))
 			};
 			pending.set_focus(focus);
 			pending.frame = None;
@@ -470,11 +483,19 @@ pub(crate) fn spawn_firearm(
 	spawn_firearm_components(commands, &preview, transform, firearm_bounds(&preview))
 }
 
+/// Preview orb diameter. Held gameplay scale is 0.2; inspect needs to read
+/// in the right-hand pane without using the firearm camera distance.
+const GRENADE_PREVIEW_SCALE: f32 = 0.7;
+
 fn spawn_from_item(commands: &mut Commands, item: &InventoryItem) {
 	if let Some(spec) = item.firearm_spec() {
 		for entity in spawn_firearm(commands, spec, Transform::IDENTITY) {
 			commands.entity(entity).insert(CharacterPreviewRoot);
 		}
+		return;
+	}
+	if item.grenade_spec().is_some() {
+		spawn_grenade_preview(commands);
 		return;
 	}
 	let Some(mesh) = item.mesh() else {
@@ -490,6 +511,30 @@ fn spawn_from_item(commands: &mut Commands, item: &InventoryItem) {
 				.with_material(material.id),
 		},
 	);
+}
+
+fn spawn_grenade_preview(commands: &mut Commands) {
+	commands.spawn((
+		Name::new("preview-grenade"),
+		CharacterPreviewRoot,
+		GrenadePreview,
+		Transform::from_scale(Vec3::splat(GRENADE_PREVIEW_SCALE)),
+		Visibility::default(),
+	));
+}
+
+fn realize_preview_grenades(
+	mut commands: Commands,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut materials: ResMut<Assets<GrenadeMaterial>>,
+	pending: Query<Entity, (With<GrenadePreview>, Without<Mesh3d>)>,
+) {
+	for entity in &pending {
+		commands.entity(entity).insert((
+			Mesh3d(meshes.add(grenade_mesh())),
+			MeshMaterial3d(materials.add(grenade_material())),
+		));
+	}
 }
 
 /// Unskinned garment in bind pose. Camera framing is per clothing kind.
@@ -903,5 +948,22 @@ mod tests {
 		let camera = frame.look_delta + frame.camera_delta;
 		assert!(camera.abs_diff_eq(rotation * EYE_FOCUS.camera_offset, EPS));
 		assert!(frame.look_delta.abs_diff_eq(rotation * EYE_FOCUS.look_at_offset, EPS));
+	}
+
+	#[test]
+	fn grenade_preview_spawns_an_inspect_orb() {
+		let mut world = World::new();
+		spawn_from_item(&mut world.commands(), &InventoryItem::standard_grenade());
+		world.flush();
+		let count = world.query::<(&GrenadePreview, &CharacterPreviewRoot)>().iter(&world).count();
+		assert_eq!(count, 1);
+	}
+
+	#[test]
+	fn grenade_inspect_is_closer_than_the_firearm_kit() {
+		let gun = spin_reveal_firearm_focus();
+		let charge = spin_reveal_grenade_focus();
+		assert!(charge.camera_offset.length() < gun.camera_offset.length());
+		assert!(GRENADE_PREVIEW_SCALE > 0.2);
 	}
 }
