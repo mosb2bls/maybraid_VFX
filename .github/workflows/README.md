@@ -2,7 +2,9 @@
 
 Workflows in this directory run on GitHub-hosted runners. Most compile and
 format jobs share [`nix-command.yml`](nix-command.yml): install Nix, enable
-flakes, then `nix develop --command …` on `ubuntu-latest`.
+flakes, restore [`Swatinem/rust-cache`](https://github.com/Swatinem/rust-cache)
+for `target/` and Cargo registries, then `nix develop --command …` on
+`ubuntu-latest`.
 
 `on.push.branches` with an empty list means **every branch**, not only `main`.
 
