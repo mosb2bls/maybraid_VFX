@@ -183,7 +183,7 @@ fn spawn_subject(
 			.id(),
 	};
 	if silhouette {
-		commands.entity(root).insert(CaptureSilhouetteRoot);
+		commands.entity(root).try_insert(CaptureSilhouetteRoot);
 	}
 	root
 }
@@ -309,7 +309,7 @@ pub(crate) fn apply_silhouette(
 				silhouette_from_standard(&StandardMaterial::default())
 			}
 		};
-		commands.entity(entity).insert(MeshMaterial3d(materials.add(silhouette)));
+		commands.entity(entity).try_insert(MeshMaterial3d(materials.add(silhouette)));
 		converted += 1;
 	});
 	if converted == 0 {
@@ -379,7 +379,7 @@ fn on_readback_complete(
 	let Ok(_) = readbacks.get(entity) else {
 		return;
 	};
-	commands.entity(entity).insert(CapturePixels(completed.data.clone()));
+	commands.entity(entity).try_insert(CapturePixels(completed.data.clone()));
 }
 
 pub(crate) fn take_pixels(

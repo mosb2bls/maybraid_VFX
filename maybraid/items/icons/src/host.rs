@@ -95,7 +95,7 @@ pub fn realize_capture_hosts(
 			continue;
 		};
 		if spawn_item_host(&mut commands, root, item) {
-			commands.entity(root).insert(CaptureHostRealized);
+			commands.entity(root).try_insert(CaptureHostRealized);
 		}
 	}
 }
@@ -127,7 +127,7 @@ pub fn mark_capture_hosts_ready(
 			&clothing,
 			&faces,
 		) {
-			commands.entity(root).insert(CaptureHostReady);
+			commands.entity(root).try_insert(CaptureHostReady);
 		}
 	}
 }
@@ -161,7 +161,7 @@ fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) 
 				Transform::IDENTITY,
 				firearm_bounds(&preview),
 			) {
-				commands.entity(entity).insert(ChildOf(root));
+				commands.entity(entity).try_insert(ChildOf(root));
 			}
 			true
 		}
@@ -171,7 +171,7 @@ fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) 
 					.with_material(material.id),
 			};
 			let entity = spawn_clothing_icon(commands, &preview);
-			commands.entity(entity).insert(ChildOf(root));
+			commands.entity(entity).try_insert(ChildOf(root));
 			true
 		}
 		InventoryItem::Grenade { .. } | InventoryItem::SkillMap { .. } => false,
