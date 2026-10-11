@@ -354,7 +354,7 @@ fn tick_self_heal(
 			
 			// Log healing with cap info when damaged flag is set
 			if live.damaged && (hp_after - hp_before).abs() > 0.01 {
-				info!(
+				eprintln!(
 					"[HEAL_TICK] HP {:.1} -> {:.1} (max={:.1}, cap={:.1}, damaged={}, remaining={:.1})",
 					hp_before, hp_after, health.max, cap, live.damaged, remaining
 				);
@@ -405,7 +405,7 @@ fn latch_self_heal_damage(
 	// Log cap latch event with current HP
 	if let Ok(health) = healths.get(owner) {
 		let cap = config.cap_hp(health.max, true);
-		info!(
+		eprintln!(
 			"[CAP_LATCH] HP={:.1}/{:.1} at latch, new cap={:.1} ({:.0}%)",
 			health.current, health.max, cap, (cap / health.max) * 100.0
 		);
