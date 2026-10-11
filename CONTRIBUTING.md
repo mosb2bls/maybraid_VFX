@@ -300,6 +300,60 @@ Download the asset first. Open `.tracy` in Tracy GUI 0.13.x, or the [web viewer]
 
 Findings should be 3–8 bullets about **this file**, including caveats (throttled regime, lost encoder labels, GPU clock state).
 
+### Latest Traces release
+
+Traces releases are never marked Latest, so "the latest Traces release" is the `*-traces` tag with the highest `X.Y.Z`:
+
+```bash
+gh release list -R ramate-io/maybraid -L 100 --json tagName -q '.[].tagName' \
+  | grep -- '-traces$' | sort -V | tail -1
+```
+
+If the workspace version has moved past it, create the new version's release first (see [Release identity](#release-identity)).
+
+### Gameplay scripts as assets
+
+Agent scripts ([`maybraid/agent`](maybraid/agent/README.md)) can be published on a Traces release, so capture runs can be reproduced and later scripts can build on earlier ones. They use the same naming with `script` in the device slot:
+
+```
+<commit7>_<YYYYMMDD>_script_<setting>.jsonl
+<commit7>_<YYYYMMDD>_script_<setting>.md
+```
+
+- `commit7` is the commit whose script API the script was written and parse-checked against.
+- The measure window is a `<setting>-warmup` / `<setting>` pair of `scenario` marks, followed by `quit`. The flight scripts read the last non-`-warmup` start mark.
+- Choose the start location with a leading `{"cmd":"start","xz":[X,Z]}` rather than relying on `--start-at`.
+- The companion `.md` states the **script API version** ([agent README](maybraid/agent/README.md#script-api-version)). It also covers start location, route, what the script exercises (streaming, locomotion, crowds, combat, …), which zones or passes it should stress, and which earlier scripts it extends.
+
+Check that a script parses before publishing it: run `profiling/tracy-flight.sh path/to/script.jsonl check 1`, or `cargo test -p maybraid-agent` with the script copied into `maybraid/agent/scripts/` locally.
+
+CPU captures come from `profiling/tracy-flight.sh <script.jsonl> <phase> <repeat>`, and GPU captures from `profiling/metal-flight.sh` (Metal System Trace; uploads `*.trace.zip`). Both accept a downloaded script path. See [`profiling/README.md`](profiling/README.md).
+
+### The `trace` label
+
+Issues, discussions, and PRs that come from Traces releases carry the `trace` label. That covers hitch, CPU, or GPU findings; crashes found in captures (`trace` + `bug`); and optimizations that cite a capture. Link the release assets they discuss. Optimization PRs post before/after captures to the release under the same naming.
+
+### Daily trace routines
+
+Scheduled agents keep the Traces release current. Times are CET; each routine is independent and skips quietly when it has nothing to do.
+
+| Time | Routine | Output |
+|---|---|---|
+| 07:00 | Bug fixes | PRs fixing open `trace` + `bug` issues |
+| 08:00 | Script writer | One new `script_<setting>.jsonl` + `.md` on the latest Traces release |
+| 09:00 | Trace capturer | CPU `.tracy` and GPU `.trace.zip` captures (+ `.md`) of interesting scripts — only when the `maybraid-gpu` machine is available |
+| 11:00 | Hitch finder | `trace` issue/discussion on frame hitches; `trace` + `bug` issue per crash |
+| 11:00 | CPU performance | `trace` issue/discussion on steady-state CPU zones |
+| 11:00 | GPU performance | `trace` issue/discussion on GPU passes |
+| 16:00 | Live optimizer | One well-scoped `trace` PR addressing captured findings, with before/after captures when `maybraid-gpu` is available |
+
+Rules for every routine:
+
+1. Read the latest Traces release's assets and companion `.md` files first, and do not repeat an existing script, capture, or finding. Search open `trace` issues and discussions before filing.
+2. Capture only on `maybraid-gpu`, one game at a time. The flight scripts refuse to start when `maybraid`, `tracy-capture`, or `xctrace` is running. Treat that as "machine unavailable" and skip.
+3. Asset names and companion `.md` files follow this section. Upload with `gh release upload vX.Y.Z-traces <files> -R ramate-io/maybraid`, never `--clobber` someone else's asset.
+4. Findings cite asset names and numbers from them (window means, p95, hitch frames). Speculation is labeled as such.
+
 ## Spotting and combat targeting
 
 Keep semantic eligibility, visual knowledge, combat membership, and weapon
