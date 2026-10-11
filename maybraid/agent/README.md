@@ -1,0 +1,65 @@
+# Agent drive / observe
+
+Text commands and events so a slow-inference agent (or a Tracy flight) can
+drive Discovery without frame-by-frame steering.
+
+The crate is Bevy-free. Parse, script load, and clock playback live here.
+The world plugin (only when `--agent-script` / `--agent-pipe` is set) copies
+each [`PadIntent`](src/pad.rs) onto the virtual pad after HID produce, so
+injected input uses the same `VirtualPad` → `CharacterIntent` path as a
+gamepad or keyboard.
+
+## Opt-in
+
+```bash
+maybraid --start-at=0,0 \
+  --agent-script maybraid/agent/scripts/origin-walk.jsonl \
+  --agent-events /tmp/maybraid-events.jsonl \
+  --agent-quit
+```
+
+`--agent-pipe PATH` (`-` = stdin) appends live JSON lines behind the script.
+`MAYBRAID_AGENT_SCRIPT`, `MAYBRAID_AGENT_EVENTS`, `MAYBRAID_AGENT_PIPE`, and
+`MAYBRAID_AGENT_QUIT` are the env equivalents. With none of those set the
+plugin is not added.
+
+## Commands
+
+Line-delimited JSON. `#` and `//` comments are skipped. Internally tagged
+with `"cmd"`.
+
+| `cmd` | Fields | Clock |
+|---|---|---|
+| `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
+| `press` | `button` | one frame |
+| `wait` | `secs` | idle |
+| `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint` | steer until reached |
+| `teleport` | `xz`, optional `y` | instant (utility) |
+| `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
+| `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
+| `quit` | | request process exit |
+
+Buttons: `jump` (`a`), `sprint` (`l3`), `stance` (`b`), `interact` (`x`),
+`swap` (`y`), `ads` (`lb`), `fire` (`rt`), `focus` (`lt`), `menu`, `map`,
+`swap_pov` (`r3`), d-pad.
+
+See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl) and
+[`scripts/biome-traverse.jsonl`](scripts/biome-traverse.jsonl).
+
+## Events
+
+Line-delimited JSON to `--agent-events`. Every line has `t` (game seconds)
+and `frame`.
+
+| `kind` | When |
+|---|---|
+| `ready` | world surface + gameplay are up (or ready-timeout) |
+| `player` | periodic pose (`x,y,z`, `yaw`, `move`) |
+| `command` | `acknowledged` / `started` / `finished` / `failed` |
+| `waypoint` | `goto` reached or timed out |
+| `scenario` | script markers |
+| `chunk_loads` | count of new cascade chunks this frame (cheap summary) |
+| `quit` | process is exiting |
+
+Scenario / command / waypoint / ready also emit Tracy messages when the
+binary is built with `bevy/trace_tracy`.

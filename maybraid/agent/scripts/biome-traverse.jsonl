@@ -1,0 +1,18 @@
+# Longer streaming route across a few kilometres of Discovery from the origin.
+# Hold / goto use the virtual pad (WASD / left stick), so vegetation and
+# urbanization stream in the same way a player walking the route would.
+
+{"cmd":"scenario","name":"biome-traverse","mark":"start"}
+{"cmd":"console","line":"stats vsync"}
+{"cmd":"wait","secs":2}
+
+{"cmd":"hold","move":[0,1],"secs":12}
+{"cmd":"hold","look":[0.35,0],"secs":1.2}
+{"cmd":"hold","move":[0,1],"buttons":["sprint"],"secs":8}
+
+{"cmd":"goto","xz":[250,0],"timeout":90,"radius":6,"sprint":true}
+{"cmd":"goto","xz":[250,250],"timeout":90,"radius":6,"sprint":true}
+{"cmd":"goto","xz":[0,250],"timeout":90,"radius":6}
+
+{"cmd":"scenario","name":"biome-traverse","mark":"end"}
+{"cmd":"quit"}
