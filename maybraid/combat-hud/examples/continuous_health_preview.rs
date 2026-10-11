@@ -75,18 +75,38 @@ impl Default for PreviewDriver {
 	}
 }
 
-fn spawn_preview(mut commands: Commands) {
-	// Camera
-	commands.spawn(Camera3d::default());
+fn spawn_preview(
+	mut commands: Commands,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+	// Camera positioned to view the player
+	commands.spawn((
+		Camera3d::default(),
+		Transform::from_xyz(0.0, 2.0, 8.0).looking_at(Vec3::new(0.0, 1.5, 0.0), Vec3::Y),
+	));
 
-	// Player entity with health - positioned so bar is visible
+	// Light so the player is visible
+	commands.spawn((
+		DirectionalLight {
+			illuminance: 10000.0,
+			..default()
+		},
+		Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.5, 0.5, 0.0)),
+	));
+
+	// Player entity with health and a visible mesh
 	commands
 		.spawn((
 			PreviewPlayer,
 			Player,
 			Health { current: 100.0, max: 100.0 },
-			Transform::from_xyz(0.0, 1.5, -5.0),
-			GlobalTransform::default(),
+			Transform::from_xyz(0.0, 1.5, 0.0),
+			Mesh3d(meshes.add(Capsule3d::new(0.4, 1.2))),
+			MeshMaterial3d(materials.add(StandardMaterial {
+				base_color: Color::srgb(0.5, 0.5, 0.8),
+				..default()
+			})),
 			player::LocomotionCapsule::default(),
 		))
 		.insert(Name::new("Preview Player"));
@@ -110,20 +130,20 @@ fn drive_states(
 		return;
 	};
 
-	// State 1 (frames 10-40): Full health
+	// State 1 (frames 10-60): Full health
 	if driver.frame == 10 {
 		health.current = 100.0;
 		commands.entity(entity).remove::<LubikanSelfHealChannel>();
 	}
 
-	// State 2 (frames 50-80): Damaged with trail visible
-	if driver.frame == 50 {
+	// State 2 (frames 80-130): Damaged with trail visible
+	if driver.frame == 80 {
 		health.current = 50.0;
 		commands.entity(entity).remove::<LubikanSelfHealChannel>();
 	}
 
-	// State 3 (frames 90-120): Healing mid-way with pulse and preview
-	if driver.frame == 90 {
+	// State 3 (frames 150-200): Healing mid-way with pulse and preview
+	if driver.frame == 150 {
 		health.current = 50.0;
 		commands.entity(entity).insert(LubikanSelfHealChannel {
 			active: true,
@@ -136,8 +156,8 @@ fn drive_states(
 		});
 	}
 
-	// State 4 (frames 130-160): Healing under 70% cap with marker
-	if driver.frame == 130 {
+	// State 4 (frames 220-270): Healing under 70% cap with marker
+	if driver.frame == 220 {
 		health.current = 40.0;
 		commands.entity(entity).insert(LubikanSelfHealChannel {
 			active: true,
@@ -150,8 +170,8 @@ fn drive_states(
 		});
 	}
 
-	// State 5 (frames 170-200): Completion flash
-	if driver.frame == 170 {
+	// State 5 (frames 290-320): Completion flash
+	if driver.frame == 290 {
 		health.current = 70.0;
 		commands.entity(entity).remove::<LubikanSelfHealChannel>();
 		messages.write(LubikanActivationFinished {
@@ -174,11 +194,11 @@ fn capture_shots(
 	}
 
 	let (frame, name) = match driver.frame {
-		40 => (40, "1-full-health"),
-		80 => (80, "2-damaged-trail"),
-		120 => (120, "3-healing-active"),
-		160 => (160, "4-healing-capped"),
-		180 => (180, "5-completion-flash"),
+		60 => (60, "1-full-health"),
+		130 => (130, "2-damaged-trail"),
+		185 => (185, "3-healing-active"),
+		260 => (260, "4-healing-capped"),
+		305 => (305, "5-completion-flash"),
 		_ => return,
 	};
 
@@ -210,7 +230,7 @@ fn quit_after_shots(
 		info!("All 5 shots captured, exiting successfully");
 		exit.write(AppExit::Success);
 	}
-	if driver.frame > 220 {
+	if driver.frame > 340 {
 		let count = [shot1, shot2, shot3, shot4, shot5].iter().filter(|&&x| x).count();
 		warn!("Frame limit reached with {} shots, exiting", count);
 		exit.write(AppExit::Success);
