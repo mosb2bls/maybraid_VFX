@@ -115,11 +115,12 @@ fn spawn_flyer(
 	});
 }
 
-#[allow(clippy::type_complexity)]
+type PlayerWithLedger<'w, 's> = Query<'w, 's, (Entity, &'static lubikans::LubikanLedger), (With<Player>, With<LubikanOwner>)>;
+
 pub(crate) fn update_lubikan_point_flyers(
 	time: Res<Time>,
 	hud: Res<CombatHudVisible>,
-	players: Query<(Entity, &lubikans::LubikanLedger), (With<Player>, With<LubikanOwner>)>,
+	players: PlayerWithLedger,
 	anchors: Query<&UiGlobalTransform, With<LubikanChargeFlyTarget>>,
 	mut flyers: Query<(Entity, &mut LubikanPointFlyer, &mut Node, &mut TextColor, &mut Visibility)>,
 	mut commands: Commands,

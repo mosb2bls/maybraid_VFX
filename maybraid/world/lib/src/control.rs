@@ -92,6 +92,8 @@ fn discovery_xz(
 	layout.region_center_xz().xz()
 }
 
+type WorldOnlyPlayerQuery<'w, 's> = Query<'w, 's, Entity, (With<Player>, Without<MaybraidPlayer>, Added<Player>)>;
+
 /// Mark the world capsule as a Lubikan owner. [`lubikans::LubikansPlugin`]
 /// attaches the Self ledger in `LubikanSystems::Owner`; do not insert
 /// `LubikanLedger::with_self` here. [#1112](https://github.com/ramate-io/maybraid/issues/1112)
@@ -103,7 +105,7 @@ pub fn grant_world_player_lubikan_owner(
 	mut commands: Commands,
 	// Match world players that don't have generic player::Player marker
 	// This runs when the world player spawns AND when it respawns after death
-	world_only: Query<Entity, (With<Player>, Without<MaybraidPlayer>, Added<Player>)>,
+	world_only: WorldOnlyPlayerQuery,
 ) {
 	for player in &world_only {
 		commands.entity(player).insert((
@@ -287,20 +289,15 @@ pub(crate) fn stamp_vegetation_motor_traction(
 	}
 }
 
+type PlayerMotorMissingQuery<'w, 's> = Query<'w, 's, Entity, (With<Player>, Without<CharacterController>)>;
+type PlayerMotorPresentQuery<'w, 's> = Query<'w, 's, (Entity, Option<&'static CharacterStance>, Option<&'static RestLocomotionCapsule>, Option<&'static LocomotionCapsule>), (With<Player>, With<CharacterController>)>;
+
 /// Put the world player on the player-crate capsule motor so column buoyancy runs.
 pub(crate) fn stamp_world_player_motor(
 	physics: Res<PlayerPhysicsEnabled>,
 	mut commands: Commands,
-	missing: Query<Entity, (With<Player>, Without<CharacterController>)>,
-	present: Query<
-		(
-			Entity,
-			Option<&CharacterStance>,
-			Option<&RestLocomotionCapsule>,
-			Option<&LocomotionCapsule>,
-		),
-		(With<Player>, With<CharacterController>),
-	>,
+	missing: PlayerMotorMissingQuery,
+	present: PlayerMotorPresentQuery,
 ) {
 	if physics.0 {
 		for entity in &missing {

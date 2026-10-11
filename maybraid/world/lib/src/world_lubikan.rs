@@ -63,14 +63,12 @@ impl Plugin for WorldLubikanPlugin {
 		
 		app.add_systems(
 			Update,
-			request_lubikan_activation
-				.after(CharacterControlSystems)
-				.before(LubikanSystems::Activate),
-		);
-		
-		app.add_systems(
-			PostUpdate,
-			sync_lubikan_healing_enabled,
+			(
+				sync_lubikan_healing_enabled,
+				request_lubikan_activation
+					.after(CharacterControlSystems)
+					.before(LubikanSystems::Activate),
+			),
 		);
 	}
 }
@@ -152,10 +150,12 @@ fn sync_lubikan_healing_enabled(
 }
 
 /// Configure world lubikan routing systems for headless tests.
-/// This registers only the input routing (PowerUseItem → LubikanActivationRequest),
-/// not the full WorldLubikanPlugin lifecycle.
+/// Registers activation routing and healing sync, matching the old lubikan_activate.rs behavior.
 pub fn configure(app: &mut App) {
-	app.add_systems(Update, request_lubikan_activation);
+	app.add_systems(
+		Update,
+		(sync_lubikan_healing_enabled, request_lubikan_activation),
+	);
 }
 
 /// Route PowerUseItem intent to equipped Lubikan activation.

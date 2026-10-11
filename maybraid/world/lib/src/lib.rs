@@ -21,9 +21,6 @@ pub mod world_lubikan;
 #[cfg(feature = "debug-commands")]
 pub mod world_debug;
 
-#[cfg(feature = "debug-commands")]
-pub mod auto_capture;
-
 mod pitch;
 mod player_lifecycle;
 mod player_position;
@@ -35,9 +32,6 @@ mod vsync;
 mod weapon;
 mod world_furnished;
 mod world_layers;
-
-#[cfg(feature = "debug-commands")]
-pub mod auto_capture;
 
 pub use world_furnished::WorldFurnished;
 
