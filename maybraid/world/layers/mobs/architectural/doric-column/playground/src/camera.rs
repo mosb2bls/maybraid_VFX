@@ -19,9 +19,8 @@ pub fn preview_camera_transform() -> Transform {
 		Ok("caps") => {
 			Transform::from_xyz(-2.0, 2.2, 7.5).looking_at(Vec3::new(-4.0, 2.8, 0.0), Vec3::Y)
 		}
-		Ok("topdown") => {
-			Transform::from_xyz(0.0, 22.0, 0.0).looking_at(Vec3::ZERO, Vec3::NEG_Z)
-		}
+		Ok("topdown") => Transform::from_translation(Vec3::new(0.0, 28.0, 0.0))
+			.with_rotation(Quat::from_rotation_x(-PI / 2.0)),
 		_ => Transform::from_xyz(8.0, 6.5, 14.0).looking_at(Vec3::new(0.0, 4.8, 0.0), Vec3::Y),
 	}
 }
