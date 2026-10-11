@@ -157,10 +157,9 @@ pub fn tick_grenade_fuses(
 }
 
 /// Animated colliders only; terrain is [`PhysicsInteractionLayer::Fixed`].
-fn blast_overlap_filter(source: Entity) -> SpatialQueryFilter {
-	PhysicsInteractionLayer::Animated
-		.query_filter()
-		.with_excluded_entities([source])
+/// The thrower stays in the overlap so a short fuse can injure them.
+fn blast_overlap_filter() -> SpatialQueryFilter {
+	PhysicsInteractionLayer::Animated.query_filter()
 }
 
 /// Extension point for wall occlusion before falloff. Always clear until LOS is wired.
@@ -200,9 +199,6 @@ fn collect_blast_hits(
 	let mut damaged = Vec::new();
 	let mut out = Vec::new();
 	for &collider in candidates {
-		if collider == blast.source {
-			continue;
-		}
 		let parent = parents.get(collider).ok().map(|child| child.parent());
 		let target = damage::Health::entity_or_parent(
 			collider,
@@ -210,7 +206,7 @@ fn collect_blast_hits(
 			health.contains(collider),
 			parent.is_some_and(|parent| health.contains(parent)),
 		);
-		if target == blast.source || !health.contains(target) || damaged.contains(&target) {
+		if !health.contains(target) || damaged.contains(&target) {
 			continue;
 		}
 		let Some(point) = blast_target_point(target, collider, transforms) else {
@@ -224,7 +220,13 @@ fn collect_blast_hits(
 			continue;
 		}
 		damaged.push(target);
-		out.push(Hit { target, source: Some(blast.source), amount, point });
+		out.push(Hit {
+			target,
+			source: Some(blast.source),
+			amount,
+			point,
+			allow_self: target == blast.source,
+		});
 	}
 	out
 }
@@ -240,7 +242,7 @@ pub fn apply_grenade_blasts(
 	mut hits: MessageWriter<Hit>,
 ) {
 	for blast in detonations.read() {
-		let filter = blast_overlap_filter(blast.source);
+		let filter = blast_overlap_filter();
 		let candidates = spatial.shape_intersections(
 			&Collider::sphere(blast.radius),
 			blast.position,
@@ -341,7 +343,7 @@ mod tests {
 				      transforms: Query<(Entity, &Transform, Option<&GlobalTransform>)>,
 				      health: Query<(), With<Health>>,
 				      parents: Query<&ChildOf>| {
-					let filter = blast_overlap_filter(blast.source);
+					let filter = blast_overlap_filter();
 					collect_blast_hits(
 						&blast,
 						&candidates,
@@ -405,19 +407,19 @@ mod tests {
 	}
 
 	#[test]
-	fn collect_blast_hits_respects_radius_and_source() {
+	fn collect_blast_hits_respects_radius_and_includes_the_thrower() {
 		let mut app = blast_test_app();
 		let in_range = spawn_damageable(&mut app, Vec3::new(2.0, 0.0, 0.0));
-		let out_of_range = spawn_damageable(&mut app, Vec3::new(10.0, 0.0, 0.0));
+		let out_of_range = spawn_damageable(&mut app, Vec3::new(20.0, 0.0, 0.0));
 		let thrower = spawn_damageable(&mut app, Vec3::new(0.5, 0.0, 0.0));
 		app.update();
 		let mut blast = standard_blast();
 		blast.source = thrower;
 		let hits = collect_hits(app.world_mut(), blast, vec![in_range, out_of_range, thrower]);
-		assert_eq!(hits.len(), 1);
-		assert_eq!(hits[0].target, in_range);
-		assert_eq!(hits[0].source, Some(thrower));
-		assert!(hits[0].amount > 0.0);
+		assert_eq!(hits.len(), 2);
+		assert!(hits.iter().any(|hit| hit.target == in_range && !hit.allow_self));
+		assert!(hits.iter().any(|hit| hit.target == thrower && hit.allow_self));
+		assert!(hits.iter().all(|hit| hit.source == Some(thrower) && hit.amount > 0.0));
 	}
 
 	#[test]
@@ -440,7 +442,7 @@ mod tests {
 	fn blast_skips_out_of_radius_targets() {
 		let mut app = blast_test_app();
 		let thrower = app.world_mut().spawn_empty().id();
-		spawn_damageable(&mut app, Vec3::new(10.0, 0.0, 0.0));
+		spawn_damageable(&mut app, Vec3::new(20.0, 0.0, 0.0));
 		let mut blast = standard_blast();
 		blast.source = thrower;
 		run_blast_system(&mut app, blast);
@@ -448,12 +450,17 @@ mod tests {
 	}
 
 	#[test]
-	fn blast_does_not_hit_the_thrower() {
+	fn blast_hits_the_thrower() {
 		let mut app = blast_test_app();
 		let thrower = spawn_damageable(&mut app, Vec3::new(0.5, 0.0, 0.0));
 		let mut blast = standard_blast();
 		blast.source = thrower;
 		run_blast_system(&mut app, blast);
-		assert_eq!(app.world_mut().resource_mut::<Messages<Hit>>().drain().count(), 0);
+		let hits: Vec<Hit> = app.world_mut().resource_mut::<Messages<Hit>>().drain().collect();
+		assert_eq!(hits.len(), 1);
+		assert_eq!(hits[0].target, thrower);
+		assert_eq!(hits[0].source, Some(thrower));
+		assert!(hits[0].allow_self);
+		assert!(hits[0].amount > 0.0);
 	}
 }

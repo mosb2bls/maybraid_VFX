@@ -19,6 +19,7 @@ pub fn contacts_to_hits(
 			source: contact.source,
 			amount: payload.amount,
 			point: contact.point,
+			allow_self: false,
 		});
 	}
 }
