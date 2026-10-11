@@ -7,6 +7,17 @@ use crate::pad::{camera_relative_move, xz_distance, PadIntent};
 
 const MAX_INSTANTS_PER_TICK: usize = 64;
 
+/// Metres of remaining-distance improvement that counts as making progress.
+const STUCK_PROGRESS_M: f32 = 0.35;
+/// Stall seconds before the first jump pulse.
+const STUCK_JUMP_AFTER: f32 = 1.4;
+const STUCK_JUMP_PERIOD: f32 = 1.2;
+/// Stall seconds before adding a lateral stick offset (alternates sides).
+const STUCK_STRAFE_AFTER: f32 = 2.2;
+const STUCK_STRAFE_PERIOD: f32 = 1.1;
+/// Give up instead of burning the remaining `goto` timeout against terrain.
+const STUCK_GIVE_UP: f32 = 5.5;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TickView {
 	pub player_xz: Option<[f32; 2]>,
@@ -60,6 +71,8 @@ enum Active {
 		sprint: bool,
 		look: Option<[f32; 2]>,
 		elapsed: f32,
+		last_remaining: f32,
+		stall_secs: f32,
 	},
 }
 
@@ -177,7 +190,17 @@ fn start_command(
 			true
 		}
 		AgentCommand::Goto { xz, timeout, radius, sprint, look } => {
-			*active = Some(Active::Goto { id, xz, timeout, radius, sprint, look, elapsed: 0.0 });
+			*active = Some(Active::Goto {
+				id,
+				xz,
+				timeout,
+				radius,
+				sprint,
+				look,
+				elapsed: 0.0,
+				last_remaining: f32::MAX,
+				stall_secs: 0.0,
+			});
 			false
 		}
 		command => {
@@ -213,8 +236,20 @@ fn step_active(
 				Step::Continue(Active::Hold { id, remaining: remaining - dt, intent: hold })
 			}
 		}
-		Active::Goto { id, xz, timeout, radius, sprint, look, elapsed } => {
+		Active::Goto {
+			id,
+			xz,
+			timeout,
+			radius,
+			sprint,
+			look,
+			elapsed,
+			last_remaining,
+			stall_secs,
+		} => {
 			let elapsed = elapsed + dt;
+			let mut last_remaining = last_remaining;
+			let mut stall_secs = stall_secs;
 			if let Some(from) = view.player_xz {
 				let remaining = xz_distance(from, xz);
 				if remaining <= radius {
@@ -225,19 +260,33 @@ fn step_active(
 					});
 					return Step::Done { leftover: 0.0 };
 				}
+				if remaining + STUCK_PROGRESS_M < last_remaining {
+					last_remaining = remaining;
+					stall_secs = 0.0;
+				} else {
+					stall_secs += dt;
+				}
+				if stall_secs >= STUCK_GIVE_UP {
+					return fail_goto(id, xz, remaining, "stuck", effects);
+				}
 				*intent = steer_goto(from, xz, view.yaw, sprint, look);
+				apply_unstuck(intent, stall_secs, dt);
 			}
 			if elapsed >= timeout {
 				let remaining = view.player_xz.map(|from| xz_distance(from, xz)).unwrap_or(timeout);
-				effects.push(TickEffect::Waypoint { id, xz, reached: false, remaining });
-				effects.push(TickEffect::Failed {
-					id,
-					cmd: format!("goto {:.1},{:.1}", xz[0], xz[1]),
-					detail: "timeout".into(),
-				});
-				return Step::Done { leftover: 0.0 };
+				return fail_goto(id, xz, remaining, "timeout", effects);
 			}
-			Step::Continue(Active::Goto { id, xz, timeout, radius, sprint, look, elapsed })
+			Step::Continue(Active::Goto {
+				id,
+				xz,
+				timeout,
+				radius,
+				sprint,
+				look,
+				elapsed,
+				last_remaining,
+				stall_secs,
+			})
 		}
 	}
 }
@@ -258,6 +307,48 @@ fn steer_goto(
 		intent.hold_button(crate::command::AgentButton::Sprint);
 	}
 	intent
+}
+
+fn fail_goto(
+	id: u32,
+	xz: [f32; 2],
+	remaining: f32,
+	detail: &str,
+	effects: &mut Vec<TickEffect>,
+) -> Step {
+	effects.push(TickEffect::Waypoint { id, xz, reached: false, remaining });
+	effects.push(TickEffect::Failed {
+		id,
+		cmd: format!("goto {:.1},{:.1}", xz[0], xz[1]),
+		detail: detail.into(),
+	});
+	Step::Done { leftover: 0.0 }
+}
+
+fn apply_unstuck(intent: &mut PadIntent, stall_secs: f32, dt: f32) {
+	if should_pulse_jump(stall_secs, dt) {
+		intent.hold_button(crate::command::AgentButton::Jump);
+	}
+	if stall_secs >= STUCK_STRAFE_AFTER {
+		let phase = ((stall_secs - STUCK_STRAFE_AFTER) / STUCK_STRAFE_PERIOD).floor() as i32;
+		let sign = if phase.rem_euclid(2) == 0 { 1.0 } else { -1.0 };
+		let fwd = intent.move_stick;
+		let lateral = [fwd[1] * sign, -fwd[0] * sign];
+		intent.move_stick =
+			crate::pad::clamp_stick([fwd[0] + 0.75 * lateral[0], fwd[1] + 0.75 * lateral[1]]);
+	}
+}
+
+fn should_pulse_jump(stall_secs: f32, dt: f32) -> bool {
+	if stall_secs < STUCK_JUMP_AFTER {
+		return false;
+	}
+	let since = stall_secs - STUCK_JUMP_AFTER;
+	let prev = since - dt;
+	if prev < 0.0 {
+		return true;
+	}
+	(since / STUCK_JUMP_PERIOD).floor() > (prev / STUCK_JUMP_PERIOD).floor()
 }
 
 #[cfg(test)]
@@ -376,6 +467,61 @@ mod tests {
 			effect,
 			TickEffect::Failed { detail, .. } if detail == "timeout"
 		)));
+		Ok(())
+	}
+
+	fn stuck_goto(timeout: f32) -> Playback {
+		Playback::from_commands([AgentCommand::Goto {
+			xz: [100.0, 0.0],
+			timeout,
+			radius: 3.0,
+			sprint: false,
+			look: None,
+		}])
+	}
+
+	fn origin_view() -> TickView {
+		TickView { player_xz: Some([0.0, 0.0]), yaw: 0.0 }
+	}
+
+	#[test]
+	fn goto_unstuck_jumps_strafes_then_fails_early() -> anyhow::Result<()> {
+		let mut playback = stuck_goto(30.0);
+		let armed = playback.tick(0.5, &origin_view());
+		assert!(armed.intent.move_stick[0] > 0.5);
+		assert!(!armed.intent.buttons.contains(&AgentButton::Jump));
+		assert!(armed.intent.move_stick[1].abs() < 1e-5);
+
+		let jump = playback.tick(STUCK_JUMP_AFTER, &origin_view());
+		assert!(jump.intent.buttons.contains(&AgentButton::Jump));
+		assert!(!jump.idle);
+
+		let strafe = playback.tick(STUCK_STRAFE_AFTER - STUCK_JUMP_AFTER + 0.2, &origin_view());
+		assert!(strafe.intent.move_stick[1].abs() > 0.3, "{:?}", strafe.intent.move_stick);
+		assert!(!strafe.idle);
+
+		let gave_up = playback.tick(STUCK_GIVE_UP, &origin_view());
+		assert!(gave_up.effects.iter().any(
+			|effect| matches!(effect, TickEffect::Failed { detail, .. } if detail == "stuck")
+		));
+		assert!(gave_up.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn goto_progress_clears_stall() -> anyhow::Result<()> {
+		let mut playback = stuck_goto(30.0);
+		let view = |x: f32| TickView { player_xz: Some([x, 0.0]), yaw: 0.0 };
+		playback.tick(0.5, &view(0.0));
+		for step in 1..=8 {
+			let tick = playback.tick(1.0, &view(step as f32 * 2.0));
+			assert!(!tick.intent.buttons.contains(&AgentButton::Jump), "jumped at step {step}");
+			assert!(
+				!tick.effects.iter().any(|effect| matches!(effect, TickEffect::Failed { .. })),
+				"failed at step {step}"
+			);
+		}
+		assert!(!playback.is_idle());
 		Ok(())
 	}
 
