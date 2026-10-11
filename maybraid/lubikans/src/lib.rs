@@ -13,6 +13,7 @@ mod charge;
 mod identity;
 mod ledger;
 mod lifetime;
+mod plugin;
 mod selection;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -34,6 +35,7 @@ pub use ledger::{LubikanAccount, LubikanAccountBinding, LubikanLedger, LubikanOw
 pub use lifetime::{
 	LubikanLifetimePolicy, LubikanOwnerLifetime, LubikanOwnerLifetimeKind, LubikanPersistence,
 };
+pub use plugin::{LubikanSessionStore, LubikansPlugin};
 pub use selection::LubikanSelection;
 
 /// Schedule sets other lanes order against. The interface plugin does not

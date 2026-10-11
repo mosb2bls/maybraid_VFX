@@ -77,6 +77,7 @@ use bevy::prelude::*;
 use character_ragdoll::{CharacterRagdollPlugin, CharacterRagdollTargets};
 use characters::{CharacterMotionSystems, DrawTerrainPitchProbes};
 use combat_hud::CombatHudPlugin;
+use lubikans::LubikansPlugin;
 use durham::TerrainFrictionConfig;
 use firearms::EnergyMaterialPlugin;
 use maybraid_vfx::VfxPlugin;
@@ -183,6 +184,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldIntelligencePlugin)
 			.add_plugins(WeatherPlugin)
 			.add_plugins(SkillMapPlugin)
+			.add_plugins(LubikansPlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
 			.add_plugins(WorldMapViewPlugin)
@@ -234,6 +236,7 @@ impl Plugin for WorldPlugin {
 					control::update_world_surface_ready.in_set(control::WorldSurfaceSet),
 					control::sync_world_scenery,
 					control::sync_combat_hud_visible,
+					control::sync_lubikan_session,
 					control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
 					control::apply_intents_to_movement
 						.after(CharacterControlSystems)

@@ -21,6 +21,7 @@ chico = { workspace = true }
 vegetation-components = { workspace = true }
 clap = { workspace = true }
 combat-hud = { workspace = true }
+lubikans = { workspace = true }
 character-items = { workspace = true }
 character-ragdoll = { workspace = true }
 characters = { workspace = true }

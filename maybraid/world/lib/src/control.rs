@@ -86,6 +86,19 @@ fn discovery_xz(
 	layout.region_center_xz().xz()
 }
 
+pub(crate) fn sync_lubikan_session(
+	gameplay: Res<WorldGameplayEnabled>,
+	mut lives: MessageWriter<lubikans::LubikanOwnerLifetime>,
+) {
+	if gameplay.is_changed() && !gameplay.0 {
+		lives.write(lubikans::LubikanOwnerLifetime::new(
+			None,
+			None,
+			lubikans::LubikanOwnerLifetimeKind::RestartSession,
+		));
+	}
+}
+
 pub(crate) fn sync_combat_hud_visible(
 	gameplay: Res<WorldGameplayEnabled>,
 	hud: Option<ResMut<combat_hud::CombatHudVisible>>,

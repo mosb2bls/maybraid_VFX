@@ -39,8 +39,9 @@ charge state by being visible.
 | [`fixtures`](src/fixtures.rs) | Test helper (`test-support` feature or this crate's tests). |
 
 [`LubikanInterfacePlugin`](src/lib.rs) only registers the shared messages.
-Gameplay attach, Self registration in the world, and combat rules land in
-follow-up work on this crate; they must not change these types.
+[`LubikansPlugin`](src/plugin.rs) registers Self, attaches a ledger to each
+`player::Player`, restores charge across body replacement, and honors
+session-restart notices. It has no Bikanwarda or HUD dependency.
 
 ## Consumer fixture
 

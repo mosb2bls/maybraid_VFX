@@ -10,7 +10,7 @@ use crate::change::LubikanChargeChanged;
 use crate::identity::LubikanDefinition;
 use crate::ledger::{LubikanLedger, LubikanOwner};
 use crate::lifetime::LubikanOwnerLifetime;
-use crate::LubikanInterfacePlugin;
+use crate::{LubikanInterfacePlugin, LubikansPlugin};
 
 /// Register the shared messages and default Self catalog / config.
 pub fn install_interface(app: &mut App) {
@@ -21,6 +21,13 @@ pub fn install_interface(app: &mut App) {
 	if app.world().get_resource::<LubikanCatalog>().is_none() {
 		let config = *app.world().resource::<LubikanSelfConfig>();
 		app.insert_resource(LubikanCatalog::with_self(&config));
+	}
+}
+
+/// Register the gameplay plugin (Self, owner attach, activation).
+pub fn install_gameplay(app: &mut App) {
+	if !app.is_plugin_added::<LubikansPlugin>() {
+		app.add_plugins(LubikansPlugin);
 	}
 }
 

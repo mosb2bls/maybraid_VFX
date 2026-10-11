@@ -15,6 +15,7 @@ test-support = []
 
 [dependencies]
 bevy = { workspace = true }
+player = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
