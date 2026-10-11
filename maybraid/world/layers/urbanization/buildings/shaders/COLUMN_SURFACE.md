@@ -1,51 +1,44 @@
 # Doric column POM UV / tangent contract
 
-Copy this section into the [#1133](https://github.com/ramate-io/maybraid/issues/1133) / [#1144](https://github.com/ramate-io/maybraid/pull/1144) column/pedestal GLB authoring spec. The shader is [`column_surface.wgsl`](src/column_surface.wgsl). Placeholders that already meet the contract: [`PlaceholderShaft`](src/column_surface/shaft.rs) (compact cylinder) and [`placeholder_tapered_shaft_mesh`](src/column_surface/shaft.rs) (D-driven taper).
+Copy this section into the [#1133](https://github.com/ramate-io/maybraid/issues/1133) column/pedestal GLB authoring spec. The shader is [`column_surface.wgsl`](src/column_surface.wgsl). Placeholders that already meet the contract: [`PlaceholderShaft`](src/column_surface/shaft.rs) (compact cylinder) and [`placeholder_tapered_shaft_mesh`](src/column_surface/shaft.rs) (unit-D taper).
+
+**Kit-level source** for this convention is [#1144](https://github.com/ramate-io/maybraid/pull/1144) [`AUTHORING.md`](../../../mobs/architectural/doric-column/AUTHORING.md) (`maybraid/world/layers/mobs/architectural/doric-column/AUTHORING.md`). This file is the POM / UV / texel addendum for the shaft only.
 
 POM owns **surface relief only**. Shaft outline, capital, pedestal, and cover collision stay real geometry. The material never displaces the silhouette and must not be treated as physical cover.
 
-## Proportions (driven by lower diameter D)
+## Authored unit and runtime scale
 
-[#1144](https://github.com/ramate-io/maybraid/pull/1144) is switching the kit to classical Doric proportions from a single lower-shaft diameter **D**. This contract is written in those units so texel targets stay valid when #1144 locks the final D.
+Convention shared with [#1144](https://github.com/ramate-io/maybraid/pull/1144):
 
-| Quantity | In terms of D | Notes |
-|----------|----------------|--------|
-| Lower shaft diameter | **D** | Bottom of the fluted shaft |
-| Neck / upper shaft diameter | **≈ 0.8 D** | Circumference shrinks up V; U still wraps once |
-| Full column height | **≈ 6–7 D** | Square plinth + shaft + square abacus. Shaft height is the remainder; preview taper uses **4.5 D** |
-| Plinth / abacus plan | **square** | Real geometry, not this material |
+- **Authored D = 1.** Every part is modeled with **lower shaft diameter = 1**. Proportions are real D-relative numbers in that unit mesh.
+- **Shaft** ≈ **5.5** tall, neck ≈ **0.8** (top diameter). U still wraps once while circumference shrinks up V.
+- Full column ≈ **6–7** (square plinth + shaft + square abacus). Plinth and abacus are real geometry, not this material.
+- **Pivot:** bottom-center on the shaft axis, **+Y up**, mesh `Y ∈ [0, H]`.
+- **Runtime:** one **uniform scale `s = D`**, where D is the gameplay lower-shaft diameter in metres. Do not split XZ-diameter vs Y-height — that shears U vs V and the flute Jacobian.
 
-### Single scaling convention
-
-Author at a reference D (or `D = 1`) and apply **one uniform scale** `s = D_game / D_authored` to the whole assembly. Do **not** split scale into XZ-diameter vs Y-height — that shears U vs V and the flute Jacobian. Gameplay that only changes D should not re-unwrap.
-
-### Pivot (same as #1144 `AUTHORING.md`)
-
-Local space: **+Y up**, **+Z forward**, **+X right**.
-
-- **Origin:** bottom-center on the shaft axis (`Y = 0` at the lower ring).
-- **Mesh extends:** `Y ∈ [0, H_shaft]`.
-- **Winding:** outward, CCW when looking against the authored normal. Triangle order is `i0 → i1 → i2`, `i1 → i3 → i2` (same as #1144 `solid_shaft_mesh`). Vertex normals point the same way; do not rely on culling or lighting to hide inward winding.
+There is no `s = D_game / D_authored`. The GLB is already D = 1; the instance scale *is* D.
 
 ## Mesh islands
 
 | Part | Geometry | This material? |
 |------|----------|----------------|
-| Shaft | Circular (or tapered / slight entasis) surface of revolution | Yes — `doric_column` |
+| Shaft | Circular or tapered (0.8 neck) surface of revolution | Yes — `doric_column` |
 | Capital / necking / **square abacus** | Real mesh | No. Separate island or mesh. |
 | Pedestal / **square plinth** | Real mesh | No. Separate island or mesh. |
 | Caps | Omit on the shaft, or a distinct UV island | Fluting UVs must not cover caps |
 
 The placeholders here are **open shafts** (no caps). [#1133](https://github.com/ramate-io/maybraid/issues/1133) owns capital, pedestal, and colliders. #1144 may close preview caps on a separate UV island (`U = 0.5`).
 
+**Winding:** outward, CCW when looking against the authored normal. Triangle order is `i0 → i1 → i2`, `i1 → i3 → i2` (same as #1144 `solid_shaft_mesh`). Vertex normals point the same way; do not rely on culling or lighting to hide inward winding.
+
 ## UV
 
 | Channel | Range | Meaning |
 |---------|-------|---------|
-| **U** | `0..1`, wraps once | Angle around the shaft. **U = 0 and U = 1 are the same physical seam.** Independent of D and of the local radius. |
-| **V** | `0..1` | Bottom → top of the **authored shaft** (bind pose, before the single uniform scale). |
+| **U** | `0..1`, wraps once | Angle around the shaft. **U = 0 and U = 1 are the same physical seam.** Independent of D. |
+| **V** | `0..1` | Bottom → top of the **authored** shaft (the D = 1 bind pose, before `s = D`). |
 
-On a taper, physical circumference is `π D` at `V = 0` and `≈ 0.8 π D` at `V = 1`. **U still wraps once.** Flute count stays `U * 20`; channels follow meridians and get narrower toward the neck. POM marches in the UV Jacobian, so a metre of relief maps to a larger `ΔU` where the circumference is smaller.
+On a taper, authored circumference is `π` at `V = 0` and `≈ 0.8 π` at `V = 1`. After `s = D` those become `π D` and `0.8 π D`. **U still wraps once.** Flute count stays `U * 20`; channels follow meridians and get narrower toward the neck. POM marches in the UV Jacobian, so a world-metre of relief maps to a larger `ΔU` where the circumference is smaller.
 
 Seam placement: put **U = 0/1 on local −Z** so a typical +Z / +X approach does not look at the cut. Duplicate the seam ring of vertices. Do **not** let a triangle interpolate from `U ≈ 1` to `U ≈ 0`.
 
@@ -59,7 +52,7 @@ Right-handed, Bevy `ATTRIBUTE_TANGENT` (`xyz` + `w` sign):
 
 | Vector | Direction | Notes |
 |--------|-----------|--------|
-| **T** (+U) | Circumferential, counterclockwise when viewed from +Y | `dP/dU`. Length is `π D(v)` (shrinks up a taper). |
+| **T** (+U) | Circumferential, counterclockwise when viewed from +Y | `dP/dU`. Authored length is `π` at the base; `s = D` scales it. |
 | **B** (+V) | Up the shaft (along the slant on a taper) | `dP/dV` |
 | **N** | Outward from the axis (tilted on a taper) | `T × B` (with `tangent.w = +1`) |
 
@@ -67,18 +60,18 @@ Right-handed, Bevy `ATTRIBUTE_TANGENT` (`xyz` + `w` sign):
 
 POM itself marches in screen-space UV Jacobian (same solver family as clothing / Durham). Tangents still matter for any later normal-map layer and for Bevy’s PBR specialization. Export them.
 
-## Texel density (in terms of D)
+## Texel density (per unit of authored D)
 
-Procedural height is the current default. When baking height / normal maps, use D so the budget survives #1144’s final diameter:
+Bake on the **D = 1** mesh. `s = D` does not change the authored map; world texel density falls as D grows. Do not rebake per encounter scale.
 
-| Axis | Target | In terms of D |
-|------|--------|----------------|
-| **U** | **64–128 texels per flute** | **D-invariant** (U is angular). Map width = flute count × that. Bake against the **base** circumference `π D` so the neck (`0.8 π D`) is slightly denser, not the reverse. |
-| **V** | **256–512 texels per metre** of authored shaft | Equivalently **(256–512) × D texels per D of shaft height**. Map height = that × (`H_shaft / D`). `H_shaft / D` is owned by #1144 (6–7 D column minus square plinth and abacus). |
+| Axis | Target per authored D | Kit shaft (H = 5.5) |
+|------|------------------------|---------------------|
+| **U** | **64–128 texels per flute** | 96 texels/flute × 20 → **1920** px wide. Angular; bake against the **base** circumference `π` so the 0.8 neck is slightly denser. |
+| **V** | **256–512 texels per authored D** of shaft height | 384 texels/D × 5.5 → **2112** px tall. Compact cylinder preview (H = 2.52) → **968** px. |
 
-Preview at `D = 0.84 m`, 20 flutes, 96 texels/flute → **1920** px wide. Compact cylinder `H = 2.52 m` at 384 tex/m → **968** px tall. Tapered preview `H = 4.5 D` → **1452** px tall. `texels_per_d_v(D) = 384 × D`.
+`texels_per_authored_d_v() = 384`. Map height = that × authored H (H is already in D).
 
-The single uniform scale does not change authored texel density. Non-uniform scale that stretches U vs V will shear flutes; don’t.
+Non-uniform scale that stretches U vs V will shear flutes; don’t.
 
 ## Quality / sampling (not authoring, but kit knobs)
 
@@ -90,17 +83,17 @@ The single uniform scale does not change authored texel density. Non-uniform sca
 | 1 | 0.35 | Grain scale |
 | 2 | 0.22 | Wear / lichen in flute floors |
 | 3 | 20 | Flute count, clamped 8–32 |
-| 4 | 28 m | POM fade start |
-| 5 | 85 m | POM fade end |
+| 4 | 28 m | POM fade start (world metres) |
+| 5 | 85 m | POM fade end (world metres) |
 | 6 | 48 | Max march steps, clamped 12–48 |
-| 7 | 0.09 m | Relief depth. **≈ 0.11 D** at the `D = 0.84 m` preview. **5.5 cm (≈ 0.065 D) still read weakly** under a raking key — soft corrugation, not 20 carved channels. **9 cm is the recommended default** at this D; scale scalar 7 with D on giant shafts. Clamp 0.8–12 cm. |
+| 7 | **0.11 D** | Relief depth in **authored D**. World depth = `0.11 ×` local world diameter (from `|dP/dU| / π`), so it scales with `s = D`. **≈ 9 cm at D = 0.84 m.** 5.5 cm (≈ 0.065 D) still read weakly. Clamp 0.02–0.20 D. |
 | 8 | 0 | Flat / POM-off (`>= 0.5` skips march and flute cavity) |
 
 Far / tiny-footprint / grazing fragments drop to a cheap cavity tint. The march never exceeds the max step cap.
 
-**Depth default.** 5.5 cm still read as a softly banded cylinder under a low raking key: the A/B against flat was real, but a reviewer could not count 20 carved channels. **9 cm ≈ 0.11 D** is the recommended kit default at the preview diameter. Kits that want a more classical cut can push scalar 7 down; encounter shafts should keep ~0.11 D rather than a fixed 9 cm.
+**Depth default.** 5.5 cm still read as a softly banded cylinder under a raking key: the A/B against flat was real, but a reviewer could not count 20 carved channels. **0.11 D** (9 cm-equivalent at D = 0.84 m) is the kit default. Because it is D-relative, a uniformly scaled encounter shaft keeps the same cut in shaft-diameters.
 
-Playground evidence (`MAYBRAID_CAPTURE_DIR`) hides the command drawer, uses a **low raking key** (roughly perpendicular to the view), and writes the same grazing pose twice: `rake-grazing-pom-on` vs `rake-grazing-pom-off` (scalar 8). `rake-silhouette-cavities` shows shaft outline and flute cavities together. `rake-taper-*` is the 0.8 D neck so POM still reads as circumference shrinks up V.
+Playground evidence (`MAYBRAID_CAPTURE_DIR`) hides the command drawer, uses a **low raking key**, and writes `rake-grazing-pom-on` / `off` (scalar 8), `rake-silhouette-cavities`, and `rake-taper-*` (0.8 neck, 5.5 tall).
 
 ## Recipe
 
@@ -112,6 +105,6 @@ Alias `doric` is accepted. Preview:
 
 ```text
 cargo run -p world-materials-playground -- show doric_column
-# then /mesh cylinder    (compact D-radius cylinder)
-# or   /mesh taper       (0.8 D neck, 4.5 D tall)
+# then /mesh cylinder    (compact unit-D cylinder)
+# or   /mesh taper       (authored D = 1, 0.8 neck, 5.5 tall)
 ```

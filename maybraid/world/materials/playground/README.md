@@ -20,7 +20,7 @@ In-game (press `/`):
 - `show <recipe>` — any world recipe name (`furniture_wood`, …)
 - `mesh sphere|capsule` — solid baselines (the original hosts)
 - `mesh cylinder` — open Doric shaft (UV / tangent contract)
-- `mesh taper` — open tapered shaft (0.8 D neck, 4.5 D tall)
+- `mesh taper` — open tapered shaft (authored D = 1, 0.8 neck, 5.5 tall)
 - `mesh core` — tiny orb
 - `mesh shell` — faceted energy hull
 - `mesh ring` — flat shockwave annulus

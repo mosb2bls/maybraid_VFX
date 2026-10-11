@@ -30,12 +30,10 @@ pub const DEFAULT_POM_FADE_START_M: f32 = 28.0;
 pub const DEFAULT_POM_FADE_END_M: f32 = 85.0;
 /// Hard cap on the implicit-surface march. Overridable via scalar 6, clamped.
 pub const DEFAULT_POM_MAX_STEPS: f32 = 48.0;
-/// Default flute relief depth in metres. Overridable via scalar 7.
-///
-/// 5.5 cm (≈ 0.065 D at the 0.84 m preview) still read as soft corrugation
-/// under a raking key. 9 cm ≈ 0.11 D is the kit default; scale with D on
-/// giant shafts, or override down for a more classical cut (clamp 12 cm).
-pub const DEFAULT_RELIEF_DEPTH_M: f32 = 0.09;
+/// Default flute relief depth in **authored D** (lower shaft diameter = 1).
+/// Overridable via scalar 7. World metres = this × local world diameter, so
+/// a uniform instance scale `s = D` keeps a 9 cm-equivalent cut (~0.11 D).
+pub const DEFAULT_RELIEF_DEPTH_D: f32 = 0.11;
 /// Scalar 8: `>= 0.5` skips POM and flute cavity (flat limestone A/B).
 pub const SCALAR_FLAT: usize = 8;
 
@@ -63,7 +61,7 @@ impl Plugin for ColumnSurfaceMaterialPlugin {
 /// - `4` POM fade start metres (`0` → [`DEFAULT_POM_FADE_START_M`])
 /// - `5` POM fade end metres (`0` → [`DEFAULT_POM_FADE_END_M`])
 /// - `6` max march steps (`0` → [`DEFAULT_POM_MAX_STEPS`])
-/// - `7` relief depth metres (`0` → [`DEFAULT_RELIEF_DEPTH_M`])
+/// - `7` relief depth in authored D (`0` → [`DEFAULT_RELIEF_DEPTH_D`])
 /// - `8` flat / POM-off (`>= 0.5` skips march and flute cavity)
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct ColumnSurfaceUniform {
@@ -239,7 +237,7 @@ mod tests {
 		assert_eq!(DEFAULT_POM_FADE_START_M, 28.0);
 		assert_eq!(DEFAULT_POM_FADE_END_M, 85.0);
 		assert_eq!(DEFAULT_POM_MAX_STEPS, 48.0);
-		assert_eq!(DEFAULT_RELIEF_DEPTH_M, 0.09);
+		assert_eq!(DEFAULT_RELIEF_DEPTH_D, 0.11);
 		assert!(DEFAULT_POM_FADE_END_M > DEFAULT_POM_FADE_START_M);
 		Ok(())
 	}

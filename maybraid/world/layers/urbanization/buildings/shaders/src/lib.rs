@@ -7,14 +7,14 @@ mod material_lib;
 mod urban_surface;
 
 pub use column_surface::shaft::{
-	PLACEHOLDER_LOWER_DIAMETER_M, PLACEHOLDER_SHAFT_HEIGHT_M, PLACEHOLDER_SHAFT_RADIUS_M,
+	PLACEHOLDER_AUTHORED_D, PLACEHOLDER_SHAFT_HEIGHT_M, PLACEHOLDER_SHAFT_RADIUS_M,
 	PLACEHOLDER_SHAFT_TAPER, PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D, PlaceholderShaft,
 	placeholder_shaft_mesh, placeholder_tapered_shaft_mesh,
 };
 pub use column_surface::{
 	ColumnSurfaceMaterial, ColumnSurfaceMaterialPlugin, ColumnSurfaceUniform, DEFAULT_FLUTE_COUNT,
 	DEFAULT_POM_FADE_END_M, DEFAULT_POM_FADE_START_M, DEFAULT_POM_MAX_STEPS,
-	DEFAULT_RELIEF_DEPTH_M, RECIPE_DORIC_COLUMN, SCALAR_FLAT, doric_column_flat_ref,
+	DEFAULT_RELIEF_DEPTH_D, RECIPE_DORIC_COLUMN, SCALAR_FLAT, doric_column_flat_ref,
 	doric_column_ref, is_column_surface_recipe,
 };
 pub use material_lib::{

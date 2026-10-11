@@ -1,11 +1,9 @@
 //! Placeholder Doric shaft meshes that satisfy the column POM UV contract.
 //!
 //! Fluting is POM, not silhouette. Caps are omitted so capital / pedestal stay
-//! real kit parts. [#1144](https://github.com/ramate-io/maybraid/pull/1144)
-//! drives classical proportions from the **lower diameter D**: the shaft tapers
-//! to about `0.8 D`, the full column (square plinth + shaft + square abacus)
-//! is about `6–7 D` tall. U still wraps once while the circumference shrinks
-//! up V.
+//! real kit parts. Authored **D = 1** (lower diameter), neck **0.8**, shaft
+//! **5.5** tall; runtime applies a single uniform scale `s = D`. See
+//! [#1144](https://github.com/ramate-io/maybraid/pull/1144) `AUTHORING.md`.
 
 use std::f32::consts::{PI, TAU};
 
@@ -13,16 +11,15 @@ use bevy::{
 	asset::RenderAssetUsages, mesh::Indices, prelude::*, render::render_resource::PrimitiveTopology,
 };
 
-/// Preview **lower diameter D** (metres). #1144 picks the kit's final D;
-/// texel targets below are written so they stay valid when that lands.
-pub const PLACEHOLDER_LOWER_DIAMETER_M: f32 = 0.84;
-/// Top diameter / D. Classical Doric necking (~0.8 D).
+/// Authored lower diameter. Kit convention: **D = 1**; runtime scale is `s = D`.
+pub const PLACEHOLDER_AUTHORED_D: f32 = 1.0;
+/// Top diameter / D. Classical Doric necking (0.8).
 pub const PLACEHOLDER_SHAFT_TAPER: f32 = 0.8;
-/// Authored shaft height in units of D (column is 6–7 D including plinth + abacus).
-pub const PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D: f32 = 4.5;
+/// Authored shaft height in D (kit shaft ≈ 5.5; column 6–7 including plinth + abacus).
+pub const PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D: f32 = 5.5;
 
-/// Compact **cylinder** preview (same lower radius as [`PLACEHOLDER_LOWER_DIAMETER_M`]).
-pub const PLACEHOLDER_SHAFT_RADIUS_M: f32 = PLACEHOLDER_LOWER_DIAMETER_M * 0.5;
+/// Compact **cylinder** preview at authored D = 1 (radius 0.5).
+pub const PLACEHOLDER_SHAFT_RADIUS_M: f32 = PLACEHOLDER_AUTHORED_D * 0.5;
 pub const PLACEHOLDER_SHAFT_HEIGHT_M: f32 = 2.52;
 pub const PLACEHOLDER_SHAFT_LONGITUDES: u32 = 48;
 pub const PLACEHOLDER_SHAFT_RINGS: u32 = 12;
@@ -30,17 +27,17 @@ pub const PLACEHOLDER_SHAFT_RINGS: u32 = 12;
 /// Target authored texels per flute around U (one wrap = [`crate::DEFAULT_FLUTE_COUNT`]).
 /// Angular — independent of D.
 pub const TEXELS_PER_FLUTE: u32 = 96;
-/// Target authored texels per metre along V. Equivalently `× D` texels per D of height.
-pub const TEXELS_PER_METRE_V: u32 = 384;
+/// Target authored texels per unit of authored D along V (bake on the D = 1 mesh).
+pub const TEXELS_PER_AUTHORED_D_V: u32 = 384;
 
 /// Open circular **cylinder** (bottom radius = top radius) with the UV / tangent contract.
 pub fn placeholder_shaft_mesh() -> Mesh {
 	PlaceholderShaft::default().build()
 }
 
-/// Open **tapered** shaft: lower diameter D, neck `0.8 D`, height `4.5 D`.
+/// Open **tapered** shaft at authored D = 1: neck 0.8, height 5.5.
 pub fn placeholder_tapered_shaft_mesh() -> Mesh {
-	PlaceholderShaft::tapered_from_lower_diameter(PLACEHOLDER_LOWER_DIAMETER_M).build()
+	PlaceholderShaft::tapered_from_lower_diameter(PLACEHOLDER_AUTHORED_D).build()
 }
 
 /// Authored dimensions for the placeholder (and the UV contract it encodes).
@@ -91,15 +88,15 @@ impl PlaceholderShaft {
 		flute_count.saturating_mul(TEXELS_PER_FLUTE)
 	}
 
-	/// Recommended height-map height at [`TEXELS_PER_METRE_V`].
-	/// Scales with authored shaft height, which #1144 will set as a multiple of D.
+	/// Recommended height-map height at [`TEXELS_PER_AUTHORED_D_V`].
+	/// `height_m` is already in authored D.
 	pub fn recommended_height_map_height(self) -> u32 {
-		(self.height_m * TEXELS_PER_METRE_V as f32).round() as u32
+		(self.height_m * TEXELS_PER_AUTHORED_D_V as f32).round() as u32
 	}
 
-	/// V texel budget per D of shaft height (so the target survives a D change).
-	pub fn texels_per_d_v(d: f32) -> f32 {
-		TEXELS_PER_METRE_V as f32 * d
+	/// V texel budget per unit of authored D (constant; do not multiply by gameplay D).
+	pub fn texels_per_authored_d_v() -> f32 {
+		TEXELS_PER_AUTHORED_D_V as f32
 	}
 
 	pub fn build(self) -> Mesh {
@@ -324,18 +321,18 @@ mod tests {
 		assert_eq!(spec.recommended_height_map_width(20), 1920);
 		assert_eq!(spec.recommended_height_map_height(), 968);
 		assert!(TEXELS_PER_FLUTE >= 64);
-		assert!(TEXELS_PER_METRE_V >= 256);
+		assert!(TEXELS_PER_AUTHORED_D_V >= 256);
 		Ok(())
 	}
 
 	#[test]
 	fn tapered_shaft_shrinks_to_four_fifths_d_and_keeps_u_wrap() -> anyhow::Result<()> {
-		let spec = PlaceholderShaft::tapered_from_lower_diameter(PLACEHOLDER_LOWER_DIAMETER_M);
-		assert!((spec.lower_diameter_m() - PLACEHOLDER_LOWER_DIAMETER_M).abs() < 1e-5);
+		let spec = PlaceholderShaft::tapered_from_lower_diameter(PLACEHOLDER_AUTHORED_D);
+		assert!((spec.lower_diameter_m() - PLACEHOLDER_AUTHORED_D).abs() < 1e-5);
 		assert!((spec.top_radius_m / spec.bottom_radius_m - PLACEHOLDER_SHAFT_TAPER).abs() < 1e-5);
 		assert!(
-			(spec.height_m - PLACEHOLDER_LOWER_DIAMETER_M * PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D)
-				.abs() < 1e-5
+			(spec.height_m - PLACEHOLDER_AUTHORED_D * PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D).abs()
+				< 1e-5
 		);
 
 		let mesh = spec.build();
@@ -387,15 +384,12 @@ mod tests {
 
 	#[test]
 	fn texel_targets_are_stated_in_d() -> anyhow::Result<()> {
-		let d = PLACEHOLDER_LOWER_DIAMETER_M;
-		let taper = PlaceholderShaft::tapered_from_lower_diameter(d);
+		let taper = PlaceholderShaft::tapered_from_lower_diameter(PLACEHOLDER_AUTHORED_D);
 		assert_eq!(taper.recommended_height_map_width(20), 1920);
-		assert!((PlaceholderShaft::texels_per_d_v(d) - TEXELS_PER_METRE_V as f32 * d).abs() < 1e-4);
-		assert_eq!(
-			taper.recommended_height_map_height(),
-			(PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D * PlaceholderShaft::texels_per_d_v(d)).round()
-				as u32
-		);
+		assert!((PlaceholderShaft::texels_per_authored_d_v() - 384.0).abs() < 1e-4);
+		assert_eq!(taper.recommended_height_map_height(), 2112);
+		assert_eq!(PLACEHOLDER_TAPERED_SHAFT_HEIGHT_IN_D, 5.5);
+		assert_eq!(PLACEHOLDER_AUTHORED_D, 1.0);
 		Ok(())
 	}
 }

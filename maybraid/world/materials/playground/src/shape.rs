@@ -26,7 +26,7 @@ pub enum PreviewShape {
 	Blast,
 	/// Open Doric shaft (UV / tangent contract for column POM).
 	Cylinder,
-	/// Open tapered Doric shaft (lower D → 0.8 D neck, 4.5 D tall).
+	/// Open tapered Doric shaft (authored D = 1, 0.8 neck, 5.5 tall).
 	Taper,
 }
 

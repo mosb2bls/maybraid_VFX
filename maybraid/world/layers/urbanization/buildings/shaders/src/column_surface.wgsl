@@ -39,9 +39,10 @@ const KIND_DORIC: u32 = 0u;
 const DEFAULT_FLUTE_COUNT: f32 = 20.0;
 const MIN_FLUTE_COUNT: f32 = 8.0;
 const MAX_FLUTE_COUNT: f32 = 32.0;
-const DEFAULT_DEPTH_M: f32 = 0.09;
-const MIN_DEPTH_M: f32 = 0.008;
-const MAX_DEPTH_M: f32 = 0.12;
+const DEFAULT_DEPTH_D: f32 = 0.11;
+const MIN_DEPTH_D: f32 = 0.02;
+const MAX_DEPTH_D: f32 = 0.20;
+const PI: f32 = 3.14159265359;
 const DEFAULT_FADE_START_M: f32 = 28.0;
 const DEFAULT_FADE_END_M: f32 = 85.0;
 const POM_MIN_STEPS: i32 = 12;
@@ -147,12 +148,25 @@ fn pom_max_steps() -> i32 {
     return POM_MAX_STEPS;
 }
 
-fn relief_depth_m() -> f32 {
+fn relief_depth_d() -> f32 {
     let override_depth = material.scalars[1].w;
     if (override_depth > 1e-4) {
-        return clamp(override_depth, MIN_DEPTH_M, MAX_DEPTH_M);
+        return clamp(override_depth, MIN_DEPTH_D, MAX_DEPTH_D);
     }
-    return DEFAULT_DEPTH_M;
+    return DEFAULT_DEPTH_D;
+}
+
+/// Local world-space diameter from `|dP/dU| / π`. After uniform `s = D`
+/// this is D at the base and ~0.8 D at the neck.
+fn local_world_diameter_m(p: vec3<f32>, uv: vec2<f32>) -> f32 {
+    let dpx = dpdx(p);
+    let dpy = dpdy(p);
+    let dux = dpdx(uv);
+    let duy = dpdy(uv);
+    let det = dux.x * duy.y - dux.y * duy.x;
+    let inv = safe_inv(det);
+    let dpdu = (dpx * duy.y - dpy * dux.y) * inv;
+    return length(dpdu) / PI;
 }
 
 /// Scalar 8. Flat limestone: no march, no flute cavity.
@@ -166,8 +180,9 @@ struct ReliefStyle {
     dark: f32,
 }
 
-fn relief_style() -> ReliefStyle {
-    return ReliefStyle(relief_depth_m(), 1.0 / flute_count(), 0.12);
+fn relief_style(p: vec3<f32>, uv: vec2<f32>) -> ReliefStyle {
+    let d_world = max(local_world_diameter_m(p, uv), 1e-4);
+    return ReliefStyle(relief_depth_d() * d_world, 1.0 / flute_count(), 0.12);
 }
 
 /// Periodic in U so the U = 0/1 seam does not jump.
@@ -325,7 +340,7 @@ fn fragment(
     let N = normalize(pbr_input.world_normal);
     let V = pbr_input.V;
     let uv0 = column_uv(mesh, N);
-    let style = relief_style();
+    let style = relief_style(P, uv0);
     let camera_distance = length(P - view.world_position.xyz);
     let flat = is_flat();
 
