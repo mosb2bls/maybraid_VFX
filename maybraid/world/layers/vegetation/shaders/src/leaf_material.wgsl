@@ -3,9 +3,10 @@
 // cards (planes through a centroid) + vertex sway + split light.
 //
 // Holes are glued to each card (kit space) so they ride with
-// wind. A noisy rim discard runs at every distance so far cards
-// are not rectangles. Interior swiss cheese is near/mid only;
-// far hubs stay solid so overlapping cards keep early-Z.
+// wind. Rim discard + interior swiss cheese are near/mid only,
+// measured in ball-radii so a large card keeps the breakup as
+// long as a small one at the same angular size. Far hubs stay
+// solid so overlapping cards keep early-Z.
 //---------------------------------------------------------
 
 #import bevy_pbr::{
@@ -58,7 +59,7 @@ struct LeafVertexOutput {
     @location(7) @interpolate(flat) visibility_range_dither: i32,
 #endif
     @location(8) local_pos: vec3<f32>,
-    /// Centroid distance in ball-radii; remapped so CAP meters == MID.
+    /// Centroid distance in ball-radii (`abs / scale`).
     @location(9) view_dist: f32,
     /// Plant instance origin (flat) — canopy outward for fake occlusion.
     @location(10) @interpolate(flat) plant_origin: vec3<f32>,
@@ -107,12 +108,12 @@ fn fbm_3d_2(p: vec3<f32>) -> f32 {
     return (a + b) / 0.75;
 }
 
-// Cheese / sway bands in ball-radii. `view_dist` is
-// `max(abs/scale, abs * MID/CAP)` so a unit kit cheeses to MID meters
-// and nothing stays in discard past CAP meters.
+// Cheese / sway bands in ball-radii. `view_dist` is `abs / scale`
+// so a unit kit cheeses to MID meters and a larger card keeps the
+// same angular window. An absolute-meter floor made big banyan
+// cards go rectangular while they still filled the screen.
 const LEAF_MID_DIST: f32 = 80.0;
 const LEAF_SWAY_CUT_DIST: f32 = 60.0;
-const LEAF_ABS_CAP: f32 = 140.0;
 /// Blot radius ceiling (`0.52 + 0.38`); outside this, skip hole FBM.
 const LEAF_RIM_CUT: f32 = 0.92;
 
@@ -228,13 +229,12 @@ fn vertex(vertex_no_morph: Vertex) -> LeafVertexOutput {
     let scale = instance_scale(mesh_world_from_local);
 #endif
     out.local_pos = kit_local;
-    // Placement may be baked into vertices (grove flatten). Angular LOD,
-    // remapped so abs == CAP sits on the far side of MID regardless of scale.
+    // Placement may be baked into vertices (grove flatten). LOD is
+    // angular (centroid meters / ball radius) so large cards keep
+    // rim + interior cheese as long as small cards of the same
+    // apparent size. Far path still skips discard for early-Z.
     let abs_dist = length(centroid - view.world_position);
-    out.view_dist = max(
-        abs_dist / max(scale, 1e-4),
-        abs_dist * (LEAF_MID_DIST / LEAF_ABS_CAP),
-    );
+    out.view_dist = abs_dist / max(scale, 1e-4);
     out.world_position = mesh_functions::mesh_position_local_to_world(
         world_from_local,
         vec4<f32>(vertex.position, 1.0),

@@ -56,6 +56,13 @@ pub enum AgentEventBody {
 	ChunkLoads {
 		added: u32,
 	},
+	/// Live actor census, written when it changes. `bodies` are spawned mob
+	/// characters; `brains` run threat management (the NPC mixer).
+	Actors {
+		hosts: u32,
+		bodies: u32,
+		brains: u32,
+	},
 	Quit,
 }
 
@@ -82,6 +89,9 @@ impl AgentEvent {
 				Some(format!("agent.waypoint #{id} {status} {:.1},{:.1}", xz[0], xz[1]))
 			}
 			AgentEventBody::Ready { detail } => Some(format!("agent.ready {detail}")),
+			AgentEventBody::Actors { hosts, bodies, brains } => {
+				Some(format!("agent.actors hosts={hosts} bodies={bodies} brains={brains}"))
+			}
 			_ => None,
 		}
 	}
@@ -102,6 +112,23 @@ mod tests {
 		let parsed = AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(parsed, event);
 		assert!(line.contains(r#""kind":"player""#));
+		Ok(())
+	}
+
+	#[test]
+	fn actors_roundtrip_and_tracy_message() -> anyhow::Result<()> {
+		let event = AgentEvent {
+			t: 30.0,
+			frame: 1800,
+			body: AgentEventBody::Actors { hosts: 4, bodies: 61, brains: 61 },
+		};
+		let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(line.contains(r#""kind":"actors""#));
+		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
+		assert_eq!(
+			event.tracy_message().as_deref(),
+			Some("agent.actors hosts=4 bodies=61 brains=61")
+		);
 		Ok(())
 	}
 

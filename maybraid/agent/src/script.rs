@@ -25,6 +25,26 @@ pub fn read_script_commands(path: &Path) -> Result<Vec<AgentCommand>, String> {
 	read_script_text(&text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+/// Remove `start` commands that precede the first duration command and return
+/// the last one's XZ. The caller applies it as the spawn point before load.
+pub fn take_leading_start(commands: &mut Vec<AgentCommand>) -> Option<[f32; 2]> {
+	let leading = commands.iter().position(AgentCommand::is_duration).unwrap_or(commands.len());
+	let mut start = None;
+	let mut idx = 0;
+	commands.retain(|command| {
+		let keep = match command {
+			AgentCommand::Start { xz } if idx < leading => {
+				start = Some(*xz);
+				false
+			}
+			_ => true,
+		};
+		idx += 1;
+		keep
+	});
+	start
+}
+
 fn strip_comment(line: &str) -> &str {
 	let trimmed = line.trim();
 	if trimmed.starts_with('#') || trimmed.starts_with("//") {
@@ -64,13 +84,67 @@ mod tests {
 		assert!(error.contains("line 2"), "{error}");
 	}
 
+	const EXAMPLE_SCRIPTS: &[&str] = &[
+		"origin-walk.jsonl",
+		"origin-idle.jsonl",
+		"biome-traverse.jsonl",
+		"locomotion-mix.jsonl",
+		"remote-start.jsonl",
+	];
+
+	#[test]
+	fn leading_start_is_taken_and_later_start_kept() -> anyhow::Result<()> {
+		let mut commands = read_script_text(
+			r#"
+{"cmd":"console","line":"stats vsync"}
+{"cmd":"start","xz":[100,-40]}
+{"cmd":"wait","secs":1}
+{"cmd":"start","xz":[5,5]}
+"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(take_leading_start(&mut commands), Some([100.0, -40.0]));
+		assert_eq!(commands.len(), 3);
+		assert!(matches!(commands[2], AgentCommand::Start { xz } if xz == [5.0, 5.0]));
+		Ok(())
+	}
+
+	#[test]
+	fn no_start_leaves_commands() -> anyhow::Result<()> {
+		let mut commands =
+			read_script_text("{\"cmd\":\"wait\",\"secs\":1}\n").map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(take_leading_start(&mut commands), None);
+		assert_eq!(commands.len(), 1);
+		Ok(())
+	}
+
 	#[test]
 	fn example_scripts_parse() -> anyhow::Result<()> {
 		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-		for name in ["origin-walk.jsonl", "biome-traverse.jsonl"] {
+		for name in EXAMPLE_SCRIPTS {
 			let commands =
 				read_script_commands(&root.join(name)).map_err(|e| anyhow::anyhow!("{e}"))?;
 			assert!(!commands.is_empty(), "{name}");
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn profile_scripts_do_not_toggle_vsync() -> anyhow::Result<()> {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
+		for name in EXAMPLE_SCRIPTS {
+			let text = std::fs::read_to_string(root.join(name))?;
+			for (idx, raw) in text.lines().enumerate() {
+				let line = strip_comment(raw);
+				if line.is_empty() {
+					continue;
+				}
+				assert!(
+					!line.contains("stats vsync"),
+					"{name}:{} must not toggle vsync over MAYBRAID_VSYNC=off",
+					idx + 1
+				);
+			}
 		}
 		Ok(())
 	}

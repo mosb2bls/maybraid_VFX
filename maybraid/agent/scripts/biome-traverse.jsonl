@@ -4,6 +4,8 @@
 #
 # Warmup absorbs the first stream-in; the measure window is the loop with
 # sprint, look-while-goto, and a few jumps.
+# Do not send `stats vsync` when MAYBRAID_VSYNC=off — that command toggles
+# present mode and would lock Frame to ~16.6 ms.
 
 {"cmd":"scenario","name":"biome-traverse-warmup","mark":"start"}
 {"cmd":"console","line":"sky noon"}

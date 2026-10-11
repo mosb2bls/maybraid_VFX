@@ -2,20 +2,19 @@
 # Capture one scripted Tracy flight. Run from the repo root inside `nix develop`.
 set -euo pipefail
 
-scenario="${1:?usage: profiling/tracy-flight.sh <scenario> <phase> <repeat>}"
-phase="${2:?usage: profiling/tracy-flight.sh <scenario> <phase> <repeat>}"
-repeat="${3:?usage: profiling/tracy-flight.sh <scenario> <phase> <repeat>}"
+usage="usage: profiling/tracy-flight.sh <scenario|script.jsonl> <phase> <repeat>"
+target="${1:?$usage}"
+phase="${2:?$usage}"
+repeat="${3:?$usage}"
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+source "$root/profiling/resolve-script.sh"
+resolve_script "$target"
 cd "$root"
 
-script="$root/maybraid/agent/scripts/${scenario}.jsonl"
-if [[ ! -f "$script" ]]; then
-	echo "missing script: $script" >&2
-	exit 2
-fi
-
-bin="$root/target/release/maybraid"
+# MAYBRAID_BIN lets an A/B pass alternate a saved baseline binary with the
+# current build so both see the same machine conditions.
+bin="${MAYBRAID_BIN:-$root/target/release/maybraid}"
 if [[ ! -x "$bin" ]]; then
 	echo "missing $bin — build with:" >&2
 	echo "  cargo build -p maybraid --release --features bevy/trace_tracy" >&2
@@ -63,6 +62,7 @@ case "$scenario" in
 	biome-traverse) timeout_secs=420 ;;
 	*) timeout_secs=300 ;;
 esac
+timeout_secs="${MAYBRAID_FLIGHT_TIMEOUT:-$timeout_secs}"
 
 cleanup() {
 	if [[ -n "${game_pid:-}" ]] && kill -0 "$game_pid" 2>/dev/null; then
@@ -88,7 +88,8 @@ trap cleanup EXIT
 	echo "hw=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
 	echo "mem_bytes=$(sysctl -n hw.memsize 2>/dev/null || true)"
 	echo "vsync=off"
-	echo "start_at=0,0"
+	echo "start_at=0,0 (a leading script start overrides)"
+	echo "commit=$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
 } >"$meta_file"
 
 echo "capture $scenario $phase r$repeat → $out_dir"
@@ -143,6 +144,14 @@ python3 "$root/profiling/summarize-zones.py" \
 	--scenario "$scenario" \
 	--out "$summary_txt"
 
+# Measure-window stats. The unwrap export is streamed, never written.
+tracy-csvexport -u "$tracy_file" | python3 "$root/profiling/window-zones.py" \
+	--messages "$messages_csv" \
+	--scenario "$scenario" \
+	--json "${base}-window.json" \
+	--out "${base}-window.txt" >/dev/null || echo "window stats failed" >&2
+
 echo "wrote $zones_csv"
 echo "wrote $summary_txt"
+echo "wrote ${base}-window.txt"
 ls -lh "$tracy_file" "$zones_csv" "$events_jsonl"

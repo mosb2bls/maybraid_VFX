@@ -22,6 +22,7 @@ pub mod world_lubikan;
 #[cfg(feature = "debug-commands")]
 pub mod world_debug;
 
+mod mob_spawn;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
@@ -239,26 +240,35 @@ impl Plugin for WorldPlugin {
 			app.init_resource::<TextEntryFocus>();
 		}
 		app.add_systems(Startup, vsync::apply_startup_vsync)
-			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands))
-			.add_systems(PostStartup, spawn_default_braidman);
-		
-		app.configure_sets(Update, control::WorldSurfaceSet)
-		.add_systems(
-			Update,
-			(
-				control::update_world_surface_ready.in_set(control::WorldSurfaceSet),
-				control::sync_world_scenery,
-				control::sync_combat_hud_visible,
-				control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
-				control::apply_intents_to_movement
-					.after(CharacterControlSystems)
-					.after(map_view::WorldMapSet::Toggle)
-					.after(PlayerSystems::Intent)
-					.before(PlayerSystems::Body)
-					.before(PlayerControlSystems),
-			),
-		);
-		
+			.add_systems(
+				Update,
+				(
+					vsync::toggle_vsync,
+					commands::apply_sky_commands,
+					mob_spawn::apply_spawn_mob_requests,
+				),
+			)
+			.add_systems(PostStartup, spawn_default_braidman)
+			.add_systems(
+				PreUpdate,
+				(control::stamp_vegetation_motor_traction, control::stamp_world_player_motor),
+			)
+			.configure_sets(Update, control::WorldSurfaceSet)
+			.add_systems(
+				Update,
+				(
+					control::update_world_surface_ready.in_set(control::WorldSurfaceSet),
+					control::sync_world_scenery,
+					control::sync_combat_hud_visible,
+					control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
+					control::apply_intents_to_movement
+						.after(CharacterControlSystems)
+						.after(map_view::WorldMapSet::Toggle)
+						.after(PlayerSystems::Intent)
+						.before(PlayerSystems::Body)
+						.before(PlayerControlSystems),
+				),
+			);
 		camera::configure(app);
 		weapon::configure(app);
 		app.configure_sets(

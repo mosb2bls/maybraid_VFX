@@ -12,6 +12,8 @@ target
 *-events.jsonl
 *-game.log
 *-capture.log
+*-summary.txt
+*-meta.txt
 profiling/captures/
 macos-15
 .maybraid
