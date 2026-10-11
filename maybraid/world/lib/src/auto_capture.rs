@@ -19,6 +19,7 @@ pub struct AutoCaptureScript {
 	commands: Vec<CaptureCommand>,
 	current_index: usize,
 	wait_frames: u32,
+	frame_count: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -84,17 +85,22 @@ impl AutoCaptureScript {
 			commands.push(cmd);
 		}
 		
-		Ok(Self { commands, current_index: 0, wait_frames: 0 })
+		Ok(Self { commands, current_index: 0, wait_frames: 0, frame_count: 0 })
 	}
 }
 
 pub fn run_auto_capture(
 	mut commands: Commands,
 	mut script: Option<ResMut<AutoCaptureScript>>,
+	players: Query<(Entity, &damage::Health), With<player::Player>>,
+	lubikan_ledgers: Query<&lubikans::LubikanLedger>,
+	heal_channels: Query<&lubikans::LubikanSelfHealChannel>,
 ) {
 	let Some(ref mut script) = script else {
 		return;
 	};
+	
+	script.frame_count += 1;
 	
 	if script.wait_frames > 0 {
 		script.wait_frames -= 1;
@@ -107,6 +113,26 @@ pub fn run_auto_capture(
 	
 	let cmd = script.commands[script.current_index].clone();
 	script.current_index += 1;
+	
+	// Log player state before command execution
+	if let Ok((player_entity, health)) = players.single() {
+		let charge = lubikan_ledgers.get(player_entity)
+			.map(|ledger| ledger.equipped().charge().current())
+			.unwrap_or(0.0);
+		
+		let heal_status = heal_channels.get(player_entity)
+			.map(|ch| if ch.active {
+				format!("healing {:.1} HP/s", ch.rate)
+			} else {
+				"idle".to_string()
+			})
+			.unwrap_or_else(|_| "no-channel".to_string());
+		
+		eprintln!(
+			"[STATE] frame={} hp={:.1}/{:.1} charge={:.1} heal={}",
+			script.frame_count, health.current, health.max, charge, heal_status
+		);
+	}
 	
 	match cmd {
 		CaptureCommand::Wait(frames) => {

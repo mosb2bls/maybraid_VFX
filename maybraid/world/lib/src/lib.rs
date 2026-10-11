@@ -398,25 +398,6 @@ fn apply_debug_peaceful(
 }
 
 #[cfg(feature = "debug-commands")]
-fn prevent_hostile_damage_in_peaceful(
-	peaceful: Res<DebugPeacefulMode>,
-	mut damage_events: EventReader<damage::DamageApplied>,
-	players: Query<Entity, With<player::Player>>,
-) {
-	if !peaceful.0 {
-		return;
-	}
-	
-	// Just consume damage events to player when peaceful
-	for event in damage_events.read() {
-		if players.contains(event.target) {
-			// Damage event is already applied to health, but we can log it
-			log::debug!("Peaceful mode: ignoring {} damage to player", event.damage);
-		}
-	}
-}
-
-#[cfg(feature = "debug-commands")]
 fn restore_player_health_in_peaceful(
 	peaceful: Res<DebugPeacefulMode>,
 	mut players: Query<&mut damage::Health, With<player::Player>>,

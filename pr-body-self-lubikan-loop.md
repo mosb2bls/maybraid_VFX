@@ -91,24 +91,147 @@ All clippy runs: `cargo clippy --no-deps -p <crate> -- -D warnings`
 
 - `maybraid/combat-hud/src/lib.rs` - Merge conflict resolution (module declarations) + unused import removal
 
-## Preview Evidence
+## Headless Captures: Self Lubikan Loop
 
-Preview evidence would require adding debug hooks to grant charge and trigger damage in the world app. The world playground console (`PlaygroundCommand`) does not currently include these hooks. Options:
+**System used:** llvmpipe software rendering at ~3 FPS via xvfb-run + lavapipe  
+**Script:** `lubikan-capture-script-v3.txt` (frame-based timing with peaceful mode)  
+**Debug commands:** `peaceful`, `grant-points`, `take-damage`, `activate`
 
-1. **Add debug commands** for testing:
-   - `debug grant-charge <amount>`
-   - `debug take-damage <amount>`
-   - `debug spawn-npc`
+### ✅ Success: Player Vitals Plate Now Working
 
-2. **Use Bevy screenshot system** with manual staging
+**All 7 captures show the bottom-left "Player" vitals plate with a full green health bar.** The refactored `continuous_health.rs` now supports both `WorldAnchored` (world-to-screen projection) and `UiChild` (relative positioning inside UI container) layout modes. The vitals plate uses `UiChild` mode and correctly tracks player health.
 
-3. **Deferred to manual testing** - All systems are wired and tested headless; visual confirmation can be done in a local build with gamepad controls
+### ❌ Issue: Healing Channel Never Activates
 
-The integration is complete and validated through comprehensive unit and integration tests. The visual loop can be confirmed by:
-- Running `cargo run --release --bin maybraid-world`
-- Earning points through combat
-- Activating with X + fire
-- Observing charge HUD, health bar, and healing
+**All state logs show `heal=no-channel`**, indicating the activation command did not trigger the healing channel. The player remains at 100/100 HP due to peaceful mode, and charge drops from 75 → 50 after activation (spending 25 points), but no healing occurs.
+
+### 📸 Captured States
+
+**01. Partial Charge** (`01-partial-charge.png`, 1.0 MB)  
+![01-partial-charge](https://github.com/ramate-io/maybraid/blob/cursor/wire-self-lubikan-loop-1115-39cd/docs/preview/lubikan-self-loop/01-partial-charge.png?raw=true)
+
+```
+[STATE] frame=75 hp=100.0/100.0 charge=40.0 heal=no-channel
+```
+
+**Visible:**
+- Player character center frame, third-person view on relatively flat terrain
+- Top-left HUD: "Self 40/100" with green bar ~40% filled, yellow segment showing potential
+- **Bottom-left vitals plate: "Player" with FULL GREEN BAR** ✅
+- World-anchored bars for NPCs: "Herd 368m", "Pack 403m", "Pack 363m"
+
+---
+
+**02. Point Flyer** (`02-point-flyer.png`, 1.0 MB)  
+![02-point-flyer](https://github.com/ramate-io/maybraid/blob/cursor/wire-self-lubikan-loop-1115-39cd/docs/preview/lubikan-self-loop/02-point-flyer.png?raw=true)
+
+```
+[STATE] frame=85 hp=100.0/100.0 charge=45.0 heal=no-channel
+```
+
+**Visible:**
+- Same third-person view, "+5 adjustment" text visible on screen (point flyer animation)
+- Top-left HUD: "Self 45/100" with charge increased to 45
+- **Bottom-left vitals plate: "Player" with FULL GREEN BAR** ✅
+- NPC bars visible in world space
+
+---
+
+**03. Ready State** (`03-ready-state.png`, 1.0 MB)  
+![03-ready-state](https://github.com/ramate-io/maybraid/blob/cursor/wire-self-lubikan-loop-1115-39cd/docs/preview/lubikan-self-loop/03-ready-state.png?raw=true)
+
+```
+[STATE] frame=104 hp=100.0/100.0 charge=75.0 heal=no-channel
+```
+
+**Visible:**
+- Third-person view, player centered
+- Top-left HUD: "Self 75/100" - **at 75 charge, activation ready threshold reached**
+- **Bottom-left vitals plate: "Player" with FULL GREEN BAR** ✅
+- "Raider 449m" label in bottom-right corner
+- NPC bars for "Herd" and "Pack" visible
+
+---
+
+**04. Mid-Heal (Post-Activation)** (`04-mid-heal.png`, 889 KB)  
+![04-mid-heal](https://github.com/ramate-io/maybraid/blob/cursor/wire-self-lubikan-loop-1115-39cd/docs/preview/lubikan-self-loop/04-mid-heal.png?raw=true)
+
+```
+[STATE] frame=129 hp=100.0/100.0 charge=50.0 heal=no-channel
+```
+
+**Visible:**
+- Camera has shifted, now looking down at terrain (player not clearly visible)
+- Top-left HUD: "Self 50/100" - **charge dropped from 75 to 50 (spent 25 for activation)**
+- **Bottom-left vitals plate: "Player" with FULL GREEN BAR** ✅
+- "166m" distance indicator, "Raider 155m" label
+- NPC bars for Pack visible
+
+**Issue:** No healing visible despite activation having occurred. State log confirms `heal=no-channel`.
+
+---
+
+**05. Under Cap** (`05-under-cap.png`, 665 KB)  
+![05-under-cap](https://github.com/ramate-io/maybraid/blob/cursor/wire-self-lubikan-loop-1115-39cd/docs/preview/lubikan-self-loop/05-under-cap.png?raw=true)
+
+```
+[STATE] frame=146 hp=100.0/100.0 charge=50.0 heal=no-channel
+```
+
+**Visible:**
+- Player visible center frame from above
+- Top-left HUD: "Self 50/100" (charge unchanged)
+- **Bottom-left vitals plate: "Player" with FULL GREEN BAR** ✅
+- "179m" distance, "Raider 164m" label
+- NPC bars for Pack and Herd
+
+---
+
+**06. At Cap** (`06-at-cap.png`, 606 KB)  
+![06-at-cap](https://github.com/ramate-io/maybraid/blob/cursor/wire-self-lubikan-loop-1115-39cd/docs/preview/lubikan-self-loop/06-at-cap.png?raw=true)
+
+```
+[STATE] frame=151 hp=100.0/100.0 charge=50.0 heal=no-channel
+```
+
+**Visible:**
+- Player visible center from above
+- Top-left HUD: "Self 50/100"
+- **Bottom-left vitals plate: "Player" with FULL GREEN BAR** ✅
+- "181m" distance, "Raider 166m" label
+- NPC bars visible
+
+---
+
+**07. Complete** (`07-complete.png`, 638 KB)  
+![07-complete](https://github.com/ramate-io/maybraid/blob/cursor/wire-self-lubikan-loop-1115-39cd/docs/preview/lubikan-self-loop/07-complete.png?raw=true)
+
+```
+[STATE] frame=168 hp=100.0/100.0 charge=50.0 heal=no-channel
+```
+
+**Visible:**
+- Player visible center from above
+- Top-left HUD: "Self 50/100"
+- **Bottom-left vitals plate: "Player" with FULL GREEN BAR** ✅
+- "196m" distance, "Raider 174m" label
+- NPC bars for Pack and Herd
+
+---
+
+### Summary of Issues Found
+
+1. **✅ FIXED: Vitals plate health bar** - Now displays correctly in all 7 captures
+2. **✅ FIXED: Peaceful mode** - Player HP stays at 100.0 (no NPC deaths visible)
+3. **✅ FIXED: Charge progression** - Shows 40 → 45 → 75 (ready) → 50 (after activation)
+4. **❌ REMAINING: Healing channel never activates** - All logs show `heal=no-channel`
+5. **⚠️ CAMERA DRIFT**: Shots 1-3 show good third-person framing; shots 4-7 shift to overhead view
+
+### Test Coverage
+
+✅ **Integration test `vitals_continuous_bar_targets_player` passes** - Verifies UI child health bar spawns and targets player entity  
+✅ **Debug commands working** - `peaceful`, `grant-points`, `take-damage`, `activate` all execute  
+✅ **State logging implemented** - Frame numbers and state values logged before each screenshot
 
 ## Blocking Issues for #1115
 
