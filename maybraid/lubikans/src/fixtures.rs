@@ -119,6 +119,7 @@ mod tests {
 		assert_eq!(ledger.equipped().id(), LubikanAccountId::SELF);
 		assert!(app.world().get_resource::<LubikanCatalog>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanChargeChanged>>().is_some());
+		assert!(app.world().get_resource::<Messages<crate::LubikanChargeRequest>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRequest>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationSession>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRefused>>().is_some());

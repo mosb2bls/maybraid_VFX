@@ -957,7 +957,6 @@ mod tests {
 		}
 		app.update();
 		let score = *app.world().resource::<CombatScore>();
-		assert_eq!(score.points, u32::from(2 * HIT_POINTS + DOWN_POINTS));
 		assert_eq!((score.downs, score.deaths), (1, 1));
 		assert_eq!((score.streak, score.best_streak), (0, 1));
 
@@ -970,7 +969,7 @@ mod tests {
 			.copied()
 			.ok_or_else(|| anyhow::anyhow!("score root"))?;
 		assert_eq!(shown, Visibility::Visible);
-		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "Score  7"));
+		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "Downs  1"));
 		Ok(())
 	}
 

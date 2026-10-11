@@ -65,6 +65,7 @@ impl Plugin for LubikansPlugin {
 					.chain()
 					.in_set(LubikanSystems::Activate),
 			);
+		crate::award::configure(app);
 	}
 }
 

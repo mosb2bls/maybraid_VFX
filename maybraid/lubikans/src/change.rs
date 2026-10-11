@@ -47,6 +47,41 @@ impl LubikanChargeReason {
 	}
 }
 
+/// Ask the Award-set owner to apply a signed charge delta.
+///
+/// Occupancy, combat, and later producers write this. Exactly one system
+/// applies it and emits one [`LubikanChargeChanged`]. `lubikan: None` is the
+/// recipient's current selection (Self fallback).
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct LubikanChargeRequest {
+	pub recipient: Entity,
+	pub lubikan: Option<LubikanAccountId>,
+	pub requested: f32,
+	pub reason: LubikanChargeReason,
+	pub origin: Option<Vec3>,
+}
+
+impl LubikanChargeRequest {
+	pub fn new(
+		recipient: Entity,
+		lubikan: Option<LubikanAccountId>,
+		requested: f32,
+		reason: LubikanChargeReason,
+		origin: Option<Vec3>,
+	) -> Self {
+		Self { recipient, lubikan, requested, reason, origin }
+	}
+
+	pub fn equipped(
+		recipient: Entity,
+		requested: f32,
+		reason: LubikanChargeReason,
+		origin: Option<Vec3>,
+	) -> Self {
+		Self::new(recipient, None, requested, reason, origin)
+	}
+}
+
 /// One resolved award or spend. Emit exactly once per interaction; UI does
 /// not re-evaluate rules from this message.
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
