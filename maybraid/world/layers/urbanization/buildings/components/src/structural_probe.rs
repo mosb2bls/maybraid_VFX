@@ -7,12 +7,15 @@
 //! Footprints are authored in the host's **local** XZ. Fine-phase updates map the
 //! viewer into that local frame via [`GlobalTransform`] so gallery offsets work.
 
-use bevy::prelude::{Component, GlobalTransform, Query, Transform, With};
+use bevy::prelude::{
+	App, Component, GlobalTransform, IntoScheduleConfigs, Plugin, Query, Transform, Update, With,
+};
 use bevy_math::bounding::{Aabb2d, Aabb3d};
 use bevy_math::{Vec2, Vec3};
 use lod::lod_ref::LodRef;
 use lod::lod_scene_host::LodSceneHost;
 use lod::scene::{LodSceneLevel, LodSceneStatus};
+use lod::LodRefreshSystems;
 
 use crate::massing::{is_ultralow_massing, MassingVolume};
 
@@ -150,8 +153,27 @@ impl BuildingStructuralLodProbe {
 		viewer_world: Vec3,
 		host_global: &GlobalTransform,
 	) -> LodSceneLevel {
-		let viewer_local = host_global.affine().inverse().transform_point3(viewer_world);
-		self.level_for_local(viewer_local)
+		self.level_for_local(self.viewer_local(viewer_world, host_global))
+	}
+
+	/// [`distance_outside_local`] after mapping `viewer_world` through `host_global`.
+	pub fn distance_outside_world(&self, viewer_world: Vec3, host_global: &GlobalTransform) -> f32 {
+		self.distance_outside_local(self.viewer_local(viewer_world, host_global))
+	}
+
+	pub fn status_for_world(
+		&self,
+		previous_world: Vec3,
+		current_world: Vec3,
+		host_global: &GlobalTransform,
+	) -> LodSceneStatus {
+		let prev = self.level_for_world(previous_world, host_global);
+		let curr = self.level_for_world(current_world, host_global);
+		if prev == curr {
+			LodSceneStatus::Unchanged
+		} else {
+			LodSceneStatus::Changed(curr)
+		}
 	}
 
 	pub fn status_for_lod_ref(&self, lod_ref: &LodRef) -> LodSceneStatus {
@@ -162,6 +184,10 @@ impl BuildingStructuralLodProbe {
 		} else {
 			LodSceneStatus::Changed(curr)
 		}
+	}
+
+	fn viewer_local(&self, viewer_world: Vec3, host_global: &GlobalTransform) -> Vec3 {
+		host_global.affine().inverse().transform_point3(viewer_world)
 	}
 
 	/// Coarse local AABB covering all volumes.
@@ -270,6 +296,22 @@ pub fn update_building_structural_host_levels(
 	}
 }
 
+/// Live [`GlobalTransform`] correction for structural building hosts.
+///
+/// Produce / [`crate::ComponentsOnly::scene_lod_level`] use the pose stored on
+/// the host. This system remaps through the composed world transform so a
+/// parent offset (gallery, nested `Built` column) still upgrades.
+pub struct BuildingStructuralLodPlugin;
+
+impl Plugin for BuildingStructuralLodPlugin {
+	fn build(&self, app: &mut App) {
+		app.add_systems(
+			Update,
+			update_building_structural_host_levels.in_set(LodRefreshSystems::UpdateLevels),
+		);
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -352,6 +394,34 @@ mod tests {
 		let probe = a.merge(b);
 		let near_b = Transform::from_xyz(10.0 + 5.0, 1.5, 0.0);
 		assert!((probe.distance_outside(&near_b) - 5.0).abs() < 1e-4);
+	}
+
+	#[test]
+	fn status_for_world_tracks_band_changes() {
+		let probe = BuildingStructuralLodProbe::from_aabb3d_xz(
+			Vec3::new(-5.0, 0.0, -5.0),
+			Vec3::new(5.0, 3.0, 5.0),
+		)
+		.with_high_outside_meters(20.0)
+		.with_medium_outside_meters(40.0)
+		.with_low_outside_meters(80.0);
+		let host = GlobalTransform::from_translation(Vec3::new(200.0, 0.0, 0.0));
+		assert_eq!(
+			probe.status_for_world(
+				Vec3::new(200.0 + 5.0 + 10.0, 1.5, 0.0),
+				Vec3::new(200.0 + 5.0 + 10.0, 1.5, 0.0),
+				&host
+			),
+			LodSceneStatus::Unchanged
+		);
+		assert_eq!(
+			probe.status_for_world(
+				Vec3::new(200.0 + 5.0 + 10.0, 1.5, 0.0),
+				Vec3::new(200.0 + 5.0 + 21.0, 1.5, 0.0),
+				&host
+			),
+			LodSceneStatus::Changed(LodSceneLevel::Medium)
+		);
 	}
 
 	#[test]

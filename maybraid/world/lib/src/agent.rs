@@ -12,10 +12,11 @@ use maybraid_agent::{
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
 use mob_characters::CharacterSceneRecipe;
 use mob_scenes::MobScene;
+use player::Player as MotorPlayer;
 use player_camera::CameraController;
 use threat_management_intelligence::ThreatManagementIntelligence;
 use world_player::player::{holding_elevation, player_spawn_point_at, AwaitingTerrainSurface};
-use world_player::Player;
+use world_player::Player as VegetationPlayer;
 
 use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
@@ -251,7 +252,8 @@ fn agent_tick_playback(
 	mut runtime: ResMut<AgentRuntime>,
 	mut overlay: ResMut<PadOverlay>,
 	time: Res<Time>,
-	players: Query<&Transform, With<Player>>,
+	motors: Query<&Transform, With<MotorPlayer>>,
+	vegetation: Query<&Transform, (With<VegetationPlayer>, Without<MotorPlayer>)>,
 	cameras: Query<&CameraController, With<Camera3d>>,
 ) {
 	runtime.frame = runtime.frame.saturating_add(1);
@@ -259,8 +261,9 @@ fn agent_tick_playback(
 		overlay.clear();
 		return;
 	}
+	let pose = motors.single().ok().or_else(|| vegetation.single().ok());
 	let view = TickView {
-		player_xz: players.single().ok().map(|transform| {
+		player_xz: pose.map(|transform| {
 			let xz = transform.translation.xz();
 			[xz.x, xz.y]
 		}),
@@ -388,7 +391,7 @@ fn agent_apply_world_ops(
 			Option<&mut Position>,
 			Option<&mut LinearVelocity>,
 		),
-		With<Player>,
+		With<MotorPlayer>,
 	>,
 ) {
 	let pending = std::mem::take(&mut runtime.pending);
@@ -441,7 +444,8 @@ fn agent_apply_world_ops(
 fn agent_sample_player(
 	mut runtime: ResMut<AgentRuntime>,
 	time: Res<Time>,
-	players: Query<&Transform, With<Player>>,
+	motors: Query<&Transform, With<MotorPlayer>>,
+	vegetation: Query<&Transform, (With<VegetationPlayer>, Without<MotorPlayer>)>,
 	cameras: Query<&CameraController, With<Camera3d>>,
 ) {
 	if !runtime.ready {
@@ -452,7 +456,7 @@ fn agent_sample_player(
 		return;
 	}
 	runtime.last_sample = now;
-	let Ok(transform) = players.single() else {
+	let Some(transform) = motors.single().ok().or_else(|| vegetation.single().ok()) else {
 		return;
 	};
 	let p = transform.translation;
@@ -473,9 +477,6 @@ fn agent_chunk_loads(
 	time: Res<Time>,
 	added: Query<Entity, Added<CascadeChunk>>,
 ) {
-	if !runtime.ready {
-		return;
-	}
 	let added = added.iter().count() as u32;
 	if added == 0 {
 		return;
@@ -501,7 +502,7 @@ fn agent_actor_census(
 	runtime: Res<AgentRuntime>,
 	time: Res<Time>,
 	hosts: Query<(), With<MobScene>>,
-	bodies: Query<(), (With<CharacterSceneRecipe>, Without<Player>)>,
+	bodies: Query<(), (With<CharacterSceneRecipe>, Without<MotorPlayer>)>,
 	brains: Query<(), With<ThreatManagementIntelligence>>,
 	mut last: Local<Option<ActorCensus>>,
 	mut last_at: Local<f32>,

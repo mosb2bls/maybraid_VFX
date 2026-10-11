@@ -7,7 +7,6 @@
 //! A session starts with [`lod::hcsg::request_hcsg_session_restart`].
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use bevy::ecs::system::SystemParam;
 use bevy::math::bounding::Aabb3d;
@@ -23,8 +22,8 @@ use durham::terrain::{
 use lod::gen::{Id, OriginalId};
 use lod::hcsg::universal_bounds;
 use lod::hcsg::{
-	self, register_session_seed, Busy, GenerationContext, GenerationPlugin, GenerationScheme,
-	HcsgClass, HcsgRegions, HcsgStorage, HcsgSystems, ViewerHcsgBounds,
+	self, register_session_seed, Busy, GenerationContext, GenerationPlugin, HcsgClass,
+	HcsgRegions, HcsgStorage, HcsgSystems, ViewerHcsgBounds,
 };
 use lod::LodViewer;
 use richmond::DEVELOPMENT_CELL_SIZE;
@@ -249,16 +248,6 @@ fn track_language<C: Send + Sync + 'static>(
 			HcsgClass::Ambient,
 		));
 	}
-}
-
-/// The stored value for `id` and its published bounds after generate.
-pub(crate) fn generated<T: GenerationScheme>(
-	cx: &mut GenerationContext,
-	id: Id,
-) -> Option<(Arc<T>, Aabb3d)> {
-	let value = cx.get_or_generate::<T>(id)?;
-	let bounds = cx.stored_bounds::<T>(id)?;
-	Some((value, bounds))
 }
 
 /// Geneva over ground `W`: language tiles and region names within channel

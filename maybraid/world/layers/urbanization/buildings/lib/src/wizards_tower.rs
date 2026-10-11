@@ -75,6 +75,8 @@ pub struct WizardsTower {
 	pub wall_material: Option<MaterialRef>,
 	/// Finish stamped onto high-detail room partitions.
 	pub room_material: Option<MaterialRef>,
+	/// World (or parent) pose used to map a world-space viewer into the local AABB.
+	pub host_transform: Transform,
 }
 
 impl WizardsTower {
@@ -103,6 +105,7 @@ impl WizardsTower {
 			column,
 			wall_material: None,
 			room_material: None,
+			host_transform: Transform::IDENTITY,
 		}
 	}
 
@@ -180,12 +183,14 @@ impl TowerLodFootprint for WizardsTower {
 
 impl LodScene for WizardsTower {
 	fn scene_lod_level(&self, lod_ref: &LodRef) -> LodSceneLevel {
-		self.level_for_lod_ref(lod_ref)
+		self.level_for_world_lod_ref(lod_ref, &self.host_transform)
 	}
 
 	fn scene_lod_status(&self, lod_ref: &LodRef) -> LodSceneStatus {
-		let prev = self.level_for(lod_ref.previous_transform);
-		let curr = self.level_for(lod_ref.current_transform);
+		let prev =
+			self.level_for_world(lod_ref.previous_transform.translation, &self.host_transform);
+		let curr =
+			self.level_for_world(lod_ref.current_transform.translation, &self.host_transform);
 		if prev == curr {
 			LodSceneStatus::Unchanged
 		} else {
@@ -195,7 +200,7 @@ impl LodScene for WizardsTower {
 
 	fn scene_lod_culls(&self, lod_ref: &LodRef, _current: LodSceneLevel) -> LodSceneCulls {
 		// Offset bands: drop High once ~halfway into Medium; Low keeps Medium warm.
-		let (level, progress) = self.band_progress_for_lod_ref(lod_ref);
+		let (level, progress) = self.band_progress_for_world_lod_ref(lod_ref, &self.host_transform);
 		cull_offset_bands(level, progress).with_customs()
 	}
 
@@ -312,6 +317,43 @@ mod tests {
 		let low = tower.partition_nodes_for_level(LodSceneLevel::Low).len();
 		assert!(high > medium);
 		assert_eq!(low, 0);
+	}
+
+	#[test]
+	fn offset_tower_bands_from_the_world_viewer() {
+		let mut tower = tower();
+		tower.host_transform = Transform::from_xyz(2_000.0, 0.0, 0.0);
+		let bounds = tower.scene_bounds();
+		let beside = Transform::from_xyz(2_000.0, 1.5, 0.0);
+		let far = Transform::from_xyz(1_400.0, 1.5, 0.0);
+		let beside_ref = LodRef {
+			entity: bevy::prelude::Entity::PLACEHOLDER,
+			previous_transform: &beside,
+			current_transform: &beside,
+			bounds: &bounds,
+		};
+		let far_ref = LodRef {
+			entity: bevy::prelude::Entity::PLACEHOLDER,
+			previous_transform: &far,
+			current_transform: &far,
+			bounds: &bounds,
+		};
+		assert_eq!(tower.scene_lod_level(&beside_ref), LodSceneLevel::High);
+		assert_eq!(tower.scene_lod_level(&far_ref), LodSceneLevel::Low);
+		let local_beside = Transform::from_xyz(0.0, 1.5, 0.0);
+		assert_eq!(tower.level_for(&local_beside), LodSceneLevel::High);
+		assert_eq!(
+			tower.level_for_lod_ref(&far_ref),
+			LodSceneLevel::Low,
+			"local-space helper still reads the world camera as local"
+		);
+		let local_ref = LodRef {
+			entity: bevy::prelude::Entity::PLACEHOLDER,
+			previous_transform: &local_beside,
+			current_transform: &local_beside,
+			bounds: &bounds,
+		};
+		assert_eq!(tower.band_progress_for_lod_ref(&local_ref).0, LodSceneLevel::High);
 	}
 
 	#[test]

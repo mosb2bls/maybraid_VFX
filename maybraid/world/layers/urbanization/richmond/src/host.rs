@@ -9,7 +9,7 @@ use bevy::prelude::{
 };
 use bevy::scene::Scene;
 use building_components::{
-	building_bounds, building_components_host, BuildingComponents, FurnitureNode,
+	building_bounds, building_components_host_for, BuildingComponents, FurnitureNode,
 	FurnitureUsageNode,
 };
 use building_physics::{BuildingWalkShapes, BUILDING_FRICTION};
@@ -224,33 +224,51 @@ impl DevelopmentHost {
 		}
 	}
 
-	pub fn spawn(&self, commands: &mut Commands, host_id: Option<Id>) -> Vec<Entity> {
-		vec![commands.spawn_scene(self.scene(host_id)).id()]
+	pub fn spawn(
+		&self,
+		commands: &mut Commands,
+		host_id: Option<Id>,
+		lod_ref: &LodRef,
+	) -> Vec<Entity> {
+		vec![commands.spawn_scene(self.scene(host_id, lod_ref)).id()]
 	}
 
 	/// The pending LOD host for this building, with its walk colliders and
 	/// place pin; it streams its own levels wherever it is spawned.
-	pub fn scene(&self, host_id: Option<Id>) -> Box<dyn Scene> {
+	///
+	/// `lod_ref` is the world-space viewer so the first pending band matches
+	/// the host pose, not the world origin.
+	pub fn scene(&self, host_id: Option<Id>, lod_ref: &LodRef) -> Box<dyn Scene> {
 		let host = match self {
-			Self::LesHallesStorey(building, transform) => host(building, *transform),
-			Self::LesHallesStairwell(building, transform) => host(building.as_ref(), *transform),
-			Self::LesHallesRoof(building, transform) => host(building.as_ref(), *transform),
-			Self::ShepherdsHouse(building, transform) => host(building, *transform),
-			Self::ShepherdsHut(building, transform) => host(building, *transform),
-			Self::OldCityMarketTerrace(building, transform) => host(building, *transform),
-			Self::RingFortCircularTower(building, transform) => host(building, *transform),
-			Self::RingFortTrazaloidTower(building, transform) => host(building, *transform),
+			Self::LesHallesStorey(building, transform) => host(building, *transform, lod_ref),
+			Self::LesHallesStairwell(building, transform) => {
+				host(building.as_ref(), *transform, lod_ref)
+			}
+			Self::LesHallesRoof(building, transform) => {
+				host(building.as_ref(), *transform, lod_ref)
+			}
+			Self::ShepherdsHouse(building, transform) => host(building, *transform, lod_ref),
+			Self::ShepherdsHut(building, transform) => host(building, *transform, lod_ref),
+			Self::OldCityMarketTerrace(building, transform) => host(building, *transform, lod_ref),
+			Self::RingFortCircularTower(building, transform) => host(building, *transform, lod_ref),
+			Self::RingFortTrazaloidTower(building, transform) => {
+				host(building, *transform, lod_ref)
+			}
 			Self::RingFortGalleryTerrace(building, transform) => {
-				host(building.as_ref(), *transform)
+				host(building.as_ref(), *transform, lod_ref)
 			}
 			Self::RingFortGalleryColonnade(building, transform) => {
-				host(building.as_ref(), *transform)
+				host(building.as_ref(), *transform, lod_ref)
 			}
-			Self::RingFortGalleryRoof(building, transform) => host(building.as_ref(), *transform),
-			Self::SingleHighrise(building, transform) => host(building, *transform),
-			Self::TempleSanctum(building, transform) => host(building, *transform),
-			Self::WizardsTower(building, transform) => wizards_tower_host(building, *transform),
-			Self::SkybridgeHall(building, transform) => host(building, *transform),
+			Self::RingFortGalleryRoof(building, transform) => {
+				host(building.as_ref(), *transform, lod_ref)
+			}
+			Self::SingleHighrise(building, transform) => host(building, *transform, lod_ref),
+			Self::TempleSanctum(building, transform) => host(building, *transform, lod_ref),
+			Self::WizardsTower(building, transform) => {
+				wizards_tower_host(building, *transform, lod_ref)
+			}
+			Self::SkybridgeHall(building, transform) => host(building, *transform, lod_ref),
 		};
 		let Some(mut place) = self.discoverable_place() else {
 			return host;
@@ -428,17 +446,15 @@ fn single_highrise_host(placed: &SingleHighrise) -> DevelopmentHost {
 	)
 }
 
-fn wizards_tower_host(building: &Arc<WizardsTower>, transform: Transform) -> Box<dyn Scene> {
+fn wizards_tower_host(
+	building: &Arc<WizardsTower>,
+	transform: Transform,
+	lod_ref: &LodRef,
+) -> Box<dyn Scene> {
 	let bounds = building.scene_bounds();
-	let identity = Transform::IDENTITY;
-	let lod_ref = LodRef {
-		entity: Entity::PLACEHOLDER,
-		previous_transform: &identity,
-		current_transform: &identity,
-		bounds: &bounds,
-	};
-	let level = building.scene_lod_level(&lod_ref);
-	let tower = building.as_ref().clone();
+	let mut tower = building.as_ref().clone();
+	tower.host_transform = transform;
+	let level = tower.scene_lod_level(lod_ref);
 	let host = (
 		lod_host_scene_pending(level, bounds),
 		bsn! {
@@ -450,11 +466,12 @@ fn wizards_tower_host(building: &Arc<WizardsTower>, transform: Transform) -> Box
 	with_walk_colliders(host, building.as_ref())
 }
 
-fn host<T>(building: &T, transform: Transform) -> Box<dyn Scene>
+fn host<T>(building: &T, transform: Transform, lod_ref: &LodRef) -> Box<dyn Scene>
 where
 	T: BuildingComponents + Clone + Send + Sync + 'static,
 {
-	let host = building_components_host(building, transform, building_bounds(building));
+	let host =
+		building_components_host_for(building, transform, building_bounds(building), Some(lod_ref));
 	with_walk_colliders(host, building)
 }
 
@@ -643,7 +660,15 @@ mod tests {
 			std::sync::Arc::new(storey.clone()),
 			Transform::IDENTITY,
 		);
-		let entity = host.spawn(&mut app.world_mut().commands(), None)[0];
+		let identity = Transform::IDENTITY;
+		let bounds = host.local_bounds();
+		let lod_ref = lod::lod_ref::LodRef {
+			entity: bevy::prelude::Entity::PLACEHOLDER,
+			previous_transform: &identity,
+			current_transform: &identity,
+			bounds: &bounds,
+		};
+		let entity = host.spawn(&mut app.world_mut().commands(), None, &lod_ref)[0];
 		app.update();
 
 		let n = app

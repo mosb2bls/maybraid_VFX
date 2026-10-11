@@ -45,3 +45,4 @@ jobs:
         echo "✅ No changes detected. lib-pre-commit output matches the pushed commit."
       nix_flake_path: '.'
       runner: 'ubuntu-latest'
+      rust_cache: false
