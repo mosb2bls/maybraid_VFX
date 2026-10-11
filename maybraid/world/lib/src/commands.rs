@@ -159,18 +159,10 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
 			#[cfg(feature = "debug-commands")]
 			PlaygroundCommand::Debug(debug) => debug.react(commands, console),
-			#[cfg(feature = "debug-commands")]
-			PlaygroundCommand::AutoCapture { script } => {
-				match crate::auto_capture::AutoCaptureScript::from_file(&script) {
-					Ok(script_resource) => {
-						commands.insert_resource(script_resource);
-						*console = format!("Auto-capture started from {}", script.display());
-					}
-					Err(e) => {
-						*console = format!("Auto-capture failed: {e}");
-					}
-				}
-			}
+		#[cfg(feature = "debug-commands")]
+		PlaygroundCommand::AutoCapture { script: _ } => {
+			*console = "Auto-capture removed: use Bevy Screenshot API instead".to_string();
+		}
 		}
 	}
 

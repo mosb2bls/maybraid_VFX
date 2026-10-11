@@ -42,7 +42,10 @@ fn self_loop_app() -> App {
 	// Add world-side wiring systems (headless-safe subset)
 	app.add_systems(
 		PreUpdate,
-		control::sync_lubikan_session.before(LubikanSystems::Owner),
+		(
+			control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
+			control::sync_lubikan_session.before(LubikanSystems::Owner),
+		),
 	);
 	world_lubikan::configure(&mut app);
 	
@@ -312,6 +315,98 @@ fn session_restart_via_world_event_resets_charge() -> anyhow::Result<()> {
 	anyhow::ensure!(
 		after_restart == 0.0,
 		"sync_lubikan_session should reset charge, got {after_restart}"
+	);
+	
+	Ok(())
+}
+
+/// Regression: ensure grant_world_player_lubikan_owner doesn't insert player::Player twice.
+#[test]
+fn owner_attach_no_duplicate_player() -> anyhow::Result<()> {
+	let mut app = self_loop_app();
+	let player = spawn_player(&mut app, 100.0, 100.0);
+	
+	// Verify no panic and components are attached
+	anyhow::ensure!(app.world().get::<LubikanOwner>(player).is_some());
+	anyhow::ensure!(app.world().get::<LubikanLedger>(player).is_some());
+	
+	// Respawn scenario: remove and re-add world Player marker
+	app.world_mut().entity_mut(player).remove::<Player>();
+	app.update();
+	app.world_mut().entity_mut(player).insert(Player);
+	app.update(); // grant_world_player_lubikan_owner should run without panic
+	
+	anyhow::ensure!(app.world().get::<LubikanOwner>(player).is_some(), "Owner persists");
+	Ok(())
+}
+
+/// #1110: Healing from below 70% with mid-heal damage latches cap at 70%.
+#[test]
+fn healing_cap_after_damage_during_heal() -> anyhow::Result<()> {
+	let mut app = self_loop_app();
+	let player = spawn_player(&mut app, 40.0, 100.0);
+	
+	// Earn charge and activate (need 25+ points: kill 4 NPCs + 1 hit)
+	let npc1 = spawn_npc(&mut app);
+	let npc2 = spawn_npc(&mut app);
+	let npc3 = spawn_npc(&mut app);
+	let npc4 = spawn_npc(&mut app);
+	hit_npc(&mut app, player, npc1, 30.0); // kill = 6
+	hit_npc(&mut app, player, npc2, 30.0); // kill = 6
+	hit_npc(&mut app, player, npc3, 30.0); // kill = 6
+	hit_npc(&mut app, player, npc4, 10.0); // hit = 1
+	hit_npc(&mut app, player, npc4, 20.0); // kill = 6, total = 25
+	
+	activate_self(&mut app);
+	
+	// Heal partway
+	for _ in 0..4 {
+		app.update();
+	}
+	
+	let before_damage = health_current(&app, player);
+	anyhow::ensure!((55.0..=65.0).contains(&before_damage), "Expected ~60 HP, got {before_damage}");
+	
+	// Take damage during heal (direct modification to simulate external hit)
+	take_damage(&mut app, player, 5.0);
+	
+	// Continue healing
+	for _ in 0..20 {
+		app.update();
+	}
+	
+	// Should cap at 70%, not continue to 85%
+	let final_hp = health_current(&app, player);
+	anyhow::ensure!(
+		(69.0..=71.0).contains(&final_hp),
+		"#1110: should cap at 70 after mid-heal damage, got {final_hp}"
+	);
+	
+	Ok(())
+}
+
+/// #1110: Healing from well below 70% reaches the cap.
+#[test]
+fn healing_cap_from_low_health() -> anyhow::Result<()> {
+	let mut app = self_loop_app();
+	let player = spawn_player(&mut app, 15.0, 100.0);
+	
+	// Earn charge and activate
+	let npc1 = spawn_npc(&mut app);
+	let npc2 = spawn_npc(&mut app);
+	hit_npc(&mut app, player, npc1, 30.0); // kill
+	hit_npc(&mut app, player, npc2, 30.0); // kill
+	activate_self(&mut app);
+	
+	// Let healing complete
+	for _ in 0..80 {
+		app.update();
+	}
+	
+	let final_hp = health_current(&app, player);
+	anyhow::ensure!(
+		(69.0..=71.0).contains(&final_hp),
+		"#1110: should reach 70 cap from 15 HP, got {final_hp}"
 	);
 	
 	Ok(())

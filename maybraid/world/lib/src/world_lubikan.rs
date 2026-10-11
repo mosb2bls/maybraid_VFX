@@ -56,7 +56,7 @@ impl Plugin for WorldLubikanPlugin {
 			(
 				stamp_vegetation_motor_traction,
 				stamp_world_player_motor,
-				grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
+				crate::control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
 				forward_world_session_end.before(LubikanSystems::Owner),
 			),
 		);
@@ -121,19 +121,7 @@ fn stamp_world_player_motor(
 	}
 }
 
-/// Mark the world player as a Lubikan owner. `LubikansPlugin` attaches the Self ledger
-/// in `LubikanSystems::Owner`.
-///
-/// This system runs on spawn AND on respawn after death, establishing player identity
-/// whenever the world player entity exists.
-fn grant_world_player_lubikan_owner(
-	mut commands: Commands,
-	world_only: Query<Entity, (With<Player>, Without<LubikanOwner>, Added<Player>)>,
-) {
-	for player in &world_only {
-		commands.entity(player).insert(LubikanOwner);
-	}
-}
+/// Removed - now in control.rs as public function for world player lifecycle.
 
 /// Forward world session teardown to Lubikan lifetime events.
 fn forward_world_session_end(

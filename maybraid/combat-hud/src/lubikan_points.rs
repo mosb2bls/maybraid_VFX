@@ -115,6 +115,7 @@ fn spawn_flyer(
 	});
 }
 
+#[allow(clippy::type_complexity)]
 pub(crate) fn update_lubikan_point_flyers(
 	time: Res<Time>,
 	hud: Res<CombatHudVisible>,

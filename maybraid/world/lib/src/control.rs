@@ -107,9 +107,8 @@ pub fn grant_world_player_lubikan_owner(
 ) {
 	for player in &world_only {
 		commands.entity(player).insert((
-			player::Player,
+			MaybraidPlayer, // This is player::Player
 			lubikans::LubikanOwner,
-			MaybraidPlayer,
 		));
 	}
 }

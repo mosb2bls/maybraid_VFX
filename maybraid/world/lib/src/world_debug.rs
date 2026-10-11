@@ -194,12 +194,8 @@ fn log_player_lifecycle(
 	added: Query<Entity, Added<WorldPlayer>>,
 	mut removed: RemovedComponents<WorldPlayer>,
 	existing: Query<Entity, With<WorldPlayer>>,
-	auto_capture: Option<Res<crate::auto_capture::AutoCaptureScript>>,
 ) {
-	// Only log during auto-capture to reduce noise
-	if auto_capture.is_none() {
-		return;
-	}
+	// Logging disabled (auto-capture removed)
 	
 	let frame_count = frame.elapsed().as_secs_f32() * 60.0;
 	if frame_count >= 100.0 && frame_count <= 180.0 {
