@@ -584,7 +584,8 @@ def main():
             f"({span_ns/1e9:.1f}s) -> trace [{w0/1e9:.3f},{w1/1e9:.3f}]s"
             f" of {toc_dur or 0:.1f}s recorded"
         )
-        if w1 < gmin + span_ns:
+        # ~1 s of attach latency is normal; only flag a real shortfall.
+        if w1 < gmin + span_ns - 2_000_000_000:
             window_note += " (recording shorter than the scenario; raise MAYBRAID_GPU_TRACE_LIMIT)"
     else:
         w1 = gmax

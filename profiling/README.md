@@ -66,8 +66,8 @@ profiling/metal-flight.sh crowd-0 baseline 1
 Output goes to `profiling/captures/gpu/<phase>/<scenario>/r<repeat>/`:
 `*-summary.md` (GPU busy per frame, pass buckets, top encoder labels,
 performance state), `*-passes.csv`, `*-stats.json`, and `*.trace.zip` (the
-upload form of the `.trace` bundle). The exported XML is 10s–100s of MB and
-is deleted after parsing.
+upload form of the `.trace` bundle; ~650 MB for 40 s). The exported XML is
+10s–100s of MB and is deleted after parsing.
 
 - Needs Xcode (`/usr/bin/xctrace`) and Accessibility permission for
   `osascript`: macOS throttles an occluded game window, so the script keeps it

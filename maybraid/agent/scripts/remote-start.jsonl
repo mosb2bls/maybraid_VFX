@@ -11,10 +11,10 @@
 {"cmd":"scenario","name":"remote-start-warmup","mark":"end"}
 
 {"cmd":"scenario","name":"remote-start","mark":"start"}
-{"cmd":"goto","xz":[-1420,-600],"timeout":60,"radius":6,"sprint":true,"look":[0.15,0]}
-{"cmd":"goto","xz":[-1420,-520],"timeout":60,"radius":6,"sprint":true}
+{"cmd":"goto","xz":[-1470,-600],"timeout":12,"radius":6,"sprint":true,"look":[0.15,0]}
+{"cmd":"goto","xz":[-1470,-570],"timeout":12,"radius":6,"sprint":true}
 {"cmd":"hold","look":[-0.4,0],"secs":1.5}
-{"cmd":"goto","xz":[-1500,-560],"timeout":60,"radius":6}
+{"cmd":"goto","xz":[-1500,-585],"timeout":12,"radius":6}
 {"cmd":"wait","secs":3}
 {"cmd":"scenario","name":"remote-start","mark":"end"}
 {"cmd":"quit"}
