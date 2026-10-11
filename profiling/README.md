@@ -18,8 +18,11 @@ nix develop --command bash -lc '
 '
 ```
 
-CSV summaries land in [`captures/`](captures/). `*.tracy` files are gitignored
-(often tens of MB); keep them next to the CSVs locally when size allows.
+Flights write under `profiling/captures/` by default (gitignored: `*.tracy`,
+zone/message CSVs, events, logs, summaries). Override with
+`MAYBRAID_PROFILING_OUT` if needed. Do **not** commit capture data or result
+tables. Publish the summary as a GitHub Gist and link that gist from the PR.
+
 Do **not** write `tracy-csvexport -u` unwrap CSVs — they are hundreds of MB
 to multi-GB. Zone means come from the aggregate export.
 

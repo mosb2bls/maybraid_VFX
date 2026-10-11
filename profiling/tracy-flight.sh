@@ -42,7 +42,9 @@ if pgrep -x maybraid >/dev/null; then
 fi
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-out_dir="$root/profiling/captures/${phase}/${scenario}/r${repeat}"
+# Default dest is gitignored (`profiling/captures/`). Do not commit this tree.
+out_root="${MAYBRAID_PROFILING_OUT:-$root/profiling/captures}"
+out_dir="$out_root/${phase}/${scenario}/r${repeat}"
 mkdir -p "$out_dir"
 base="${out_dir}/${scenario}-${phase}-r${repeat}-${stamp}"
 

@@ -25,6 +25,7 @@ plugin is not added.
 
 For a Tracy capture on a real GPU, use [`profiling/tracy-flight.sh`](../../profiling/tracy-flight.sh)
 (`MAYBRAID_VSYNC=off`, `tracy-capture` only). See [`profiling/README.md`](../../profiling/README.md).
+Capture output is gitignored; publish results as a GitHub Gist linked from the PR, not in-repo.
 
 ## Commands
 

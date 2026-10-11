@@ -5,9 +5,16 @@ venv
 .venv
 target
 *.tracy
-profiling/captures/**/*-unwrap.csv
-profiling/captures/**/*-game.log
-profiling/captures/**/*-capture.log
+# Tracy flight output — never commit captures or result tables.
+profiling/captures/
+profiling/**/*-zones.csv
+profiling/**/*-messages.csv
+profiling/**/*-events.jsonl
+profiling/**/*-unwrap.csv
+profiling/**/*-game.log
+profiling/**/*-capture.log
+profiling/**/*-summary.txt
+profiling/**/*-meta.txt
 macos-15
 .maybraid
 issues
