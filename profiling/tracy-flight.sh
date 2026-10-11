@@ -27,6 +27,20 @@ if ! command -v tracy-capture >/dev/null || ! command -v tracy-csvexport >/dev/n
 	exit 2
 fi
 
+# Only one Tracy listener can take the game. Use capture — never the GUI.
+if pgrep -x tracy >/dev/null || pgrep -x tracy-profiler >/dev/null; then
+	echo "Tracy GUI is running; quit it so tracy-capture is the only listener" >&2
+	exit 2
+fi
+if pgrep -x tracy-capture >/dev/null; then
+	echo "another tracy-capture is already running" >&2
+	exit 2
+fi
+if pgrep -x maybraid >/dev/null; then
+	echo "maybraid is already running; this machine is one-at-a-time" >&2
+	exit 2
+fi
+
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 out_dir="$root/profiling/captures/${phase}/${scenario}/r${repeat}"
 mkdir -p "$out_dir"

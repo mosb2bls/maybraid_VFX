@@ -4,9 +4,12 @@ Release `maybraid` with Bevy `trace_tracy`, driven by
 [`maybraid/agent`](../maybraid/agent/README.md) scripts, captured on this
 machine's GPU (not lavapipe).
 
-Bevy 0.19.1 pulls `tracy-client` 0.18.4 / `tracy-client-sys` 0.28.0, which is
-**Tracy 0.13.1** — the copy on the Nix flake PATH. Do not mix Homebrew 0.14.x
-captures with this binary.
+Capture with **`tracy-capture` only** (Nix Tracy 0.13.1). Do not also open
+the Tracy GUI (`tracy` / `tracy-profiler`) — only one listener can take the
+game's connection, and a competing app will steal or drop the flight.
+
+Bevy 0.19.1 emits via `tracy-client` 0.18.4 / `tracy-client-sys` 0.28.0
+(protocol **0.13.1**). Match that capture binary; do not mix Homebrew 0.14.x.
 
 ```bash
 nix develop --command bash -lc '
