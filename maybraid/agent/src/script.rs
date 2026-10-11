@@ -67,7 +67,12 @@ mod tests {
 	#[test]
 	fn example_scripts_parse() -> anyhow::Result<()> {
 		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-		for name in ["origin-walk.jsonl", "biome-traverse.jsonl"] {
+		for name in [
+			"origin-walk.jsonl",
+			"origin-idle.jsonl",
+			"biome-traverse.jsonl",
+			"locomotion-mix.jsonl",
+		] {
 			let commands =
 				read_script_commands(&root.join(name)).map_err(|e| anyhow::anyhow!("{e}"))?;
 			assert!(!commands.is_empty(), "{name}");

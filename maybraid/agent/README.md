@@ -43,8 +43,17 @@ Buttons: `jump` (`a`), `sprint` (`l3`), `stance` (`b`), `interact` (`x`),
 `swap` (`y`), `ads` (`lb`), `fire` (`rt`), `focus` (`lt`), `menu`, `map`,
 `swap_pov` (`r3`), d-pad.
 
-See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl) and
-[`scripts/biome-traverse.jsonl`](scripts/biome-traverse.jsonl).
+See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
+[`scripts/origin-idle.jsonl`](scripts/origin-idle.jsonl),
+[`scripts/biome-traverse.jsonl`](scripts/biome-traverse.jsonl), and
+[`scripts/locomotion-mix.jsonl`](scripts/locomotion-mix.jsonl).
+
+Profile scripts mark a `*-warmup` scenario (stream-in / first steps) and then
+the measure window. `goto.look` holds the look stick while steering so a
+traversal can sweep the camera without a separate `hold`.
+
+Do **not** send `stats vsync` when the process already has `MAYBRAID_VSYNC=off`:
+that command *toggles*, so it turns vsync back on and locks the Frame plot.
 
 ## Events
 
