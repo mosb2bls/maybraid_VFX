@@ -54,6 +54,8 @@ pub struct CaptureRequest {
 	pub resolution: CaptureResolution,
 	pub lighting: CaptureLighting,
 	pub revision: CaptureRevision,
+	/// Optional English slug for the PNG name. Not part of the cache hash.
+	pub file_stem: String,
 }
 
 impl CaptureRequest {
@@ -72,7 +74,13 @@ impl CaptureRequest {
 			resolution,
 			lighting,
 			revision,
+			file_stem: String::new(),
 		}
+	}
+
+	pub fn with_file_stem(mut self, name: impl Into<String>) -> Self {
+		self.file_stem = crate::id::sanitize_file_stem(&name.into());
+		self
 	}
 
 	pub fn validate(&self) -> Result<(), String> {

@@ -28,6 +28,28 @@ impl CaptureId {
 	}
 }
 
+/// Lowercase alphanumeric slug for cache file names (`Celestial Red Tide` → `celestial-red-tide`).
+pub fn sanitize_file_stem(name: &str) -> String {
+	let mut stem = String::new();
+	let mut dash = false;
+	for ch in name.chars() {
+		if ch.is_ascii_alphanumeric() {
+			stem.extend(ch.to_lowercase());
+			dash = false;
+		} else if !dash && !stem.is_empty() {
+			stem.push('-');
+			dash = true;
+		}
+		if stem.len() >= 48 {
+			break;
+		}
+	}
+	while stem.ends_with('-') {
+		stem.pop();
+	}
+	stem
+}
+
 impl fmt::Display for CaptureId {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.write_str(&self.0)
@@ -54,6 +76,13 @@ mod tests {
 	fn file_prefix_strips_punctuation() -> anyhow::Result<()> {
 		let id = CaptureId::new("firearm:body=bullpup/looks=brushed");
 		assert_eq!(id.file_prefix(), "firearm-body-bullpup-looks-brush");
+		Ok(())
+	}
+
+	#[test]
+	fn file_stem_keeps_hashed_english_words() -> anyhow::Result<()> {
+		assert_eq!(sanitize_file_stem("Furnaced Umbral Silopup"), "furnaced-umbral-silopup");
+		assert_eq!(sanitize_file_stem("O'Red Yoeman Snailer"), "o-red-yoeman-snailer");
 		Ok(())
 	}
 }

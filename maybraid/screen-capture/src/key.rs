@@ -13,6 +13,7 @@ pub struct CaptureCacheKey {
 	pub lighting: String,
 	pub scene: String,
 	pub revision: CaptureRevision,
+	pub file_stem: String,
 }
 
 impl CaptureCacheKey {
@@ -25,6 +26,7 @@ impl CaptureCacheKey {
 			lighting: request.lighting.cache_fragment(),
 			scene: request.scene.cache_fragment(),
 			revision: request.revision,
+			file_stem: request.file_stem.clone(),
 		}
 	}
 
@@ -46,9 +48,14 @@ impl CaptureCacheKey {
 	}
 
 	pub fn file_name(&self) -> String {
+		let prefix = if self.file_stem.is_empty() {
+			self.id.file_prefix()
+		} else {
+			format!("{}_{}", self.file_stem, self.id.file_prefix())
+		};
 		format!(
 			"{}_{}_{}_{}.png",
-			self.id.file_prefix(),
+			prefix,
 			self.mode.as_str(),
 			self.resolution.cache_fragment(),
 			self.hash_hex(),
@@ -104,6 +111,20 @@ mod tests {
 			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::new(4)));
 		assert_ne!(shaded, silhouette);
 		assert_ne!(shaded, bumped);
+		Ok(())
+	}
+
+	#[test]
+	fn english_stem_is_in_the_file_name_not_the_hash() -> anyhow::Result<()> {
+		let plain =
+			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::CURRENT));
+		let named = CaptureCacheKey::from_request(
+			&request(CaptureMode::Shaded, CaptureRevision::CURRENT)
+				.with_file_stem("Cylint Wine Snailer"),
+		);
+		assert_eq!(plain.hash_hex(), named.hash_hex());
+		assert!(named.file_name().starts_with("cylint-wine-snailer_"));
+		assert!(!plain.file_name().contains("cylint-wine-snailer"));
 		Ok(())
 	}
 }

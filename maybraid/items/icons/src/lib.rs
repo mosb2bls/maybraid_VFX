@@ -207,6 +207,7 @@ pub fn item_icon_requests(
 		.into_iter()
 		.map(|mode| {
 			CaptureRequest::from_subject(&subject, mode, ITEM_ICON_RESOLUTION, lighting, revision)
+				.with_file_stem(item.name())
 		})
 		.collect()
 }
@@ -317,6 +318,10 @@ mod tests {
 		assert_eq!(requests[0].mode, CaptureMode::Shaded);
 		assert_eq!(requests[1].mode, CaptureMode::Silhouette);
 		assert_eq!(requests[0].id, requests[1].id);
+		let stem = screen_capture::sanitize_file_stem(&item.name());
+		assert!(!stem.is_empty());
+		assert_eq!(requests[0].file_stem, stem);
+		assert!(CaptureCacheKey::from_request(&requests[0]).file_name().starts_with(&stem));
 		Ok(())
 	}
 

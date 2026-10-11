@@ -23,7 +23,7 @@ pub use error::{
 	CaptureCompleted, CaptureError, CaptureFailed, CaptureSource, CaptureWarning,
 	CaptureWarningKind, RequestCapture,
 };
-pub use id::CaptureId;
+pub use id::{sanitize_file_stem, CaptureId};
 pub use key::CaptureCacheKey;
 pub use lighting::{CaptureDirectionalLight, CaptureLighting, CaptureLightingPreset};
 pub use mode::CaptureMode;

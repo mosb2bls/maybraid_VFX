@@ -54,7 +54,9 @@ item is never mutated.
 ### Cache
 
 The cache key covers subject id, mode, resolution, view, lighting
-preset/revision, and [`CaptureRevision`]. Hits load the PNG as a Bevy image.
+preset/revision, and [`CaptureRevision`]. PNG names may prefix an English
+slug (`cylint-wine-snailer_firearm-…`); the slug is not part of the hash.
+Hits load the PNG as a Bevy image.
 Misses capture, expose the image, then encode and write atomically in the
 background. A failed save leaves the in-memory image usable.
 
