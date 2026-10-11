@@ -9,7 +9,7 @@ use player::Player;
 
 use crate::plate::{spawn_hud_plate, HudPlateCorner, HudPlateLayout};
 
-const VITALS_WIDTH: f32 = 228.0;
+pub(crate) const VITALS_WIDTH: f32 = 228.0;
 const WELL_FILL: Color = Color::srgb(0.10, 0.11, 0.13);
 const WELL_STROKE: Color = Color::srgba(0.08, 0.08, 0.10, 0.95);
 const PIP_EMPTY: Color = Color::srgb(0.18, 0.19, 0.22);

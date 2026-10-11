@@ -1,6 +1,9 @@
 //! Reusable combat feedback for player health, outgoing hits, and incoming damage.
 
 mod continuous_health;
+mod cycle_cue;
+mod lubikan_charge;
+mod lubikan_points;
 mod plate;
 mod score;
 mod screen_pin;
@@ -12,10 +15,15 @@ use continuous_health::{
 	update_continuous_health_bar_content, ContinuousHealthBar, ContinuousHealthConfig,
 };
 use damage::{DamageApplied, Downed, HeadshotBand, Health};
+use lubikans::LubikanSystems;
 use player::{Npc, Player};
+use lubikan_charge::{spawn_lubikan_charge, sync_lubikan_charge};
+use lubikan_points::{ingest_lubikan_point_flyers, update_lubikan_point_flyers};
 use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
+pub use cycle_cue::CombatHudInventoryCycleCategory;
+pub use lubikan_charge::{LubikanChargeFlyTarget, LubikanSelfHealingHudPlaceholder};
 pub use score::{CombatScore, LiveEnemies};
 pub use screen_pin::ScreenPin;
 
@@ -49,6 +57,10 @@ pub struct CombatHudPlugin {
 	pub directional_damage: bool,
 	/// Bottom-left name + pip bar. Independent of the top YOU/NPC [`health_bars`].
 	pub player_vitals: bool,
+	/// Lubikan charge row above [`player_vitals`]. Reads [`lubikans::LubikanLedger`] only.
+	pub lubikan_charge: bool,
+	/// Animate [`lubikans::LubikanChargeChanged`] toward the charge anchor.
+	pub lubikan_point_feedback: bool,
 	/// Top-right running score, shown while a [`CombatScore`] exists.
 	pub score: bool,
 }
@@ -60,6 +72,8 @@ impl Default for CombatHudPlugin {
 			hit_markers: true,
 			directional_damage: true,
 			player_vitals: false,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		}
 	}
@@ -71,12 +85,17 @@ impl Plugin for CombatHudPlugin {
 			|| self.hit_markers
 			|| self.directional_damage
 			|| self.player_vitals
+			|| self.lubikan_charge
+			|| self.lubikan_point_feedback
 			|| self.score;
 		if !any {
 			return;
 		}
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
+			.init_resource::<CombatHudInventoryCycleCategory>()
+			.init_resource::<LubikanSelfHealingHudPlaceholder>()
+			.configure_sets(PostUpdate, CombatHudSystems::Health.after(LubikanSystems::Award))
 			.add_systems(Startup, spawn_combat_hud);
 		if self.health_bars {
 			app.init_resource::<CombatHudOpponentTotal>()
@@ -100,11 +119,46 @@ impl Plugin for CombatHudPlugin {
 				trigger_completion_flash.in_set(CombatHudSystems::Health),
 			);
 		}
-		if self.player_vitals {
-			app.add_systems(Update, sync_player_vitals.in_set(CombatHudSystems::Health));
+		if self.player_vitals && self.lubikan_charge && self.lubikan_point_feedback {
+			app.add_systems(
+				PostUpdate,
+				(
+					sync_player_vitals,
+					sync_lubikan_charge,
+					ingest_lubikan_point_flyers,
+					update_lubikan_point_flyers,
+				)
+					.chain()
+					.in_set(CombatHudSystems::Health),
+			);
+		} else if self.player_vitals && self.lubikan_charge {
+			app.add_systems(
+				PostUpdate,
+				(sync_player_vitals, sync_lubikan_charge)
+					.chain()
+					.in_set(CombatHudSystems::Health),
+			);
+		} else if self.player_vitals {
+			app.add_systems(PostUpdate, sync_player_vitals.in_set(CombatHudSystems::Health));
+		} else if self.lubikan_charge && self.lubikan_point_feedback {
+			app.add_systems(
+				PostUpdate,
+				(sync_lubikan_charge, ingest_lubikan_point_flyers, update_lubikan_point_flyers)
+					.chain()
+					.in_set(CombatHudSystems::Health),
+			);
+		} else if self.lubikan_charge {
+			app.add_systems(PostUpdate, sync_lubikan_charge.in_set(CombatHudSystems::Health));
+		} else if self.lubikan_point_feedback {
+			app.add_systems(
+				PostUpdate,
+				(ingest_lubikan_point_flyers, update_lubikan_point_flyers)
+					.chain()
+					.in_set(CombatHudSystems::Health),
+			);
 		}
 		if self.score {
-			app.add_systems(Update, sync_combat_score.in_set(CombatHudSystems::Health))
+			app.add_systems(PostUpdate, sync_combat_score.in_set(CombatHudSystems::Health))
 				.add_systems(
 					PostUpdate,
 					ingest_combat_score
@@ -210,6 +264,9 @@ fn spawn_combat_hud(
 				spawn_directional_damage_ring(root);
 			}
 			let fonts = vitals_fonts(asset_server.as_deref());
+			if config.0.lubikan_charge {
+				spawn_lubikan_charge(root, &fonts);
+			}
 			if config.0.player_vitals {
 				spawn_player_vitals(root, &fonts);
 			}
@@ -667,6 +724,8 @@ mod tests {
 				hit_markers: true,
 				directional_damage: true,
 				player_vitals: false,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
 				score: false,
 			}
 		);
@@ -694,6 +753,8 @@ mod tests {
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		});
 		app.update();
@@ -712,6 +773,8 @@ mod tests {
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		});
 		app
@@ -767,6 +830,8 @@ mod tests {
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		});
 		app.update();
@@ -806,6 +871,8 @@ mod tests {
 				hit_markers: false,
 				directional_damage: false,
 				player_vitals: false,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
 				score: true,
 			},
 		);
@@ -885,6 +952,8 @@ mod tests {
 				hit_markers: true,
 				directional_damage: false,
 				player_vitals: false,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
 				score: false,
 			},
 		);
@@ -905,5 +974,66 @@ mod tests {
 			world.query::<&Text>().iter(world).any(|text| text.0 == "+1"),
 			"player-thrown blast must raise a hit marker"
 		);
+	}
+
+	fn lubikan_app() -> App {
+		let mut app = App::new();
+		lubikans::fixtures::install_interface(&mut app);
+		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
+			health_bars: false,
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: true,
+			lubikan_charge: true,
+			lubikan_point_feedback: false,
+			score: false,
+		});
+		app
+	}
+
+	#[test]
+	fn lubikan_charge_shares_vitals_visibility() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut().entity_mut(owner).insert((
+			Player,
+			Health { current: 50.0, max: 100.0 },
+		));
+		app.world_mut().insert_resource(CombatHudVisible(false));
+		app.update();
+		let world = app.world_mut();
+		let hidden = world
+			.query_filtered::<&Visibility, With<lubikan_charge::LubikanChargeRoot>>()
+			.iter(world)
+			.next()
+			.copied()
+			.ok_or_else(|| anyhow::anyhow!("lubikan root"))?;
+		assert_eq!(hidden, Visibility::Hidden);
+		Ok(())
+	}
+
+	#[test]
+	fn lubikan_charge_reads_ledger_without_mutating_charge() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut().entity_mut(owner).insert((Player, Health::default()));
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			ledger.apply_to_equipped(80.0);
+		}
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let world = app.world_mut();
+		let stored = world
+			.get::<lubikans::LubikanLedger>(owner)
+			.map(|ledger| ledger.equipped().charge().current());
+		assert_eq!(stored, Some(80.0));
+		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "Self  80/100"));
+		Ok(())
 	}
 }

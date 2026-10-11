@@ -122,6 +122,8 @@ const WORLD_COMBAT_HUD: CombatHudPlugin = CombatHudPlugin {
 	hit_markers: true,
 	directional_damage: true,
 	player_vitals: true,
+	lubikan_charge: true,
+	lubikan_point_feedback: true,
 	score: true,
 };
 const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbes(false);
@@ -340,6 +342,8 @@ mod tests {
 		assert!(WORLD_COMBAT_HUD.hit_markers);
 		assert!(WORLD_COMBAT_HUD.directional_damage);
 		assert!(WORLD_COMBAT_HUD.player_vitals);
+		assert!(WORLD_COMBAT_HUD.lubikan_charge);
+		assert!(WORLD_COMBAT_HUD.lubikan_point_feedback);
 	}
 
 	#[test]

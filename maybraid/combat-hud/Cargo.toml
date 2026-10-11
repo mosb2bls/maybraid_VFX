@@ -18,6 +18,7 @@ player = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+lubikans = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true

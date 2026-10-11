@@ -100,6 +100,7 @@ members = [
   "maybraid/world/modes/reliquary",
   "maybraid/input",
   "maybraid/combat-hud",
+  "maybraid/combat-hud/playground",
   "maybraid/lubikans",
   "maybraid/lubikans/damage",
   "maybraid/player",
@@ -354,6 +355,7 @@ maybraid-skill-map = { path = "maybraid/skill-map" }
 maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
 combat-hud = { path = "maybraid/combat-hud" }
+combat-hud-playground = { path = "maybraid/combat-hud/playground" }
 lubikans = { path = "maybraid/lubikans" }
 lubikans-damage = { path = "maybraid/lubikans/damage" }
 player = { path = "maybraid/player" }
