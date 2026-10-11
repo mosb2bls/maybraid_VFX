@@ -114,11 +114,51 @@ fn display_name(name: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use damage::Health;
 
 	#[test]
 	fn empty_name_falls_back_to_player() {
 		assert_eq!(display_name(None), "Player");
 		assert_eq!(display_name(Some("   ")), "Player");
 		assert_eq!(display_name(Some("Ada")), "Ada");
+	}
+
+	#[test]
+	fn vitals_continuous_bar_targets_player() {
+		// Test that spawned health bar has correct layout and target
+		use crate::CombatHudPlugin;
+		use bevy::app::App;
+		
+		let mut app = App::new();
+		app.add_plugins(bevy::MinimalPlugins);
+		app.add_plugins(CombatHudPlugin {
+			health_bars: false,
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
+			score: false,
+		});
+		
+		// Spawn player
+		let player = app.world_mut().spawn((
+			Player,
+			Health::from_max(100.0),
+			Name::new("TestPlayer"),
+		)).id();
+		
+		// Run one update to spawn HUD
+		app.update();
+		
+		// Find the UI child health bar
+		let mut query = app.world_mut().query_filtered::<&ContinuousHealthBar, With<ContinuousHealthBar>>();
+		let bars: Vec<_> = query
+			.iter(app.world())
+			.filter(|bar| bar.layout == HealthBarLayout::UiChild)
+			.collect();
+		
+		assert_eq!(bars.len(), 1, "should have one UI child health bar");
+		assert_eq!(bars[0].target, player, "bar should target the player entity");
 	}
 }

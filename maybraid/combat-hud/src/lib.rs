@@ -773,7 +773,7 @@ mod tests {
 	}
 
 	#[test]
-	fn player_vitals_spawn_name_and_pips() {
+	fn player_vitals_spawn_name_and_health_bar() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
 			health_bars: false,
@@ -787,9 +787,11 @@ mod tests {
 		app.update();
 		let world = app.world_mut();
 		assert_eq!(world.query::<&vitals::PlayerVitalsRoot>().iter(world).count(), 1);
+		// Check continuous health bar spawned
 		assert_eq!(
-			world.query::<&vitals::PlayerVitalsPip>().iter(world).count(),
-			vitals::VITALS_PIPS
+			world.query::<&ContinuousHealthBar>().iter(world).count(),
+			1,
+			"should have one continuous health bar"
 		);
 	}
 
@@ -872,12 +874,12 @@ mod tests {
 			.find(|text| text.0 == "Ada")
 			.expect("character name");
 		assert_eq!(name.0, "Ada");
-		let lit = world
-			.query::<(&vitals::PlayerVitalsPip, &BackgroundColor)>()
+		// Check continuous health bar exists
+		let bar_count = world
+			.query::<&ContinuousHealthBar>()
 			.iter(world)
-			.filter(|(_, color)| color.0 == vitals::vitals_fill_color(0.4))
 			.count();
-		assert_eq!(lit, 4);
+		assert_eq!(bar_count, 1, "should have one continuous health bar");
 	}
 
 	#[test]
