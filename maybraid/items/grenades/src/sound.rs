@@ -1,6 +1,6 @@
 //! Charge SFX: blast impact + rumble, throw jingle, and bounce.
 
-use avian3d::prelude::{CollisionStart, LinearVelocity};
+use avian3d::prelude::{CollidingEntities, LinearVelocity};
 use bevy::prelude::*;
 use maybraid_audio::{
 	Audio, AudioBus, AudioClip, AudioPlugin, AudioSystems, Mixer, MovementClip, SpatialOneShot,
@@ -132,9 +132,14 @@ impl GrenadeSounds {
 	}
 }
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone)]
 pub(crate) struct GrenadeBounceClock {
 	pub next_at: f32,
+	pub touching: Vec<Entity>,
+}
+
+pub(crate) fn contact_just_started(known: &[Entity], colliding: &CollidingEntities) -> bool {
+	colliding.iter().any(|other| !known.contains(other))
 }
 
 pub(crate) fn setup_grenade_sounds(mut commands: Commands, assets: Res<AssetServer>) {
@@ -163,14 +168,13 @@ pub(crate) fn play_grenade_detonations(
 pub(crate) fn play_grenade_bounces(
 	time: Res<Time>,
 	mut commands: Commands,
-	mut started: MessageReader<CollisionStart>,
 	sounds: Option<Res<GrenadeSounds>>,
 	clips: Res<Assets<AudioClip>>,
 	audio: Option<Res<Audio>>,
 	mut mixer: ResMut<Mixer>,
 	listeners: Query<&GlobalTransform, With<SpatialListener>>,
 	mut grenades: Query<
-		(&Transform, &LinearVelocity, &mut GrenadeBounceClock),
+		(&Transform, &LinearVelocity, &CollidingEntities, &mut GrenadeBounceClock),
 		With<ThrownGrenade>,
 	>,
 ) {
@@ -180,28 +184,22 @@ pub(crate) fn play_grenade_bounces(
 		return;
 	};
 	let now = time.elapsed_secs();
-	for event in started.read() {
-		for candidate in [Some(event.collider1), Some(event.collider2), event.body1, event.body2]
-			.into_iter()
-			.flatten()
-		{
-			let Ok((transform, velocity, mut clock)) = grenades.get_mut(candidate) else {
-				continue;
-			};
-			if velocity.0.length() < BOUNCE_MIN_SPEED || now < clock.next_at {
-				continue;
-			}
-			clock.next_at = now + BOUNCE_COOLDOWN;
-			sounds.play_bounce(
-				&mut commands,
-				&clips,
-				&audio,
-				&mut mixer,
-				listener,
-				transform.translation,
-			);
-			break;
+	for (transform, velocity, colliding, mut clock) in &mut grenades {
+		let started = contact_just_started(&clock.touching, colliding);
+		clock.touching.clear();
+		clock.touching.extend(colliding.iter().copied());
+		if !started || velocity.0.length() < BOUNCE_MIN_SPEED || now < clock.next_at {
+			continue;
 		}
+		clock.next_at = now + BOUNCE_COOLDOWN;
+		sounds.play_bounce(
+			&mut commands,
+			&clips,
+			&audio,
+			&mut mixer,
+			listener,
+			transform.translation,
+		);
 	}
 }
 
@@ -251,5 +249,17 @@ mod tests {
 		assert!(RUMBLE_SPATIAL_RADIUS > IMPACT_SPATIAL_RADIUS);
 		assert!(IMPACT_SPATIAL_RADIUS > BOUNCE_SPATIAL_RADIUS);
 		assert!(BOUNCE_SPATIAL_RADIUS > THROW_SPATIAL_RADIUS);
+	}
+
+	#[test]
+	fn bounce_starts_only_on_a_new_partner() {
+		let ground = Entity::from_bits(2);
+		let wall = Entity::from_bits(3);
+		let mut colliding = CollidingEntities::default();
+		colliding.insert(ground);
+		assert!(contact_just_started(&[], &colliding));
+		assert!(!contact_just_started(&[ground], &colliding));
+		colliding.insert(wall);
+		assert!(contact_just_started(&[ground], &colliding));
 	}
 }

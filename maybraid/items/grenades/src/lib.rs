@@ -94,39 +94,43 @@ pub fn spawn_thrown_grenade(
 	let volume = (4.0 / 3.0) * PI * radius * radius * radius;
 	let density = (stats.mass / volume.max(1e-6)).max(0.05);
 	let tumble = velocity.cross(Vec3::Y).normalize_or(Vec3::X) * 10.0;
-	let body = commands
+	commands
 		.spawn((
-			Name::new("thrown-grenade"),
-			Transform {
-				translation: origin,
-				rotation: Quat::from_rotation_arc(Vec3::Y, velocity.normalize_or(Vec3::Y)),
-				scale: Vec3::splat(radius * 2.0),
-			},
-			Visibility::default(),
-			Mesh3d(meshes.add(grenade_mesh())),
-			MeshMaterial3d(materials.add(grenade_material())),
-			RigidBody::Dynamic,
-			MassPropertiesBundle::from_shape(&collider, density),
-			collider,
-			grenade_layers(),
-			LinearVelocity(velocity),
-			AngularVelocity(tumble),
-			GravityScale(1.0),
-			CollisionEventsEnabled,
-			sound::GrenadeBounceClock { next_at: 0.0 },
+			(
+				Name::new("thrown-grenade"),
+				Transform {
+					translation: origin,
+					rotation: Quat::from_rotation_arc(Vec3::Y, velocity.normalize_or(Vec3::Y)),
+					scale: Vec3::splat(radius * 2.0),
+				},
+				Visibility::default(),
+				Mesh3d(meshes.add(grenade_mesh())),
+				MeshMaterial3d(materials.add(grenade_material())),
+				RigidBody::Dynamic,
+				MassPropertiesBundle::from_shape(&collider, density),
+				collider,
+				grenade_layers(),
+			),
+			(
+				LinearVelocity(velocity),
+				AngularVelocity(tumble),
+				GravityScale(1.0),
+				Restitution {
+					coefficient: stats.restitution,
+					combine_rule: CoefficientCombine::Average,
+				},
+				Friction {
+					dynamic_coefficient: stats.friction,
+					static_coefficient: stats.friction,
+					combine_rule: CoefficientCombine::Average,
+				},
+				ThrownGrenade { spec, stats, effect, source, detonated: false },
+				GrenadeFuse { remaining: stats.fuse },
+				CollidingEntities::default(),
+				sound::GrenadeBounceClock { next_at: 0.0, touching: Vec::new() },
+			),
 		))
-		.id();
-	commands.entity(body).insert((
-		Restitution { coefficient: stats.restitution, combine_rule: CoefficientCombine::Average },
-		Friction {
-			dynamic_coefficient: stats.friction,
-			static_coefficient: stats.friction,
-			combine_rule: CoefficientCombine::Average,
-		},
-		ThrownGrenade { spec, stats, effect, source, detonated: false },
-		GrenadeFuse { remaining: stats.fuse },
-	));
-	body
+		.id()
 }
 
 pub fn tick_grenade_fuses(

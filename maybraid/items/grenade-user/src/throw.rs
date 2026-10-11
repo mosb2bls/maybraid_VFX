@@ -104,7 +104,7 @@ pub fn apply_throw_intents(
 		}
 		throw.phase = GrenadePhase::Windup { age: 0.0 };
 		throw.use_latched = true;
-		commands.entity(entity).insert(ThrowJingleDue);
+		commands.entity(entity).try_insert(ThrowJingleDue);
 	}
 }
 
