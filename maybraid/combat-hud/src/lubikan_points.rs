@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
-use lubikans::{LubikanAccountId, LubikanChargeChanged, LubikanOwner};
+use lubikans::{LubikanAccountId, LubikanChargeChanged, LubikanChargeReason, LubikanOwner};
 use player::Player;
 
 use crate::lubikan_charge::LubikanChargeFlyTarget;
@@ -66,6 +66,7 @@ pub(crate) fn ingest_lubikan_point_flyers(
 			hud,
 			change.lubikan,
 			change.amount,
+			change.reason,
 			start,
 			time.elapsed_secs(),
 		);
@@ -91,10 +92,11 @@ fn spawn_flyer(
 	hud: Entity,
 	credited: LubikanAccountId,
 	amount: f32,
+	reason: LubikanChargeReason,
 	start: Vec2,
 	born: f32,
 ) {
-	let label = point_label(amount);
+	let label = point_label_with_reason(amount, reason);
 	let color = if amount > 0.0 { GAIN } else { LOSS };
 	commands.entity(hud).with_children(|root| {
 		root.spawn((
@@ -151,12 +153,13 @@ pub(crate) fn update_lubikan_point_flyers(
 	}
 }
 
-fn point_label(amount: f32) -> String {
-	if amount > 0.0 {
+pub(crate) fn point_label_with_reason(amount: f32, reason: LubikanChargeReason) -> String {
+	let signed = if amount > 0.0 {
 		format!("+{:.0}", amount)
 	} else {
 		format!("{:.0}", amount)
-	}
+	};
+	format!("{signed} {label}", label = reason.label())
 }
 
 #[cfg(test)]
@@ -165,7 +168,13 @@ mod tests {
 
 	#[test]
 	fn signed_labels_distinguish_gains_and_penalties() {
-		assert_eq!(point_label(3.0), "+3");
-		assert_eq!(point_label(-2.0), "-2");
+		assert_eq!(
+			point_label_with_reason(3.0, LubikanChargeReason::COMBAT_HIT),
+			"+3 combat-hit"
+		);
+		assert_eq!(
+			point_label_with_reason(-2.0, LubikanChargeReason::ADJUSTMENT),
+			"-2 adjustment"
+		);
 	}
 }
