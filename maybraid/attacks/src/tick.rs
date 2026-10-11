@@ -59,6 +59,14 @@ pub fn begin_attacks(
 			continue;
 		};
 		let origin = owner_point(owner_transform, owner_global);
+		let emission = begin
+			.emission
+			.or_else(|| {
+				begin.emission_socket.and_then(|socket| {
+					transforms.get(socket).ok().map(|(transform, global)| owner_point(transform, global))
+				})
+			})
+			.unwrap_or(origin);
 		let snapshot = match live_target.and_then(|target| transforms.get(target).ok()) {
 			Some((target_transform, target_global)) => crate::AimSnapshot::toward(
 				origin,
@@ -69,7 +77,8 @@ pub fn begin_attacks(
 				origin,
 				owner_forward(owner_transform, owner_global),
 			),
-		};
+		}
+		.with_emission(emission);
 		let mut allies = begin.allies.clone();
 		for ally in targeting_allies(targeting) {
 			if !allies.contains(&ally) {
@@ -77,8 +86,8 @@ pub fn begin_attacks(
 			}
 		}
 		let id = ids.next();
-		let instance =
-			AttackInstance::new(id, &definition, begin.owner, snapshot, live_target, allies);
+		let instance = AttackInstance::new(id, &definition, begin.owner, snapshot, live_target, allies)
+			.with_emission_socket(begin.emission_socket);
 		for kind in instance.begin_events(&definition) {
 			presented.write(AttackPresentationEvent::with_kind(
 				id,
@@ -130,11 +139,16 @@ pub fn tick_attacks(
 					.map(|(transform, global)| owner_point(transform, global))
 			});
 			instance.refresh_aim(target_point, origin);
+			if let Some(socket) = instance.emission_socket {
+				if let Ok((socket_transform, socket_global)) = transforms.get(socket) {
+					instance.refresh_emission(owner_point(socket_transform, socket_global));
+				}
+			}
 		}
 		let outcome = instance.tick(dt, &definition);
 		if outcome.pulse {
-			for spec in &definition.hazards {
-				for hit in instance.collect_hits(now, *spec, &candidates) {
+			for (index, spec) in definition.hazards.iter().enumerate() {
+				for hit in instance.collect_hits(now, index, *spec, &candidates) {
 					hits.write(hit);
 				}
 			}

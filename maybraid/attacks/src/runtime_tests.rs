@@ -35,8 +35,10 @@ fn wave_def() -> AttackDefinition {
 			persist_into_execute: true,
 		})
 		.with_hazard(HazardSpec {
-			shape: HazardShape::Wavefront { radius: 1.25, speed: 8.0, length: 8.0 },
-			origin: HazardOrigin::AimPoint,
+			shape: HazardShape::Wavefront(
+				crate::WavefrontSpec::new(1.25, 8.0, 8.0).with_waves(2, 0.35).with_half_depth(0.3),
+			),
+			origin: HazardOrigin::Emission,
 			damage: crate::DamageSpec::authored(),
 		})
 }
@@ -102,6 +104,10 @@ fn drain_hits(app: &mut App) -> Vec<Hit> {
 
 fn drain_ended(app: &mut App) -> Vec<AttackEnded> {
 	app.world_mut().resource_mut::<Messages<AttackEnded>>().drain().collect()
+}
+
+fn drain_presented(app: &mut App) -> Vec<AttackPresentationEvent> {
+	app.world_mut().resource_mut::<Messages<AttackPresentationEvent>>().drain().collect()
 }
 
 #[test]
@@ -176,7 +182,7 @@ fn cancel_removes_hazards_and_warning_bindings() -> Result<()> {
 		.ok_or_else(|| anyhow!("missing instance"))?;
 	app.world_mut().entity_mut(binding).insert(AttackPresentationBinding {
 		instance: instance_id,
-		kind: crate::AttackPresentationBindingKind::Hazard { index: 0 },
+		kind: crate::AttackPresentationBindingKind::Hazard { index: 0, wave: 0 },
 	});
 	app.world_mut().write_message(CancelAttacks::all(owner));
 	step(&mut app, 0.1);
@@ -382,7 +388,7 @@ fn placeholder_preview_svg_records_telegraph_and_hazard() -> Result<()> {
 	);
 	let hazard = (
 		HazardPose::new(Vec3::new(0.0, 0.0, 2.0), Quat::IDENTITY),
-		HazardShape::Wavefront { radius: 1.2, speed: 4.0, length: 8.0 },
+		HazardShape::Wavefront(crate::WavefrontSpec::new(1.2, 4.0, 8.0)),
 	);
 	let svg = placeholder_svg(telegraph, hazard);
 	let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -394,6 +400,66 @@ fn placeholder_preview_svg_records_telegraph_and_hazard() -> Result<()> {
 	let written = std::fs::read_to_string(path)?;
 	if !written.contains("#f0c12a") || !written.contains("#c42b24") {
 		return Err(anyhow!("preview svg missing placeholder colors"));
+	}
+	Ok(())
+}
+
+#[test]
+fn wavefront_hits_once_per_wave_and_exposes_kinematics() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let wave = AttackId::new("wave-once");
+	app.world_mut().resource_mut::<AttackCatalog>().insert(
+		AttackDefinition::with_authored_defaults(wave, 0.2, 1.2, 0.2, AimPolicy::TargetAtWindup)
+			.with_hazard(HazardSpec {
+				shape: HazardShape::Wavefront(
+					crate::WavefrontSpec::new(1.4, 8.0, 8.0).with_waves(2, 0.4).with_half_depth(0.3),
+				),
+				origin: HazardOrigin::Emission,
+				damage: crate::DamageSpec::once(20.0),
+			}),
+	);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 0.0, -2.0), 100.0);
+	let mouth = Vec3::new(0.0, 0.0, -0.2);
+	app.world_mut().write_message(
+		BeginAttack::new(owner, wave).with_target(target).with_emission(mouth),
+	);
+	step(&mut app, 0.2);
+	step(&mut app, 0.3);
+	let first = drain_hits(&mut app);
+	if first.len() != 1 {
+		return Err(anyhow!("wave 0 should hit once, got {}", first.len()));
+	}
+	let presented = drain_presented(&mut app);
+	let Some(wavefront) = presented.iter().find_map(|event| match &event.kind {
+		crate::AttackPresentationKind::Hazard { wave: Some(wave), .. } => Some(*wave),
+		_ => None,
+	}) else {
+		return Err(anyhow!("expected wavefront presentation kinematics"));
+	};
+	if (wavefront.origin - mouth).length() > 1e-3 {
+		return Err(anyhow!("presenter origin should be the emission, got {:?}", wavefront.origin));
+	}
+	if (wavefront.direction - Vec3::NEG_Z).length() > 1e-3 {
+		return Err(anyhow!("presenter direction should be flattened heading"));
+	}
+	if (wavefront.speed - 8.0).abs() > 1e-4 || (wavefront.range - 8.0).abs() > 1e-4 {
+		return Err(anyhow!("presenter missing speed/range"));
+	}
+	if (wavefront.radius - 1.4).abs() > 1e-4 {
+		return Err(anyhow!("presenter missing ring radius"));
+	}
+	step(&mut app, 0.4);
+	let second = drain_hits(&mut app);
+	if second.len() != 1 {
+		return Err(anyhow!("wave 1 should hit the same target once, got {}", second.len()));
+	}
+	let later = drain_presented(&mut app);
+	if !later.iter().any(|event| matches!(
+		&event.kind,
+		crate::AttackPresentationKind::Hazard { wave: Some(wave), .. } if wave.wave_index == 1
+	)) {
+		return Err(anyhow!("second wave should announce wave_index 1"));
 	}
 	Ok(())
 }

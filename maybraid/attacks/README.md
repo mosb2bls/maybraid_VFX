@@ -18,6 +18,14 @@ VFX lanes ([#1122](https://github.com/ramate-io/maybraid/issues/1122),
 [`AttackPresentationBinding`](src/presentation.rs). Damage still applies when no
 presenter is installed.
 
+[`HazardShape::Wavefront`](src/hazard.rs) is a discrete ring / disc emitted from
+a mouth or socket. It travels in world space along a horizontal heading (optional
+pitch) at a constant radius, not as a radially expanding ground ring. Sequential
+waves use an emission interval. Each wave hits a target at most once when cadence
+is `<= 0`, otherwise it follows the authored cadence. Hazard presentation events
+carry [`WavefrontPresentation`](src/presentation.rs) (`origin`, `direction`,
+`speed`, `range`, `radius`, `wave_index`).
+
 Default damage, cooldown, interruption, and friendly-fire are authored in
 [`AttackDefaults::AUTHORED`](src/defaults.rs). Callers copy or override those
 fields; they are never implied at runtime.

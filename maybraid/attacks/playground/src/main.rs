@@ -1,8 +1,8 @@
 //! Placeholder telegraph and hazard preview. Gameplay still writes `Hit` if
 //! this presenter is removed.
 //!
-//! `attacks-playground --capture` settles, casts the column, then cancels so
-//! xvfb/lavapipe captures can record windup, execute hits, and cleanup.
+//! `attacks-playground --capture` settles, casts the traveling-wave attack, then
+//! cancels so xvfb/lavapipe captures can record windup, execute hits, and cleanup.
 
 use std::fs;
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use attacks::{
 	AimPolicy, AttackCatalog, AttackDefinition, AttackEnded, AttackId, AttackInstance,
 	AttackPlaceholderPresentationPlugin, AttackStage, AttackUser, AttacksPlugin, BeginAttack,
-	CancelAttacks, HazardOrigin, HazardShape, HazardSpec, TelegraphSpec,
+	CancelAttacks, HazardOrigin, HazardShape, HazardSpec, TelegraphSpec, WavefrontSpec,
 };
 use bevy::app::AppExit;
 use bevy::prelude::*;
@@ -111,6 +111,9 @@ struct PreviewCaster {
 struct PreviewTarget(Entity);
 
 #[derive(Component)]
+struct PreviewSocket(Entity);
+
+#[derive(Component)]
 struct PreviewHud;
 
 #[derive(Component)]
@@ -152,12 +155,14 @@ fn setup(
 			)
 			.with_telegraph(TelegraphSpec {
 				shape: HazardShape::Line { length: 10.0, half_width: 0.45 },
-				origin: HazardOrigin::AimPoint,
+				origin: HazardOrigin::Emission,
 				persist_into_execute: true,
 			})
 			.with_hazard(HazardSpec {
-				shape: HazardShape::Wavefront { radius: 1.3, speed: 5.0, length: 10.0 },
-				origin: HazardOrigin::AimPoint,
+				shape: HazardShape::Wavefront(
+					WavefrontSpec::new(1.5, 5.0, 10.0).with_waves(3, 0.45).with_half_depth(0.28),
+				),
+				origin: HazardOrigin::Emission,
 				damage: attacks::DamageSpec::authored(),
 			}),
 		);
@@ -200,7 +205,14 @@ fn setup(
 			Transform::from_xyz(0.0, 1.2, 2.4),
 		))
 		.id();
-	commands.entity(owner).insert(PreviewTarget(target));
+	let mouth = commands
+		.spawn((
+			Name::new("mouth"),
+			ChildOf(owner),
+			Transform::from_xyz(0.0, 0.55, -0.65),
+		))
+		.id();
+	commands.entity(owner).insert((PreviewTarget(target), PreviewSocket(mouth)));
 
 	commands.spawn((
 		PreviewHud,
@@ -224,19 +236,23 @@ fn setup(
 fn retrigger(
 	mode: Res<PreviewMode>,
 	time: Res<Time>,
-	mut casters: Query<(Entity, &mut PreviewCaster, &PreviewTarget, &AttackUser)>,
+	mut casters: Query<(Entity, &mut PreviewCaster, &PreviewTarget, &PreviewSocket, &AttackUser)>,
 	mut begins: MessageWriter<BeginAttack>,
 ) {
 	if *mode == PreviewMode::Capture {
 		return;
 	}
 	let dt = time.delta_secs();
-	for (owner, mut caster, target, user) in &mut casters {
+	for (owner, mut caster, target, socket, user) in &mut casters {
 		caster.wait -= dt;
 		if caster.wait > 0.0 || !user.ready(caster.next) {
 			continue;
 		}
-		begins.write(BeginAttack::new(owner, caster.next).with_target(target.0));
+		begins.write(
+			BeginAttack::new(owner, caster.next)
+				.with_target(target.0)
+				.with_emission_socket(socket.0),
+		);
 		caster.next = if caster.next == COLUMN { WAVE } else { COLUMN };
 		caster.wait = 1.2;
 	}
@@ -262,7 +278,7 @@ fn capture_sequence(
 	io: Res<CaptureIo>,
 	stats: Res<PreviewStats>,
 	instances: Query<&AttackInstance>,
-	casters: Query<(Entity, &PreviewTarget), With<PreviewCaster>>,
+	casters: Query<(Entity, &PreviewTarget, &PreviewSocket), With<PreviewCaster>>,
 	mut plan: Option<ResMut<CapturePlan>>,
 	mut begins: MessageWriter<BeginAttack>,
 	mut cancels: MessageWriter<CancelAttacks>,
@@ -280,8 +296,12 @@ fn capture_sequence(
 		CapturePhase::Settle { remaining } => {
 			*remaining -= dt;
 			if *remaining <= 0.0 {
-				if let Ok((owner, target)) = casters.single() {
-					begins.write(BeginAttack::new(owner, COLUMN).with_target(target.0));
+				if let Ok((owner, target, socket)) = casters.single() {
+					begins.write(
+						BeginAttack::new(owner, WAVE)
+							.with_target(target.0)
+							.with_emission_socket(socket.0),
+					);
 				}
 				plan.phase = CapturePhase::AwaitWindup;
 			}
@@ -301,7 +321,7 @@ fn capture_sequence(
 		CapturePhase::HoldExecute { remaining } => {
 			*remaining -= dt;
 			if *remaining <= 0.0 {
-				if let Ok((owner, _)) = casters.single() {
+				if let Ok((owner, _, _)) = casters.single() {
 					cancels.write(CancelAttacks::all(owner));
 				}
 				plan.phase = CapturePhase::AwaitCleanup;

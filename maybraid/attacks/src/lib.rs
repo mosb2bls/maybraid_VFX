@@ -27,14 +27,14 @@ pub use definition::{
 };
 pub use hazard::{
 	DamageFalloff, DamageSpec, HazardHitPass, HazardOrigin, HazardPose, HazardShape, HazardSpec,
-	HitCandidate,
+	HitCandidate, WaveHitClock, WavefrontSpec, WavefrontSweep,
 };
 pub use instance::{AttackInstance, AttackInstanceId, AttackStage, AttackUser};
 pub use placeholder::AttackPlaceholderPresentationPlugin;
 pub use plugin::{AttackSystems, AttacksPlugin};
 pub use presentation::{
 	AttackPresentationBinding, AttackPresentationBindingKind, AttackPresentationEvent,
-	AttackPresentationKind, PresentationPhase,
+	AttackPresentationKind, PresentationPhase, WavefrontPresentation,
 };
 pub use preview::placeholder_svg;
 

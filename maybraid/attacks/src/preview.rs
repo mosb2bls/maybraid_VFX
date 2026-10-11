@@ -30,11 +30,24 @@ fn append_shape(out: &mut String, pose: HazardPose, shape: HazardShape, color: &
 	let x = pose.origin.x;
 	let z = pose.origin.z;
 	match shape {
-		HazardShape::Sphere { radius }
-		| HazardShape::Wavefront { radius, .. }
-		| HazardShape::Cylinder { radius, .. } => {
+		HazardShape::Sphere { radius } | HazardShape::Cylinder { radius, .. } => {
 			out.push_str(&format!(
 				"<circle cx=\"{x:.3}\" cy=\"{z:.3}\" r=\"{radius:.3}\" fill=\"{color}\" fill-opacity=\"{opacity}\"/>"
+			));
+		}
+		HazardShape::Wavefront(wave) => {
+			let heading = pose.rotation * Vec3::Z;
+			let right = Vec3::new(heading.z, 0.0, -heading.x);
+			let right = if right.length_squared() <= 1e-8 { Vec3::X } else { right.normalize() };
+			let start = pose.origin - right * wave.radius;
+			let end = pose.origin + right * wave.radius;
+			out.push_str(&format!(
+				"<line x1=\"{:.3}\" y1=\"{:.3}\" x2=\"{:.3}\" y2=\"{:.3}\" stroke=\"{color}\" stroke-opacity=\"{opacity}\" stroke-width=\"{:.3}\" stroke-linecap=\"round\"/>",
+				start.x,
+				start.z,
+				end.x,
+				end.z,
+				wave.half_depth.max(0.08) * 2.0
 			));
 		}
 		HazardShape::Box { half_extents } => {
@@ -66,23 +79,21 @@ mod tests {
 
 	#[test]
 	fn placeholder_svg_includes_telegraph_and_hazard() {
-		let snapshot = AimSnapshot { origin: Vec3::ZERO, direction: Vec3::Z, target: None };
+		let snapshot = AimSnapshot::toward(Vec3::ZERO, Vec3::Z, None);
 		let telegraph = (
 			HazardPose::new(Vec3::ZERO, Quat::IDENTITY),
 			HazardShape::Line { length: 8.0, half_width: 0.4 },
 		);
+		let shape = HazardShape::Wavefront(crate::WavefrontSpec::new(1.2, 4.0, 8.0));
 		let hazard = HazardSpec {
-			shape: HazardShape::Wavefront { radius: 1.2, speed: 4.0, length: 8.0 },
-			origin: HazardOrigin::AimPoint,
+			shape,
+			origin: HazardOrigin::Emission,
 			damage: crate::DamageSpec::authored(),
 		}
 		.pose(snapshot, 0.5);
-		let svg = placeholder_svg(
-			telegraph,
-			(hazard, HazardShape::Wavefront { radius: 1.2, speed: 4.0, length: 8.0 }),
-		);
+		let svg = placeholder_svg(telegraph, (hazard, shape));
 		assert!(svg.contains("stroke=\"#f0c12a\""));
-		assert!(svg.contains("fill=\"#c42b24\""));
+		assert!(svg.contains("stroke=\"#c42b24\""));
 		assert!(svg.contains("<svg"));
 	}
 }

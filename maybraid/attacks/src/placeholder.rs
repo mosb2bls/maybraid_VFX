@@ -81,14 +81,17 @@ fn present_placeholders(
 					true,
 				);
 			}
-			AttackPresentationKind::Hazard { index, phase, pose, shape } => {
+			AttackPresentationKind::Hazard { index, phase, pose, shape, wave } => {
 				present_volume(
 					&mut commands,
 					&assets,
 					&mut bindings,
 					&mut transforms,
 					event.instance,
-					AttackPresentationBindingKind::Hazard { index },
+					AttackPresentationBindingKind::Hazard {
+						index,
+						wave: wave.map(|wave| wave.wave_index).unwrap_or(0),
+					},
 					phase,
 					pose,
 					shape,
@@ -170,18 +173,27 @@ fn clear_instance(
 
 fn mesh_for(assets: &PlaceholderAssets, shape: HazardShape) -> Option<Handle<Mesh>> {
 	match shape {
-		HazardShape::Sphere { .. } | HazardShape::Wavefront { .. } => assets.sphere.clone(),
-		HazardShape::Cylinder { .. } => assets.cylinder.clone(),
+		HazardShape::Sphere { .. } => assets.sphere.clone(),
+		HazardShape::Wavefront(_) | HazardShape::Cylinder { .. } => assets.cylinder.clone(),
 		HazardShape::Box { .. } | HazardShape::Line { .. } => assets.cube.clone(),
 	}
 }
 
 pub fn volume_transform(pose: HazardPose, shape: HazardShape) -> Transform {
 	match shape {
-		HazardShape::Sphere { radius } | HazardShape::Wavefront { radius, .. } => Transform {
+		HazardShape::Sphere { radius } => Transform {
 			translation: pose.origin,
 			rotation: pose.rotation,
 			scale: Vec3::splat(radius.max(0.05) * 2.0),
+		},
+		HazardShape::Wavefront(wave) => Transform {
+			translation: pose.origin,
+			rotation: pose.rotation * Quat::from_rotation_arc(Vec3::Y, Vec3::Z),
+			scale: Vec3::new(
+				wave.radius.max(0.05),
+				wave.half_depth.max(0.05) * 2.0,
+				wave.radius.max(0.05),
+			),
 		},
 		HazardShape::Cylinder { radius, height } => Transform {
 			translation: pose.origin + pose.rotation * Vec3::Y * (height.max(0.05) * 0.5),

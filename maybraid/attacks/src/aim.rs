@@ -22,19 +22,48 @@ pub struct AimSnapshot {
 	pub origin: Vec3,
 	pub direction: Vec3,
 	pub target: Option<Entity>,
+	/// Mouth / socket used by [`crate::HazardOrigin::Emission`]. Defaults to
+	/// [`Self::origin`].
+	pub emission: Vec3,
 }
 
 impl AimSnapshot {
 	pub fn owner_facing(origin: Vec3, forward: Vec3) -> Self {
-		Self { origin, direction: flatten_direction(forward), target: None }
+		Self {
+			origin,
+			direction: flatten_direction(forward),
+			target: None,
+			emission: origin,
+		}
 	}
 
 	pub fn toward(origin: Vec3, target_point: Vec3, target: Option<Entity>) -> Self {
-		Self { origin, direction: flatten_direction(target_point - origin), target }
+		Self {
+			origin,
+			direction: flatten_direction(target_point - origin),
+			target,
+			emission: origin,
+		}
+	}
+
+	pub fn with_emission(mut self, emission: Vec3) -> Self {
+		self.emission = emission;
+		self
 	}
 
 	pub fn rotation(self) -> Quat {
 		Quat::from_rotation_arc(Vec3::Z, self.direction)
+	}
+
+	/// Horizontal heading, then an optional pitch override in radians.
+	pub fn travel_direction(self, pitch: f32) -> Vec3 {
+		let horizontal = flatten_direction(self.direction);
+		if pitch.abs() <= 1e-5 {
+			return horizontal;
+		}
+		let right = Vec3::Y.cross(horizontal);
+		let right = if right.length_squared() <= 1e-8 { Vec3::X } else { right.normalize() };
+		Quat::from_axis_angle(right, pitch) * horizontal
 	}
 
 	pub fn tracks(self, policy: AimPolicy, stage: crate::AttackStage) -> bool {

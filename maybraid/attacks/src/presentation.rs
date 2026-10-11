@@ -17,8 +17,25 @@ pub struct AttackPresentationEvent {
 pub enum AttackPresentationKind {
 	Stage { from: AttackStage, to: AttackStage, snapshot: AimSnapshot },
 	Telegraph { phase: PresentationPhase, pose: HazardPose, shape: HazardShape },
-	Hazard { index: usize, phase: PresentationPhase, pose: HazardPose, shape: HazardShape },
+	Hazard {
+		index: usize,
+		phase: PresentationPhase,
+		pose: HazardPose,
+		shape: HazardShape,
+		wave: Option<WavefrontPresentation>,
+	},
 	Ended { reason: AttackEndReason },
+}
+
+/// Discrete traveling ring. Presenters get kinematics; they do not own Hits.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WavefrontPresentation {
+	pub origin: Vec3,
+	pub direction: Vec3,
+	pub speed: f32,
+	pub range: f32,
+	pub radius: f32,
+	pub wave_index: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,7 +56,7 @@ pub struct AttackPresentationBinding {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AttackPresentationBindingKind {
 	Telegraph,
-	Hazard { index: usize },
+	Hazard { index: usize, wave: u8 },
 }
 
 impl AttackPresentationEvent {
