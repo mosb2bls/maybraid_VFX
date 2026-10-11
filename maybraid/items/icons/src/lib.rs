@@ -12,9 +12,9 @@ use host::{
 	prepare_silhouette_hosts, realize_capture_hosts, remember_item, HOST_CLOTHING, HOST_FIREARM,
 };
 use screen_capture::{
-	CaptureCompleted, CaptureFailed, CaptureLighting, CaptureRequest, CaptureResolution,
-	CaptureRevision, CaptureScene, CaptureSubject, CaptureView, ScreenCapturePlugin,
-	ScreenCaptureSystems,
+	CaptureCompleted, CaptureFailed, CaptureFraming, CaptureLighting, CaptureRequest,
+	CaptureResolution, CaptureRevision, CaptureScene, CaptureSubject, CaptureView,
+	ScreenCapturePlugin, ScreenCaptureSystems,
 };
 
 pub use host::ItemCaptureSubjects;
@@ -29,6 +29,8 @@ use std::path::PathBuf;
 
 /// Default inventory icon size.
 pub const ITEM_ICON_RESOLUTION: CaptureResolution = CaptureResolution::ICON;
+/// Landscape HUD silhouette. Weapons are wide; a square PNG either pads or clips.
+pub const FIREARM_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(256, 112);
 
 /// Clothing inspect camera (catalog thumbnail).
 const CLOTHING_EYE: Vec3 = Vec3::new(0.0, 0.75, 2.5);
@@ -212,10 +214,24 @@ pub fn item_icon_requests(
 	[CaptureMode::Shaded, CaptureMode::Silhouette]
 		.into_iter()
 		.map(|mode| {
-			CaptureRequest::from_subject(&subject, mode, ITEM_ICON_RESOLUTION, lighting, revision)
-				.with_file_stem(item.name())
+			CaptureRequest::from_subject(
+				&subject,
+				mode,
+				resolution_for(item, mode),
+				lighting,
+				revision,
+			)
+			.with_file_stem(item.name())
+			.with_framing(CaptureFraming::ICON)
 		})
 		.collect()
+}
+
+fn resolution_for(item: &InventoryItem, mode: CaptureMode) -> CaptureResolution {
+	match (item, mode) {
+		(InventoryItem::Firearm { .. }, CaptureMode::Silhouette) => FIREARM_SILHOUETTE_RESOLUTION,
+		_ => ITEM_ICON_RESOLUTION,
+	}
 }
 
 /// Enqueue first-encounter shaded + silhouette captures for bag items.
@@ -283,7 +299,7 @@ mod tests {
 	use character_items::{
 		ClothingMaterial, ClothingMesh, FirearmMesh, FirearmSpec, InventoryItem, ItemColor,
 	};
-	use screen_capture::{CaptureCacheKey, CaptureError, CaptureSource};
+	use screen_capture::{CaptureCacheKey, CaptureError, CaptureFraming, CaptureSource};
 
 	#[test]
 	fn firearm_variants_have_distinct_ids() -> anyhow::Result<()> {
@@ -328,6 +344,9 @@ mod tests {
 		assert!(!stem.is_empty());
 		assert_eq!(requests[0].file_stem, stem);
 		assert!(CaptureCacheKey::from_request(&requests[0]).file_name().starts_with(&stem));
+		assert_eq!(requests[0].framing, CaptureFraming::ICON);
+		assert_eq!(requests[0].resolution, ITEM_ICON_RESOLUTION);
+		assert_eq!(requests[1].resolution, FIREARM_SILHOUETTE_RESOLUTION);
 		Ok(())
 	}
 

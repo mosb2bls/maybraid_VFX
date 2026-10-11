@@ -11,7 +11,8 @@ use characters::{
 };
 use firearm_user::GeneratedFirearm;
 use firearms_components::{
-	add_firearm_components_host, firearm_bounds, spawn_firearm_components, FirearmComponentsPlugin,
+	add_firearm_components_host, firearm_bounds, spawn_firearm_components, ActiveRigPose,
+	FirearmComponentsPlugin, PoseApplied,
 };
 use lod::lod_ref::LodRef;
 use lod::scene::{LodScene, LodSceneLevel};
@@ -118,6 +119,8 @@ pub fn mark_capture_hosts_ready(
 	standard: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
 	clothing: Query<(), With<MeshMaterial3d<ClothingShaderMaterial>>>,
 	faces: Query<(), With<MeshMaterial3d<FaceShaderMaterial>>>,
+	poses: Query<(), With<ActiveRigPose>>,
+	posed: Query<(), With<PoseApplied>>,
 ) {
 	for root in &hosts {
 		if host_tree_ready(
@@ -130,6 +133,8 @@ pub fn mark_capture_hosts_ready(
 			&standard,
 			&clothing,
 			&faces,
+			&poses,
+			&posed,
 		) {
 			commands.entity(root).try_insert(CaptureHostReady);
 		}
@@ -185,6 +190,9 @@ fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) 
 				firearm_bounds(&preview),
 			) {
 				pin_capture_host(commands, entity, root);
+				commands
+					.entity(entity)
+					.try_insert(ActiveRigPose { pose: preview.icon_pose().to_resolved() });
 			}
 			true
 		}
@@ -239,13 +247,23 @@ fn host_tree_ready(
 	standard: &Query<(), With<MeshMaterial3d<StandardMaterial>>>,
 	clothing: &Query<(), With<MeshMaterial3d<ClothingShaderMaterial>>>,
 	faces: &Query<(), With<MeshMaterial3d<FaceShaderMaterial>>>,
+	poses: &Query<(), With<ActiveRigPose>>,
+	posed: &Query<(), With<PoseApplied>>,
 ) -> bool {
 	let mut found_mesh = false;
 	let mut pending = false;
 	let mut unpainted = false;
+	let mut needs_pose = false;
+	let mut pose_ready = false;
 	visit_descendants(root, children, &mut |entity| {
 		if pending_spawn.get(entity).is_ok() || pending_root.get(entity).is_ok() {
 			pending = true;
+		}
+		if poses.get(entity).is_ok() {
+			needs_pose = true;
+		}
+		if posed.get(entity).is_ok() {
+			pose_ready = true;
 		}
 		if meshes.get(entity).is_err() {
 			return;
@@ -259,7 +277,7 @@ fn host_tree_ready(
 			unpainted = true;
 		}
 	});
-	found_mesh && !pending && !unpainted
+	found_mesh && !pending && !unpainted && (!needs_pose || pose_ready)
 }
 
 fn visit_descendants(root: Entity, children: &Query<&Children>, visit: &mut impl FnMut(Entity)) {

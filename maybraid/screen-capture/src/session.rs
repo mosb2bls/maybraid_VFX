@@ -1,22 +1,25 @@
 //! Isolated capture scene, readiness, silhouette, and GPU readback.
 
 use bevy::asset::{Assets, RenderAssetUsages};
+use bevy::camera::primitives::MeshAabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, RenderTarget};
+use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::TextureFormat;
 use bevy::world_serialization::WorldAssetRoot;
 use scene_ref::SceneRefRoot;
 
+use crate::crop::crop_to_alpha;
 use crate::error::{CaptureError, CaptureWarning, CaptureWarningKind};
 use crate::key::CaptureCacheKey;
 use crate::mode::CaptureMode;
 use crate::png::{bgra_to_rgba, render_target_image};
 use crate::queue::QueuedCapture;
-use crate::request::CaptureRequest;
+use crate::request::{CaptureRequest, CaptureResolution};
 use crate::subject::{CaptureMeshKind, CaptureScene};
-use crate::view::CaptureProjection;
+use crate::view::{CaptureFraming, CaptureProjection, CaptureView};
 
 /// Render layer reserved for isolated capture cameras and subjects.
 pub const CAPTURE_RENDER_LAYER: usize = 31;
@@ -24,6 +27,11 @@ pub const CAPTURE_RENDER_LAYER: usize = 31;
 const SLOT_SPACING: f32 = 24.0;
 const SLOT_ORIGIN_X: f32 = 8_000.0;
 const SILHOUETTE_GRAY: f32 = 0.72;
+/// Fitted captures render this many times larger, then crop to alpha.
+const FIT_SUPERSAMPLE: u32 = 3;
+/// 3D fit margin. Bind-pose AABBs can undershoot a posed kit; the alpha
+/// crop removes whatever margin is left over.
+const FIT_SCENE_PADDING: f32 = 0.2;
 
 /// Isolated capture root. Application hosts parent posed subjects here.
 #[derive(Component)]
@@ -50,8 +58,14 @@ pub(crate) struct CaptureCamera;
 pub(crate) struct CaptureReadback {
 	pub key: CaptureCacheKey,
 	pub ticket: Handle<Image>,
+	/// Output (cached PNG) size.
 	pub width: u32,
 	pub height: u32,
+	/// GPU target size; larger than output when [`Self::crop`] is set.
+	pub render_width: u32,
+	pub render_height: u32,
+	/// Image-space alpha crop padding for [`CaptureFraming::FitExtents`].
+	pub crop: Option<f32>,
 }
 
 #[derive(Component)]
@@ -73,6 +87,7 @@ pub(crate) struct CaptureSession {
 	pub extras: Vec<Entity>,
 	pub readback: Option<Entity>,
 	pub phase: CapturePhase,
+	pub framed: bool,
 }
 
 impl CaptureSession {
@@ -94,10 +109,11 @@ pub(crate) fn spawn_session(
 	layer: usize,
 ) -> CaptureSession {
 	let request = queued.request;
+	let framed = matches!(request.framing, CaptureFraming::Authored);
 	let key = CaptureCacheKey::from_request(&request);
 	let origin = Vec3::new(SLOT_ORIGIN_X + slot as f32 * SLOT_SPACING, 0.0, 0.0);
 	let layers = RenderLayers::layer(layer);
-	let target = images.add(render_target_image(request.resolution));
+	let target = images.add(render_target_image(render_resolution(&request)));
 	let root = spawn_subject(commands, meshes, materials, &request, origin, layers.clone());
 	let camera = spawn_camera(commands, &request, origin, target.clone(), layers.clone());
 	let mut extras = Vec::new();
@@ -126,6 +142,24 @@ pub(crate) fn spawn_session(
 		extras,
 		readback: None,
 		phase: CapturePhase::Load { frames: 0 },
+		framed,
+	}
+}
+
+fn render_resolution(request: &CaptureRequest) -> CaptureResolution {
+	match request.framing {
+		CaptureFraming::Authored => request.resolution,
+		CaptureFraming::FitExtents { .. } => CaptureResolution::new(
+			(request.resolution.width * FIT_SUPERSAMPLE).min(4096),
+			(request.resolution.height * FIT_SUPERSAMPLE).min(4096),
+		),
+	}
+}
+
+fn crop_padding(framing: CaptureFraming) -> Option<f32> {
+	match framing {
+		CaptureFraming::Authored => None,
+		CaptureFraming::FitExtents { padding } => Some(padding),
 	}
 }
 
@@ -195,22 +229,7 @@ fn spawn_camera(
 	target: Handle<Image>,
 	layers: RenderLayers,
 ) -> Entity {
-	let view = request.view;
-	let transform =
-		Transform::from_translation(origin + view.eye).looking_at(origin + view.look_at, view.up);
-	let projection = match view.projection {
-		CaptureProjection::Perspective { fov, near, far } => {
-			Projection::Perspective(PerspectiveProjection { fov, near, far, ..Default::default() })
-		}
-		CaptureProjection::Orthographic { scale, near, far } => {
-			Projection::Orthographic(OrthographicProjection {
-				scale,
-				near,
-				far,
-				..OrthographicProjection::default_3d()
-			})
-		}
-	};
+	let (transform, projection) = camera_pose(origin, request.view);
 	commands
 		.spawn((
 			Camera3d::default(),
@@ -230,6 +249,127 @@ fn spawn_camera(
 			Name::new("capture_camera"),
 		))
 		.id()
+}
+
+fn camera_pose(origin: Vec3, view: CaptureView) -> (Transform, Projection) {
+	let transform =
+		Transform::from_translation(origin + view.eye).looking_at(origin + view.look_at, view.up);
+	let projection = match view.projection {
+		CaptureProjection::Perspective { fov, near, far } => {
+			Projection::Perspective(PerspectiveProjection { fov, near, far, ..Default::default() })
+		}
+		CaptureProjection::Orthographic { scale, near, far } => {
+			Projection::Orthographic(OrthographicProjection {
+				scale,
+				near,
+				far,
+				..OrthographicProjection::default_3d()
+			})
+		}
+	};
+	(transform, projection)
+}
+
+pub(crate) fn apply_fit_framing(
+	commands: &mut Commands,
+	session: &mut CaptureSession,
+	meshes: &Assets<Mesh>,
+	mesh_3d: &Query<&Mesh3d>,
+	children: &Query<&Children>,
+	globals: &Query<&GlobalTransform>,
+) -> bool {
+	let CaptureFraming::FitExtents { padding } = session.request.framing else {
+		return true;
+	};
+	let Some(aabb) = subject_local_aabb(session.root, children, mesh_3d, meshes, globals) else {
+		return false;
+	};
+	let aspect =
+		session.request.resolution.width as f32 / session.request.resolution.height.max(1) as f32;
+	let fitted = session.request.view.fit_extents(aabb, aspect, padding.max(FIT_SCENE_PADDING));
+	let origin = globals
+		.get(session.root)
+		.map(|transform| transform.translation())
+		.unwrap_or(Vec3::ZERO);
+	let (transform, projection) = camera_pose(origin, fitted);
+	commands.entity(session.camera).try_insert((transform, projection));
+	session.request.view = fitted;
+	true
+}
+
+fn subject_local_aabb(
+	root: Entity,
+	children: &Query<&Children>,
+	mesh_3d: &Query<&Mesh3d>,
+	meshes: &Assets<Mesh>,
+	globals: &Query<&GlobalTransform>,
+) -> Option<Aabb3d> {
+	let root_tf = globals.get(root).ok()?;
+	let inverse = root_tf.affine().inverse();
+	let mut union: Option<Aabb3d> = None;
+	visit_descendants(root, children, &mut |entity| {
+		let Ok(handle) = mesh_3d.get(entity) else {
+			return;
+		};
+		let Some(mesh) = meshes.get(&handle.0) else {
+			return;
+		};
+		let Some(local) = mesh.compute_aabb() else {
+			return;
+		};
+		let Ok(world) = globals.get(entity) else {
+			return;
+		};
+		if world.to_scale_rotation_translation().0.max_element() < 1e-3 {
+			return;
+		}
+		let min = Vec3::from(local.min());
+		let max = Vec3::from(local.max());
+		let world_aabb = transform_aabb(Aabb3d { min: min.into(), max: max.into() }, world);
+		let local_aabb = transform_aabb_affine(world_aabb, inverse);
+		union = Some(match union {
+			Some(existing) => union_aabb(existing, local_aabb),
+			None => local_aabb,
+		});
+	});
+	union.filter(|aabb| (Vec3::from(aabb.max) - Vec3::from(aabb.min)).max_element() > 1e-4)
+}
+
+fn transform_aabb(aabb: Aabb3d, transform: &GlobalTransform) -> Aabb3d {
+	let mut min = Vec3::splat(f32::MAX);
+	let mut max = Vec3::splat(f32::MIN);
+	for x in [aabb.min.x, aabb.max.x] {
+		for y in [aabb.min.y, aabb.max.y] {
+			for z in [aabb.min.z, aabb.max.z] {
+				let point = transform.transform_point(Vec3::new(x, y, z));
+				min = min.min(point);
+				max = max.max(point);
+			}
+		}
+	}
+	Aabb3d { min: min.into(), max: max.into() }
+}
+
+fn transform_aabb_affine(aabb: Aabb3d, inverse: bevy::math::Affine3A) -> Aabb3d {
+	let mut min = Vec3::splat(f32::MAX);
+	let mut max = Vec3::splat(f32::MIN);
+	for x in [aabb.min.x, aabb.max.x] {
+		for y in [aabb.min.y, aabb.max.y] {
+			for z in [aabb.min.z, aabb.max.z] {
+				let point = inverse.transform_point3(Vec3::new(x, y, z));
+				min = min.min(point);
+				max = max.max(point);
+			}
+		}
+	}
+	Aabb3d { min: min.into(), max: max.into() }
+}
+
+fn union_aabb(a: Aabb3d, b: Aabb3d) -> Aabb3d {
+	Aabb3d {
+		min: Vec3::from(a.min).min(Vec3::from(b.min)).into(),
+		max: Vec3::from(a.max).max(Vec3::from(b.max)).into(),
+	}
 }
 
 pub(crate) fn stamp_layers_on_descendants(
@@ -374,6 +514,7 @@ fn visit_descendants(root: Entity, children: &Query<&Children>, visit: &mut impl
 }
 
 pub(crate) fn spawn_readback(commands: &mut Commands, session: &mut CaptureSession) {
+	let render = render_resolution(&session.request);
 	let entity = commands
 		.spawn((
 			Readback::texture(session.target.clone()),
@@ -382,6 +523,9 @@ pub(crate) fn spawn_readback(commands: &mut Commands, session: &mut CaptureSessi
 				ticket: session.ticket.clone(),
 				width: session.request.resolution.width,
 				height: session.request.resolution.height,
+				render_width: render.width,
+				render_height: render.height,
+				crop: crop_padding(session.request.framing),
 			},
 			CaptureRoot,
 			Name::new("capture_readback"),
@@ -406,12 +550,24 @@ fn on_readback_complete(
 
 pub(crate) fn take_pixels(
 	images: &mut Assets<Image>,
-	ticket: &Handle<Image>,
-	width: u32,
-	height: u32,
+	readback: &CaptureReadback,
 	bgra: &[u8],
 ) -> Result<Vec<u8>, CaptureError> {
-	let rgba = bgra_to_rgba(bgra, width, height).map_err(|_| CaptureError::Readback)?;
+	let (width, height) = (readback.width, readback.height);
+	let rendered = bgra_to_rgba(bgra, readback.render_width, readback.render_height)
+		.map_err(|_| CaptureError::Readback)?;
+	let rgba = match readback.crop {
+		Some(padding) => crop_to_alpha(
+			&rendered,
+			readback.render_width,
+			readback.render_height,
+			width,
+			height,
+			padding,
+		),
+		None => rendered,
+	};
+	let ticket = &readback.ticket;
 	let image = Image::new(
 		bevy::render::render_resource::Extent3d { width, height, depth_or_array_layers: 1 },
 		bevy::render::render_resource::TextureDimension::D2,

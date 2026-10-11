@@ -1,8 +1,10 @@
 //! Plugin, resources, and capture systems.
 
 use bevy::camera::visibility::RenderLayers;
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::GpuReadbackPlugin;
+use bevy::transform::TransformSystems;
 use scene_ref::SceneRefPlugin;
 use std::path::PathBuf;
 
@@ -12,9 +14,9 @@ use crate::error::{
 };
 use crate::queue::CaptureQueue;
 use crate::session::{
-	apply_silhouette, despawn_session, scene_ready, spawn_readback, spawn_session,
-	stamp_layers_on_descendants, take_pixels, CaptureHostReady, CapturePhase, CapturePixels,
-	CaptureReadback, CaptureSession, CAPTURE_RENDER_LAYER,
+	apply_fit_framing, apply_silhouette, despawn_session, scene_ready, spawn_readback,
+	spawn_session, stamp_layers_on_descendants, take_pixels, CaptureHostReady, CapturePhase,
+	CapturePixels, CaptureReadback, CaptureSession, CAPTURE_RENDER_LAYER,
 };
 
 /// Isolated capture schedule. Hosts realize posed subjects before [`Self::Advance`].
@@ -95,7 +97,9 @@ impl Plugin for ScreenCapturePlugin {
 		.add_message::<CaptureWarning>()
 		.configure_sets(
 			PostUpdate,
-			ScreenCaptureSystems::Advance.after(ScreenCaptureSystems::Isolate),
+			ScreenCaptureSystems::Advance
+				.after(ScreenCaptureSystems::Isolate)
+				.after(TransformSystems::Propagate),
 		)
 		.add_systems(Update, ingest_requests)
 		.add_systems(PostUpdate, stamp_isolate_layers.in_set(ScreenCaptureSystems::Isolate))
@@ -193,6 +197,18 @@ fn stamp_isolate_layers(
 	);
 }
 
+#[derive(SystemParam)]
+struct AdvanceQueries<'w, 's> {
+	world_roots: Query<'w, 's, &'static WorldAssetRoot>,
+	mesh_entities: Query<'w, 's, Entity, With<Mesh3d>>,
+	mesh_handles: Query<'w, 's, &'static Mesh3d>,
+	children: Query<'w, 's, &'static Children>,
+	globals: Query<'w, 's, &'static GlobalTransform>,
+	hosts: Query<'w, 's, (), With<CaptureHostReady>>,
+	standard: Query<'w, 's, &'static MeshMaterial3d<StandardMaterial>>,
+	pixels: Query<'w, 's, (Entity, &'static CaptureReadback, &'static CapturePixels)>,
+}
+
 fn advance_sessions(
 	mut commands: Commands,
 	cache: Res<CaptureCacheRoot>,
@@ -201,12 +217,7 @@ fn advance_sessions(
 	mut images: ResMut<Assets<Image>>,
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut materials: ResMut<Assets<StandardMaterial>>,
-	world_roots: Query<&WorldAssetRoot>,
-	mesh_entities: Query<Entity, With<Mesh3d>>,
-	children: Query<&Children>,
-	hosts: Query<(), With<CaptureHostReady>>,
-	standard: Query<&MeshMaterial3d<StandardMaterial>>,
-	pixels: Query<(Entity, &CaptureReadback, &CapturePixels)>,
+	queries: AdvanceQueries,
 	mut completed: MessageWriter<CaptureCompleted>,
 	mut failed: MessageWriter<CaptureFailed>,
 	mut warnings: MessageWriter<CaptureWarning>,
@@ -231,14 +242,8 @@ fn advance_sessions(
 		return;
 	};
 
-	if let Some((entity, readback, captured)) = pixels.iter().next() {
-		match take_pixels(
-			&mut images,
-			&readback.ticket,
-			readback.width,
-			readback.height,
-			&captured.0,
-		) {
+	if let Some((entity, readback, captured)) = queries.pixels.iter().next() {
+		match take_pixels(&mut images, readback, &captured.0) {
 			Ok(rgba) => {
 				let mut write_warnings = Vec::new();
 				cache.cache.save_rgba_background(
@@ -267,19 +272,8 @@ fn advance_sessions(
 		return;
 	}
 
-	if matches!(session.phase, CapturePhase::Settle { .. } | CapturePhase::Readback { .. }) {
-		let _ = apply_silhouette(
-			&mut commands,
-			session,
-			&mut materials,
-			&children,
-			&standard,
-			&mesh_entities,
-		);
-	}
-
-	match &mut session.phase {
-		CapturePhase::Load { frames } => {
+	if matches!(session.phase, CapturePhase::Load { .. }) {
+		if let CapturePhase::Load { frames } = &mut session.phase {
 			*frames += 1;
 			if *frames > cache.max_wait_frames {
 				fail_session(
@@ -291,28 +285,63 @@ fn advance_sessions(
 				active.session = None;
 				return;
 			}
-			if scene_ready(session, &world_roots, &mesh_entities, &children, &hosts) {
-				match apply_silhouette(
-					&mut commands,
-					session,
-					&mut materials,
-					&children,
-					&standard,
-					&mesh_entities,
-				) {
-					Ok(warning) => {
-						if let Some(warning) = warning {
-							warnings.write(warning);
-						}
-						session.phase = CapturePhase::Settle { remaining: cache.settle_frames };
-					}
-					Err(error) => {
-						fail_session(&mut commands, session, &mut failed, error);
-						active.session = None;
-					}
+		}
+		if !scene_ready(
+			session,
+			&queries.world_roots,
+			&queries.mesh_entities,
+			&queries.children,
+			&queries.hosts,
+		) {
+			return;
+		}
+		if !session.framed
+			&& !apply_fit_framing(
+				&mut commands,
+				session,
+				&meshes,
+				&queries.mesh_handles,
+				&queries.children,
+				&queries.globals,
+			) {
+			return;
+		}
+		session.framed = true;
+		match apply_silhouette(
+			&mut commands,
+			session,
+			&mut materials,
+			&queries.children,
+			&queries.standard,
+			&queries.mesh_entities,
+		) {
+			Ok(warning) => {
+				if let Some(warning) = warning {
+					warnings.write(warning);
 				}
+				session.phase = CapturePhase::Settle { remaining: cache.settle_frames };
+			}
+			Err(error) => {
+				fail_session(&mut commands, session, &mut failed, error);
+				active.session = None;
 			}
 		}
+		return;
+	}
+
+	if matches!(session.phase, CapturePhase::Settle { .. } | CapturePhase::Readback { .. }) {
+		let _ = apply_silhouette(
+			&mut commands,
+			session,
+			&mut materials,
+			&queries.children,
+			&queries.standard,
+			&queries.mesh_entities,
+		);
+	}
+
+	match &mut session.phase {
+		CapturePhase::Load { .. } => {}
 		CapturePhase::Settle { remaining } => {
 			*remaining = remaining.saturating_sub(1);
 			if *remaining == 0 {

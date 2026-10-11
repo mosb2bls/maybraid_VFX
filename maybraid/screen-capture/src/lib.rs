@@ -5,6 +5,7 @@
 //! ([`ScreenCapturePlugin`]), and a disk-backed handle cache.
 
 mod cache;
+mod crop;
 mod error;
 mod id;
 mod key;
@@ -32,7 +33,7 @@ pub use queue::CaptureTicket;
 pub use request::{CaptureRequest, CaptureResolution, CaptureRevision};
 pub use session::{CaptureHostReady, CaptureHostRoot, CaptureSilhouetteRoot, CAPTURE_RENDER_LAYER};
 pub use subject::{CaptureMesh, CaptureMeshKind, CaptureScene, CaptureSubject, MeshCaptureSubject};
-pub use view::{CaptureProjection, CaptureView};
+pub use view::{CaptureFraming, CaptureProjection, CaptureView};
 
 pub use scene_ref::{SceneRef, SceneRefPlugin};
 
@@ -100,7 +101,7 @@ mod tests {
 			CaptureMode::Silhouette,
 			CaptureResolution::ICON,
 			CaptureLighting::studio(),
-			CaptureRevision::new(4),
+			CaptureRevision::new(8),
 		);
 		assert_ne!(CaptureCacheKey::from_request(&a), CaptureCacheKey::from_request(&b));
 		Ok(())

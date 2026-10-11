@@ -16,7 +16,7 @@ pub use nodes::{FirearmPartSlot, PartNode, RigNode, RECEIVER_LANDMARKS};
 pub use plugin::{add_firearm_components_host, FirearmComponentsPlugin, FirearmHostSystems};
 pub use rigs::{
 	ActiveRigPose, AssemblyHost, AssemblyMembers as FirearmMembers, AssemblyRoot, BindPose,
-	BoneMap, BoneScale, MemberOf, ResolvedRigPose, RigPoseLayer, RigRoot, SocketRef,
+	BoneMap, BoneScale, MemberOf, PoseApplied, ResolvedRigPose, RigPoseLayer, RigRoot, SocketRef,
 	SocketRefApplied, SocketRefRoot,
 };
 

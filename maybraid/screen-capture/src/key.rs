@@ -22,7 +22,11 @@ impl CaptureCacheKey {
 			id: request.id.clone(),
 			mode: request.mode,
 			resolution: request.resolution,
-			view: request.view.cache_fragment(),
+			view: format!(
+				"{} frame={}",
+				request.view.cache_fragment(),
+				request.framing.cache_fragment()
+			),
 			lighting: request.lighting.cache_fragment(),
 			scene: request.scene.cache_fragment(),
 			revision: request.revision,
@@ -108,7 +112,7 @@ mod tests {
 			CaptureRevision::CURRENT,
 		));
 		let bumped =
-			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::new(4)));
+			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::new(8)));
 		assert_ne!(shaded, silhouette);
 		assert_ne!(shaded, bumped);
 		Ok(())
@@ -125,6 +129,19 @@ mod tests {
 		assert_eq!(plain.hash_hex(), named.hash_hex());
 		assert!(named.file_name().starts_with("cylint-wine-snailer_"));
 		assert!(!plain.file_name().contains("cylint-wine-snailer"));
+		Ok(())
+	}
+
+	#[test]
+	fn framing_changes_the_cache_hash() -> anyhow::Result<()> {
+		use crate::CaptureFraming;
+		let authored =
+			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::CURRENT));
+		let fitted = CaptureCacheKey::from_request(
+			&request(CaptureMode::Shaded, CaptureRevision::CURRENT)
+				.with_framing(CaptureFraming::ICON),
+		);
+		assert_ne!(authored.hash_hex(), fitted.hash_hex());
 		Ok(())
 	}
 }

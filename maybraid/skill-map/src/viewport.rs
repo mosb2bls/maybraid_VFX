@@ -7,7 +7,7 @@ use bevy::render::render_resource::{TextureDimension, TextureFormat, TextureUsag
 use bevy::ui::widget::ViewportNode;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventoryItem};
-use item_icons::ItemIconCache;
+use item_icons::{ItemIconCache, FIREARM_SILHOUETTE_RESOLUTION};
 use menu_components::{
 	spawn_hud_text_card, spawn_hud_text_card_label, HudFonts, HUD_TEXT_CARD_FACE_PX,
 	PANEL_BLOCK_FONT_SIZE, TEXT_YELLOW,
@@ -43,7 +43,8 @@ const FIREARM_CARD_FILL: Color = Color::srgba(0.52, 0.52, 0.56, 0.82);
 const FIREARM_CARD_STROKE: Color = Color::srgba(0.78, 0.78, 0.82, 0.9);
 const GRENADE_SILHOUETTE_PX: f32 = 28.0;
 const GRENADE_SILHOUETTE_STROKE: f32 = 2.0;
-const FIREARM_SILHOUETTE_PX: f32 = 72.0;
+const FIREARM_SILHOUETTE: Color =
+	Color::srgb(0x84 as f32 / 255.0, 0x88 as f32 / 255.0, 0x84 as f32 / 255.0);
 
 /// Kenney outline Xbox **RB** (hold to steer the map).
 pub const SKILL_MAP_RB_ICON: &str = "iconography/kenney/input-prompts/xbox_rb_outline.png";
@@ -441,10 +442,15 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 		.spawn((
 			SkillMapFirearmSilhouette,
 			Node {
-				width: Val::Px(FIREARM_SILHOUETTE_PX),
-				height: Val::Px(FIREARM_SILHOUETTE_PX * 0.55),
+				width: Val::Percent(100.0),
+				aspect_ratio: Some(
+					FIREARM_SILHOUETTE_RESOLUTION.width as f32
+						/ FIREARM_SILHOUETTE_RESOLUTION.height as f32,
+				),
+				flex_shrink: 0.0,
 				justify_content: JustifyContent::Center,
 				align_items: AlignItems::Center,
+				overflow: Overflow::clip(),
 				..default()
 			},
 			Visibility::Inherited,
@@ -454,10 +460,11 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 			spawn_firearm_silhouette_placeholder(gun);
 			gun.spawn((
 				SkillMapFirearmSilhouetteImage,
-				ImageNode { color: TEXT_YELLOW, ..default() },
+				ImageNode { color: FIREARM_SILHOUETTE, ..default() },
 				Node {
-					width: Val::Px(FIREARM_SILHOUETTE_PX),
-					height: Val::Px(FIREARM_SILHOUETTE_PX * 0.55),
+					width: Val::Percent(100.0),
+					height: Val::Percent(100.0),
+					flex_shrink: 0.0,
 					..default()
 				},
 				Visibility::Hidden,
@@ -654,7 +661,7 @@ pub fn sync_firearm_chrome(
 	for (mut image, mut visibility) in &mut silhouettes {
 		if let Some(handle) = silhouette.as_ref() {
 			image.image = handle.clone();
-			image.color = TEXT_YELLOW;
+			image.color = FIREARM_SILHOUETTE;
 			*visibility = if show_orb { Visibility::Hidden } else { Visibility::Inherited };
 		} else {
 			*visibility = Visibility::Hidden;

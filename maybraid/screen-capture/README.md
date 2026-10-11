@@ -34,7 +34,9 @@ A [`CaptureSubject`] supplies:
   [`CaptureScene::Host`] realized by the caller)
 - a preferred [`CaptureView`] (eye, look-at, projection)
 
-Requests specify mode, resolution, lighting, and an explicit capture revision.
+Requests specify mode, resolution, lighting, framing, and an explicit capture
+revision. [`CaptureFraming::FitExtents`] recenters and zooms to the ready
+subject’s mesh AABB; [`CaptureFraming::Authored`] keeps the supplied view.
 Matching in-flight requests are deduplicated. Completion and failure are
 reported with [`CaptureCompleted`] / [`CaptureFailed`].
 
@@ -53,7 +55,7 @@ item is never mutated.
 
 ### Cache
 
-The cache key covers subject id, mode, resolution, view, lighting
+The cache key covers subject id, mode, resolution, view, framing, lighting
 preset/revision, and [`CaptureRevision`]. PNG names may prefix an English
 slug (`cylint-wine-snailer_firearm-…`); the slug is not part of the hash.
 Hits load the PNG as a Bevy image.

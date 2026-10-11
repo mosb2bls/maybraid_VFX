@@ -4,7 +4,7 @@ use crate::id::CaptureId;
 use crate::lighting::CaptureLighting;
 use crate::mode::CaptureMode;
 use crate::subject::{CaptureScene, CaptureSubject};
-use crate::view::CaptureView;
+use crate::view::{CaptureFraming, CaptureView};
 
 /// Pixel size of the captured image.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -35,7 +35,7 @@ pub struct CaptureRevision(pub u32);
 
 impl CaptureRevision {
 	/// Bump when captured shaders, framing, or silhouette rules change.
-	pub const CURRENT: Self = Self(3);
+	pub const CURRENT: Self = Self(7);
 
 	// `Default` is 0 so an unset discovery resource regenerates on first sight.
 
@@ -56,6 +56,7 @@ pub struct CaptureRequest {
 	pub revision: CaptureRevision,
 	/// Optional English slug for the PNG name. Not part of the cache hash.
 	pub file_stem: String,
+	pub framing: CaptureFraming,
 }
 
 impl CaptureRequest {
@@ -75,11 +76,17 @@ impl CaptureRequest {
 			lighting,
 			revision,
 			file_stem: String::new(),
+			framing: CaptureFraming::Authored,
 		}
 	}
 
 	pub fn with_file_stem(mut self, name: impl Into<String>) -> Self {
 		self.file_stem = crate::id::sanitize_file_stem(&name.into());
+		self
+	}
+
+	pub fn with_framing(mut self, framing: CaptureFraming) -> Self {
+		self.framing = framing;
 		self
 	}
 
