@@ -1,7 +1,7 @@
 //! Award path: one request applies once and emits one [`LubikanChargeChanged`].
 
 use bevy::prelude::*;
-use damage::{DamageApplied, DamageSystems, HeadshotBand};
+use damage::{DamageApplied, DamageSystems, Health};
 use player::Player;
 
 use crate::change::{LubikanChargeChanged, LubikanChargeReason, LubikanChargeRequest};
@@ -10,45 +10,49 @@ use crate::LubikanSystems;
 
 type LiveLubikanOwner = Or<(With<Player>, With<LubikanOwner>)>;
 
-/// Configurable combat → charge weights. Defaults are +10 hit / +25 kill;
-/// a lethal hit stacks both.
+/// Combat → charge. Hits credit applied HP; kills credit opponent max health.
+///
+/// Default multipliers are 1. A lethal hit still writes the hit credit when
+/// [`Self::stack_kill`] is set, then a separate kill credit.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct LubikanCombatAward {
+	/// Multiplier on applied HP for a hit credit.
 	pub hit: f32,
-	pub headshot: f32,
+	/// Multiplier on opponent max health for a kill credit.
 	pub kill: f32,
-	/// When true, a lethal hit adds the kill weight on top of the hit weight.
+	/// When true, a lethal hit writes both the hit credit and the kill credit.
 	pub stack_kill: bool,
 }
 
 impl Default for LubikanCombatAward {
 	fn default() -> Self {
-		Self { hit: 10.0, headshot: 10.0, kill: 25.0, stack_kill: true }
+		Self { hit: 1.0, kill: 1.0, stack_kill: true }
 	}
 }
 
+/// Per-apply combat credits. Zero-effect hits yield both `None`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct LubikanCombatCredits {
+	pub hit: Option<f32>,
+	pub kill: Option<f32>,
+}
+
 impl LubikanCombatAward {
-	/// Charge for one [`DamageApplied`]. Zero-effect hits award nothing.
-	/// Overkill uses the applied HP only as a gate — requested `amount` is
-	/// ignored so a 100-damage shot into 3 HP cannot over-award.
-	pub fn charge_for(
-		self,
-		hit: DamageApplied,
-		headshot: bool,
-	) -> Option<(f32, LubikanChargeReason)> {
+	/// Credits for one [`DamageApplied`].
+	///
+	/// `opponent_health` is the target's max HP. Zero-effect hits award
+	/// nothing. Overkill uses [`DamageApplied::applied`], not requested
+	/// `amount`, so a 100-damage shot into 3 HP cannot over-award the hit.
+	pub fn credits_for(self, hit: DamageApplied, opponent_health: f32) -> LubikanCombatCredits {
 		if hit.is_zero_effect() {
-			return None;
+			return LubikanCombatCredits::default();
 		}
 		let lethal = hit.remaining <= 0.0;
-		let hit_weight = if headshot { self.headshot } else { self.hit };
-		let (requested, reason) = if lethal && self.stack_kill {
-			(hit_weight + self.kill, LubikanChargeReason::COMBAT_KILL)
-		} else if lethal {
-			(self.kill, LubikanChargeReason::COMBAT_KILL)
-		} else {
-			(hit_weight, LubikanChargeReason::COMBAT_HIT)
-		};
-		Some((requested, reason))
+		let dealt = (hit.applied * self.hit).max(0.0);
+		let health = (opponent_health.max(0.0) * self.kill).max(0.0);
+		let hit_credit = if !lethal || self.stack_kill { Some(dealt).filter(|value| *value > 0.0) } else { None };
+		let kill_credit = if lethal { Some(health).filter(|value| *value > 0.0) } else { None };
+		LubikanCombatCredits { hit: hit_credit, kill: kill_credit }
 	}
 }
 
@@ -69,7 +73,7 @@ fn award_combat_hits(
 	mut requests: MessageWriter<LubikanChargeRequest>,
 	policy: Res<LubikanCombatAward>,
 	owners: Query<Entity, LiveLubikanOwner>,
-	targets: Query<(&GlobalTransform, Option<&HeadshotBand>)>,
+	healths: Query<&Health>,
 ) {
 	for hit in hits.read() {
 		let Some(source) = hit.source else {
@@ -81,13 +85,27 @@ fn award_combat_hits(
 		if owners.get(hit.target).is_ok() {
 			continue;
 		}
-		let headshot = targets.get(hit.target).ok().is_some_and(|(transform, band)| {
-			band.is_some_and(|band| band.contains(transform, hit.point))
-		});
-		let Some((requested, reason)) = policy.charge_for(*hit, headshot) else {
-			continue;
-		};
-		requests.write(LubikanChargeRequest::equipped(source, requested, reason, Some(hit.point)));
+		let opponent_health = healths
+			.get(hit.target)
+			.map(|health| health.max)
+			.unwrap_or_else(|_| (hit.applied + hit.remaining.max(0.0)).max(0.0));
+		let credits = policy.credits_for(*hit, opponent_health);
+		if let Some(requested) = credits.hit {
+			requests.write(LubikanChargeRequest::equipped(
+				source,
+				requested,
+				LubikanChargeReason::COMBAT_HIT,
+				Some(hit.point),
+			));
+		}
+		if let Some(requested) = credits.kill {
+			requests.write(LubikanChargeRequest::equipped(
+				source,
+				requested,
+				LubikanChargeReason::COMBAT_KILL,
+				Some(hit.point),
+			));
+		}
 	}
 }
 
@@ -141,14 +159,14 @@ mod tests {
 	#[test]
 	fn zero_effect_and_overkill_use_applied_hp() {
 		let policy = LubikanCombatAward::default();
-		assert_eq!(policy.charge_for(applied(50.0, 0.0, 10.0), false), None);
+		assert_eq!(policy.credits_for(applied(50.0, 0.0, 10.0), 10.0), LubikanCombatCredits::default());
 		assert_eq!(
-			policy.charge_for(applied(50.0, 3.0, 0.0), false),
-			Some((35.0, LubikanChargeReason::COMBAT_KILL))
+			policy.credits_for(applied(50.0, 3.0, 0.0), 10.0),
+			LubikanCombatCredits { hit: Some(3.0), kill: Some(10.0) }
 		);
 		assert_eq!(
-			policy.charge_for(applied(10.0, 10.0, 4.0), true),
-			Some((10.0, LubikanChargeReason::COMBAT_HIT))
+			policy.credits_for(applied(10.0, 10.0, 4.0), 14.0),
+			LubikanCombatCredits { hit: Some(10.0), kill: None }
 		);
 	}
 
@@ -184,7 +202,10 @@ mod tests {
 	fn combat_hit_awards_equipped_and_skips_zero_effect() -> Result<()> {
 		let mut app = gameplay();
 		let owner = app.world_mut().spawn((Player, LubikanOwner)).id();
-		let victim = app.world_mut().spawn(GlobalTransform::default()).id();
+		let victim = app
+			.world_mut()
+			.spawn((Health { current: 5.0, max: 5.0 }, GlobalTransform::default()))
+			.id();
 		app.update();
 		app.world_mut().write_message(DamageApplied {
 			target: victim,
@@ -213,7 +234,7 @@ mod tests {
 		});
 		app.update();
 		let ledger = app.world().get::<LubikanLedger>(owner).ok_or_else(|| anyhow!("ledger"))?;
-		assert_eq!(ledger.equipped().charge().current(), 35.0);
+		assert_eq!(ledger.equipped().charge().current(), 10.0);
 		Ok(())
 	}
 }

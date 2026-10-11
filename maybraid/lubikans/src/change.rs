@@ -37,8 +37,8 @@ impl LubikanChargeReason {
 
 	pub const fn label(self) -> &'static str {
 		match self.0 {
-			1 => "combat-hit",
-			2 => "combat-kill",
+			1 => "hit",
+			2 => "kill",
 			10 => "occupancy",
 			20 => "activation",
 			30 => "adjustment",
@@ -120,7 +120,8 @@ mod tests {
 		assert_eq!(LubikanChargeReason::OCCUPANCY.raw(), 10);
 		assert_eq!(LubikanChargeReason::ACTIVATION.raw(), 20);
 		assert_eq!(LubikanChargeReason::CUSTOM.raw(), 1_000);
-		assert_eq!(LubikanChargeReason::COMBAT_KILL.label(), "combat-kill");
+		assert_eq!(LubikanChargeReason::COMBAT_HIT.label(), "hit");
+		assert_eq!(LubikanChargeReason::COMBAT_KILL.label(), "kill");
 		assert_eq!(LubikanChargeReason::from_raw(4_001).label(), "custom");
 	}
 }

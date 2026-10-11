@@ -7,10 +7,10 @@ use crate::lifetime::LubikanLifetimePolicy;
 
 /// Default Self capacity. Balancing should change [`LubikanSelfConfig`], not
 /// this constant's meaning.
-pub const DEFAULT_SELF_CAPACITY: f32 = 100.0;
+pub const DEFAULT_SELF_CAPACITY: f32 = 512.0;
 
 /// Default Self activation cost. Balancing should change [`LubikanSelfConfig`].
-pub const DEFAULT_SELF_ACTIVATION_COST: f32 = 80.0;
+pub const DEFAULT_SELF_ACTIVATION_COST: f32 = 512.0;
 
 /// Configurable Self limits and lifetime policy.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]

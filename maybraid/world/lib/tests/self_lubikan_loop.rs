@@ -67,8 +67,16 @@ fn spawn_player(app: &mut App, current_hp: f32, max_hp: f32) -> Entity {
 
 fn spawn_npc(app: &mut App) -> Entity {
 	app.world_mut()
-		.spawn((Health { current: 30.0, max: 30.0 }, GlobalTransform::default(), Name::new("NPC")))
+		.spawn((Health { current: 100.0, max: 100.0 }, GlobalTransform::default(), Name::new("NPC")))
 		.id()
+}
+
+/// One-shot a default NPC: +100 hit + +100 kill. Three kills fill the 512 Self cost.
+fn earn_activation_charge(app: &mut App, player: Entity) {
+	for _ in 0..3 {
+		let npc = spawn_npc(app);
+		hit_npc(app, player, npc, 100.0);
+	}
 }
 
 fn hit_npc(app: &mut App, player: Entity, npc: Entity, damage: f32) {
@@ -152,17 +160,7 @@ fn earn_charge_from_hits_activate_via_intent_heal() -> anyhow::Result<()> {
 		.activation_cost;
 	
 	// Earn charge through combat: Hit -> DamageApplied -> award_combat_hits -> LubikanChargeRequest
-	let npc1 = spawn_npc(&mut app);
-	let npc2 = spawn_npc(&mut app);
-	let npc3 = spawn_npc(&mut app);
-	let npc4 = spawn_npc(&mut app);
-	
-	// Hit NPCs (each hit awards 10 charge, kill awards 35 total with stacking)
-	hit_npc(&mut app, player, npc1, 10.0);
-	hit_npc(&mut app, player, npc1, 30.0); // Kill
-	hit_npc(&mut app, player, npc2, 30.0); // Kill
-	hit_npc(&mut app, player, npc3, 30.0); // Kill
-	hit_npc(&mut app, player, npc4, 30.0); // Kill
+	earn_activation_charge(&mut app, player);
 	
 	let earned = charge(&app, player);
 	anyhow::ensure!(
@@ -236,17 +234,8 @@ fn pause_freezes_heal_via_gameplay_enabled() -> anyhow::Result<()> {
 	let mut app = self_loop_app();
 	let player = spawn_player(&mut app, 10.0, 100.0);
 	
-	// Earn charge and activate (need 80+ points for activation cost)
-	let npc1 = spawn_npc(&mut app);
-	let npc2 = spawn_npc(&mut app);
-	let npc3 = spawn_npc(&mut app);
-	let npc4 = spawn_npc(&mut app);
-	// Kill 4 NPCs + 1 hit = 4×35 + 10 = 150 points
-	hit_npc(&mut app, player, npc1, 30.0);
-	hit_npc(&mut app, player, npc2, 30.0);
-	hit_npc(&mut app, player, npc3, 30.0);
-	hit_npc(&mut app, player, npc4, 10.0);
-	hit_npc(&mut app, player, npc4, 20.0); // Kill
+	// Earn charge and activate (need 512 from hit=damage / kill=max health)
+	earn_activation_charge(&mut app, player);
 	
 	activate_self(&mut app);
 	
@@ -360,15 +349,7 @@ fn activation_and_healing_from_low_hp() -> anyhow::Result<()> {
 	let player = spawn_player(&mut app, 15.0, 100.0);
 	
 	// Earn charge and activate
-	let npc1 = spawn_npc(&mut app);
-	let npc2 = spawn_npc(&mut app);
-	let npc3 = spawn_npc(&mut app);
-	let npc4 = spawn_npc(&mut app);
-	hit_npc(&mut app, player, npc1, 30.0);
-	hit_npc(&mut app, player, npc2, 30.0);
-	hit_npc(&mut app, player, npc3, 30.0);
-	hit_npc(&mut app, player, npc4, 10.0);
-	hit_npc(&mut app, player, npc4, 20.0);
+	earn_activation_charge(&mut app, player);
 	
 	activate_self(&mut app);
 	

@@ -36,7 +36,7 @@ Damage history stays generic. [`lubikans-damage`](damage/) copies
 | [`LubikanCatalog`](src/catalog.rs) | Registered definitions. A normal game registers Self here. |
 | [`LubikanCharge`](src/charge.rs) / [`LubikanChargeMutation`](src/charge.rs) | Bounded charge and the result of a signed apply (requested, applied, new value, clamp flags). |
 | [`LubikanChargeRequest`](src/change.rs) / [`LubikanChargeChanged`](src/change.rs) / [`LubikanChargeReason`](src/change.rs) | Request → one apply → one change. Occupancy and combat write requests; Award is the sole owner. |
-| [`LubikanCombatAward`](src/award.rs) | Combat weights (default 1 / 2 / 5, stacked kill). Zero-effect hits award nothing; overkill does not use requested damage. |
+| [`LubikanCombatAward`](src/award.rs) | Combat credits: hit = applied HP, kill = opponent max health (stacked by default). Zero-effect hits award nothing; overkill does not use requested damage. |
 | [`LubikanActivationRequest`](src/activation.rs) / [`LubikanActivation`](src/activation.rs) / [`LubikanReadiness`](src/activation.rs) | Activation request, session phase, and derived eligibility. |
 | [`LubikanActivationSession`](src/activation.rs) / [`LubikanActivationRefused`](src/activation.rs) / [`LubikanActivationReport`](src/activation.rs) / [`LubikanActivationFinished`](src/activation.rs) | Handoff: one owner accepts (spend once) or refuses (no spend). #1110 / summons consume the session and report. HUD reads `Finished` (account + session id); Self returns to Idle after a natural complete. |
 | [`LubikanSelection`](src/selection.rs) | Equipped account, or Self when none is equipped. |

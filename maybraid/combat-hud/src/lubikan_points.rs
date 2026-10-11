@@ -201,7 +201,7 @@ mod tests {
 	fn signed_labels_distinguish_gains_and_penalties() {
 		assert_eq!(
 			point_label_with_reason(3.0, LubikanChargeReason::COMBAT_HIT),
-			"+3 combat-hit"
+			"+3 hit"
 		);
 		assert_eq!(
 			point_label_with_reason(-2.0, LubikanChargeReason::ADJUSTMENT),
