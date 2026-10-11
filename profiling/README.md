@@ -18,15 +18,23 @@ nix develop --command bash -lc '
 '
 ```
 
-Flights write under `profiling/captures/` by default (gitignored: `*.tracy`,
-zone/message CSVs, events, logs, summaries). Override with
-`MAYBRAID_PROFILING_OUT` if needed. Do **not** commit capture data or result
-tables. Publish the summary as a GitHub Gist and link that gist from the PR.
+## Capture output stays out of git
 
-Do **not** write `tracy-csvexport -u` unwrap CSVs — they are hundreds of MB
-to multi-GB. Zone means come from the aggregate export.
+`tracy-flight.sh` writes under `profiling/captures/` by default
+(override with `MAYBRAID_TRACY_CAPTURES`). That directory, `*.tracy`,
+unwrap/zone/message CSVs, event JSONL, and capture/game logs are
+`.gitignore`d. Do not commit them.
+
+Do **not** write `tracy-csvexport -u` unwrap CSVs — they are hundreds of
+MB to multi-GB. Zone means come from the aggregate export.
+
+Publish tables and per-scenario summaries as a **secret GitHub Gist**
+(`gh gist create`, default secret — not `--public`) and link the Gist
+from the PR. Do not upload `.tracy` files unless one is specifically
+worth sharing; mention it instead of attaching a large binary.
 
 `tracy-flight.sh` starts `tracy-capture` first, then the game with
-`MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone / message
-CSVs plus a top-zone summary. Profile scripts omit `stats vsync` because that
-console line *toggles* present mode and would re-enable vsync over the env var.
+`MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone /
+message CSVs plus a top-zone summary. Profile scripts omit `stats vsync`
+because that command *toggles* present mode and would re-enable vsync
+over the env var.

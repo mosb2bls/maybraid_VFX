@@ -69,7 +69,7 @@ and `frame`.
 | `ready` | world surface + gameplay are up (or ready-timeout) |
 | `player` | periodic pose (`x,y,z`, `yaw`, `move`) |
 | `command` | `acknowledged` / `started` / `finished` / `failed` |
-| `waypoint` | `goto` reached or timed out |
+| `waypoint` | `goto` reached, timed out, or stuck |
 | `scenario` | script markers |
 | `chunk_loads` | count of new cascade chunks this frame (cheap summary) |
 | `quit` | process is exiting |

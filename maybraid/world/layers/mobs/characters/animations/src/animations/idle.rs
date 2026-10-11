@@ -7,6 +7,8 @@
 
 use character_rigs::Side;
 
+use crate::animations::{burst_envelope, DEFAULT_BURST_EDGE};
+
 /// Golden-ratio odd constant; same mix family as POI discovery.
 const PHASE_GOLDEN: u64 = 0x9E37_79B9_7F4A_7C15;
 
@@ -73,7 +75,7 @@ impl Idle {
 		if t >= Self::SCRATCH_DURATION {
 			return 0.0;
 		}
-		burst_envelope(t / Self::SCRATCH_DURATION)
+		burst_envelope(t / Self::SCRATCH_DURATION, DEFAULT_BURST_EDGE)
 	}
 
 	/// Alternate hands each period so a long idle is not always the same arm.
@@ -85,22 +87,6 @@ impl Idle {
 			Side::Left
 		}
 	}
-}
-
-fn burst_envelope(u: f32) -> f32 {
-	let edge = 0.22;
-	if u < edge {
-		smoothstep(u / edge)
-	} else if u > 1.0 - edge {
-		smoothstep((1.0 - u) / edge)
-	} else {
-		1.0
-	}
-}
-
-fn smoothstep(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]

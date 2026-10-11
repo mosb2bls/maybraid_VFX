@@ -4,17 +4,17 @@ __pycache__
 venv
 .venv
 target
+# Tracy / scripted-flight output — never commit captures.
 *.tracy
-# Tracy flight output — never commit captures or result tables.
+*-unwrap.csv
+*-zones.csv
+*-messages.csv
+*-events.jsonl
+*-game.log
+*-capture.log
+*-summary.txt
+*-meta.txt
 profiling/captures/
-profiling/**/*-zones.csv
-profiling/**/*-messages.csv
-profiling/**/*-events.jsonl
-profiling/**/*-unwrap.csv
-profiling/**/*-game.log
-profiling/**/*-capture.log
-profiling/**/*-summary.txt
-profiling/**/*-meta.txt
 macos-15
 .maybraid
 issues

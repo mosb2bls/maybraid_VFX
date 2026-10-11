@@ -11,6 +11,7 @@
 use crate::terrain::cell::TerrainCellLayout;
 use crate::terrain::watersheds::config::WatershedConfigs;
 use crate::terrain::watersheds::high_pass::PocketWatersHighPass;
+use crate::terrain::watersheds::leaf_kind::WatershedLeafBounds;
 use crate::terrain::watersheds::low_pass::PocketWatersLowPass;
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
@@ -25,6 +26,8 @@ use terrain_watersheds::{CorrectionStage, HydroComplex, HydroNode};
 pub struct HydroComplexCell {
 	pub cell: Aabb3d,
 	pub complex: Arc<HydroComplex>,
+	/// Pocket-water leaf metadata discovered while building this complex (both bands).
+	pub marazion_leaves: Vec<WatershedLeafBounds>,
 }
 
 impl HydroComplexCell {
@@ -56,19 +59,29 @@ impl hcsg::GenerationScheme for HydroComplexCell {
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
 		let cell = id.origin_cell_bounds()?;
 		let seed = cx.get_or_generate::<WatershedConfigs>(Id::Universal)?.seed;
-		let high = cx.get_or_generate_in::<PocketWatersHighPass>(cell);
-		let low = cx.get_or_generate_in::<PocketWatersLowPass>(cell);
+		let high = cx.get_or_generate_all_in::<PocketWatersHighPass>(cell)?;
+		let low = cx.get_or_generate_all_in::<PocketWatersLowPass>(cell)?;
+		let marazion_leaves = high
+			.iter()
+			.map(|leaf| leaf.leaf_bounds())
+			.chain(low.iter().map(|leaf| leaf.leaf_bounds()))
+			.collect();
 		let nodes = high
 			.iter()
 			.flat_map(|pass| pass.hydro_nodes())
 			.chain(low.iter().flat_map(|pass| pass.hydro_nodes()));
-		Some((Self::union(cell, seed, nodes), cell))
+		Some((Self::union(cell, seed, nodes, marazion_leaves), cell))
 	}
 }
 
 impl HydroComplexCell {
 	/// The complex of `nodes` whose correction reaches `cell`.
-	pub fn union(cell: Aabb3d, seed: u32, nodes: impl IntoIterator<Item = HydroNode>) -> Self {
+	pub fn union(
+		cell: Aabb3d,
+		seed: u32,
+		nodes: impl IntoIterator<Item = HydroNode>,
+		marazion_leaves: Vec<WatershedLeafBounds>,
+	) -> Self {
 		let cell_bounds = aabb_to_bounds2(cell);
 		let hydrology = nodes
 			.into_iter()
@@ -76,7 +89,7 @@ impl HydroComplexCell {
 			.collect();
 		let complex =
 			Arc::new(HydroComplex::new(cell_bounds, cell_seed(cell, seed)).with_hydro(hydrology));
-		Self { cell, complex }
+		Self { cell, complex, marazion_leaves }
 	}
 }
 
