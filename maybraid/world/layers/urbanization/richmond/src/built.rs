@@ -14,6 +14,7 @@ use lod::scene::{LodScene, LodSceneLevel, LodSceneStatus};
 use urbanization_layer_model::UrbanSetting;
 
 use crate::artifact::BuiltDevelopment;
+use crate::developments::site::DevelopmentSite;
 use crate::developments::RichmondDevelopment;
 use crate::ground::RichmondGround;
 use crate::host::DevelopmentHosts;
@@ -51,9 +52,18 @@ impl<G: RichmondGround> hcsg::GenerationScheme for Built<G> {
 
 	/// The filled developments originating in `region`.
 	fn original_ids_for(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
-		cx.original_ids_for::<RichmondDevelopment<G>>(region)
+		cx.original_ids_for::<DevelopmentSite>(region)
 			.into_iter()
 			.filter(|OriginalId(id)| {
+				if let Some(development) = cx.get::<RichmondDevelopment<G>>(*id) {
+					return development.is_filled();
+				}
+				let Some(site) = cx.get_or_generate::<DevelopmentSite>(*id) else {
+					return false;
+				};
+				if !site.is_filled() {
+					return false;
+				}
 				cx.get_or_generate::<RichmondDevelopment<G>>(*id)
 					.is_some_and(|development| development.is_filled())
 			})
@@ -83,5 +93,55 @@ impl<G: RichmondGround> LodScene for Built<G> {
 		})];
 		children.extend(self.development.hosts().iter().map(|host| host.scene(Some(setting.id))));
 		scene_children(children)
+	}
+}
+
+#[cfg(test)]
+mod scheme_perf_tests {
+	use super::*;
+	use durham::Durham;
+	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
+	use terrain_layer_model::OnTerrain;
+	use urbanization_cells::{UrbanizationKind, UrbanizationSelection};
+
+	type Ground = OnTerrain<Durham>;
+
+	fn naive_built_ids(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+		cx.original_ids_for::<RichmondDevelopment<Ground>>(region)
+			.into_iter()
+			.filter(|OriginalId(id)| {
+				cx.get_or_generate::<RichmondDevelopment<Ground>>(*id)
+					.is_some_and(|development| development.is_filled())
+			})
+			.collect()
+	}
+
+	#[test]
+	fn built_discovery_matches_materializing_every_development() -> anyhow::Result<()> {
+		let storage = HcsgStorage::default();
+		storage.seed(
+			crate::DevelopmentConfig {
+				sites: crate::DevelopmentSites::Urbanization,
+				..crate::DevelopmentConfig::default()
+			},
+			universal_bounds(),
+		);
+		storage.seed(
+			UrbanizationSelection {
+				kind: Some(UrbanizationKind::Frontier),
+				..UrbanizationSelection::default()
+			},
+			universal_bounds(),
+		);
+		let region = urbanization_cells::UrbanizationExtent::xz_radius_aabb(
+			Vec3::ZERO,
+			urbanization_cells::DEVELOPMENT_GENERATE_RADIUS_M,
+		);
+		let mut naive_cx = GenerationContext::new(&storage);
+		let mut optimized_cx = GenerationContext::new(&storage);
+		let naive = naive_built_ids(&mut naive_cx, region);
+		let optimized = optimized_cx.original_ids_for::<Built<Ground>>(region);
+		assert_eq!(naive, optimized);
+		Ok(())
 	}
 }
