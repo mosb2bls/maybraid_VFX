@@ -11,3 +11,12 @@ cargo run -p doric-column-playground
 ```
 
 WASD + right-drag look, Space/Shift vertical. Spawns an encounter column (left) and a slightly scaled summon column (right) with debug gizmos for cover and anchors.
+
+**Headless capture** (CI / cloud VM): fixed 1280×720 window, `import -window` (not `scrot -u`, which fails on xvfb):
+
+```bash
+DORIC_PREVIEW_SHOT=wide|capital xvfb-run -a ./target/debug/doric-column-playground &
+# after ~12s once the window exists:
+WID=$(xdotool search --name doric-column-playground | head -1)
+import -window "$WID" /path/to/frame.png
+```

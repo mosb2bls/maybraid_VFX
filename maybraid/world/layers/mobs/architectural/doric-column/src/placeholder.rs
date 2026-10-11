@@ -3,6 +3,8 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use material_ref::MaterialRefApplied;
+
 use crate::parts::DoricColumnPartSlot;
 
 /// Marks entities that use [`DoricColumnPlaceholderPlugin`] meshes.
@@ -55,6 +57,8 @@ fn attach_placeholder_meshes(
 ) {
 	for (entity, part) in &pending {
 		let mesh = meshes.mesh_for(part.0);
+		// Roots can be fulfilled before `Mesh3d` exists; restamp once geometry lands.
+		commands.entity(entity).remove::<MaterialRefApplied>();
 		commands.entity(entity).insert(Mesh3d(mesh));
 	}
 }
@@ -89,7 +93,8 @@ fn unit_frustum_mesh(bottom_radius: f32, top_radius: f32, segments: u32) -> Mesh
 		let i1 = i0 + 1;
 		let i2 = i0 + 2;
 		let i3 = i0 + 3;
-		indices.extend_from_slice(&[i0, i2, i1, i1, i2, i3]);
+		// Outward-facing winding (viewed from +Y and from outside the frustum).
+		indices.extend_from_slice(&[i0, i1, i2, i2, i1, i3]);
 	}
 
 	let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());

@@ -10,10 +10,19 @@ pub struct CameraController {
 	pub pitch: f32,
 }
 
+/// `wide` (default) shows both columns; `capital` frames the left column capital + chain anchors.
+pub fn preview_camera_transform() -> Transform {
+	match std::env::var("DORIC_PREVIEW_SHOT").as_deref() {
+		Ok("capital") => {
+			// Left encounter column: capital, echinus, and cardinal chain anchors (Y ≈ 15.2 m).
+			Transform::from_xyz(-2.0, 15.8, 7.2).looking_at(Vec3::new(-4.0, 15.25, 0.0), Vec3::Y)
+		}
+		_ => Transform::from_xyz(6.0, 9.5, 14.0).looking_at(Vec3::new(0.0, 7.5, 0.0), Vec3::Y),
+	}
+}
+
 pub fn setup_camera(mut commands: Commands) {
-	let camera_pos = Vec3::new(14.0, 9.0, 20.0);
-	let look_at = Vec3::new(0.0, 8.0, 0.0);
-	let transform = Transform::from_translation(camera_pos).looking_at(look_at, Vec3::Y);
+	let transform = preview_camera_transform();
 	let rotation = transform.rotation;
 	let (x, y, z, w) = (rotation.x, rotation.y, rotation.z, rotation.w);
 	let sin_yaw = 2.0 * (w * y + x * z);
@@ -25,16 +34,29 @@ pub fn setup_camera(mut commands: Commands) {
 	commands.spawn((
 		Camera3d::default(),
 		transform,
-		Projection::Perspective(PerspectiveProjection { near: 0.1, far: 500.0, ..default() }),
+		Projection::Perspective(PerspectiveProjection {
+			near: 0.1,
+			far: 500.0,
+			fov: 55.0_f32.to_radians(),
+			..default()
+		}),
 		CameraController { speed: 10.0, sensitivity: 0.003, yaw, pitch },
 	));
 	commands.spawn((
 		DirectionalLight {
-			illuminance: 12_000.0,
+			illuminance: 28_000.0,
 			shadow_maps_enabled: true,
 			..default()
 		},
-		Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.6, 0.0)),
+		Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.65, 0.55, 0.0)),
+	));
+	commands.spawn((
+		DirectionalLight {
+			illuminance: 8_000.0,
+			shadow_maps_enabled: false,
+			..default()
+		},
+		Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.35, -2.1, 0.0)),
 	));
 }
 
