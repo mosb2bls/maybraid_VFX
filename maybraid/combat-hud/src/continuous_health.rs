@@ -1,6 +1,5 @@
 //! Continuous health bar with smooth animations, healing effects, and cap markers.
 
-use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
 use damage::Health;
 
@@ -304,27 +303,21 @@ pub fn position_continuous_health_bars(
 }
 
 #[allow(clippy::type_complexity)]
-#[allow(clippy::too_many_arguments)]
 pub fn update_continuous_health_bar_content(
 	time: Res<Time>,
 	config: Option<Res<ContinuousHealthConfig>>,
 	hud_visible: Res<CombatHudVisible>,
-	_cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
 	healths: Query<(&Health, Option<&crate::CombatHudStatusColor>), (Without<damage::Downed>, Without<ContinuousHealthBar>)>,
 	heal_channels: Query<&lubikans::LubikanSelfHealChannel>,
 	mut bars: Query<(Entity, &ContinuousHealthBar, &mut HealthAnimState)>,
 	children: Query<&Children>,
-	mut node_queries: ParamSet<(
-		Query<(&mut Node, &mut BackgroundColor), With<HealthFill>>,
-		Query<&mut Node, With<HealthTrail>>,
-		Query<(&mut Node, &mut Visibility), With<HealPreview>>,
-		Query<(&mut Node, &mut Visibility), With<CapMarker>>,
-	)>,
-	mut other_queries: ParamSet<(
-		Query<&mut BackgroundColor, With<CompletionFlash>>,
-		Query<&mut Text, With<HealthLabel>>,
-		Query<(&mut BackgroundColor, &mut Visibility), With<HealthStatusDot>>,
-	)>,
+	mut fills: Query<(&mut Node, &mut BackgroundColor), (With<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>)>,
+	mut trails: Query<&mut Node, (With<HealthTrail>, Without<HealthFill>, Without<HealPreview>, Without<CapMarker>)>,
+	mut previews: Query<(&mut Node, &mut Visibility), (With<HealPreview>, Without<HealthFill>, Without<HealthTrail>, Without<CapMarker>)>,
+	mut markers: Query<(&mut Node, &mut Visibility), (With<CapMarker>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>)>,
+	mut flashes: Query<&mut BackgroundColor, (With<CompletionFlash>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>, Without<HealthStatusDot>)>,
+	mut labels: Query<&mut Text, (With<HealthLabel>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>, Without<CompletionFlash>, Without<HealthStatusDot>)>,
+	mut status_dots: Query<(&mut BackgroundColor, &mut Visibility), (With<HealthStatusDot>, Without<CompletionFlash>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>)>,
 ) {
 	if !hud_visible.0 {
 		return;
@@ -380,7 +373,7 @@ pub fn update_continuous_health_bar_content(
 
 		for child in kids {
 			// Update status dot
-			if let Ok((mut dot_color, mut dot_visibility)) = other_queries.p2().get_mut(*child) {
+			if let Ok((mut dot_color, mut dot_visibility)) = status_dots.get_mut(*child) {
 				if let Some(status) = status_color {
 					dot_color.0 = status.0;
 					*dot_visibility = Visibility::Visible;
@@ -390,7 +383,7 @@ pub fn update_continuous_health_bar_content(
 			}
 
 			// Update label
-			if let Ok(mut text) = other_queries.p1().get_mut(*child) {
+			if let Ok(mut text) = labels.get_mut(*child) {
 				text.0 = format!("{:.0}", health.current);
 			}
 
@@ -406,7 +399,7 @@ pub fn update_continuous_health_bar_content(
 
 				for element in great_grandchildren {
 					// Update main fill
-					if let Ok((mut fill_node, mut fill_color)) = node_queries.p0().get_mut(*element) {
+					if let Ok((mut fill_node, mut fill_color)) = fills.get_mut(*element) {
 						fill_node.width = Val::Percent(anim_state.current_fraction * 100.0);
 						fill_color.0 = health_fill_color(&config, anim_state.current_fraction);
 						
@@ -419,12 +412,12 @@ pub fn update_continuous_health_bar_content(
 					}
 
 					// Update damage trail
-					if let Ok(mut trail_node) = node_queries.p1().get_mut(*element) {
+					if let Ok(mut trail_node) = trails.get_mut(*element) {
 						trail_node.width = Val::Percent(anim_state.trail_fraction * 100.0);
 					}
 
 					// Update heal preview
-					if let Ok((mut preview_node, mut preview_visibility)) = node_queries.p2().get_mut(*element) {
+					if let Ok((mut preview_node, mut preview_visibility)) = previews.get_mut(*element) {
 						if is_healing {
 							if let Some(channel) = heal_channel {
 								let heal_amount = channel.remaining / health.max;
@@ -441,7 +434,7 @@ pub fn update_continuous_health_bar_content(
 					}
 
 					// Update cap marker
-					if let Ok((mut marker_node, mut marker_visibility)) = node_queries.p3().get_mut(*element) {
+					if let Ok((mut marker_node, mut marker_visibility)) = markers.get_mut(*element) {
 						if let Some(channel) = heal_channel {
 							if channel.damaged && channel.cap_fraction < 1.0 {
 								marker_node.left = Val::Px(channel.cap_fraction * (config.bar_width - config.frame_thickness * 2.0) - config.cap_marker_width * 0.5);
@@ -455,7 +448,7 @@ pub fn update_continuous_health_bar_content(
 					}
 
 					// Update completion flash
-					if let Ok(mut flash_color) = other_queries.p0().get_mut(*element) {
+					if let Ok(mut flash_color) = flashes.get_mut(*element) {
 						if anim_state.flash_timer > 0.0 {
 							let alpha = (anim_state.flash_timer / config.completion_flash_duration).clamp(0.0, 1.0);
 							flash_color.0 = config.completion_flash_color.with_alpha(alpha * 0.8);
