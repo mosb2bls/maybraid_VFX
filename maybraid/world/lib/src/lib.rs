@@ -37,7 +37,7 @@ pub use world_furnished::WorldFurnished;
 pub use commands::PLAYGROUND_CLI_NAME;
 pub use commands::PlaygroundCommand;
 #[cfg(feature = "debug-commands")]
-pub use commands::{CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful, RequestSpawnNpc, RequestTakeDamage};
+pub use commands::{CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful, RequestSpawnNpc, RequestTakeDamage, RequestTeleport};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
 	WorldSurfaceReady, WorldSurfaceSet,
@@ -241,7 +241,10 @@ impl Plugin for WorldPlugin {
 		#[cfg(feature = "debug-commands")]
 		app.add_systems(
 			Update,
-			auto_capture::run_auto_capture.after(lubikans::LubikanSystems::Heal),
+			(
+				auto_capture::run_auto_capture.after(lubikans::LubikanSystems::Heal),
+				log_entity_health_state.after(auto_capture::run_auto_capture),
+			),
 		)
 			.add_systems(
 				PreUpdate,
@@ -324,6 +327,7 @@ impl Plugin for WorldPlugin {
 				apply_debug_activate,
 				apply_debug_peaceful,
 				apply_debug_camera,
+				apply_debug_teleport,
 			),
 			);
 			app.add_systems(
@@ -343,6 +347,10 @@ fn apply_debug_grant_points(
 ) {
 	for (entity, request) in &requests {
 		if let Ok(player) = players.single() {
+			info!(
+				"[debug grant-points] player={:?} granting {:.1} points",
+				player, request.amount
+			);
 			// Go through LubikanChargeRequest -> Award path
 			lubikan_requests.write(lubikans::LubikanChargeRequest::equipped(
 				player,
@@ -369,6 +377,11 @@ fn apply_debug_take_damage(
 				let before = health.current;
 				let applied = health.take_damage(request.amount);
 				let after = health.current;
+				
+				info!(
+					"[debug take-damage] player={:?} HP: {:.1} -> {:.1} (applied {:.1})",
+					player, before, after, applied
+				);
 				
 				// Write DamageApplied event so lubikan healing cap latches correctly
 				damage_events.write(damage::DamageApplied {
@@ -486,8 +499,29 @@ fn apply_debug_camera(
 		match request.mode {
 			commands::CameraMode::ThirdPerson => {
 				map_view.close();
-				eprintln!("[DEBUG] Camera forced to third-person (map closed)");
+				info!("[debug camera] Forced to third-person (map closed)");
 			}
+		}
+		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(feature = "debug-commands")]
+fn apply_debug_teleport(
+	requests: Query<(Entity, &commands::RequestTeleport)>,
+	mut players: Query<(&mut Transform, &mut avian3d::prelude::LinearVelocity), With<player::Player>>,
+	mut commands: Commands,
+) {
+	for (entity, request) in &requests {
+		if let Ok((mut transform, mut velocity)) = players.single_mut() {
+			let before = transform.translation;
+			transform.translation = request.position;
+			**velocity = Vec3::ZERO;
+			info!(
+				"[debug teleport] player moved from ({:.1}, {:.1}, {:.1}) to ({:.1}, {:.1}, {:.1})",
+				before.x, before.y, before.z,
+				request.position.x, request.position.y, request.position.z
+			);
 		}
 		commands.entity(entity).despawn();
 	}
@@ -495,6 +529,44 @@ fn apply_debug_camera(
 
 fn spawn_default_braidman(mut commands: Commands) {
 	commands.spawn(RequestSetCharacter { species: CharacterSpecies::Braidman });
+}
+
+#[cfg(feature = "debug-commands")]
+fn log_entity_health_state(
+	healths: Query<(
+		Entity,
+		&damage::Health,
+		Has<player::Player>,
+		Has<Player>,
+		Option<&Name>,
+	)>,
+	vitals_bars: Query<&combat_hud::continuous_health::ContinuousHealthBar, With<combat_hud::vitals::PlayerVitalsHealthBar>>,
+	world_bars: Query<&combat_hud::continuous_health::ContinuousHealthBar, (Without<combat_hud::vitals::PlayerVitalsHealthBar>, With<combat_hud::continuous_health::ContinuousHealthBar>)>,
+	charge_plates: Query<Entity, With<combat_hud::lubikan_charge::LubikanChargeRoot>>,
+	auto_capture: Option<Res<auto_capture::AutoCaptureScript>>,
+) {
+	// Only log when auto-capture is running to reduce noise
+	if auto_capture.is_none() {
+		return;
+	}
+	
+	for (entity, health, has_maybraid_player, has_world_player, name) in &healths {
+		let name_str = name.map(|n| n.as_str()).unwrap_or("unnamed");
+		info!(
+			"[entity_health] entity={:?} name={} HP={:.1}/{:.1} has_player::Player={} has_world_player::Player={}",
+			entity, name_str, health.current, health.max, has_maybraid_player, has_world_player
+		);
+	}
+	
+	for bar in &vitals_bars {
+		info!("[vitals_bar] targeting entity={:?}", bar.target);
+	}
+	
+	for bar in &world_bars {
+		info!("[world_bar] targeting entity={:?}", bar.target);
+	}
+	
+	info!("[charge_plate] count={}", charge_plates.iter().count());
 }
 
 #[cfg(test)]

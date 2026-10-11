@@ -81,6 +81,10 @@ pub(crate) fn sync_player_vitals(
 		hide_vitals(&mut roots);
 		return;
 	};
+	info!(
+		"[vitals] sync_player_vitals: player_entity={:?} name={:?} hud_visible={}",
+		player_entity, name.map(|n| n.as_str()), hud.0
+	);
 	let label = display_name(name.map(|name| name.as_str()));
 	for mut visibility in &mut roots {
 		*visibility = Visibility::Visible;
@@ -93,6 +97,10 @@ pub(crate) fn sync_player_vitals(
 	// Update health bar target if needed
 	for mut health_bar in &mut health_bars {
 		if health_bar.target != player_entity {
+			info!(
+				"[vitals] Updating health bar target from {:?} to {:?}",
+				health_bar.target, player_entity
+			);
 			health_bar.target = player_entity;
 		}
 	}

@@ -96,12 +96,18 @@ fn discovery_xz(
 /// attaches the Self ledger in `LubikanSystems::Owner`; do not insert
 /// `LubikanLedger::with_self` here. [#1112](https://github.com/ramate-io/maybraid/issues/1112)
 /// can drop its temporary attach once this grant is on the stack.
+///
+/// Also inserts `player::Player` (the generic player marker from the player crate)
+/// so that `combat-hud` vitals and continuous bars can query this entity.
 pub fn grant_world_player_lubikan_owner(
 	mut commands: Commands,
 	players: Query<Entity, (With<Player>, Without<lubikans::LubikanOwner>)>,
 ) {
 	for player in &players {
-		commands.entity(player).insert(lubikans::LubikanOwner);
+		commands.entity(player).insert((
+			lubikans::LubikanOwner,
+			MaybraidPlayer,
+		));
 	}
 }
 

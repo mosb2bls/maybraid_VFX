@@ -117,6 +117,12 @@ pub enum DebugCommand {
 		#[arg(value_enum)]
 		mode: CameraMode,
 	},
+	/// Teleport the player to the specified XYZ world position.
+	Teleport {
+		x: f32,
+		y: f32,
+		z: f32,
+	},
 }
 
 #[cfg(feature = "debug-commands")]
@@ -284,6 +290,12 @@ pub struct RequestCamera {
 }
 
 #[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestTeleport {
+	pub position: Vec3,
+}
+
+#[cfg(feature = "debug-commands")]
 impl DebugCommand {
 	fn react(self, commands: &mut Commands, console: &mut String) {
 		match self {
@@ -310,6 +322,10 @@ impl DebugCommand {
 		DebugCommand::Camera { mode } => {
 			commands.spawn(RequestCamera { mode });
 			*console = format!("debug camera {:?}: pending", mode);
+		}
+		DebugCommand::Teleport { x, y, z } => {
+			commands.spawn(RequestTeleport { position: Vec3::new(x, y, z) });
+			*console = format!("debug teleport ({}, {}, {}): pending", x, y, z);
 		}
 	}
 }
