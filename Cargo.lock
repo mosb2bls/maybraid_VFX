@@ -6601,6 +6601,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lubikans-damage"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "damage",
+ "lubikans",
+]
+
+[[package]]
 name = "lz4_flex"
 version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

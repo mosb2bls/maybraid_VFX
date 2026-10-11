@@ -31,11 +31,12 @@ pub fn apply_hits(
 			.get(target)
 			.map(|(transform, band)| band.scale(transform, hit.point, hit.amount))
 			.unwrap_or(hit.amount);
-		pool.apply_damage(amount);
+		let lost = pool.take_damage(amount);
 		applied.write(DamageApplied {
 			target,
 			source: hit.source,
 			amount,
+			applied: lost,
 			remaining: pool.current,
 			point: hit.point,
 		});
@@ -88,6 +89,26 @@ mod tests {
 		let remaining = app.world().get::<Health>(parent).map(|health| health.current);
 		if remaining != Some(100.0) {
 			return Err(anyhow!("self-hit on a child hull should not injure, got {remaining:?}"));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn overkill_reports_applied_hp_not_requested() -> Result<()> {
+		let mut app = App::new();
+		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
+		app.add_systems(Update, apply_hits);
+		let target = app.world_mut().spawn(Health::from_max(10.0)).id();
+		app.world_mut().write_message(Hit {
+			target,
+			source: None,
+			amount: 25.0,
+			point: Vec3::ZERO,
+		});
+		app.update();
+		let remaining = app.world().get::<Health>(target).map(|health| health.current);
+		if remaining != Some(0.0) {
+			return Err(anyhow!("overkill should empty the pool, got {remaining:?}"));
 		}
 		Ok(())
 	}

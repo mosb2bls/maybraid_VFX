@@ -937,7 +937,7 @@ mod tests {
 	}
 
 	fn applied(target: Entity, source: Option<Entity>, remaining: f32) -> DamageApplied {
-		DamageApplied { target, source, amount: 10.0, remaining, point: Vec3::ZERO }
+		DamageApplied { target, source, amount: 10.0, applied: 10.0, remaining, point: Vec3::ZERO }
 	}
 
 	#[test]
@@ -1019,6 +1019,7 @@ mod tests {
 			target,
 			source: Some(player),
 			amount: 40.0,
+			applied: 40.0,
 			remaining: 60.0,
 			point: Vec3::new(1.0, 1.2, 0.5),
 		});
