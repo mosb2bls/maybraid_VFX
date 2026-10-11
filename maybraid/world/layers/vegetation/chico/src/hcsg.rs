@@ -209,12 +209,7 @@ pub struct GroundSurface<G: ForestGround> {
 
 impl<G: ForestGround> GroundSurface<G> {
 	pub fn generate(cx: &mut GenerationContext, region: Aabb3d) -> Self {
-		let mut cells: Vec<Arc<G::Surface>> = cx
-			.original_ids_for::<G::Surface>(region)
-			.into_iter()
-			.filter_map(|OriginalId(id)| cx.get_or_generate::<G::Surface>(id))
-			.collect();
-		cells.sort_by(|a, b| span_x(G::footprint(a)).total_cmp(&span_x(G::footprint(b))));
+		let cells = cx.get_or_generate_in_finest_first::<G::Surface>(region, G::footprint);
 		Self { cells }
 	}
 
@@ -237,10 +232,6 @@ impl<G: ForestGround> GroundSurface<G> {
 			})
 			.map(|cell| G::height_at(cell, x, z))
 	}
-}
-
-fn span_x(bounds: Aabb3d) -> f32 {
-	bounds.max.x - bounds.min.x
 }
 
 /// Steepness is a 1 m forward difference, as on the legacy ground sample; a
