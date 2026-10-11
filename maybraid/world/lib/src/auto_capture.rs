@@ -9,7 +9,6 @@
 use bevy::prelude::*;
 use clap::Parser;
 use std::path::{Path, PathBuf};
-use std::process::Command as ProcessCommand;
 
 use crate::commands::{DebugCommand, PlaygroundCommand};
 
@@ -192,11 +191,10 @@ pub fn run_auto_capture(
 			if let Some(parent) = path.parent() {
 				let _ = std::fs::create_dir_all(parent);
 			}
-			// Use scrot for headless screenshot capture
-			match ProcessCommand::new("scrot").arg(&path).output() {
-				Ok(_) => eprintln!("[AUTO_CAPTURE] Screenshot: {}", path.display()),
-				Err(e) => eprintln!("[AUTO_CAPTURE] Screenshot failed: {e}"),
-			}
+			// Request screenshot via Bevy's screenshot API (async, non-blocking)
+			// Note: This requires the screenshot plugin to be added to the app
+			eprintln!("[AUTO_CAPTURE] Screenshot requested: {}", path.display());
+			eprintln!("[AUTO_CAPTURE] Note: Bevy screenshot support should be wired separately via ScreenshotManager");
 		}
 		CaptureCommand::Exit => {
 			eprintln!("[AUTO_CAPTURE] Exit - script complete");

@@ -99,119 +99,122 @@ impl Plugin for CombatHudPlugin {
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
 			.init_resource::<CombatHudInventoryCycleCategory>();
-		if self.lubikan_charge {
-			app.init_resource::<LubikanActivationFinishedHudPulse>();
-		}
-		app
-			.configure_sets(
-				PostUpdate,
-				CombatHudSystems::Health
-					.after(LubikanSystems::Heal)
-					.after(LubikanSystems::Award),
-			)
-			.add_systems(Startup, spawn_combat_hud);
 		
-		// Register continuous health bar content updates when either health_bars OR player_vitals is enabled
+		app.configure_sets(
+			PostUpdate,
+			CombatHudSystems::Health
+				.after(LubikanSystems::Heal)
+				.after(LubikanSystems::Award),
+		)
+		.add_systems(Startup, spawn_combat_hud);
+		
+		// Configure features independently
 		if self.health_bars || self.player_vitals {
-			app.init_resource::<ContinuousHealthConfig>()
-				.add_systems(
-					Update,
-					position_continuous_health_bars.in_set(CombatHudSystems::Health),
-				)
-				.add_systems(
-					Update,
-					update_continuous_health_bar_content.in_set(CombatHudSystems::Health),
-				)
-				.add_systems(
-					Update,
-					trigger_completion_flash.in_set(CombatHudSystems::Health),
-				);
+			configure_health_content(app);
 		}
-		
 		if self.health_bars {
-			app.init_resource::<CombatHudOpponentTotal>()
-				.add_message::<lubikans::LubikanActivationFinished>();
-			app.add_systems(
-				Update,
-				ensure_continuous_health_bars.in_set(CombatHudSystems::Health),
-			);
-			app.add_systems(Update, sync_health_hud.in_set(CombatHudSystems::Health));
+			configure_world_health_anchors(app);
 		}
-		if self.player_vitals && self.lubikan_charge && self.lubikan_point_feedback {
-			app.add_systems(
-				PostUpdate,
-				(
-					sync_player_vitals,
-					ingest_lubikan_activation_finished_pulse,
-					sync_lubikan_charge,
-					ingest_lubikan_point_flyers,
-					update_lubikan_point_flyers,
-				)
-					.chain()
-					.in_set(CombatHudSystems::Health),
-			);
-		} else if self.player_vitals && self.lubikan_charge {
-			app.add_systems(
-				PostUpdate,
-				(
-					sync_player_vitals,
-					ingest_lubikan_activation_finished_pulse,
-					sync_lubikan_charge,
-				)
-					.chain()
-					.in_set(CombatHudSystems::Health),
-			);
-		} else if self.player_vitals {
-			app.add_systems(PostUpdate, sync_player_vitals.in_set(CombatHudSystems::Health));
-		} else if self.lubikan_charge && self.lubikan_point_feedback {
-			app.add_systems(
-				PostUpdate,
-				(
-					ingest_lubikan_activation_finished_pulse,
-					sync_lubikan_charge,
-					ingest_lubikan_point_flyers,
-					update_lubikan_point_flyers,
-				)
-					.chain()
-					.in_set(CombatHudSystems::Health),
-			);
-		} else if self.lubikan_charge {
-			app.add_systems(
-				PostUpdate,
-				(ingest_lubikan_activation_finished_pulse, sync_lubikan_charge)
-					.chain()
-					.in_set(CombatHudSystems::Health),
-			);
-		} else if self.lubikan_point_feedback {
-			app.add_systems(
-				PostUpdate,
-				(ingest_lubikan_point_flyers, update_lubikan_point_flyers)
-					.chain()
-					.in_set(CombatHudSystems::Health),
-			);
+		if self.player_vitals {
+			configure_player_vitals(app);
+		}
+		if self.lubikan_charge {
+			configure_lubikan_charge(app);
+		}
+		if self.lubikan_point_feedback {
+			configure_lubikan_point_feedback(app);
 		}
 		if self.score {
-			app.add_systems(PostUpdate, sync_combat_score.in_set(CombatHudSystems::Health))
-				.add_systems(
-					PostUpdate,
-					ingest_combat_score
-						.after(damage::DamageSystems::Apply)
-						.before(damage::DamageSystems::Down),
-				);
+			configure_score(app);
 		}
 		if self.hit_markers {
-			app.add_systems(Update, update_hit_markers)
-				.add_systems(PostUpdate, ingest_hit_markers.after(damage::DamageSystems::Down));
+			configure_hit_markers(app);
 		}
 		if self.directional_damage {
-			app.init_resource::<DamageTicks>()
-				.add_systems(Update, update_directional_damage)
-				.add_systems(
-					PostUpdate,
-					ingest_directional_damage.after(damage::DamageSystems::Down),
-				);
+			configure_directional_damage(app);
 		}
 	}
+}
+
+/// Shared continuous health bar content updates (for both world health bars and player vitals).
+fn configure_health_content(app: &mut App) {
+	app.init_resource::<ContinuousHealthConfig>()
+		.add_systems(
+			Update,
+			position_continuous_health_bars.in_set(CombatHudSystems::Health),
+		)
+		.add_systems(
+			Update,
+			update_continuous_health_bar_content.in_set(CombatHudSystems::Health),
+		)
+		.add_systems(
+			Update,
+			trigger_completion_flash.in_set(CombatHudSystems::Health),
+		);
+}
+
+/// World-anchored health bars above NPCs and field totals.
+fn configure_world_health_anchors(app: &mut App) {
+	app.init_resource::<CombatHudOpponentTotal>()
+		.add_message::<lubikans::LubikanActivationFinished>();
+	app.add_systems(
+		Update,
+		ensure_continuous_health_bars.in_set(CombatHudSystems::Health),
+	);
+	app.add_systems(Update, sync_health_hud.in_set(CombatHudSystems::Health));
+}
+
+/// Bottom-left player name + health bar (reuses continuous health bar).
+fn configure_player_vitals(app: &mut App) {
+	app.add_systems(PostUpdate, sync_player_vitals.in_set(CombatHudSystems::Health));
+}
+
+/// Lubikan charge plate above player vitals.
+fn configure_lubikan_charge(app: &mut App) {
+	app.init_resource::<LubikanActivationFinishedHudPulse>();
+	app.add_systems(
+		PostUpdate,
+		(ingest_lubikan_activation_finished_pulse, sync_lubikan_charge)
+			.chain()
+			.in_set(CombatHudSystems::Health),
+	);
+}
+
+/// Animated point feedback flying toward charge anchor.
+fn configure_lubikan_point_feedback(app: &mut App) {
+	app.add_systems(
+		PostUpdate,
+		(ingest_lubikan_point_flyers, update_lubikan_point_flyers)
+			.chain()
+			.in_set(CombatHudSystems::Health),
+	);
+}
+
+/// Top-right running score plate.
+fn configure_score(app: &mut App) {
+	app.add_systems(PostUpdate, sync_combat_score.in_set(CombatHudSystems::Health))
+		.add_systems(
+			PostUpdate,
+			ingest_combat_score
+				.after(damage::DamageSystems::Apply)
+				.before(damage::DamageSystems::Down),
+		);
+}
+
+/// Popup +N markers at hit points.
+fn configure_hit_markers(app: &mut App) {
+	app.add_systems(Update, update_hit_markers)
+		.add_systems(PostUpdate, ingest_hit_markers.after(damage::DamageSystems::Down));
+}
+
+/// Directional damage indicators around screen center.
+fn configure_directional_damage(app: &mut App) {
+	app.init_resource::<DamageTicks>()
+		.add_systems(Update, update_directional_damage)
+		.add_systems(
+			PostUpdate,
+			ingest_directional_damage.after(damage::DamageSystems::Down),
+		);
 }
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -17,6 +17,9 @@ mod first_wave;
 mod intelligence;
 mod map_view;
 mod world_lubikan;
+
+#[cfg(feature = "debug-commands")]
+pub mod world_debug;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
@@ -254,11 +257,6 @@ impl Plugin for WorldPlugin {
 			),
 		);
 		
-		#[cfg(feature = "debug-commands")]
-		app.add_systems(
-			Update,
-			auto_capture::run_auto_capture.after(lubikans::LubikanSystems::Heal),
-		);
 		camera::configure(app);
 		weapon::configure(app);
 		app.configure_sets(
@@ -302,214 +300,14 @@ impl Plugin for WorldPlugin {
 				),
 			);
 		}
-		#[cfg(feature = "debug-commands")]
-		{
-			app.init_resource::<DebugPeacefulMode>();
-			app.add_systems(
-				Update,
-			(
-				log_player_lifecycle.before(apply_debug_take_damage),
-				apply_debug_grant_points,
-				apply_debug_take_damage,
-				apply_debug_spawn_npc,
-				apply_debug_activate,
-				apply_debug_peaceful,
-				apply_debug_camera,
-				apply_debug_teleport,
-			),
-			);
-			app.add_systems(
-				PreUpdate,
-				suppress_npc_hits_in_peaceful.before(damage::DamageSystems::Apply),
-			);
-		}
 	}
 }
 
-#[cfg(feature = "debug-commands")]
-fn apply_debug_grant_points(
-	requests: Query<(Entity, &commands::RequestGrantPoints)>,
-	players: Query<Entity, (With<player::Player>, With<WorldPlayer>)>,
-	mut lubikan_requests: MessageWriter<lubikans::LubikanChargeRequest>,
-	mut commands: Commands,
-) {
-	for (entity, request) in &requests {
-		if let Some(player) = players.iter().next() {
-			// Go through LubikanChargeRequest -> Award path
-			lubikan_requests.write(lubikans::LubikanChargeRequest::equipped(
-				player,
-				request.amount,
-				lubikans::LubikanChargeReason::ADJUSTMENT,
-				None,
-			));
-		}
-		commands.entity(entity).despawn();
-	}
-}
-
-#[cfg(feature = "debug-commands")]
-fn apply_debug_take_damage(
-	requests: Query<(Entity, &commands::RequestTakeDamage)>,
-	players: Query<Entity, With<WorldPlayer>>,
-	mut hits: MessageWriter<damage::Hit>,
-	mut commands: Commands,
-) {
-	for (entity, request) in &requests {
-		if let Some(player_entity) = players.iter().next() {
-			hits.write(damage::Hit {
-				target: player_entity,
-				source: None,
-				amount: request.amount,
-				point: Vec3::ZERO,
-			});
-		}
-		commands.entity(entity).despawn();
-	}
-}
-
-#[cfg(feature = "debug-commands")]
-fn apply_debug_activate(
-	requests: Query<(Entity, &commands::RequestActivate)>,
-	players: Query<Entity, (With<player::Player>, With<WorldPlayer>)>,
-	mut activation_requests: MessageWriter<lubikans::LubikanActivationRequest>,
-	mut commands: Commands,
-) {
-	for (entity, _request) in &requests {
-		if let Some(player) = players.iter().next() {
-			activation_requests.write(lubikans::LubikanActivationRequest::equipped(player));
-		}
-		commands.entity(entity).despawn();
-	}
-}
-
-#[cfg(feature = "debug-commands")]
-#[derive(Resource, Default)]
-pub struct DebugPeacefulMode(pub bool);
-
-#[cfg(feature = "debug-commands")]
-fn apply_debug_peaceful(
-	requests: Query<(Entity, &commands::RequestPeaceful)>,
-	mut peaceful: ResMut<DebugPeacefulMode>,
-	mut commands: Commands,
-) {
-	for (entity, _request) in &requests {
-		peaceful.0 = !peaceful.0;
-		log::info!("Debug peaceful mode: {}", if peaceful.0 { "ON" } else { "OFF" });
-		commands.entity(entity).despawn();
-	}
-}
-
-
-#[cfg(feature = "debug-commands")]
-fn suppress_npc_hits_in_peaceful(
-	peaceful: Res<DebugPeacefulMode>,
-	players: Query<Entity, With<player::Player>>,
-	mut hits: MessageReader<damage::Hit>,
-	mut suppressed_count: Local<usize>,
-) {
-	if !peaceful.0 {
-		return;
-	}
-	
-	let Ok(player) = players.single() else {
-		return;
-	};
-	
-	let mut hits_vec: Vec<damage::Hit> = hits.read().copied().collect();
-	hits_vec.retain(|hit| {
-		if hit.target == player && hit.source.is_some() {
-			*suppressed_count += 1;
-			log::info!("[PEACEFUL] Suppressed NPC hit #{}: {:.1} damage from {:?}", 
-				*suppressed_count, hit.amount, hit.source);
-			false
-		} else {
-			true
-		}
-	});
-}
-
-#[cfg(feature = "debug-commands")]
-fn apply_debug_spawn_npc(
-	requests: Query<(Entity, &commands::RequestSpawnNpc)>,
-	players: Query<&GlobalTransform, With<player::Player>>,
-	mut commands: Commands,
-) {
-	for (entity, _) in &requests {
-		if let Ok(player_transform) = players.single() {
-			let spawn_pos = player_transform.translation() + Vec3::new(2.0, 0.0, 2.0);
-			commands.spawn((
-				player::Npc,
-				damage::Health { current: 30.0, max: 30.0 },
-				GlobalTransform::from_translation(spawn_pos),
-				Transform::from_translation(spawn_pos),
-				Name::new("Debug NPC"),
-			));
-		}
-		commands.entity(entity).despawn();
-	}
-}
-
-#[cfg(feature = "debug-commands")]
-fn apply_debug_camera(
-	requests: Query<(Entity, &commands::RequestCamera)>,
-	mut map_view: ResMut<map_view::WorldMapView>,
-	mut commands: Commands,
-) {
-	for (entity, request) in &requests {
-		match request.mode {
-			commands::CameraMode::ThirdPerson => {
-				map_view.close();
-			}
-		}
-		commands.entity(entity).despawn();
-	}
-}
-
-#[cfg(feature = "debug-commands")]
-fn apply_debug_teleport(
-	requests: Query<(Entity, &commands::RequestTeleport)>,
-	mut players: Query<(&mut Transform, &mut avian3d::prelude::LinearVelocity), (With<player::Player>, With<WorldPlayer>)>,
-	mut commands: Commands,
-) {
-	for (entity, request) in &requests {
-		if let Some((mut transform, mut velocity)) = players.iter_mut().next() {
-			transform.translation = request.position;
-			**velocity = Vec3::ZERO;
-		}
-		commands.entity(entity).despawn();
-	}
-}
 
 fn spawn_default_braidman(mut commands: Commands) {
 	commands.spawn(RequestSetCharacter { species: CharacterSpecies::Braidman });
 }
 
-#[cfg(feature = "debug-commands")]
-fn log_player_lifecycle(
-	frame: Res<Time<()>>,
-	added: Query<Entity, Added<WorldPlayer>>,
-	mut removed: RemovedComponents<WorldPlayer>,
-	existing: Query<Entity, With<WorldPlayer>>,
-	auto_capture: Option<Res<auto_capture::AutoCaptureScript>>,
-) {
-	// Only log during auto-capture to reduce noise
-	if auto_capture.is_none() {
-		return;
-	}
-	
-	let frame_count = frame.elapsed().as_secs_f32() * 60.0; // Approximate frame count
-	if frame_count >= 100.0 && frame_count <= 180.0 {
-		for entity in &added {
-			eprintln!("[LIFECYCLE] frame~{:.0} Added<WorldPlayer>: {:?}", frame_count, entity);
-		}
-		for entity in removed.read() {
-			eprintln!("[LIFECYCLE] frame~{:.0} RemovedComponents<WorldPlayer>: {:?}", frame_count, entity);
-		}
-		if existing.is_empty() {
-			eprintln!("[LIFECYCLE] frame~{:.0} No WorldPlayer entities exist!", frame_count);
-		}
-	}
-}
 
 #[cfg(test)]
 mod tests {
