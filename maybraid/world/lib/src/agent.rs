@@ -9,7 +9,10 @@ use maybraid_agent::{
 	CommandStatus, EventSink, LineInbox, PadIntent, Playback, TickEffect, TickView,
 };
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
+use mob_characters::CharacterSceneRecipe;
+use mob_scenes::MobScene;
 use player_camera::CameraController;
+use threat_management_intelligence::ThreatManagementIntelligence;
 use world_player::player::{holding_elevation, player_spawn_point_at, AwaitingTerrainSurface};
 use world_player::Player;
 
@@ -113,7 +116,13 @@ impl Plugin for WorldAgentPlugin {
 			)
 			.add_systems(
 				Update,
-				(agent_apply_world_ops, agent_sample_player, agent_chunk_loads, agent_maybe_quit)
+				(
+					agent_apply_world_ops,
+					agent_sample_player,
+					agent_chunk_loads,
+					agent_actor_census,
+					agent_maybe_quit,
+				)
 					.chain(),
 			);
 	}
@@ -462,6 +471,54 @@ fn agent_chunk_loads(
 			t: time.elapsed_secs(),
 			frame: runtime.frame,
 			body: AgentEventBody::ChunkLoads { added },
+		},
+	);
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+struct ActorCensus {
+	hosts: u32,
+	bodies: u32,
+	brains: u32,
+}
+
+fn agent_actor_census(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	hosts: Query<(), With<MobScene>>,
+	bodies: Query<(), (With<CharacterSceneRecipe>, Without<Player>)>,
+	brains: Query<(), With<ThreatManagementIntelligence>>,
+	mut last: Local<Option<ActorCensus>>,
+	mut last_at: Local<f32>,
+) {
+	if !runtime.ready {
+		return;
+	}
+	let now = time.elapsed_secs();
+	if last.is_some() && now - *last_at < runtime.sample_period {
+		return;
+	}
+	let census = ActorCensus {
+		hosts: hosts.iter().len() as u32,
+		bodies: bodies.iter().len() as u32,
+		brains: brains.iter().len() as u32,
+	};
+	if *last == Some(census) {
+		return;
+	}
+	*last = Some(census);
+	*last_at = now;
+	let frame = runtime.frame;
+	emit(
+		&runtime.sink,
+		AgentEvent {
+			t: now,
+			frame,
+			body: AgentEventBody::Actors {
+				hosts: census.hosts,
+				bodies: census.bodies,
+				brains: census.brains,
+			},
 		},
 	);
 }

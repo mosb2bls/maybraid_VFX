@@ -68,6 +68,7 @@ and `frame`.
 | `waypoint` | `goto` reached or timed out |
 | `scenario` | script markers |
 | `chunk_loads` | count of new cascade chunks this frame (cheap summary) |
+| `actors` | `hosts` / `bodies` / `brains` census when it changes (at most once per sample period) |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the
