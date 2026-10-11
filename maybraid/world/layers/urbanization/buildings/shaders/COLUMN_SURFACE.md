@@ -70,7 +70,7 @@ Uniform gameplay scale is fine. Non-uniform scale that stretches U vs V will she
 | 4 | 28 m | POM fade start |
 | 5 | 85 m | POM fade end |
 | 6 | 48 | Max march steps, clamped 12–48 |
-| 7 | 0.038 m | Relief depth |
+| 7 | 0.055 m | Relief depth |
 
 Far / tiny-footprint / grazing fragments drop to a cheap cavity tint. The march never exceeds the max step cap.
 

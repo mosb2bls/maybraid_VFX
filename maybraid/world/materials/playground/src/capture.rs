@@ -16,9 +16,9 @@ use crate::preview::PreviewConfig;
 use crate::shape::PreviewShape;
 
 pub const CAPTURE_DIR_ENV: &str = "MAYBRAID_CAPTURE_DIR";
-const WARMUP_FRAMES: u32 = 36;
-const SETTLE_FRAMES: u32 = 10;
-const SAVE_FRAMES: u32 = 24;
+const WARMUP_FRAMES: u32 = 120;
+const SETTLE_FRAMES: u32 = 16;
+const SAVE_FRAMES: u32 = 28;
 
 #[derive(Component)]
 pub struct KeySun;
@@ -38,14 +38,14 @@ pub struct CaptureShot {
 pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
 	CaptureShot {
 		name: "day-head-on-close",
-		camera: Vec3::new(0.0, 1.05, 2.35),
+		camera: Vec3::new(0.0, 1.15, 3.6),
 		look_at: Vec3::new(0.0, 1.0, 0.0),
 		night: false,
 	},
 	CaptureShot {
 		name: "day-grazing-close",
-		camera: Vec3::new(1.85, 1.08, 0.62),
-		look_at: Vec3::new(0.32, 1.0, 0.05),
+		camera: Vec3::new(1.55, 1.12, 1.15),
+		look_at: Vec3::new(0.2, 1.0, 0.1),
 		night: false,
 	},
 	CaptureShot {
@@ -62,14 +62,14 @@ pub const COLUMN_CAPTURE_SHOTS: &[CaptureShot] = &[
 	},
 	CaptureShot {
 		name: "night-head-on-close",
-		camera: Vec3::new(0.0, 1.05, 2.35),
+		camera: Vec3::new(0.0, 1.15, 3.6),
 		look_at: Vec3::new(0.0, 1.0, 0.0),
 		night: true,
 	},
 	CaptureShot {
 		name: "night-grazing-close",
-		camera: Vec3::new(1.85, 1.08, 0.62),
-		look_at: Vec3::new(0.32, 1.0, 0.05),
+		camera: Vec3::new(1.55, 1.12, 1.15),
+		look_at: Vec3::new(0.2, 1.0, 0.1),
 		night: true,
 	},
 ];
@@ -186,16 +186,16 @@ impl CaptureView<'_, '_> {
 		}
 		if shot.night {
 			for mut light in self.keys.iter_mut() {
-				light.illuminance = 320.0;
-				light.color = Color::srgb(0.42, 0.52, 0.85);
+				light.illuminance = 1400.0;
+				light.color = Color::srgb(0.48, 0.58, 0.92);
 			}
 			for mut light in self.fills.iter_mut() {
-				light.illuminance = 140.0;
-				light.color = Color::srgb(0.28, 0.36, 0.62);
+				light.illuminance = 520.0;
+				light.color = Color::srgb(0.32, 0.40, 0.70);
 			}
-			self.ambient.brightness = 36.0;
-			self.ambient.color = Color::srgb(0.22, 0.28, 0.48);
-			self.clear.0 = Color::srgb(0.015, 0.02, 0.04);
+			self.ambient.brightness = 70.0;
+			self.ambient.color = Color::srgb(0.28, 0.34, 0.55);
+			self.clear.0 = Color::srgb(0.02, 0.03, 0.055);
 		} else {
 			for mut light in self.keys.iter_mut() {
 				light.illuminance = 9800.0;

@@ -36,7 +36,7 @@ const KIND_DORIC: u32 = 0u;
 const DEFAULT_FLUTE_COUNT: f32 = 20.0;
 const MIN_FLUTE_COUNT: f32 = 8.0;
 const MAX_FLUTE_COUNT: f32 = 32.0;
-const DEFAULT_DEPTH_M: f32 = 0.038;
+const DEFAULT_DEPTH_M: f32 = 0.055;
 const MIN_DEPTH_M: f32 = 0.008;
 const MAX_DEPTH_M: f32 = 0.12;
 const DEFAULT_FADE_START_M: f32 = 28.0;
@@ -45,8 +45,8 @@ const POM_MIN_STEPS: i32 = 12;
 const POM_MAX_STEPS: i32 = 48;
 const POM_REFINE_STEPS: i32 = 4;
 const RELIEF_NORMAL_EPS_UV: f32 = 0.0015;
-const FLUTE_FLOOR: f32 = 0.14;
-const ARRIS_WIDTH: f32 = 0.07;
+const FLUTE_FLOOR: f32 = 0.08;
+const ARRIS_WIDTH: f32 = 0.055;
 const TAU: f32 = 6.28318530718;
 
 fn hash13(p: vec3<f32>) -> f32 {
@@ -159,7 +159,7 @@ struct ReliefStyle {
 }
 
 fn relief_style() -> ReliefStyle {
-    return ReliefStyle(relief_depth_m(), 1.0 / flute_count(), 0.48);
+    return ReliefStyle(relief_depth_m(), 1.0 / flute_count(), 0.28);
 }
 
 /// Periodic in U so the U = 0/1 seam does not jump.
@@ -184,8 +184,8 @@ fn column_look(world: vec3<f32>, height: f32) -> vec4<f32> {
     let grain = fbm(p);
     let pit = value_noise_3d(p * 5.5);
     let wear = saturate(scalar2());
-    var tint = mix(base, accent, grain * 0.28 + (1.0 - height) * 0.18);
-    tint *= 0.86 + 0.20 * pit;
+    var tint = mix(base, accent, grain * 0.22 + (1.0 - height) * 0.42);
+    tint *= 0.82 + 0.22 * pit;
     let lichen = smoothstep(0.55, 0.82, fbm(p * 0.35 + vec3<f32>(2.1, 0.0, 1.4)))
         * (1.0 - height);
     tint = mix(tint, tint * vec3<f32>(0.78, 0.86, 0.70), lichen * wear);
@@ -291,12 +291,19 @@ fn relief_gradient(uv: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(dx, dy) / (2.0 * e);
 }
 
-fn column_uv(mesh: VertexOutput) -> vec2<f32> {
+/// Mesh UV when the unwrap has a screen gradient; otherwise cylindrical U
+/// from the outward normal (Y-up shaft). Seam matches the placeholder: U = 0
+/// on local −Z.
+fn column_uv(mesh: VertexOutput, n: vec3<f32>) -> vec2<f32> {
 #ifdef VERTEX_UVS_A
-    return mesh.uv;
-#else
-    return vec2<f32>(0.0);
+    let mesh_uv = mesh.uv;
+    if (length(dpdx(mesh_uv)) + length(dpdy(mesh_uv)) > 1e-7) {
+        return mesh_uv;
+    }
 #endif
+    let radial = vec2<f32>(n.x, n.z);
+    let u = fract(atan2(radial.x, radial.y) / TAU + 0.5);
+    return vec2<f32>(u, mesh.world_position.y);
 }
 
 @fragment
@@ -309,7 +316,7 @@ fn fragment(
     let P = mesh.world_position.xyz;
     let N = normalize(pbr_input.world_normal);
     let V = pbr_input.V;
-    let uv0 = column_uv(mesh);
+    let uv0 = column_uv(mesh, N);
     let style = relief_style();
     let camera_distance = length(P - view.world_position.xyz);
 

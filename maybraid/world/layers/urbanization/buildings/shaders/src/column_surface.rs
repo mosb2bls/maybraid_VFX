@@ -31,7 +31,7 @@ pub const DEFAULT_POM_FADE_END_M: f32 = 85.0;
 /// Hard cap on the implicit-surface march. Overridable via scalar 6, clamped.
 pub const DEFAULT_POM_MAX_STEPS: f32 = 48.0;
 /// Default flute relief depth in metres. Overridable via scalar 7.
-pub const DEFAULT_RELIEF_DEPTH_M: f32 = 0.038;
+pub const DEFAULT_RELIEF_DEPTH_M: f32 = 0.055;
 
 const SCALAR_VEC4S: usize = MATERIAL_SCALAR_FLOATS / 4;
 const DEFAULT_LIMESTONE: Vec4 = Vec4::new(0.84, 0.80, 0.72, 1.0);
@@ -213,7 +213,7 @@ mod tests {
 		assert_eq!(DEFAULT_POM_FADE_START_M, 28.0);
 		assert_eq!(DEFAULT_POM_FADE_END_M, 85.0);
 		assert_eq!(DEFAULT_POM_MAX_STEPS, 48.0);
-		assert_eq!(DEFAULT_RELIEF_DEPTH_M, 0.038);
+		assert_eq!(DEFAULT_RELIEF_DEPTH_M, 0.055);
 		assert!(DEFAULT_POM_FADE_END_M > DEFAULT_POM_FADE_START_M);
 		Ok(())
 	}
