@@ -102,9 +102,9 @@ fn discovery_xz(
 pub fn grant_world_player_lubikan_owner(
 	mut commands: Commands,
 	// Match world players that don't have generic player::Player marker
-	players: Query<Entity, (With<Player>, Without<MaybraidPlayer>)>,
+	world_only: Query<Entity, (With<Player>, Without<MaybraidPlayer>)>,
 ) {
-	for player in &players {
+	for player in &world_only {
 		commands.entity(player).insert((
 			lubikans::LubikanOwner,
 			MaybraidPlayer,

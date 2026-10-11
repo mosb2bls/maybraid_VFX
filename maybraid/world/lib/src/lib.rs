@@ -359,28 +359,26 @@ fn apply_debug_grant_points(
 #[cfg(feature = "debug-commands")]
 fn apply_debug_take_damage(
 	requests: Query<(Entity, &commands::RequestTakeDamage)>,
-	players: Query<Entity, (With<player::Player>, With<WorldPlayer>)>,
-	mut healths: Query<&mut damage::Health>,
+	// Query WorldPlayer - the world player entity has both world_player::Player and player::Player
+	mut players: Query<(Entity, &mut damage::Health), With<WorldPlayer>>,
 	mut damage_events: MessageWriter<damage::DamageApplied>,
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
-		if let Some(player) = players.iter().next() {
-			if let Ok(mut health) = healths.get_mut(player) {
-				let before = health.current;
-				let applied = health.take_damage(request.amount);
-				let after = health.current;
-				
-				// Write DamageApplied event so lubikan healing cap latches correctly
-				damage_events.write(damage::DamageApplied {
-					target: player,
-					source: None,
-					amount: request.amount,
-					applied,
-					remaining: after,
-					point: Vec3::ZERO,
-				});
-			}
+		if let Some((player_entity, mut health)) = players.iter_mut().next() {
+			let before = health.current;
+			let applied = health.take_damage(request.amount);
+			let after = health.current;
+			
+			// Write DamageApplied event so lubikan healing cap latches correctly
+			damage_events.write(damage::DamageApplied {
+				target: player_entity,
+				source: None,
+				amount: request.amount,
+				applied,
+				remaining: after,
+				point: Vec3::ZERO,
+			});
 		}
 		commands.entity(entity).despawn();
 	}
