@@ -151,6 +151,7 @@ pub fn apply_camera_suggestion(
 	look_enabled: Option<Res<CameraLookEnabled>>,
 	capture_locked: Option<Res<crate::preview_capture::CaptureCameraLocked>>,
 	capture_settings: Option<Res<crate::preview_capture::PreviewCaptureSettings>>,
+	ground_contact: Option<Res<crate::preview_capture::CaptureGroundContact>>,
 	mut pending: ResMut<PendingCameraFocus>,
 	shadow_rigs: ShadowRigQuery,
 	bone_globals: Query<&GlobalTransform>,
@@ -159,6 +160,7 @@ pub fn apply_camera_suggestion(
 			&bevy::prelude::Mesh3d,
 			&GlobalTransform,
 			Option<&Visibility>,
+			Option<&characters::CharacterPart>,
 		),
 		(
 			With<characters::CharacterPart>,
@@ -184,11 +186,23 @@ pub fn apply_camera_suggestion(
 					_ => std::f32::consts::FRAC_PI_4,
 				}
 			});
+			let ground_y = ground_contact
+				.and_then(|contact| contact.y)
+				.unwrap_or_else(|| {
+					crate::preview_capture::capture_ground_anchor_y(settings.encounter_scale)
+				});
 			let (eye, look_at) = crate::preview_capture::union_preview_mesh_bounds(
-				&preview_meshes,
 				mesh_assets.as_ref(),
+				preview_meshes.iter(),
 			)
-				.map(|bounds| crate::preview_capture::capture_camera_frame_for_bounds(bounds, aspect, fov_y))
+				.map(|bounds| {
+					crate::preview_capture::capture_camera_frame_for_bounds(
+						bounds,
+						aspect,
+						fov_y,
+						ground_y,
+					)
+				})
 				.unwrap_or_else(|| {
 					crate::preview_capture::capture_camera_frame_fallback(settings.encounter_scale)
 				});

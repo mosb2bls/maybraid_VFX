@@ -64,13 +64,13 @@ capture ordinary-bray epiphant-bray 1 0.34 "$SHOT_SECS" "$QUIT_SECS" "" "" 1
 capture ordinary-sleep-enter epiphant-sleep-enter 1 0.90
 capture ordinary-sleep-hold epiphant-sleep-hold 1 0.35
 capture ordinary-wake epiphant-wake 1 0.18
-capture ordinary-sleep-interrupted epiphant-sleep-hold 1 "" 27 31 20 epiphant-bray
+capture ordinary-sleep-interrupted epiphant-sleep-hold 1 "" 31 35 18 epiphant-bray
 
 capture boss-bray epiphant-bray 10 0.34 "$SHOT_SECS" "$QUIT_SECS" "" "" 1
 capture boss-sleep-enter epiphant-sleep-enter 10 0.90
 capture boss-sleep-hold epiphant-sleep-hold 10 0.35
 capture boss-wake epiphant-wake 10 0.18
-capture boss-sleep-interrupted epiphant-sleep-hold 10 "" 30 34 22 epiphant-bray
+capture boss-sleep-interrupted epiphant-sleep-hold 10 "" 34 38 20 epiphant-bray
 
 echo "Done. PNGs in ${OUT}"
 sha256sum "${OUT}"/*.png

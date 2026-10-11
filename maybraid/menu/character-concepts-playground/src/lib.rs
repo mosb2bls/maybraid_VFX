@@ -154,11 +154,13 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 			.add_systems(
 				PostUpdate,
 				(
+					preview_capture::align_capture_ground_to_contact,
 					preview_capture::draw_preview_mouth_emit_gizmo
 						.run_if(preview_capture::mouth_emit_gizmo_enabled),
 					apply_camera_suggestion
 						.after(TransformSystems::Propagate)
-						.after(CharacterHostSystems::Pose),
+						.after(CharacterHostSystems::Pose)
+						.after(preview_capture::align_capture_ground_to_contact),
 				),
 			);
 	}

@@ -7,7 +7,11 @@ use bevy::math::bounding::Aabb3d;
 use bevy::mesh::{Mesh, VertexAttributeValues};
 use bevy::prelude::*;
 use character_motion::{sample_bray_mouth_emit, BrayMouthEmit};
-use characters::{BoneMap, CharacterMembers, CharacterPart, CharacterRig, CharacterRigRole};
+use characters::{
+	BoneMap, CharacterMembers, CharacterPart, CharacterPartSlot, CharacterRig, CharacterRigRole,
+	LocomotionCapsule,
+};
+use characters::species::epiphant::{pose::EpiphantPose, EpiphantConfig};
 use game_commands::GameCommandDrawerVisible;
 
 use crate::focus_reference::FocusReferenceRig;
@@ -95,6 +99,7 @@ pub fn load_preview_capture_settings(mut commands: Commands) {
 	if settings.active() {
 		commands.insert_resource(settings);
 		commands.insert_resource(CaptureCameraLocked);
+		commands.init_resource::<CaptureGroundContact>();
 		commands.init_resource::<PreviewCaptureInterruptState>();
 		commands.init_resource::<PendingCaptureInterrupt>();
 	}
@@ -104,22 +109,34 @@ pub fn load_preview_capture_settings(mut commands: Commands) {
 #[derive(Component)]
 pub struct CaptureGroundPlane;
 
+/// World-space Y of the ground plane during capture (foot contact).
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct CaptureGroundContact {
+	pub y: Option<f32>,
+}
+
 /// Fallback when mesh bounds are not ready yet.
 pub fn capture_camera_frame_fallback(encounter_scale: f32) -> (Vec3, Vec3) {
 	let scale = encounter_scale.max(1.0);
-	let center = Vec3::new(0.0, 0.9 * scale, 0.0);
+	let ground_y = capture_ground_anchor_y(scale);
+	let center = Vec3::new(0.0, ground_y + 0.9 * scale, 0.0);
 	let distance = 5.5 * scale;
 	let dir = Vec3::new(0.42, 0.28, 0.86).normalize();
 	(center + dir * distance, center)
 }
 
 /// Frame the full character AABB (feet + ground) in a 3/4 elevated view.
-pub fn capture_camera_frame_for_bounds(bounds: Aabb3d, aspect: f32, fov_y: f32) -> (Vec3, Vec3) {
+pub fn capture_camera_frame_for_bounds(
+	bounds: Aabb3d,
+	aspect: f32,
+	fov_y: f32,
+	ground_y: f32,
+) -> (Vec3, Vec3) {
 	const MARGIN: f32 = 1.14;
 	let mut min = Vec3::from(bounds.min);
 	let mut max = Vec3::from(bounds.max);
 	// Keep ground contact in frame.
-	min.y = min.y.min(0.0);
+	min.y = min.y.min(ground_y);
 	let center = (min + max) * 0.5;
 	let size = (max - min) * MARGIN;
 	let height = size.y.max(0.5);
@@ -133,15 +150,24 @@ pub fn capture_camera_frame_for_bounds(bounds: Aabb3d, aspect: f32, fov_y: f32) 
 	(center + dir * distance, center)
 }
 
-pub fn union_preview_mesh_bounds(
-	meshes: &Query<
-		(&Mesh3d, &GlobalTransform, Option<&Visibility>),
-		(With<CharacterPart>, Without<FocusReferenceRig>, Without<CaptureGroundPlane>),
-	>,
+fn foot_bearing_part(slot: CharacterPartSlot) -> bool {
+	matches!(slot, CharacterPartSlot::BodyMesh | CharacterPartSlot::Clothing)
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PreviewMeshScan {
+	pub bounds: Option<Aabb3d>,
+	pub foot_contact_y: Option<f32>,
+}
+
+pub fn scan_preview_meshes<'a>(
 	mesh_assets: &Assets<Mesh>,
-) -> Option<Aabb3d> {
+	meshes: impl Iterator<Item = (&'a Mesh3d, &'a GlobalTransform, Option<&'a Visibility>, Option<&'a CharacterPart>)>,
+) -> PreviewMeshScan {
 	let mut union: Option<Aabb3d> = None;
-	for (mesh3d, global, visibility) in meshes.iter() {
+	let mut foot_min: Option<f32> = None;
+	let mut all_min: Option<f32> = None;
+	for (mesh3d, global, visibility, part) in meshes {
 		if matches!(visibility, Some(Visibility::Hidden)) {
 			continue;
 		}
@@ -151,12 +177,35 @@ pub fn union_preview_mesh_bounds(
 		let Some(world) = mesh_world_aabb(mesh, global) else {
 			continue;
 		};
+		let y = world.min.y;
+		all_min = Some(all_min.map_or(y, |current| current.min(y)));
+		if part.is_none_or(|part| foot_bearing_part(part.slot)) {
+			foot_min = Some(foot_min.map_or(y, |current| current.min(y)));
+		}
 		union = Some(match union {
 			None => world,
 			Some(acc) => Aabb3d::from_min_max(acc.min.min(world.min), acc.max.max(world.max)),
 		});
 	}
-	union
+	PreviewMeshScan {
+		bounds: union,
+		foot_contact_y: foot_min.or(all_min),
+	}
+}
+
+/// Rest-pose foot depth for the default Epiphant preview recipe, scaled to encounter size.
+pub fn capture_ground_anchor_y(encounter_scale: f32) -> f32 {
+	let pose = EpiphantPose::from_config(&EpiphantConfig::default_preview());
+	let hull = LocomotionCapsule::quadruped_for_limb_length(pose.rest_limb_scale());
+	let scale = encounter_scale.max(1.0);
+	-hull.half_height() * scale
+}
+
+pub fn union_preview_mesh_bounds<'a>(
+	mesh_assets: &Assets<Mesh>,
+	meshes: impl Iterator<Item = (&'a Mesh3d, &'a GlobalTransform, Option<&'a Visibility>, Option<&'a CharacterPart>)>,
+) -> Option<Aabb3d> {
+	scan_preview_meshes(mesh_assets, meshes).bounds
 }
 
 fn mesh_world_aabb(mesh: &Mesh, global: &GlobalTransform) -> Option<Aabb3d> {
@@ -204,12 +253,45 @@ pub fn setup_capture_ground(
 		perceptual_roughness: 0.95,
 		..default()
 	});
+	let anchor_y = capture_ground_anchor_y(scale);
 	commands.spawn((
 		Mesh3d(mesh),
 		MeshMaterial3d(material),
-		Transform::IDENTITY,
+		Transform::from_translation(Vec3::new(0.0, anchor_y, 0.0)),
 		CaptureGroundPlane,
 	));
+}
+
+pub fn align_capture_ground_to_contact(
+	settings: Option<Res<PreviewCaptureSettings>>,
+	mut contact: ResMut<CaptureGroundContact>,
+	meshes: Query<
+		(
+			&Mesh3d,
+			&GlobalTransform,
+			Option<&Visibility>,
+			Option<&CharacterPart>,
+		),
+		(
+			With<CharacterPart>,
+			Without<FocusReferenceRig>,
+			Without<CaptureGroundPlane>,
+		),
+	>,
+	mesh_assets: Res<Assets<Mesh>>,
+	mut ground: Query<&mut Transform, With<CaptureGroundPlane>>,
+) {
+	let Some(settings) = settings else {
+		return;
+	};
+	let scan = scan_preview_meshes(mesh_assets.as_ref(), meshes.iter());
+	let ground_y = scan
+		.foot_contact_y
+		.unwrap_or_else(|| capture_ground_anchor_y(settings.encounter_scale));
+	contact.y = Some(ground_y);
+	for mut transform in &mut ground {
+		transform.translation.y = ground_y;
+	}
 }
 
 pub fn mouth_emit_gizmo_enabled(settings: Option<Res<PreviewCaptureSettings>>) -> bool {
