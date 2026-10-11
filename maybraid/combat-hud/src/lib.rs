@@ -320,7 +320,7 @@ fn spawn_combat_hud(
 		let fonts = vitals_fonts(asset_server.as_deref());
 		let health_config = ContinuousHealthConfig::default();
 		if config.0.lubikan_charge {
-			spawn_lubikan_charge(root, &fonts);
+			spawn_lubikan_charge(root, &fonts, &health_config);
 		}
 		if config.0.player_vitals {
 			spawn_player_vitals(root, &fonts, &health_config, Entity::PLACEHOLDER);

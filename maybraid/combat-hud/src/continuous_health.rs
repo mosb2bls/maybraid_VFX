@@ -26,6 +26,53 @@ pub struct ContinuousHealthConfig {
 	pub completion_flash_color: Color,
 }
 
+impl ContinuousHealthConfig {
+	pub fn frame_fill() -> Color {
+		Color::srgba(0.12, 0.13, 0.15, 0.9)
+	}
+
+	pub fn track_fill() -> Color {
+		Color::srgba(0.05, 0.05, 0.06, 0.95)
+	}
+
+	pub fn inner_radius(&self) -> f32 {
+		(self.corner_radius - 1.0).max(0.0)
+	}
+
+	pub fn frame_node(&self) -> Node {
+		Node {
+			width: Val::Percent(100.0),
+			height: Val::Px(self.bar_height),
+			flex_grow: 1.0,
+			padding: UiRect::all(Val::Px(self.frame_thickness)),
+			border_radius: BorderRadius::all(Val::Px(self.corner_radius)),
+			..default()
+		}
+	}
+
+	pub fn track_node(&self) -> Node {
+		Node {
+			width: Val::Percent(100.0),
+			height: Val::Percent(100.0),
+			border_radius: BorderRadius::all(Val::Px(self.inner_radius())),
+			overflow: Overflow::clip(),
+			..default()
+		}
+	}
+
+	pub fn layer_node(&self, width_percent: f32) -> Node {
+		Node {
+			width: Val::Percent(width_percent),
+			height: Val::Percent(100.0),
+			position_type: PositionType::Absolute,
+			left: Val::Px(0.0),
+			top: Val::Px(0.0),
+			border_radius: BorderRadius::all(Val::Px(self.inner_radius())),
+			..default()
+		}
+	}
+}
+
 impl Default for ContinuousHealthConfig {
 	fn default() -> Self {
 		Self {
@@ -234,106 +281,71 @@ fn spawn_health_label(anchor: &mut ChildSpawnerCommands, initial: &str) {
 }
 
 fn spawn_health_track(anchor: &mut ChildSpawnerCommands, config: &ContinuousHealthConfig) {
-	anchor
-		.spawn((
+	spawn_meter_track(anchor, config, |track| {
+		track.spawn((
+			HealthTrail,
+			config.layer_node(100.0),
+			BackgroundColor(config.trail_color),
+			Pickable::IGNORE,
+		));
+		track.spawn((
+			HealthFill,
+			config.layer_node(100.0),
+			BackgroundColor(config.fill_color_high),
+			Pickable::IGNORE,
+		));
+		track.spawn((
+			HealPreview,
+			config.layer_node(0.0),
+			BackgroundColor(config.heal_preview_color),
+			Visibility::Hidden,
+			Pickable::IGNORE,
+		));
+		track.spawn((
+			CapMarker,
 			Node {
-				width: Val::Percent(100.0),
-				height: Val::Px(config.bar_height),
-				flex_grow: 1.0,
-				padding: UiRect::all(Val::Px(config.frame_thickness)),
-				border_radius: BorderRadius::all(Val::Px(config.corner_radius)),
+				width: Val::Px(config.cap_marker_width),
+				height: Val::Percent(100.0),
+				position_type: PositionType::Absolute,
+				left: Val::Px(0.0),
+				top: Val::Px(0.0),
 				..default()
 			},
-			BackgroundColor(Color::srgba(0.12, 0.13, 0.15, 0.9)),
+			BackgroundColor(config.cap_marker_color),
+			Visibility::Hidden,
+			Pickable::IGNORE,
+		));
+		track.spawn((
+			CompletionFlash,
+			config.layer_node(100.0),
+			BackgroundColor(config.completion_flash_color.with_alpha(0.0)),
+			Pickable::IGNORE,
+		));
+	});
+}
+
+/// Shared framed meter used by health and Lubikan charge.
+pub(crate) fn spawn_meter_track(
+	parent: &mut ChildSpawnerCommands,
+	config: &ContinuousHealthConfig,
+	children: impl FnOnce(&mut ChildSpawnerCommands),
+) -> Entity {
+	parent
+		.spawn((
+			config.frame_node(),
+			BackgroundColor(ContinuousHealthConfig::frame_fill()),
 			Pickable::IGNORE,
 		))
 		.with_children(|frame| {
 			frame
 				.spawn((
-					Node {
-						width: Val::Percent(100.0),
-						height: Val::Percent(100.0),
-						border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-						overflow: Overflow::clip(),
-						..default()
-					},
-					BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.95)),
+					config.track_node(),
+					BackgroundColor(ContinuousHealthConfig::track_fill()),
 					Pickable::IGNORE,
 				))
-				.with_children(|track| {
-					track.spawn((
-						HealthTrail,
-						Node {
-							width: Val::Percent(100.0),
-							height: Val::Percent(100.0),
-							position_type: PositionType::Absolute,
-							left: Val::Px(0.0),
-							top: Val::Px(0.0),
-							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-							..default()
-						},
-						BackgroundColor(config.trail_color),
-						Pickable::IGNORE,
-					));
-					track.spawn((
-						HealthFill,
-						Node {
-							width: Val::Percent(100.0),
-							height: Val::Percent(100.0),
-							position_type: PositionType::Absolute,
-							left: Val::Px(0.0),
-							top: Val::Px(0.0),
-							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-							..default()
-						},
-						BackgroundColor(config.fill_color_high),
-						Pickable::IGNORE,
-					));
-					track.spawn((
-						HealPreview,
-						Node {
-							width: Val::Percent(0.0),
-							height: Val::Percent(100.0),
-							position_type: PositionType::Absolute,
-							left: Val::Px(0.0),
-							top: Val::Px(0.0),
-							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-							..default()
-						},
-						BackgroundColor(config.heal_preview_color),
-						Visibility::Hidden,
-						Pickable::IGNORE,
-					));
-					track.spawn((
-						CapMarker,
-						Node {
-							width: Val::Px(config.cap_marker_width),
-							height: Val::Percent(100.0),
-							position_type: PositionType::Absolute,
-							left: Val::Px(0.0),
-							top: Val::Px(0.0),
-							..default()
-						},
-						BackgroundColor(config.cap_marker_color),
-						Visibility::Hidden,
-						Pickable::IGNORE,
-					));
-					track.spawn((
-						CompletionFlash,
-						Node {
-							width: Val::Percent(100.0),
-							height: Val::Percent(100.0),
-							position_type: PositionType::Absolute,
-							left: Val::Px(0.0),
-							top: Val::Px(0.0),
-							border_radius: BorderRadius::all(Val::Px(config.corner_radius - 1.0)),
-							..default()
-						},
-						BackgroundColor(config.completion_flash_color.with_alpha(0.0)),
-						Pickable::IGNORE,
-					));
-				});
-		});
+				.with_children(children);
+		})
+		.id()
 }
 
 #[allow(clippy::type_complexity)]
@@ -766,6 +778,15 @@ mod tests {
 			Visibility::Inherited,
 			"UI child bars follow the vitals plate so death/respawn can hide them"
 		);
+	}
+
+	#[test]
+	fn meter_chrome_matches_the_health_defaults() {
+		let config = ContinuousHealthConfig::default();
+		assert_eq!(config.frame_node().height, Val::Px(12.0));
+		assert_eq!(config.frame_node().padding.left, Val::Px(1.5));
+		assert_eq!(config.inner_radius(), 2.0);
+		assert_eq!(ContinuousHealthConfig::frame_fill(), Color::srgba(0.12, 0.13, 0.15, 0.9));
 	}
 
 	#[test]

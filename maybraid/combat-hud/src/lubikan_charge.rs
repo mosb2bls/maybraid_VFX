@@ -6,9 +6,10 @@ use lubikans::{
 	LubikanActivationPhase, LubikanCatalog, LubikanCharge, LubikanLedger, LubikanOwner,
 	LubikanReadiness, LubikanSelfHeal, LubikanSelfHealChannel,
 };
-use menu_components::{HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW};
+use menu_components::{spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW};
 use player::Player;
 
+use crate::continuous_health::{spawn_meter_track, ContinuousHealthConfig};
 use crate::cycle_cue::CombatHudInventoryCycleCategory;
 use crate::plate::HUD_CORNER_INSET;
 use crate::vitals::VITALS_WIDTH;
@@ -18,13 +19,10 @@ use crate::CombatHudVisible;
 pub(crate) const VITALS_STACK_OFFSET: f32 = 88.0;
 
 const CHARGE_WIDTH: f32 = VITALS_WIDTH;
-const CHARGE_BAR_HEIGHT: f32 = 12.0;
 const CHARGE_ROW_GAP: f32 = 6.0;
 const ICON_PX: f32 = 44.0;
 const READY_GLOW: Color = Color::srgba(0.45, 0.95, 0.72, 0.35);
 const CATEGORY_CUE: Color = Color::srgb(0.55, 0.82, 1.0);
-const TRACK_FILL: Color = Color::srgb(0.10, 0.11, 0.13);
-const TRACK_STROKE: Color = Color::srgba(0.08, 0.08, 0.10, 0.95);
 const BAR_READY: Color = Color::srgb(0.35, 0.92, 0.62);
 const BAR_LOW: Color = Color::srgb(0.86, 0.28, 0.22);
 const BAR_MID: Color = Color::srgb(0.95, 0.72, 0.22);
@@ -112,6 +110,9 @@ pub(crate) struct LubikanPointFeedDock;
 pub(crate) struct LubikanChargeFill;
 
 #[derive(Component)]
+pub(crate) struct LubikanChargeIcon;
+
+#[derive(Component)]
 pub(crate) struct LubikanCategoryCue;
 
 /// Read-only snapshot for presentation and tests.
@@ -135,7 +136,11 @@ impl LubikanHudRow {
 	}
 }
 
-pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &HudFonts) {
+pub(crate) fn spawn_lubikan_charge(
+	parent: &mut ChildSpawnerCommands,
+	fonts: &HudFonts,
+	config: &ContinuousHealthConfig,
+) {
 	parent
 		.spawn((
 			Name::new("lubikan-charge"),
@@ -148,18 +153,13 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 				flex_direction: FlexDirection::Column,
 				align_items: AlignItems::Center,
 				row_gap: Val::Px(CHARGE_ROW_GAP),
-				padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
-				border: UiRect::all(Val::Px(1.5)),
-				border_radius: BorderRadius::all(Val::Px(8.0)),
 				..default()
 			},
-			BackgroundColor(Color::srgba(0.52, 0.52, 0.56, 0.82)),
-			BorderColor::all(Color::srgba(0.78, 0.78, 0.82, 0.9)),
 			Visibility::Hidden,
 			Pickable::IGNORE,
 		))
-		.with_children(|plate| {
-			plate.spawn((
+		.with_children(|stack| {
+			stack.spawn((
 				LubikanPointFeedDock,
 				Node {
 					position_type: PositionType::Absolute,
@@ -171,8 +171,8 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 				},
 				Pickable::IGNORE,
 			));
-			spawn_self_icon(plate);
-			plate
+			spawn_self_icon(stack);
+			stack
 				.spawn((
 					Node {
 						flex_direction: FlexDirection::Row,
@@ -180,33 +180,16 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 						justify_content: JustifyContent::Center,
 						column_gap: Val::Px(8.0),
 						width: Val::Percent(100.0),
+						height: Val::Px(config.bar_height + 6.0),
 						..default()
 					},
 					Pickable::IGNORE,
 				))
 				.with_children(|row| {
-					row.spawn((
-						Node {
-							flex_grow: 1.0,
-							height: Val::Px(CHARGE_BAR_HEIGHT + 6.0),
-							padding: UiRect::axes(Val::Px(4.0), Val::Px(3.0)),
-							border: UiRect::all(Val::Px(1.0)),
-							border_radius: BorderRadius::all(Val::Px(4.0)),
-							..default()
-						},
-						BackgroundColor(TRACK_FILL),
-						BorderColor::all(TRACK_STROKE),
-						Pickable::IGNORE,
-					))
-					.with_children(|track| {
+					spawn_meter_track(row, config, |track| {
 						track.spawn((
 							LubikanChargeFill,
-							Node {
-								width: Val::Percent(0.0),
-								height: Val::Percent(100.0),
-								border_radius: BorderRadius::all(Val::Px(2.0)),
-								..default()
-							},
+							config.layer_node(0.0),
 							BackgroundColor(BAR_MID),
 							Pickable::IGNORE,
 						));
@@ -235,14 +218,16 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 						Pickable::IGNORE,
 					));
 				});
-			plate.spawn((
-				LubikanChargeName,
-				Text::new("Self"),
-				fonts.item(HUD_TEXT_CARD_FACE_PX),
-				TextColor(TEXT_YELLOW),
-				Pickable::IGNORE,
-			));
-			plate.spawn((
+			spawn_hud_text_card(stack, (), |card| {
+				card.spawn((
+					LubikanChargeName,
+					Text::new("Self"),
+					fonts.item(HUD_TEXT_CARD_FACE_PX),
+					TextColor(TEXT_YELLOW),
+					Pickable::IGNORE,
+				));
+			});
+			stack.spawn((
 				LubikanChargeStatus,
 				Text::new(""),
 				fonts.body(12.0),
@@ -250,7 +235,7 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 				Visibility::Hidden,
 				Pickable::IGNORE,
 			));
-			plate.spawn((
+			stack.spawn((
 				LubikanCategoryCue,
 				Node {
 					position_type: PositionType::Absolute,
@@ -271,6 +256,7 @@ pub(crate) fn spawn_lubikan_charge(parent: &mut ChildSpawnerCommands, fonts: &Hu
 fn spawn_self_icon(parent: &mut ChildSpawnerCommands) {
 	parent
 		.spawn((
+			LubikanChargeIcon,
 			Node {
 				width: Val::Px(ICON_PX),
 				height: Val::Px(ICON_PX),
@@ -282,7 +268,7 @@ fn spawn_self_icon(parent: &mut ChildSpawnerCommands) {
 				border_radius: BorderRadius::all(Val::Px(6.0)),
 				..default()
 			},
-			BackgroundColor(TRACK_FILL),
+			BackgroundColor(ContinuousHealthConfig::track_fill()),
 			BorderColor::all(TEXT_YELLOW),
 			Pickable::IGNORE,
 		))
@@ -359,16 +345,17 @@ pub(crate) fn sync_lubikan_charge(
 	players: Query<(Entity, &LubikanLedger), (With<Player>, With<LubikanOwner>)>,
 	heal_channels: Query<&LubikanSelfHealChannel>,
 	mut widgets: ParamSet<(
-		Query<(&mut Visibility, &mut BorderColor), With<LubikanChargeRoot>>,
+		Query<&mut Visibility, With<LubikanChargeRoot>>,
 		Query<&mut Text, With<LubikanChargeAmount>>,
 		Query<(&mut Text, &mut Visibility), With<LubikanChargeStatus>>,
 		Query<(&mut Node, &mut BackgroundColor), With<LubikanChargeFill>>,
 		Query<&mut Visibility, With<LubikanCategoryCue>>,
 		Query<&mut Text, With<LubikanChargeName>>,
+		Query<&mut BorderColor, With<LubikanChargeIcon>>,
 	)>,
 ) {
 	let mut hide = || {
-		for (mut visibility, _) in widgets.p0().iter_mut() {
+		for mut visibility in widgets.p0().iter_mut() {
 			*visibility = Visibility::Hidden;
 		}
 	};
@@ -397,13 +384,8 @@ pub(crate) fn sync_lubikan_charge(
 	let fraction = row.charge.fraction();
 	let fill_color = charge_bar_color(&row);
 	let ready = row.readiness.can_activate;
-	for (mut visibility, mut border) in widgets.p0().iter_mut() {
+	for mut visibility in widgets.p0().iter_mut() {
 		*visibility = Visibility::Visible;
-		*border = BorderColor::all(if ready {
-			READY_GLOW
-		} else {
-			Color::srgba(0.78, 0.78, 0.82, 0.9)
-		});
 	}
 	for mut text in widgets.p1().iter_mut() {
 		if text.0 != amount {
@@ -432,6 +414,9 @@ pub(crate) fn sync_lubikan_charge(
 		if text.0 != name {
 			text.0 = name.clone();
 		}
+	}
+	for mut border in widgets.p6().iter_mut() {
+		*border = BorderColor::all(if ready { READY_GLOW } else { TEXT_YELLOW });
 	}
 }
 
