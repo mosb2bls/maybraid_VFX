@@ -171,7 +171,9 @@ pub fn observe_spotting(
 		// bake increments or `FAIRNESS_CAP` never fires in a Far-only due set.
 		if run_discovery {
 			if let Some(lod) = lod.as_deref_mut() {
-				lod.skips = 0;
+				if lod.skips != 0 {
+					lod.skips = 0;
+				}
 			}
 		}
 	}

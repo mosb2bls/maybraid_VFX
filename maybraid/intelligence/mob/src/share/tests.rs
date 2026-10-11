@@ -424,6 +424,33 @@ fn target_membership_shares_semantic_bits_only() -> anyhow::Result<()> {
 }
 
 #[test]
+fn settled_target_board_leaves_members_unchanged() -> anyhow::Result<()> {
+	let mut world = World::new();
+	let (_host, first, second) = spawn_pack(&mut world, MobSharePolicy::on())?;
+	let subject = Entity::from_bits(77);
+	if let Some(mut targeting) = world.get_mut::<CombatTargeting>(first) {
+		anyhow::ensure!(targeting.include(subject, TargetSource::OBJECTIVE));
+	}
+
+	anyhow::ensure!(world.run_system_once(share_mob_targets).is_ok());
+	let before = world
+		.entity(second)
+		.get_change_ticks::<CombatTargeting>()
+		.ok_or_else(|| anyhow::anyhow!("missing targeting"))?
+		.changed
+		.get();
+	anyhow::ensure!(world.run_system_once(share_mob_targets).is_ok());
+	let after = world
+		.entity(second)
+		.get_change_ticks::<CombatTargeting>()
+		.ok_or_else(|| anyhow::anyhow!("missing targeting"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled target share rewrote targeting: {before} -> {after}");
+	Ok(())
+}
+
+#[test]
 fn bind_drains_existing_board_as_shared() -> anyhow::Result<()> {
 	let mut world = World::new();
 	world.init_resource::<Time>();

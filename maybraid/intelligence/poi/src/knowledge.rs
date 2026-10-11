@@ -202,11 +202,17 @@ impl PoiIntelligenceUser {
 		self
 	}
 
-	pub(crate) fn accrue_learning(&mut self, delta_secs: f32) {
+	pub(crate) fn next_learning_credit(&self, delta_secs: f32) -> f32 {
 		let cap = self.policy.candidates_per_scan.max(1) as f32;
-		self.learning_credit = (self.learning_credit
-			+ delta_secs.max(0.0) * self.policy.learning_rate_per_second.max(0.0))
-		.min(cap);
+		(self.learning_credit + delta_secs.max(0.0) * self.policy.learning_rate_per_second.max(0.0))
+			.min(cap)
+	}
+
+	pub(crate) fn accrue_learning(&mut self, delta_secs: f32) {
+		let next = self.next_learning_credit(delta_secs);
+		if self.learning_credit != next {
+			self.learning_credit = next;
+		}
 	}
 
 	pub fn try_take_learning_credit(&mut self) -> bool {
