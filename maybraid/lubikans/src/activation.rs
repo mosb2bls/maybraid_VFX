@@ -103,6 +103,18 @@ pub enum LubikanActivationDenied {
 	AlreadyActive,
 }
 
+impl std::fmt::Display for LubikanActivationDenied {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.write_str(match self {
+			Self::UnknownAccount => "unknown Lubikan account",
+			Self::InsufficientCharge => "insufficient Lubikan charge",
+			Self::AlreadyActive => "Lubikan already active",
+		})
+	}
+}
+
+impl std::error::Error for LubikanActivationDenied {}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

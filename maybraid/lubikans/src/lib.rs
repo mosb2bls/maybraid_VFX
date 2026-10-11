@@ -30,7 +30,7 @@ pub use catalog::{
 pub use change::{LubikanChargeChanged, LubikanChargeReason};
 pub use charge::{LubikanCharge, LubikanChargeMutation};
 pub use identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
-pub use ledger::{LubikanAccount, LubikanLedger, LubikanOwner};
+pub use ledger::{LubikanAccount, LubikanAccountBinding, LubikanLedger, LubikanOwner};
 pub use lifetime::{
 	LubikanLifetimePolicy, LubikanOwnerLifetime, LubikanOwnerLifetimeKind, LubikanPersistence,
 };

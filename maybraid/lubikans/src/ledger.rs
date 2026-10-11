@@ -2,9 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::activation::{
-	LubikanActivation, LubikanActivationDenied, LubikanActivationPhase, LubikanReadiness,
-};
+use crate::activation::{LubikanActivation, LubikanActivationDenied, LubikanReadiness};
 use crate::catalog::{LubikanCatalog, LubikanSelfConfig};
 use crate::charge::{LubikanCharge, LubikanChargeMutation};
 use crate::identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
@@ -14,6 +12,51 @@ use crate::selection::LubikanSelection;
 /// Marker on a body that owns a [`LubikanLedger`].
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LubikanOwner;
+
+/// Equipped account snapshotted at bind or event resolution.
+///
+/// Damage history and summons stamp this so attribution can name a charge
+/// recipient after the owner despawns. It does not mutate charge.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LubikanAccountBinding {
+	pub account: LubikanAccountId,
+	pub definition: LubikanDefinitionId,
+	pub owner: Entity,
+}
+
+impl LubikanAccountBinding {
+	pub fn new(account: LubikanAccountId, definition: LubikanDefinitionId, owner: Entity) -> Self {
+		Self { account, definition, owner }
+	}
+
+	/// Self binding for a persistent account on the current owner body.
+	pub fn self_account(account: LubikanAccountId, owner: Entity) -> Self {
+		Self::new(account, LubikanDefinitionId::SELF, owner)
+	}
+
+	/// Body-scoped Self fallback when no other account is equipped.
+	pub fn self_on(owner: Entity) -> Self {
+		Self::self_account(LubikanAccountId::SELF, owner)
+	}
+
+	pub fn from_selection(selection: crate::LubikanSelection, owner: Entity) -> Self {
+		let account = selection.resolved();
+		Self::new(account, account.definition(), owner)
+	}
+
+	pub fn is_self(self) -> bool {
+		self.definition.is_self()
+	}
+
+	/// Body generation token. A replacement body has a different entity id.
+	pub fn generation(self) -> u64 {
+		self.owner.to_bits()
+	}
+
+	pub fn matches_body(self, body: Entity) -> bool {
+		self.owner == body
+	}
+}
 
 /// One owned charge account.
 #[derive(Clone, Debug, PartialEq)]
@@ -266,6 +309,7 @@ impl Default for LubikanLedger {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::activation::LubikanActivationPhase;
 	use anyhow::{anyhow, Result};
 
 	fn extra(capacity: f32) -> LubikanDefinition {
@@ -320,6 +364,17 @@ mod tests {
 			Err(LubikanActivationDenied::AlreadyActive) => Ok(()),
 			other => Err(anyhow!("expected already-active, got {other:?}")),
 		}
+	}
+
+	#[test]
+	fn account_binding_snapshots_self_without_creating_charge() {
+		let owner = Entity::from_bits(42);
+		let binding = LubikanAccountBinding::self_on(owner);
+		assert!(binding.is_self());
+		assert!(binding.matches_body(owner));
+		assert_eq!(binding.account, LubikanAccountId::SELF);
+		assert_eq!(binding.definition, LubikanDefinitionId::SELF);
+		assert_eq!(binding.generation(), owner.to_bits());
 	}
 
 	#[test]

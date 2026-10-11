@@ -25,6 +25,11 @@ impl LubikanDefinitionId {
 		self.0 == 0
 	}
 
+	/// Packed form for fixtures that still carry a raw integer.
+	pub const fn to_bits(self) -> u64 {
+		self.0 as u64
+	}
+
 	/// Built-in label. Unknown ids return `None` so content crates can name
 	/// their own definitions without this crate knowing about them.
 	pub const fn well_known_label(self) -> Option<&'static str> {
@@ -68,6 +73,15 @@ impl LubikanAccountId {
 
 	pub const fn is_self(self) -> bool {
 		self.definition.is_self() && self.instance == 0
+	}
+
+	/// Pack `(definition, instance)` into a `u64` for durable snapshots.
+	pub const fn to_bits(self) -> u64 {
+		((self.definition.raw() as u64) << 32) | (self.instance as u64)
+	}
+
+	pub const fn from_bits(bits: u64) -> Self {
+		Self::new(LubikanDefinitionId::from_raw((bits >> 32) as u32), bits as u32)
 	}
 }
 
@@ -129,6 +143,11 @@ mod tests {
 			LubikanAccountId::unique(LubikanDefinitionId::SELF),
 			LubikanAccountId::new(LubikanDefinitionId::from_raw(1), 0)
 		);
+		assert_eq!(
+			LubikanAccountId::from_bits(LubikanAccountId::SELF.to_bits()),
+			LubikanAccountId::SELF
+		);
+		assert_eq!(LubikanDefinitionId::SELF.to_bits(), 0);
 	}
 
 	#[test]
