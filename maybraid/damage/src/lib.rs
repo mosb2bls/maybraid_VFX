@@ -9,7 +9,7 @@ mod lifecycle;
 mod lubikan;
 
 use bevy::prelude::*;
-use projectiles::tick_flights;
+use projectiles::{tick_flights, ProjectileContact};
 
 pub use apply::apply_hits;
 pub use attribution::{DamageActorId, ResponsibleOwner};
@@ -164,6 +164,7 @@ impl Plugin for DamagePlugin {
 			.add_message::<DamageApplied>()
 			.add_message::<Died>()
 			.add_message::<ClearDamageHistory>()
+			.add_message::<ProjectileContact>()
 			.init_resource::<DamageHistory>()
 			.init_resource::<DamageHistoryPolicy>()
 			.configure_sets(

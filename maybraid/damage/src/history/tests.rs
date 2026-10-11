@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::*;
+use projectiles::ProjectileContact;
 
 use crate::{
 	maintain_damage_history, ClearDamageHistory, DamageActorId, DamageApplied, DamageHistory,
@@ -10,7 +11,8 @@ use crate::{
 
 fn history_app() -> App {
 	let mut app = App::new();
-	app.add_plugins((MinimalPlugins, DamagePlugin));
+	app.add_plugins((MinimalPlugins, DamagePlugin))
+		.add_message::<ProjectileContact>();
 	app
 }
 
