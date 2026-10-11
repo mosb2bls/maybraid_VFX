@@ -5,6 +5,9 @@ venv
 .venv
 target
 *.tracy
+profiling/captures/**/*-unwrap.csv
+profiling/captures/**/*-game.log
+profiling/captures/**/*-capture.log
 macos-15
 .maybraid
 issues

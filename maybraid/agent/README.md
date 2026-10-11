@@ -23,6 +23,9 @@ maybraid --start-at=0,0 \
 `MAYBRAID_AGENT_QUIT` are the env equivalents. With none of those set the
 plugin is not added.
 
+For a Tracy capture on a real GPU, use [`profiling/tracy-flight.sh`](../../profiling/tracy-flight.sh)
+(`MAYBRAID_VSYNC=off`, `tracy-capture` only). See [`profiling/README.md`](../../profiling/README.md).
+
 ## Commands
 
 Line-delimited JSON. `#` and `//` comments are skipped. Internally tagged
