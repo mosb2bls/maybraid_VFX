@@ -108,6 +108,8 @@ pub enum DebugCommand {
 	TakeDamage { amount: f32 },
 	/// Spawn an NPC at player position.
 	SpawnNpc,
+	/// Activate the equipped Lubikan (writes LubikanActivationRequest).
+	Activate,
 }
 
 impl PlaygroundCommand {
@@ -255,6 +257,10 @@ pub struct RequestTakeDamage {
 pub struct RequestSpawnNpc;
 
 #[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestActivate;
+
+#[cfg(feature = "debug-commands")]
 impl DebugCommand {
 	fn react(self, commands: &mut Commands, console: &mut String) {
 		match self {
@@ -269,6 +275,10 @@ impl DebugCommand {
 			DebugCommand::SpawnNpc => {
 				commands.spawn(RequestSpawnNpc);
 				*console = "debug spawn-npc: pending".into();
+			}
+			DebugCommand::Activate => {
+				commands.spawn(RequestActivate);
+				*console = "debug activate: pending".into();
 			}
 		}
 	}

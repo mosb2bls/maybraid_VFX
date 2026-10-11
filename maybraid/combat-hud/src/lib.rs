@@ -289,16 +289,17 @@ fn spawn_combat_hud(
 			if config.0.directional_damage {
 				spawn_directional_damage_ring(root);
 			}
-			let fonts = vitals_fonts(asset_server.as_deref());
-			if config.0.lubikan_charge {
-				spawn_lubikan_charge(root, &fonts);
-			}
-			if config.0.player_vitals {
-				spawn_player_vitals(root, &fonts);
-			}
-			if config.0.score {
-				spawn_combat_score(root, &fonts);
-			}
+		let fonts = vitals_fonts(asset_server.as_deref());
+		let health_config = ContinuousHealthConfig::default();
+		if config.0.lubikan_charge {
+			spawn_lubikan_charge(root, &fonts);
+		}
+		if config.0.player_vitals {
+			spawn_player_vitals(root, &fonts, &health_config, Entity::PLACEHOLDER);
+		}
+		if config.0.score {
+			spawn_combat_score(root, &fonts);
+		}
 		});
 }
 

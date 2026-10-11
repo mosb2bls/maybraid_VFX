@@ -37,7 +37,7 @@ pub use world_furnished::WorldFurnished;
 pub use commands::PLAYGROUND_CLI_NAME;
 pub use commands::PlaygroundCommand;
 #[cfg(feature = "debug-commands")]
-pub use commands::{RequestGrantPoints, RequestSpawnNpc, RequestTakeDamage};
+pub use commands::{RequestActivate, RequestGrantPoints, RequestSpawnNpc, RequestTakeDamage};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
 	WorldSurfaceReady, WorldSurfaceSet,
@@ -313,7 +313,7 @@ impl Plugin for WorldPlugin {
 		{
 			app.add_systems(
 				Update,
-				(apply_debug_grant_points, apply_debug_take_damage, apply_debug_spawn_npc),
+				(apply_debug_grant_points, apply_debug_take_damage, apply_debug_spawn_npc, apply_debug_activate),
 			);
 		}
 	}
@@ -332,7 +332,7 @@ fn apply_debug_grant_points(
 			lubikan_requests.write(lubikans::LubikanChargeRequest::equipped(
 				player,
 				request.amount,
-				lubikans::LubikanChargeReason::OCCUPANCY,
+				lubikans::LubikanChargeReason::ADJUSTMENT,
 				None,
 			));
 		}
@@ -352,6 +352,21 @@ fn apply_debug_take_damage(
 			if let Ok(mut health) = healths.get_mut(player) {
 				health.take_damage(request.amount);
 			}
+		}
+		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(feature = "debug-commands")]
+fn apply_debug_activate(
+	requests: Query<(Entity, &commands::RequestActivate)>,
+	players: Query<Entity, With<player::Player>>,
+	mut activation_requests: MessageWriter<lubikans::LubikanActivationRequest>,
+	mut commands: Commands,
+) {
+	for (entity, _request) in &requests {
+		if let Ok(player) = players.single() {
+			activation_requests.write(lubikans::LubikanActivationRequest::equipped(player));
 		}
 		commands.entity(entity).despawn();
 	}
