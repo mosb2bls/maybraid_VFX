@@ -100,6 +100,7 @@ members = [
   "maybraid/world/modes/reliquary",
   "maybraid/input",
   "maybraid/combat-hud",
+  "maybraid/lubikans",
   "maybraid/player",
   "maybraid/player-camera",
   "maybraid/world/layers/mobs/characters/generated",
@@ -352,6 +353,7 @@ maybraid-skill-map = { path = "maybraid/skill-map" }
 maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
 combat-hud = { path = "maybraid/combat-hud" }
+lubikans = { path = "maybraid/lubikans" }
 player = { path = "maybraid/player" }
 player-camera = { path = "maybraid/player-camera" }
 movement-realization = { path = "maybraid/movement-realization" }

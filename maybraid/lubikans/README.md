@@ -1,0 +1,56 @@
+# Lubikans
+
+Shared Lubikan interface. Other lanes depend on these types; keep the surface
+small and stable. Self is a normal definition. Missing equipped selection
+resolves to Self through the same model.
+
+This crate has **no Bikanwarda dependency**. General gameplay and future
+summons consume the same identity, charge, activation, selection, and owner
+lifetime types.
+
+```text
+LubikanDefinitionId / LubikanAccountId
+        ↓
+LubikanLedger  (owned accounts + equipped selection)
+        ↓
+LubikanCharge::apply → LubikanChargeMutation
+        ↓
+LubikanChargeChanged   (authoritative award / spend)
+```
+
+HUD, occupancy, input, and combat rules read this store. They do not create
+charge state by being visible.
+
+## Public types
+
+| Type | Role |
+|------|------|
+| [`LubikanDefinitionId`](src/identity.rs) / [`LubikanAccountId`](src/identity.rs) | Catalog vs owned-account identity. Self is `LubikanDefinitionId::SELF` / `LubikanAccountId::SELF`. |
+| [`LubikanDefinition`](src/identity.rs) | Capacity and activation cost for one catalog entry. |
+| [`LubikanSelfConfig`](src/catalog.rs) | Configurable Self limits and lifetime policy. |
+| [`LubikanCatalog`](src/catalog.rs) | Registered definitions. A normal game registers Self here. |
+| [`LubikanCharge`](src/charge.rs) / [`LubikanChargeMutation`](src/charge.rs) | Bounded charge and the result of a signed apply (requested, applied, new value, clamp flags). |
+| [`LubikanChargeChanged`](src/change.rs) / [`LubikanChargeReason`](src/change.rs) | Authoritative charge-change result: recipient, credited account, signed amount, reason, optional world origin. |
+| [`LubikanActivationRequest`](src/activation.rs) / [`LubikanActivation`](src/activation.rs) / [`LubikanReadiness`](src/activation.rs) | Activation request, session phase, and derived eligibility. |
+| [`LubikanSelection`](src/selection.rs) | Equipped account, or Self when none is equipped. |
+| [`LubikanLedger`](src/ledger.rs) / [`LubikanAccount`](src/ledger.rs) / [`LubikanOwner`](src/ledger.rs) | Per-owner owned accounts. Self cannot be removed. |
+| [`LubikanOwnerLifetime`](src/lifetime.rs) / [`LubikanLifetimePolicy`](src/lifetime.rs) | Equip, unequip, body replace, and session restart. |
+| [`LubikanSystems`](src/lib.rs) | Schedule sets other lanes order against (`Owner`, `Activate`, `Award`). |
+| [`fixtures`](src/fixtures.rs) | Test helper (`test-support` feature or this crate's tests). |
+
+[`LubikanInterfacePlugin`](src/lib.rs) only registers the shared messages.
+Gameplay attach, Self registration in the world, and combat rules land in
+follow-up work on this crate; they must not change these types.
+
+## Consumer fixture
+
+```rust
+use lubikans::fixtures::{install_interface, spawn_self_owner};
+
+let mut app = App::new();
+install_interface(&mut app);
+let owner = spawn_self_owner(app.world_mut());
+```
+
+Enable `lubikans` with the `test-support` feature from a consumer's
+`dev-dependencies`.
