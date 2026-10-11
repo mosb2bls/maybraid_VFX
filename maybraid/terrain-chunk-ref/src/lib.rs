@@ -166,12 +166,14 @@ pub struct TerrainChunkRefSeen {
 ///
 /// Cache hits consume [`Self::apply_per_frame`]. Cache probes and Seen stamps
 /// consume [`Self::inspect_per_frame`]. [`Self::main_thread_budget`] starts
-/// after the first query look, including already-Seen skips — not only after
-/// the first apply. Overlay fill uses
-/// [`TerrainChunkRefCache::without_build_on_miss`]; without those caps a
-/// mailbox generation bump re-walks the whole waiter set on Update.
-/// Misses that already saw the current [`HandleMap`] generation skip the
-/// hashmap walk.
+/// after the first query look. Overlay fill uses
+/// [`TerrainChunkRefCache::without_build_on_miss`].
+///
+/// Waiters that already carry [`TerrainChunkRefSeen`] for the current
+/// [`HandleMap`] generation are not iterated while the mailbox is quiet.
+/// A generation bump re-walks those Seen waiters (budgeted). Without that
+/// skip, a 2 ms budget was spent every idle frame walking already-Seen
+/// overlays.
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct TerrainChunkRefBudget {
 	pub new_meshes_per_frame: u32,
@@ -201,11 +203,23 @@ type TerrainChunkRefQueryItem<'a, T> = (
 	Option<&'a Mesh3d>,
 	Option<&'a TerrainChunkRefSeen>,
 );
-type TerrainChunkRefQueryFilter<T> = Or<(
+/// New / changed / heal work. Excludes Seen waiters — those are only walked
+/// when [`HandleMap::generation`] ticks (see [`fulfill_terrain_chunk_refs`]).
+type TerrainChunkRefFreshFilter<T> = Or<(
 	Changed<TerrainChunkRef<T>>,
-	(Without<TerrainChunkRefResolved>, Without<TerrainChunkRefEmpty>),
+	(
+		Without<TerrainChunkRefResolved>,
+		Without<TerrainChunkRefEmpty>,
+		Without<TerrainChunkRefSeen>,
+	),
 	(With<TerrainChunkRefResolved>, Without<Mesh3d>),
 )>;
+type TerrainChunkRefSeenWaiterFilter = (
+	With<TerrainChunkRefSeen>,
+	Without<TerrainChunkRefResolved>,
+	Without<TerrainChunkRefEmpty>,
+);
+
 
 /// Heal a wiped overlay pose. CpuShot verts are local to the chunk minimum.
 pub fn sync_terrain_chunk_ref_poses<T>(mut query: Query<(&TerrainChunkRef<T>, &mut Transform)>)
@@ -225,7 +239,11 @@ pub fn fulfill_terrain_chunk_refs<T>(
 	mut meshes: ResMut<Assets<Mesh>>,
 	cache: Res<TerrainChunkRefCache<T>>,
 	budget: Res<TerrainChunkRefBudget>,
-	query: Query<TerrainChunkRefQueryItem<T>, TerrainChunkRefQueryFilter<T>>,
+	mut queries: ParamSet<(
+		Query<TerrainChunkRefQueryItem<T>, TerrainChunkRefFreshFilter<T>>,
+		Query<TerrainChunkRefQueryItem<T>, TerrainChunkRefSeenWaiterFilter>,
+	)>,
+	mut last_generation: Local<Option<u64>>,
 ) where
 	T: MeshBuilder + IdentifiedMesh + Clone + Send + Sync + 'static,
 {
@@ -235,57 +253,118 @@ pub fn fulfill_terrain_chunk_refs<T>(
 	let mut looked = 0u32;
 	let started = Instant::now();
 	let generation = cache.handles().generation();
+	let rescan_seen = *last_generation != Some(generation);
 
-	for (entity, terrain_ref, resolved, empty, mesh, seen) in &query {
-		if looked > 0 && started.elapsed() >= budget.main_thread_budget {
+	let mut budget_hit = false;
+	for item in &queries.p0() {
+		if !fulfill_one(
+			item,
+			&mut commands,
+			&mut meshes,
+			&cache,
+			&budget,
+			generation,
+			&mut remaining,
+			&mut applied,
+			&mut inspected,
+			&mut looked,
+			started,
+		) {
+			budget_hit = true;
 			break;
-		}
-		if applied >= budget.apply_per_frame {
-			break;
-		}
-		looked += 1;
-
-		let key = terrain_ref.key();
-		if mesh.is_some() && resolved.is_some_and(|resolved| &resolved.0 == key) {
-			continue;
-		}
-		if empty.is_some_and(|empty| &empty.0 == key) {
-			continue;
-		}
-		if seen.is_some_and(|seen| seen.generation == generation && seen.key == *key) {
-			continue;
-		}
-		if inspected >= budget.inspect_per_frame {
-			break;
-		}
-		inspected += 1;
-
-		if let Some(handle) = cache.cached_handle(terrain_ref) {
-			apply_resolved_mesh(&mut commands, entity, terrain_ref, handle);
-			applied += 1;
-			continue;
-		}
-		commands
-			.entity(entity)
-			.insert(TerrainChunkRefSeen { generation, key: key.clone() });
-		if !cache.build_on_miss || remaining == 0 {
-			continue;
-		}
-		remaining -= 1;
-
-		let fetcher = MeshHandle::new(terrain_ref.terrain_model.clone())
-			.with_handle_cache(cache.handles.clone())
-			.with_mesh_cache(cache.disk.clone());
-		if let Some(handle) = fetcher.fetch_mesh(&mut meshes, &terrain_ref.cascade_chunk()) {
-			apply_resolved_mesh(&mut commands, entity, terrain_ref, handle);
-			applied += 1;
-		} else {
-			commands
-				.entity(entity)
-				.remove::<(Mesh3d, TerrainChunkRefResolved)>()
-				.insert(TerrainChunkRefEmpty(key.clone()));
 		}
 	}
+	if rescan_seen && !budget_hit {
+		for item in &queries.p1() {
+			if !fulfill_one(
+				item,
+				&mut commands,
+				&mut meshes,
+				&cache,
+				&budget,
+				generation,
+				&mut remaining,
+				&mut applied,
+				&mut inspected,
+				&mut looked,
+				started,
+			) {
+				budget_hit = true;
+				break;
+			}
+		}
+		if !budget_hit {
+			*last_generation = Some(generation);
+		}
+	} else if !rescan_seen {
+		*last_generation = Some(generation);
+	}
+}
+
+/// Returns `false` when a per-frame cap was hit and the caller should stop.
+fn fulfill_one<T>(
+	(entity, terrain_ref, resolved, empty, mesh, seen): TerrainChunkRefQueryItem<T>,
+	commands: &mut Commands,
+	meshes: &mut ResMut<Assets<Mesh>>,
+	cache: &TerrainChunkRefCache<T>,
+	budget: &TerrainChunkRefBudget,
+	generation: u64,
+	remaining: &mut u32,
+	applied: &mut u32,
+	inspected: &mut u32,
+	looked: &mut u32,
+	started: Instant,
+) -> bool
+where
+	T: MeshBuilder + IdentifiedMesh + Clone + Send + Sync + 'static,
+{
+	if *looked > 0 && started.elapsed() >= budget.main_thread_budget {
+		return false;
+	}
+	if *applied >= budget.apply_per_frame {
+		return false;
+	}
+	*looked += 1;
+
+	let key = terrain_ref.key();
+	if mesh.is_some() && resolved.is_some_and(|resolved| &resolved.0 == key) {
+		return true;
+	}
+	if empty.is_some_and(|empty| &empty.0 == key) {
+		return true;
+	}
+	if seen.is_some_and(|seen| seen.generation == generation && seen.key == *key) {
+		return true;
+	}
+	if *inspected >= budget.inspect_per_frame {
+		return false;
+	}
+	*inspected += 1;
+
+	if let Some(handle) = cache.cached_handle(terrain_ref) {
+		apply_resolved_mesh(commands, entity, terrain_ref, handle);
+		*applied += 1;
+		return true;
+	}
+	commands.entity(entity).insert(TerrainChunkRefSeen { generation, key: key.clone() });
+	if !cache.build_on_miss || *remaining == 0 {
+		return true;
+	}
+	*remaining -= 1;
+
+	let fetcher = MeshHandle::new(terrain_ref.terrain_model.clone())
+		.with_handle_cache(cache.handles.clone())
+		.with_mesh_cache(cache.disk.clone());
+	if let Some(handle) = fetcher.fetch_mesh(meshes, &terrain_ref.cascade_chunk()) {
+		apply_resolved_mesh(commands, entity, terrain_ref, handle);
+		*applied += 1;
+	} else {
+		commands
+			.entity(entity)
+			.remove::<(Mesh3d, TerrainChunkRefResolved)>()
+			.insert(TerrainChunkRefEmpty(key.clone()));
+	}
+	true
 }
 
 /// CpuShot verts are local to the chunk minimum. Insert pose with [`Mesh3d`] so
@@ -606,6 +685,20 @@ mod tests {
 			.filter(|entity| app.world().get::<TerrainChunkRefSeen>(**entity).is_some())
 			.count();
 		assert_eq!(seen, 32);
+
+		// Quiet mailbox: further ticks must not drop Seen or remarch.
+		for _ in 0..4 {
+			app.update();
+		}
+		assert_eq!(
+			entities
+				.iter()
+				.filter(|entity| app.world().get::<TerrainChunkRefSeen>(**entity).is_some())
+				.count(),
+			32
+		);
+		assert!(entities.iter().all(|entity| app.world().get::<Mesh3d>(*entity).is_none()));
+		assert_eq!(model.builds.load(Ordering::Relaxed), 0);
 		Ok(())
 	}
 
