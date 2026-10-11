@@ -64,13 +64,40 @@ mod tests {
 		assert!(error.contains("line 2"), "{error}");
 	}
 
+	const EXAMPLE_SCRIPTS: &[&str] = &[
+		"origin-walk.jsonl",
+		"origin-idle.jsonl",
+		"biome-traverse.jsonl",
+		"locomotion-mix.jsonl",
+	];
+
 	#[test]
 	fn example_scripts_parse() -> anyhow::Result<()> {
 		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-		for name in ["origin-walk.jsonl", "biome-traverse.jsonl"] {
+		for name in EXAMPLE_SCRIPTS {
 			let commands =
 				read_script_commands(&root.join(name)).map_err(|e| anyhow::anyhow!("{e}"))?;
 			assert!(!commands.is_empty(), "{name}");
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn profile_scripts_do_not_toggle_vsync() -> anyhow::Result<()> {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
+		for name in EXAMPLE_SCRIPTS {
+			let text = std::fs::read_to_string(root.join(name))?;
+			for (idx, raw) in text.lines().enumerate() {
+				let line = strip_comment(raw);
+				if line.is_empty() {
+					continue;
+				}
+				assert!(
+					!line.contains("stats vsync"),
+					"{name}:{} must not toggle vsync over MAYBRAID_VSYNC=off",
+					idx + 1
+				);
+			}
 		}
 		Ok(())
 	}

@@ -23,6 +23,10 @@ maybraid --start-at=0,0 \
 `MAYBRAID_AGENT_QUIT` are the env equivalents. With none of those set the
 plugin is not added.
 
+For a Tracy capture on a real GPU, use [`profiling/tracy-flight.sh`](../../profiling/tracy-flight.sh)
+(`MAYBRAID_VSYNC=off`, `tracy-capture` only). See [`profiling/README.md`](../../profiling/README.md).
+Capture output is gitignored; publish results as a GitHub Gist linked from the PR, not in-repo.
+
 ## Commands
 
 Line-delimited JSON. `#` and `//` comments are skipped. Internally tagged
@@ -33,7 +37,7 @@ with `"cmd"`.
 | `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
 | `press` | `button` | one frame |
 | `wait` | `secs` | idle |
-| `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached |
+| `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
@@ -65,7 +69,7 @@ and `frame`.
 | `ready` | world surface + gameplay are up (or ready-timeout) |
 | `player` | periodic pose (`x,y,z`, `yaw`, `move`) |
 | `command` | `acknowledged` / `started` / `finished` / `failed` |
-| `waypoint` | `goto` reached or timed out |
+| `waypoint` | `goto` reached, timed out, or stuck |
 | `scenario` | script markers |
 | `chunk_loads` | count of new cascade chunks this frame (cheap summary) |
 | `quit` | process is exiting |

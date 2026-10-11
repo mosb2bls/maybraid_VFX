@@ -35,4 +35,6 @@ worth sharing; mention it instead of attaching a large binary.
 
 `tracy-flight.sh` starts `tracy-capture` first, then the game with
 `MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone /
-message CSVs plus a top-zone summary.
+message CSVs plus a top-zone summary. Profile scripts omit `stats vsync`
+because that command *toggles* present mode and would re-enable vsync
+over the env var.
