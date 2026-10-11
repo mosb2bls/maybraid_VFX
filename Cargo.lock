@@ -6986,6 +6986,7 @@ dependencies = [
  "lod-avian",
  "log",
  "lubikans",
+ "lubikans-damage",
  "maputo",
  "material-ref",
  "maybraid-character-controller",

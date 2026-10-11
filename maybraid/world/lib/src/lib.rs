@@ -83,6 +83,7 @@ use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
 use lubikans::{LubikanSystems, LubikansPlugin};
+use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
@@ -185,6 +186,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WeatherPlugin)
 			.add_plugins(SkillMapPlugin)
 			.add_plugins(LubikansPlugin)
+			.add_plugins(LubikanDamagePlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
 			.add_plugins(WorldMapViewPlugin)

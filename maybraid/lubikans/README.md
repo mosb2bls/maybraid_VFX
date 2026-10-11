@@ -54,7 +54,9 @@ World capsules get the owner marker from `grant_world_player_lubikan_owner`
 (do not insert a fresh `LubikanLedger::with_self`). Pause does not restart
 the session; `WorldPlaySessionEnded` does. Input cycles through
 [`LubikanLedger::select`](src/ledger.rs) only (`None` / `Some(Self)` are the
-Self fallback). The plugin has no Bikanwarda or HUD dependency.
+Self fallback). The world Self loop also adds [`LubikanDamagePlugin`](damage/) so bindings
+copy onto generic `DamageCredit` before history ingest. The plugin has no
+Bikanwarda or HUD dependency.
 
 ## Consumer fixture
 
