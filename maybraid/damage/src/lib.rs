@@ -6,7 +6,6 @@ mod attribution;
 mod from_projectiles;
 mod history;
 mod lifecycle;
-mod lubikan;
 
 use bevy::prelude::*;
 use projectiles::{tick_flights, ProjectileContact};
@@ -19,10 +18,6 @@ pub use history::{
 	TimeInterval,
 };
 pub use lifecycle::{mark_downed, tick_queued_despawns, DespawnAfter, Downed};
-pub use lubikan::{
-	LubikanAccountBinding, LubikanAccountId, LubikanAttribution, LubikanDefinitionId,
-	LubikanOwnerLifetime,
-};
 
 /// Default DPC used when a bolt is spawned without catalog stats.
 pub const DEFAULT_HIT: f32 = 25.0;

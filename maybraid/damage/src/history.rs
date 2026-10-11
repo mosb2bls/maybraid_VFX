@@ -3,10 +3,9 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
+use lubikans::LubikanAccountBinding;
 
-use crate::{
-	DamageActorId, DamageApplied, LubikanAccountBinding, LubikanAttribution, ResponsibleOwner,
-};
+use crate::{DamageActorId, DamageApplied, ResponsibleOwner};
 
 /// Closed interval on game time (`start <= at <= end`). [`TimeInterval::since`]
 /// leaves the end open.
@@ -78,7 +77,7 @@ pub struct DamageRecord {
 	pub point: Vec3,
 	pub source: Option<DamageActorId>,
 	pub owner: Option<DamageActorId>,
-	pub lubikan: Option<LubikanAttribution>,
+	pub lubikan: Option<LubikanAccountBinding>,
 }
 
 impl DamageRecord {
@@ -201,8 +200,7 @@ fn snapshot_applied(
 	let lubikan = event
 		.source
 		.and_then(|source| accounts.get(source).ok().copied())
-		.or_else(|| responsible.and_then(|entity| accounts.get(entity).ok().copied()))
-		.map(LubikanAttribution::from_binding);
+		.or_else(|| responsible.and_then(|entity| accounts.get(entity).ok().copied()));
 	DamageRecord {
 		at: finite_time(at),
 		recipient,

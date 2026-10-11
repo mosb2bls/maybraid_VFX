@@ -1,12 +1,14 @@
 use anyhow::{anyhow, Result};
 use bevy::prelude::*;
+use lubikans::{
+	LubikanAccountBinding, LubikanAccountId, LubikanDefinitionId, LubikanLedger, LubikanSelection,
+};
 use projectiles::ProjectileContact;
 
 use crate::{
 	maintain_damage_history, ClearDamageHistory, DamageActorId, DamageApplied, DamageHistory,
-	DamageHistoryPolicy, DamagePlugin, DamageRecord, DamageSystems, Health, Hit,
-	LubikanAccountBinding, LubikanAccountId, LubikanDefinitionId, LubikanOwnerLifetime,
-	ResponsibleOwner, TimeInterval,
+	DamageHistoryPolicy, DamagePlugin, DamageRecord, DamageSystems, Health, Hit, ResponsibleOwner,
+	TimeInterval,
 };
 
 fn history_app() -> App {
@@ -135,14 +137,10 @@ fn multiple_hits_in_one_frame_are_retained() -> Result<()> {
 fn source_despawn_keeps_attribution() -> Result<()> {
 	let mut app = history_app();
 	let victim = app.world_mut().spawn(Health::from_max(100.0)).id();
-	let account = LubikanAccountId::new(11);
+	let account = LubikanAccountId::SELF;
 	let attacker = app
 		.world_mut()
-		.spawn(LubikanAccountBinding::new(
-			account,
-			LubikanDefinitionId::SELF,
-			LubikanOwnerLifetime::from_body(account, Entity::from_bits(11)),
-		))
+		.spawn(LubikanAccountBinding::self_on(Entity::from_bits(11)))
 		.id();
 	let attacker_id = DamageActorId::from_entity(attacker);
 	write_applied(&mut app, victim, Some(attacker), 8.0);
@@ -258,17 +256,10 @@ fn session_reset_clears_history() -> Result<()> {
 #[test]
 fn responsible_owner_is_distinct_from_direct_attacker() -> Result<()> {
 	let mut app = history_app();
-	let account = LubikanAccountId::new(21);
-	let owner_body = Entity::from_bits(21);
+	let account = LubikanAccountId::SELF;
 	let victim = app.world_mut().spawn(Health::from_max(100.0)).id();
-	let owner = app
-		.world_mut()
-		.spawn(LubikanAccountBinding::new(
-			account,
-			LubikanDefinitionId::SELF,
-			LubikanOwnerLifetime::from_body(account, owner_body),
-		))
-		.id();
+	let owner = app.world_mut().spawn_empty().id();
+	app.world_mut().entity_mut(owner).insert(LubikanAccountBinding::self_on(owner));
 	let summon = app.world_mut().spawn(ResponsibleOwner::new(owner)).id();
 	write_applied(&mut app, victim, Some(summon), 12.0);
 	app.update();
@@ -295,7 +286,7 @@ fn responsible_owner_is_distinct_from_direct_attacker() -> Result<()> {
 #[test]
 fn summon_keeps_charge_credit_after_owner_despawn() -> Result<()> {
 	let mut app = history_app();
-	let account = LubikanAccountId::new(21);
+	let account = LubikanAccountId::SELF;
 	let owner = app.world_mut().spawn_empty().id();
 	let binding = LubikanAccountBinding::self_account(account, owner);
 	let summon = app.world_mut().spawn((ResponsibleOwner::new(owner), binding)).id();
@@ -318,14 +309,30 @@ fn summon_keeps_charge_credit_after_owner_despawn() -> Result<()> {
 }
 
 #[test]
-fn owner_lifetime_does_not_follow_a_replaced_body() -> Result<()> {
-	let account = LubikanAccountId::new(5);
+fn owner_binding_generation_does_not_follow_a_replaced_body() -> Result<()> {
 	let first = Entity::from_bits(50);
 	let replacement = Entity::from_bits(51);
-	let lifetime = LubikanOwnerLifetime::from_body(account, first);
-	assert!(lifetime.matches_body(first));
-	assert!(!lifetime.matches_body(replacement));
-	assert_eq!(lifetime.account, account);
+	let binding = LubikanAccountBinding::self_on(first);
+	assert!(binding.matches_body(first));
+	assert!(!binding.matches_body(replacement));
+	assert_eq!(binding.account, LubikanAccountId::SELF);
+	assert_eq!(binding.generation(), first.to_bits());
+	assert_ne!(binding.generation(), replacement.to_bits());
+	Ok(())
+}
+
+#[test]
+fn charge_credit_snapshots_ledger_selection() -> Result<()> {
+	let owner = Entity::from_bits(9);
+	let ledger = LubikanLedger::default();
+	let from_ledger = LubikanAccountBinding::from_selection(ledger.selection(), owner);
+	let from_resolved = LubikanAccountBinding::from_selection(LubikanSelection::default(), owner);
+	assert_eq!(from_ledger.account, LubikanAccountId::SELF);
+	assert_eq!(from_ledger.definition, LubikanDefinitionId::SELF);
+	assert_eq!(from_ledger.generation(), owner.to_bits());
+	assert_eq!(from_ledger, from_resolved);
+	assert_eq!(from_ledger.account.to_bits(), LubikanAccountId::SELF.to_bits());
+	assert_eq!(LubikanAccountId::from_bits(from_ledger.account.to_bits()), LubikanAccountId::SELF);
 	Ok(())
 }
 

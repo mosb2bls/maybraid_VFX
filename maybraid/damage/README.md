@@ -13,10 +13,13 @@ meaningful after source or victim despawn and do not match recycled occupants.
 [`ResponsibleOwner`](src/attribution.rs) is the summon-owner seam: the live
 attacker stays on the record, and the owner is snapshotted separately.
 
-Lubikan charge credit is named through the thin [#1107](https://github.com/ramate-io/maybraid/issues/1107)
-fixture in [`lubikan`](src/lubikan.rs) (`LubikanAccountBinding` / `LubikanAttribution`).
-That module snapshots account identity, equipped selection, and owner lifetime.
-It does not mutate charge. Healing lookback uses
+Lubikan charge credit is named through the shared [`lubikans`](../lubikans/)
+interface ([#1107](https://github.com/ramate-io/maybraid/issues/1107)): a
+[`LubikanAccountBinding`](../lubikans/src/ledger.rs) snapshot (`account`,
+`definition`, `owner`; `generation()` is `owner.to_bits()`). Selection is
+[`LubikanSelection`](../lubikans/src/selection.rs) / `LubikanLedger::selection()`.
+[`LubikanOwnerLifetime`](../lubikans/src/lifetime.rs) is the lifetime *event*,
+not the snapshot token. History does not mutate charge. Healing lookback uses
 [`DamageHistory::received_positive_damage_since`](src/history.rs); an active
 healing session should latch that answer rather than depend on the retention
 window forever.
