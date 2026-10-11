@@ -12,7 +12,8 @@ pub use column_surface::shaft::{
 };
 pub use column_surface::{
 	doric_column_ref, is_column_surface_recipe, ColumnSurfaceMaterial, ColumnSurfaceMaterialPlugin,
-	ColumnSurfaceUniform, RECIPE_DORIC_COLUMN,
+	ColumnSurfaceUniform, DEFAULT_FLUTE_COUNT, DEFAULT_POM_FADE_END_M, DEFAULT_POM_FADE_START_M,
+	DEFAULT_POM_MAX_STEPS, DEFAULT_RELIEF_DEPTH_M, RECIPE_DORIC_COLUMN,
 };
 pub use material_lib::{
 	init_urban_material_caches, ColumnSurfaceMaterialLib, ColumnSurfaceMaterialRefCache,

@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
 use building_shaders::doric_column_ref;
@@ -97,29 +98,31 @@ impl CaptureSession {
 	}
 }
 
-pub fn apply_column_preview(mut config: ResMut<PreviewConfig>) {
+pub(crate) fn apply_column_preview(mut config: ResMut<PreviewConfig>) {
 	config.material = doric_column_ref();
 	config.shape = PreviewShape::Cylinder;
 }
 
-pub fn tick_capture(
+#[derive(SystemParam)]
+pub(crate) struct CaptureView<'w, 's> {
+	cameras: Query<'w, 's, (&'static mut Transform, &'static mut CameraController), With<Camera3d>>,
+	keys: Query<'w, 's, &'static mut DirectionalLight, With<KeySun>>,
+	fills: Query<'w, 's, &'static mut DirectionalLight, (With<FillSky>, Without<KeySun>)>,
+	ambient: ResMut<'w, GlobalAmbientLight>,
+	clear: ResMut<'w, ClearColor>,
+}
+
+pub(crate) fn tick_capture(
 	mut commands: Commands,
 	mut session: ResMut<CaptureSession>,
-	mut cameras: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
-	mut keys: Query<&mut DirectionalLight, With<KeySun>>,
-	mut fills: Query<&mut DirectionalLight, (With<FillSky>, Without<KeySun>)>,
-	mut ambient: ResMut<GlobalAmbientLight>,
-	mut clear: ResMut<ClearColor>,
+	mut view: CaptureView,
 	capturing: Query<Entity, With<Capturing>>,
 	mut exit: MessageWriter<AppExit>,
 ) {
 	match session.phase {
 		CapturePhase::Warmup { frames } => {
 			if frames == 0 {
-				if let Ok((mut transform, mut controller)) = cameras.single_mut() {
-					pose_camera(&COLUMN_CAPTURE_SHOTS[0], &mut transform, &mut controller);
-				}
-				apply_lighting(false, &mut keys, &mut fills, &mut ambient, &mut clear);
+				view.apply_shot(&COLUMN_CAPTURE_SHOTS[0]);
 			}
 			if frames + 1 >= WARMUP_FRAMES {
 				session.phase = CapturePhase::Settle { index: 0, frames: 0 };
@@ -130,10 +133,7 @@ pub fn tick_capture(
 		CapturePhase::Settle { index, frames } => {
 			if frames == 0 {
 				if let Some(shot) = COLUMN_CAPTURE_SHOTS.get(index) {
-					if let Ok((mut transform, mut controller)) = cameras.single_mut() {
-						pose_camera(shot, &mut transform, &mut controller);
-					}
-					apply_lighting(shot.night, &mut keys, &mut fills, &mut ambient, &mut clear);
+					view.apply_shot(shot);
 				}
 			}
 			if frames + 1 >= SETTLE_FRAMES {
@@ -172,48 +172,43 @@ pub fn tick_capture(
 	}
 }
 
-fn pose_camera(shot: &CaptureShot, transform: &mut Transform, controller: &mut CameraController) {
-	*transform = Transform::from_translation(shot.camera).looking_at(shot.look_at, Vec3::Y);
-	let rotation = transform.rotation;
-	let (x, y, z, w) = (rotation.x, rotation.y, rotation.z, rotation.w);
-	let sin_yaw = 2.0 * (w * y + x * z);
-	let cos_yaw = 1.0 - 2.0 * (y * y + z * z);
-	controller.yaw = sin_yaw.atan2(cos_yaw);
-	let sin_pitch = 2.0 * (w * x - y * z);
-	controller.pitch = sin_pitch.asin();
-}
-
-fn apply_lighting(
-	night: bool,
-	keys: &mut Query<&mut DirectionalLight, With<KeySun>>,
-	fills: &mut Query<&mut DirectionalLight, (With<FillSky>, Without<KeySun>)>,
-	ambient: &mut GlobalAmbientLight,
-	clear: &mut ClearColor,
-) {
-	if night {
-		for mut light in keys.iter_mut() {
-			light.illuminance = 320.0;
-			light.color = Color::srgb(0.42, 0.52, 0.85);
+impl CaptureView<'_, '_> {
+	fn apply_shot(&mut self, shot: &CaptureShot) {
+		if let Ok((mut transform, mut controller)) = self.cameras.single_mut() {
+			*transform = Transform::from_translation(shot.camera).looking_at(shot.look_at, Vec3::Y);
+			let rotation = transform.rotation;
+			let (x, y, z, w) = (rotation.x, rotation.y, rotation.z, rotation.w);
+			let sin_yaw = 2.0 * (w * y + x * z);
+			let cos_yaw = 1.0 - 2.0 * (y * y + z * z);
+			controller.yaw = sin_yaw.atan2(cos_yaw);
+			let sin_pitch = 2.0 * (w * x - y * z);
+			controller.pitch = sin_pitch.asin();
 		}
-		for mut light in fills.iter_mut() {
-			light.illuminance = 140.0;
-			light.color = Color::srgb(0.28, 0.36, 0.62);
+		if shot.night {
+			for mut light in self.keys.iter_mut() {
+				light.illuminance = 320.0;
+				light.color = Color::srgb(0.42, 0.52, 0.85);
+			}
+			for mut light in self.fills.iter_mut() {
+				light.illuminance = 140.0;
+				light.color = Color::srgb(0.28, 0.36, 0.62);
+			}
+			self.ambient.brightness = 36.0;
+			self.ambient.color = Color::srgb(0.22, 0.28, 0.48);
+			self.clear.0 = Color::srgb(0.015, 0.02, 0.04);
+		} else {
+			for mut light in self.keys.iter_mut() {
+				light.illuminance = 9800.0;
+				light.color = Color::srgb(1.0, 0.92, 0.82);
+			}
+			for mut light in self.fills.iter_mut() {
+				light.illuminance = 2400.0;
+				light.color = Color::srgb(0.55, 0.68, 1.0);
+			}
+			self.ambient.brightness = 220.0;
+			self.ambient.color = Color::srgb(0.72, 0.78, 0.92);
+			self.clear.0 = Color::srgb(0.08, 0.09, 0.11);
 		}
-		ambient.brightness = 36.0;
-		ambient.color = Color::srgb(0.22, 0.28, 0.48);
-		clear.0 = Color::srgb(0.015, 0.02, 0.04);
-	} else {
-		for mut light in keys.iter_mut() {
-			light.illuminance = 9800.0;
-			light.color = Color::srgb(1.0, 0.92, 0.82);
-		}
-		for mut light in fills.iter_mut() {
-			light.illuminance = 2400.0;
-			light.color = Color::srgb(0.55, 0.68, 1.0);
-		}
-		ambient.brightness = 220.0;
-		ambient.color = Color::srgb(0.72, 0.78, 0.92);
-		clear.0 = Color::srgb(0.08, 0.09, 0.11);
 	}
 }
 

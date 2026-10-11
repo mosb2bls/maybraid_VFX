@@ -13,7 +13,7 @@ use bevy::{
 	shader::ShaderRef,
 };
 use material_ref::{
-	MaterialId, MaterialRasters, MaterialRef, MATERIAL_PALETTE_SLOTS, MATERIAL_RASTER_CHANNELS,
+	MaterialRasters, MaterialRef, MATERIAL_PALETTE_SLOTS, MATERIAL_RASTER_CHANNELS,
 	MATERIAL_RASTER_WIDTH, MATERIAL_SCALAR_FLOATS,
 };
 
@@ -99,10 +99,10 @@ impl ColumnSurfaceUniform {
 		}
 
 		let mut rasters = [[Vec4::ZERO; MATERIAL_RASTER_WIDTH]; MATERIAL_RASTER_CHANNELS];
-		for channel in 0..MATERIAL_RASTER_CHANNELS {
+		for (channel, raster) in rasters.iter_mut().enumerate() {
 			let samples = material_ref.rasters.get_or(channel, 0.0);
 			let rows = MaterialRasters::packed_rows(samples);
-			rasters[channel] = rows.map(Vec4::from_array);
+			*raster = rows.map(Vec4::from_array);
 		}
 
 		Self {
@@ -167,7 +167,7 @@ pub fn doric_column_ref() -> MaterialRef {
 
 #[cfg(test)]
 mod tests {
-	use material_ref::MATERIAL_RASTER_SAMPLES;
+	use material_ref::{MaterialId, MATERIAL_RASTER_SAMPLES};
 
 	use super::*;
 
