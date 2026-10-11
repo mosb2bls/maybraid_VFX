@@ -10,12 +10,14 @@ pub struct CameraController {
 	pub pitch: f32,
 }
 
-/// `wide` (default) shows both columns; `capital` frames the left column capital + chain anchors.
+/// `wide` | `capital` | `caps` (low angle on pedestal top + shaft base).
 pub fn preview_camera_transform() -> Transform {
 	match std::env::var("DORIC_PREVIEW_SHOT").as_deref() {
 		Ok("capital") => {
-			// Left encounter column: capital, echinus, and cardinal chain anchors (Y ≈ 15.2 m).
 			Transform::from_xyz(-2.0, 15.8, 7.2).looking_at(Vec3::new(-4.0, 15.25, 0.0), Vec3::Y)
+		}
+		Ok("caps") => {
+			Transform::from_xyz(-1.5, 3.5, 9.0).looking_at(Vec3::new(-4.0, 4.5, 0.0), Vec3::Y)
 		}
 		_ => Transform::from_xyz(6.0, 9.5, 14.0).looking_at(Vec3::new(0.0, 7.5, 0.0), Vec3::Y),
 	}

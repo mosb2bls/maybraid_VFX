@@ -61,21 +61,62 @@ Constants: [`src/assets.rs`](src/assets.rs).
   - `doric_column_shaft`
   - `doric_column_capital`
 
-Shaft instances use material recipe **`doric-column-shaft-pom`** ([`DoricColumnMaterials`](src/materials.rs)); pedestal and capital use `doric-column-pedestal` and `doric-column-capital` until the POM lane wires the shaft recipe in the material lib.
+Shaft instances use material recipe **`doric-column-shaft-pom`** ([`DoricColumnMaterials`](src/materials.rs)) — same contract as **`doric_column`** in the POM lane ([#1132](https://github.com/ramate-io/maybraid/issues/1132), draft PR [#1143](https://github.com/ramate-io/maybraid/pull/1143)). Pedestal and capital use `doric-column-pedestal` and `doric-column-capital`.
 
 ## UV layout and column POM ([#1132](https://github.com/ramate-io/maybraid/issues/1132))
 
-> **Pending POM lane:** No draft PR for [#1132](https://github.com/ramate-io/maybraid/issues/1132) was available when this spec was written. When that lane lands, replace this subsection with its UV/tangent/texel-density table and keep the part origins and anchor names below unchanged.
+Canonical shader and recipe documentation: [`COLUMN_SURFACE.md`](../../../../urbanization/buildings/shaders/COLUMN_SURFACE.md) ([#1143](https://github.com/ramate-io/maybraid/pull/1143)). POM owns **surface relief only**. Shaft outline, capital, pedestal, and cover collision stay real geometry. The material never displaces the silhouette and must not be treated as physical cover.
 
-Until then, author the **shaft** with the following **integration placeholders** (the POM shader will own relief; collision stays on mesh silhouette):
+### Mesh islands
 
-| Topic | Shaft expectation (placeholder) |
-|-------|----------------------------------|
-| **UV0** | Cylindrical unwrap around **+Y**; seam on **−X** (back); **V** = 0 at bottom, **V** = 1 at top; **U** wraps once per 20 flutes at unit height (adjust U scale so one flute ≈ 0.05 U). |
-| **UV channels** | **UV0** = albedo + POM height; leave **UV1** unused unless #1132 specifies otherwise. |
-| **Texel density** | Target **~512 px/m** on the shaft at unit dimensions (≈ 7k px vertical span for 14 m); capital/pedestal may use 256 px/m. |
-| **Tangents** | Mikktspace, **+V** along **+Y**, bitangent consistent with **+Z** forward. |
-| **Tiling** | Flutes tile in **U** only; **V** spans full shaft height in one tile. |
+| Part | Geometry | This material? |
+|------|----------|----------------|
+| Shaft | Circular (or slight entasis) cylinder of revolution | Yes — `doric_column` / `doric-column-shaft-pom` |
+| Capital / necking | Real mesh | No. Separate island or mesh. |
+| Pedestal / base | Real mesh | No. Separate island or mesh. |
+| Caps | Omit on the shaft, or a distinct UV island | Fluting UVs must not cover caps |
+
+Runtime **placeholders** close the shaft with top/bottom caps for preview; cap faces use **`U = 0.5`** (off the fluting island). Authored GLBs should omit shaft caps or keep them on a separate UV island as above.
+
+### UV (shaft side wall)
+
+Local space: **+Y** up the shaft, origin on the shaft axis.
+
+| Channel | Range | Meaning |
+|---------|-------|---------|
+| **U** | `0..1`, wraps once | Angle around the shaft. **U = 0 and U = 1 are the same physical seam.** |
+| **V** | `0..1` | Bottom → top of the **authored shaft** (bind pose, before gameplay scale). |
+
+Seam placement: put **U = 0/1 on local −Z** so a typical +Z / +X approach does not look at the cut. Duplicate the seam ring of vertices. Do **not** let a triangle interpolate from `U ≈ 1` to `U ≈ 0`.
+
+Height is **periodic in U** (`fract(u)`). Authored height / normal maps must tile across the seam, or hide the seam on −Z and keep a few texels of overlap.
+
+Do not mirror U. Flute count is `U * 20` (classical Doric; override with material scalar 3 in the POM recipe).
+
+### Tangent frame (shaft)
+
+Right-handed, Bevy `ATTRIBUTE_TANGENT` (`xyz` + `w` sign):
+
+| Vector | Direction | Notes |
+|--------|-----------|--------|
+| **T** (+U) | Circumferential, counterclockwise when viewed from +Y | `dP/dU` |
+| **B** (+V) | Up the shaft | `dP/dV` |
+| **N** | Outward from the axis | `T × B` (with `tangent.w = +1`) |
+
+`T` must be perpendicular to `N`. Do not import a GLB whose tangents were generated against a different unwrap (planar box, mirrored U, or inverted V). Export tangents for the shaft.
+
+The [`doric-column`](.) placeholder shaft follows this contract on the side wall (see `solid_shaft_mesh` in [`src/placeholder.rs`](src/placeholder.rs)).
+
+### Texel density (when baking maps)
+
+| Axis | Target |
+|------|--------|
+| **U** | **64–128 texels per flute** (one wrap = flute count × that) |
+| **V** | **256–512 texels per metre** of authored shaft |
+
+Example at preview radius `r = 0.42 m`, height `2.52 m`, 20 flutes: 96 texels/flute → **1920** px wide; 384 texels/m → **968** px tall.
+
+Uniform gameplay scale is fine. Non-uniform scale that stretches U vs V will shear flutes; don’t.
 
 Pedestal and capital: planar or box-projected UV0 is fine at similar texel density; they do not use the column POM recipe.
 
