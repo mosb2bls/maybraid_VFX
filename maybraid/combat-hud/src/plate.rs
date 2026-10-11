@@ -58,7 +58,7 @@ pub(crate) fn spawn_hud_plate<M: Component>(
 	marker: M,
 	layout: HudPlateLayout,
 	children: impl FnOnce(&mut ChildSpawnerCommands),
-) {
+) -> Entity {
 	parent
 		.spawn((
 			Name::new(name),
@@ -69,5 +69,6 @@ pub(crate) fn spawn_hud_plate<M: Component>(
 			Visibility::Hidden,
 			Pickable::IGNORE,
 		))
-		.with_children(children);
+		.with_children(children)
+		.id()
 }

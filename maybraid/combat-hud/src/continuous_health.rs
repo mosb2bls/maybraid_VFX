@@ -49,10 +49,20 @@ impl Default for ContinuousHealthConfig {
 	}
 }
 
+/// Layout mode for the continuous health bar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HealthBarLayout {
+	/// World-anchored: positioned via world-to-screen projection, absolute positioning.
+	WorldAnchored,
+	/// UI child: relative positioning within parent UI container (for player vitals plate).
+	UiChild,
+}
+
 /// Marker for the continuous health bar root node.
 #[derive(Component)]
 pub struct ContinuousHealthBar {
 	pub target: Entity,
+	pub layout: HealthBarLayout,
 }
 
 /// Marker for the fill element (current HP).
@@ -109,24 +119,79 @@ pub fn spawn_continuous_health_bar(
 	commands: &mut Commands,
 	config: &ContinuousHealthConfig,
 ) {
+	spawn_continuous_health_bar_with_layout(
+		parent,
+		target,
+		commands,
+		config,
+		HealthBarLayout::WorldAnchored,
+	);
+}
+
+/// Spawn health bar directly in a ChildSpawnerCommands context (from within with_children callback).
+pub fn spawn_continuous_health_bar_in_builder(
+	parent: &mut ChildSpawnerCommands,
+	target: Entity,
+	config: &ContinuousHealthConfig,
+	layout: HealthBarLayout,
+) -> Entity {
+	spawn_continuous_health_bar_impl(parent, target, config, layout)
+}
+
+pub fn spawn_continuous_health_bar_with_layout(
+	parent: Entity,
+	target: Entity,
+	commands: &mut Commands,
+	config: &ContinuousHealthConfig,
+	layout: HealthBarLayout,
+) -> Entity {
+	let mut bar_entity = Entity::PLACEHOLDER;
 	commands.entity(parent).with_children(|root| {
-		root.spawn((
-			ContinuousHealthBar { target },
-			HealthAnimState::default(),
-			Node {
-				position_type: PositionType::Absolute,
-				left: Val::Px(0.0),
-				top: Val::Px(0.0),
-				width: Val::Px(config.bar_width),
-				height: Val::Px(config.bar_height + 20.0),
-				flex_direction: FlexDirection::Column,
-				align_items: AlignItems::Center,
-				row_gap: Val::Px(2.0),
-				..default()
-			},
-			Visibility::Hidden,
-			Pickable::IGNORE,
-		))
+		bar_entity = spawn_continuous_health_bar_impl(root, target, config, layout);
+	});
+	bar_entity
+}
+
+fn spawn_continuous_health_bar_impl(
+	root: &mut ChildSpawnerCommands,
+	target: Entity,
+	config: &ContinuousHealthConfig,
+	layout: HealthBarLayout,
+) -> Entity {
+	let node = match layout {
+		HealthBarLayout::WorldAnchored => Node {
+			position_type: PositionType::Absolute,
+			left: Val::Px(0.0),
+			top: Val::Px(0.0),
+			width: Val::Px(config.bar_width),
+			height: Val::Px(config.bar_height + 20.0),
+			flex_direction: FlexDirection::Column,
+			align_items: AlignItems::Center,
+			row_gap: Val::Px(2.0),
+			..default()
+		},
+		HealthBarLayout::UiChild => Node {
+			width: Val::Percent(100.0),
+			height: Val::Px(config.bar_height + 20.0),
+			flex_direction: FlexDirection::Column,
+			align_items: AlignItems::Center,
+			row_gap: Val::Px(2.0),
+			..default()
+		},
+	};
+	
+	let visibility = match layout {
+		HealthBarLayout::WorldAnchored => Visibility::Hidden,
+		HealthBarLayout::UiChild => Visibility::Visible,
+	};
+	
+	root.spawn((
+		ContinuousHealthBar { target, layout },
+		HealthAnimState::default(),
+		node,
+		visibility,
+		Pickable::IGNORE,
+	))
 		.with_children(|anchor| {
 			// Status dot
 			anchor.spawn((
@@ -259,8 +324,8 @@ pub fn spawn_continuous_health_bar(
 							));
 						});
 				});
-		});
-	});
+		})
+		.id()
 }
 
 #[allow(clippy::type_complexity)]
@@ -285,6 +350,11 @@ pub fn position_continuous_health_bars(
 	let config = config.as_ref().map(|c| **c).unwrap_or_default();
 
 	for (bar, mut node, mut visibility) in &mut bars {
+		// Only position world-anchored bars; UI children use relative layout
+		if bar.layout != HealthBarLayout::WorldAnchored {
+			continue;
+		}
+		
 		let Ok((transform, hull)) = healths.get(bar.target) else {
 			*visibility = Visibility::Hidden;
 			continue;
