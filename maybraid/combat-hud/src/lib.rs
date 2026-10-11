@@ -1,13 +1,18 @@
 //! Reusable combat feedback for player health, outgoing hits, and incoming damage.
 
+mod continuous_health;
 mod plate;
 mod score;
 mod screen_pin;
 mod vitals;
 
 use bevy::prelude::*;
+use continuous_health::{
+	position_continuous_health_bars, spawn_continuous_health_bar, trigger_completion_flash,
+	update_continuous_health_bar_content, ContinuousHealthBar, ContinuousHealthConfig,
+};
 use damage::{DamageApplied, Downed, HeadshotBand, Health};
-use player::{LocomotionCapsule, Npc, Player};
+use player::{Npc, Player};
 use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
@@ -26,13 +31,10 @@ impl Default for CombatHudVisible {
 
 const BAR_WIDTH: f32 = 240.0;
 const BAR_HEIGHT: f32 = 18.0;
-const WORLD_BAR_WIDTH: f32 = 120.0;
-const WORLD_BAR_HEIGHT: f32 = 8.0;
 const INDICATOR_COUNT: usize = 8;
 const INDICATOR_RADIUS: f32 = 148.0;
 const INDICATOR_LIFE: f32 = 1.4;
 const INDICATOR_GROUP: f32 = 0.5;
-const HEAD_LIFT_PAD: f32 = 0.38;
 const POPUP_LIFE: f32 = 0.9;
 const POPUP_RISE: f32 = 48.0;
 const HIT_POINTS: u8 = 1;
@@ -77,10 +79,25 @@ impl Plugin for CombatHudPlugin {
 			.init_resource::<CombatHudVisible>()
 			.add_systems(Startup, spawn_combat_hud);
 		if self.health_bars {
-			app.init_resource::<CombatHudOpponentTotal>().add_systems(
+			app.init_resource::<CombatHudOpponentTotal>()
+				.init_resource::<ContinuousHealthConfig>()
+				.add_message::<lubikans::LubikanActivationFinished>();
+			app.add_systems(
 				Update,
-				(ensure_world_health_bars, sync_health_hud, sync_world_health_bars)
-					.in_set(CombatHudSystems::Health),
+				ensure_continuous_health_bars.in_set(CombatHudSystems::Health),
+			);
+			app.add_systems(Update, sync_health_hud.in_set(CombatHudSystems::Health));
+			app.add_systems(
+				Update,
+				position_continuous_health_bars.in_set(CombatHudSystems::Health),
+			);
+			app.add_systems(
+				Update,
+				update_continuous_health_bar_content.in_set(CombatHudSystems::Health),
+			);
+			app.add_systems(
+				Update,
+				trigger_completion_flash.in_set(CombatHudSystems::Health),
 			);
 		}
 		if self.player_vitals {
@@ -143,20 +160,6 @@ struct HudBarFill;
 
 #[derive(Component)]
 struct HudBarLabel;
-
-#[derive(Component)]
-struct WorldHudFill;
-
-#[derive(Component)]
-struct WorldHudLabel;
-
-#[derive(Component)]
-struct WorldHudStatus;
-
-#[derive(Component)]
-struct WorldHealthAnchor {
-	target: Entity,
-}
 
 #[derive(Component)]
 struct DamageTick {
@@ -317,91 +320,49 @@ fn spawn_screen_bar(parent: &mut ChildSpawnerCommands, kind: CombatantHud, title
 		});
 }
 
-fn spawn_world_bar(parent: Entity, target: Entity, commands: &mut Commands) {
-	commands.entity(parent).with_children(|root| {
-		root.spawn((
-			WorldHealthAnchor { target },
-			Node {
-				position_type: PositionType::Absolute,
-				left: Val::Px(0.0),
-				top: Val::Px(0.0),
-				width: Val::Px(WORLD_BAR_WIDTH),
-				height: Val::Px(WORLD_BAR_HEIGHT + 18.0),
-				flex_direction: FlexDirection::Column,
-				align_items: AlignItems::Center,
-				row_gap: Val::Px(2.0),
-				..default()
-			},
-			Visibility::Hidden,
-			Pickable::IGNORE,
-		))
-		.with_children(|anchor| {
-			anchor.spawn((
-				WorldHudStatus,
-				Node {
-					width: Val::Px(10.0),
-					height: Val::Px(10.0),
-					border_radius: BorderRadius::all(Val::Px(10.0)),
-					..default()
-				},
-				BackgroundColor(Color::WHITE),
-				Visibility::Hidden,
-				Pickable::IGNORE,
-			));
-			anchor.spawn((
-				WorldHudLabel,
-				Text::new(""),
-				TextFont { font_size: FontSize::Px(12.0), ..default() },
-				TextColor(Color::WHITE),
-			));
-			anchor
-				.spawn((
-					Node {
-						width: Val::Percent(100.0),
-						height: Val::Px(WORLD_BAR_HEIGHT),
-						border_radius: BorderRadius::all(Val::Px(2.0)),
-						..default()
-					},
-					BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.85)),
-				))
-				.with_children(|track| {
-					track.spawn((
-						WorldHudFill,
-						Node {
-							width: Val::Percent(100.0),
-							height: Val::Percent(100.0),
-							border_radius: BorderRadius::all(Val::Px(2.0)),
-							..default()
-						},
-						BackgroundColor(bar_color(1.0)),
-					));
-				});
-		});
-	});
+fn spawn_world_bar(
+	parent: Entity,
+	target: Entity,
+	commands: &mut Commands,
+	config: &ContinuousHealthConfig,
+) {
+	spawn_continuous_health_bar(parent, target, commands, config);
 }
 
-type LiveNpcs<'w, 's> = Query<'w, 's, Entity, (With<Npc>, With<Health>, Without<Downed>)>;
+type LiveEntities<'w, 's> = Query<'w, 's, Entity, (With<Health>, Without<Downed>)>;
 
-fn ensure_world_health_bars(
+fn ensure_continuous_health_bars(
 	mut commands: Commands,
 	hud: Query<Entity, With<CombatHudRoot>>,
-	npcs: LiveNpcs,
-	anchors: Query<(Entity, &WorldHealthAnchor)>,
+	entities: LiveEntities,
+	bars: Query<(Entity, &ContinuousHealthBar)>,
+	config: Res<ContinuousHealthConfig>,
+	players: Query<Entity, With<Player>>,
 ) {
 	let Ok(hud) = hud.single() else {
 		return;
 	};
-	let live: Vec<Entity> = npcs.iter().collect();
+	
+	// Include both player and NPCs
+	let mut live: Vec<Entity> = entities.iter().collect();
+	if let Ok(player) = players.single() {
+		if !live.contains(&player) {
+			live.push(player);
+		}
+	}
+	
 	let existing: Vec<(Entity, Entity)> =
-		anchors.iter().map(|(entity, anchor)| (entity, anchor.target)).collect();
+		bars.iter().map(|(entity, bar)| (entity, bar.target)).collect();
+	
 	for (entity, target) in &existing {
 		if !live.contains(target) {
 			commands.entity(*entity).try_despawn();
 		}
 	}
-	for npc in live {
-		if !existing.iter().any(|(_, target)| *target == npc) {
-			spawn_world_bar(hud, npc, &mut commands);
+	
+	for entity in live {
+		if !existing.iter().any(|(_, target)| *target == entity) {
+			spawn_world_bar(hud, entity, &mut commands, &config);
 		}
 	}
 }
@@ -440,91 +401,7 @@ fn sync_health_hud(
 	}
 }
 
-type WorldBarFills<'w, 's> = Query<
-	'w,
-	's,
-	(&'static mut Node, &'static mut BackgroundColor),
-	(With<WorldHudFill>, Without<WorldHealthAnchor>, Without<WorldHudStatus>),
->;
-type WorldHealthNpcs<'w, 's> = Query<
-	'w,
-	's,
-	(
-		&'static GlobalTransform,
-		&'static Health,
-		Option<&'static LocomotionCapsule>,
-		Option<&'static CombatHudStatusColor>,
-	),
-	(With<Npc>, Without<Downed>),
->;
-type WorldBarAnchors<'w, 's> = Query<
-	'w,
-	's,
-	(Entity, &'static WorldHealthAnchor, &'static mut Node, &'static mut Visibility),
-	(Without<WorldHudFill>, Without<WorldHudStatus>),
->;
-type WorldHudStatuses<'w, 's> = Query<
-	'w,
-	's,
-	(&'static mut BackgroundColor, &'static mut Visibility),
-	(With<WorldHudStatus>, Without<WorldHealthAnchor>, Without<WorldHudFill>),
->;
-
-fn sync_world_health_bars(
-	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-	npcs: WorldHealthNpcs,
-	mut anchors: WorldBarAnchors,
-	children: Query<&Children>,
-	mut fills: WorldBarFills,
-	mut labels: Query<&mut Text, With<WorldHudLabel>>,
-	mut statuses: WorldHudStatuses,
-) {
-	let Ok((camera, camera_transform)) = cameras.single() else {
-		return;
-	};
-	for (anchor_entity, anchor, mut node, mut visibility) in &mut anchors {
-		let Ok((transform, health, hull, status)) = npcs.get(anchor.target) else {
-			*visibility = Visibility::Hidden;
-			continue;
-		};
-		let lift = hull.copied().unwrap_or_default().half_height() + HEAD_LIFT_PAD;
-		let head = transform.translation() + Vec3::Y * lift;
-		if let Ok(screen) = camera.world_to_viewport(camera_transform, head) {
-			node.left = Val::Px(screen.x - WORLD_BAR_WIDTH * 0.5);
-			node.top = Val::Px(screen.y - 26.0);
-			*visibility = Visibility::Visible;
-		} else {
-			*visibility = Visibility::Hidden;
-			continue;
-		}
-		let Ok(kids) = children.get(anchor_entity) else {
-			continue;
-		};
-		for child in kids {
-			if let Ok((mut color, mut status_visibility)) = statuses.get_mut(*child) {
-				if let Some(status) = status {
-					color.0 = status.0;
-					*status_visibility = Visibility::Visible;
-				} else {
-					*status_visibility = Visibility::Hidden;
-				}
-			}
-			if let Ok(mut text) = labels.get_mut(*child) {
-				text.0 = format!("{:.0}", health.current);
-			}
-			let Ok(grandchildren) = children.get(*child) else {
-				continue;
-			};
-			for grandchild in grandchildren {
-				let Ok((mut fill, mut color)) = fills.get_mut(*grandchild) else {
-					continue;
-				};
-				fill.width = Val::Percent(health.fraction() * 100.0);
-				color.0 = bar_color(health.fraction());
-			}
-		}
-	}
-}
+// Continuous health bars are now handled by the continuous_health module
 
 fn ingest_directional_damage(
 	time: Res<Time>,

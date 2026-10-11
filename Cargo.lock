@@ -3126,6 +3126,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "damage",
+ "lubikans",
  "menu-components",
  "player",
 ]
