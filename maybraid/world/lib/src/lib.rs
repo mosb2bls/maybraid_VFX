@@ -31,7 +31,10 @@ mod world_layers;
 
 pub use world_furnished::WorldFurnished;
 
-pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
+pub use commands::PLAYGROUND_CLI_NAME;
+pub use commands::PlaygroundCommand;
+#[cfg(debug_assertions)]
+pub use commands::{RequestGrantPoints, RequestSpawnNpc, RequestTakeDamage};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
 	WorldSurfaceReady, WorldSurfaceSet,
@@ -300,6 +303,72 @@ impl Plugin for WorldPlugin {
 			);
 		}
 		lubikan_activate::configure(app);
+		#[cfg(debug_assertions)]
+		{
+			app.add_systems(
+				Update,
+				(apply_debug_grant_points, apply_debug_take_damage, apply_debug_spawn_npc),
+			);
+		}
+	}
+}
+
+#[cfg(debug_assertions)]
+fn apply_debug_grant_points(
+	requests: Query<(Entity, &commands::RequestGrantPoints)>,
+	players: Query<Entity, With<player::Player>>,
+	mut lubikan_requests: MessageWriter<lubikans::LubikanChargeRequest>,
+	mut commands: Commands,
+) {
+	for (entity, request) in &requests {
+		if let Ok(player) = players.single() {
+			// Go through LubikanChargeRequest -> Award path
+			lubikan_requests.write(lubikans::LubikanChargeRequest::equipped(
+				player,
+				request.amount,
+				lubikans::LubikanChargeReason::OCCUPANCY,
+				None,
+			));
+		}
+		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(debug_assertions)]
+fn apply_debug_take_damage(
+	requests: Query<(Entity, &commands::RequestTakeDamage)>,
+	players: Query<Entity, With<player::Player>>,
+	mut healths: Query<&mut damage::Health>,
+	mut commands: Commands,
+) {
+	for (entity, request) in &requests {
+		if let Ok(player) = players.single() {
+			if let Ok(mut health) = healths.get_mut(player) {
+				health.take_damage(request.amount);
+			}
+		}
+		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(debug_assertions)]
+fn apply_debug_spawn_npc(
+	requests: Query<(Entity, &commands::RequestSpawnNpc)>,
+	players: Query<&GlobalTransform, With<player::Player>>,
+	mut commands: Commands,
+) {
+	for (entity, _) in &requests {
+		if let Ok(player_transform) = players.single() {
+			let spawn_pos = player_transform.translation() + Vec3::new(2.0, 0.0, 2.0);
+			commands.spawn((
+				player::Npc,
+				damage::Health { current: 30.0, max: 30.0 },
+				GlobalTransform::from_translation(spawn_pos),
+				Transform::from_translation(spawn_pos),
+				Name::new("Debug NPC"),
+			));
+		}
+		commands.entity(entity).despawn();
 	}
 }
 

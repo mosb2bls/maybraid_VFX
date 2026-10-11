@@ -40,6 +40,10 @@ pub enum PlaygroundCommand {
 	/// Inspect or drive the Discovery sky clock.
 	#[command(subcommand)]
 	Sky(Sky),
+	/// Debug commands for testing (debug builds only).
+	#[cfg(debug_assertions)]
+	#[command(subcommand)]
+	Debug(DebugCommand),
 }
 
 #[derive(Clone, Subcommand)]
@@ -85,6 +89,18 @@ pub enum Stats {
 	Vsync,
 }
 
+#[cfg(debug_assertions)]
+#[derive(Clone, Subcommand)]
+#[command(rename_all = "kebab-case")]
+pub enum DebugCommand {
+	/// Grant Lubikan charge points (goes through LubikanChargeRequest).
+	GrantPoints { amount: f32 },
+	/// Apply damage to the player.
+	TakeDamage { amount: f32 },
+	/// Spawn an NPC at player position.
+	SpawnNpc,
+}
+
 impl PlaygroundCommand {
 	pub fn long_help_string() -> String {
 		<Self as GameCommand>::long_help_string()
@@ -111,6 +127,8 @@ impl PlaygroundCommand {
 			}
 			PlaygroundCommand::Stats(stats) => stats.react(commands, console),
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
+			#[cfg(debug_assertions)]
+			PlaygroundCommand::Debug(debug) => debug.react(commands, console),
 		}
 	}
 
@@ -196,6 +214,42 @@ pub(crate) fn apply_sky_commands(
 			console.0 = clock.status_line();
 		}
 		commands.entity(entity).despawn();
+	}
+}
+
+#[cfg(debug_assertions)]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestGrantPoints {
+	pub amount: f32,
+}
+
+#[cfg(debug_assertions)]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestTakeDamage {
+	pub amount: f32,
+}
+
+#[cfg(debug_assertions)]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestSpawnNpc;
+
+#[cfg(debug_assertions)]
+impl DebugCommand {
+	fn react(self, commands: &mut Commands, console: &mut String) {
+		match self {
+			DebugCommand::GrantPoints { amount } => {
+				commands.spawn(RequestGrantPoints { amount });
+				*console = format!("debug grant-points {amount}: pending");
+			}
+			DebugCommand::TakeDamage { amount } => {
+				commands.spawn(RequestTakeDamage { amount });
+				*console = format!("debug take-damage {amount}: pending");
+			}
+			DebugCommand::SpawnNpc => {
+				commands.spawn(RequestSpawnNpc);
+				*console = "debug spawn-npc: pending".into();
+			}
+		}
 	}
 }
 
