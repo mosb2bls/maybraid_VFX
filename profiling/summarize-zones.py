@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Summarize Tracy zone CSVs, optionally sliced to an agent measure window."""
+"""Summarize Tracy zone CSVs. Names are unquoted and may contain commas."""
 
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import statistics
 import sys
@@ -12,10 +11,9 @@ from collections import defaultdict
 from pathlib import Path
 
 
-WHOLE_FRAME_NAMES = ("Frame", "frame", "GameThread", "Update")
-INTERESTING_SUBSTR = (
+INTERESTING = (
 	"Update",
-	"frame",
+	"Frame",
 	"fill_lod",
 	"fulfill",
 	"drain_lod",
@@ -26,12 +24,15 @@ INTERESTING_SUBSTR = (
 	"queue_terrain",
 	"begin_chunk",
 	"render_system",
-	"Present",
 	"extract",
 	"PhysicsSchedule",
 	"reindex_moved",
 	"chico_grove",
 	"padded_terrain",
+	"Present",
+	"prepare_view",
+	"queue_material",
+	"shadow",
 )
 
 
@@ -59,9 +60,7 @@ def measure_window(events_path: Path | None, scenario: str) -> tuple[float | Non
 			event = json.loads(line)
 		except json.JSONDecodeError:
 			continue
-		if event.get("kind") != "scenario":
-			continue
-		if event.get("name") != scenario:
+		if event.get("kind") != "scenario" or event.get("name") != scenario:
 			continue
 		if event.get("mark") == "start":
 			start = float(event["t"])
@@ -70,66 +69,91 @@ def measure_window(events_path: Path | None, scenario: str) -> tuple[float | Non
 	return start, end
 
 
-def ns_from_cell(value: str) -> float | None:
-	text = value.strip()
-	if not text:
+def split_name_path(line: str) -> tuple[str, str] | None:
+	idx = line.find(",/")
+	if idx < 0:
+		idx = line.find(",\\")
+	if idx < 0:
+		return None
+	return line[:idx], line[idx + 1 :]
+
+
+def parse_zone_row(line: str) -> dict[str, float | str | int] | None:
+	split = split_name_path(line)
+	if split is None:
+		return None
+	name, rest = split
+	# src_file,src_line,total_ns,total_perc,counts,mean_ns,min_ns,max_ns,std_ns
+	parts = rest.split(",")
+	if len(parts) < 9:
 		return None
 	try:
-		number = float(text)
+		return {
+			"name": name,
+			"src_file": parts[0],
+			"count": int(float(parts[4])),
+			"total_ns": float(parts[2]),
+			"mean_ns": float(parts[5]),
+			"min_ns": float(parts[6]),
+			"max_ns": float(parts[7]),
+		}
 	except ValueError:
 		return None
-	# Tracy 0.13 csvexport uses nanoseconds for totals / means.
-	return number
 
 
-def load_aggregate(path: Path) -> list[dict[str, str]]:
-	with path.open(newline="") as handle:
-		return list(csv.DictReader(handle))
+def parse_unwrap_row(line: str) -> dict[str, float | str] | None:
+	split = split_name_path(line)
+	if split is None:
+		return None
+	name, rest = split
+	# src_file,src_line,ns_since_start,exec_time_ns,thread,value
+	parts = rest.split(",")
+	if len(parts) < 4:
+		return None
+	try:
+		return {
+			"name": name,
+			"start_ns": float(parts[2]),
+			"duration_ns": float(parts[3]),
+		}
+	except ValueError:
+		return None
 
 
-def pick(row: dict[str, str], *names: str) -> str | None:
-	lower = {key.lower(): key for key in row}
-	for name in names:
-		key = lower.get(name.lower())
-		if key is not None:
-			return row[key]
-	return None
-
-
-def format_ms(ns: float | None) -> str:
-	if ns is None:
-		return "—"
+def ms(ns: float) -> str:
 	return f"{ns / 1_000_000:.3f}"
 
 
 def interesting(name: str) -> bool:
-	return any(token.lower() in name.lower() for token in INTERESTING_SUBSTR)
+	lower = name.lower()
+	return any(token.lower() in lower for token in INTERESTING)
 
 
-def summarize_aggregate(rows: list[dict[str, str]], top: int) -> list[tuple[str, int, float, float]]:
-	parsed: list[tuple[str, int, float, float]] = []
-	for row in rows:
-		name = pick(row, "name", "zone", "src_zone")
-		if not name:
-			continue
-		count_raw = pick(row, "count", "counts", "num")
-		mean_raw = pick(row, "mean_ns", "mean", "avg")
-		total_raw = pick(row, "total_ns", "total", "total_time")
-		max_raw = pick(row, "max_ns", "max")
-		count = int(float(count_raw)) if count_raw else 0
-		mean = ns_from_cell(mean_raw) if mean_raw else None
-		total = ns_from_cell(total_raw) if total_raw else None
-		maximum = ns_from_cell(max_raw) if max_raw else None
-		if mean is None and total is not None and count:
-			mean = total / count
-		if mean is None:
-			continue
-		parsed.append((name, count, mean, maximum or mean))
-	parsed.sort(key=lambda item: item[2] * max(item[1], 1), reverse=True)
-	# Prefer interesting names in the printed table, but keep total-time order
-	# for the raw ranking when nothing matches.
-	hot = [item for item in parsed if interesting(item[0])]
-	return (hot or parsed)[:top]
+def startup_only(name: str, count: int) -> bool:
+	return count <= 2 and (
+		name.startswith("plugin ") or name.startswith("asset loading") or "startup" in name.lower()
+	)
+
+
+def load_zones(path: Path) -> list[dict[str, float | str | int]]:
+	rows: list[dict[str, float | str | int]] = []
+	for raw in path.read_text(errors="replace").splitlines()[1:]:
+		row = parse_zone_row(raw)
+		if row is not None:
+			rows.append(row)
+	return rows
+
+
+def summarize_aggregate(rows: list[dict[str, float | str | int]], top: int) -> list[dict[str, float | str | int]]:
+	recurring = [
+		row
+		for row in rows
+		if int(row["count"]) >= 8 and not startup_only(str(row["name"]), int(row["count"]))
+	]
+	hot = [row for row in recurring if interesting(str(row["name"]))]
+	pool = hot or recurring
+	pool.sort(key=lambda row: float(row["mean_ns"]) * int(row["count"]), reverse=True)
+	return pool[:top]
 
 
 def summarize_unwrap(
@@ -139,55 +163,54 @@ def summarize_unwrap(
 	top: int,
 ) -> list[tuple[str, int, float, float]]:
 	by_name: dict[str, list[float]] = defaultdict(list)
-	with path.open(newline="") as handle:
-		reader = csv.DictReader(handle)
-		for row in reader:
-			name = pick(row, "name", "zone")
-			if not name:
+	for raw in path.read_text(errors="replace").splitlines()[1:]:
+		row = parse_unwrap_row(raw)
+		if row is None:
+			continue
+		if start_s is not None:
+			t_s = float(row["start_ns"]) / 1_000_000_000
+			if t_s < start_s:
 				continue
-			t0 = pick(row, "start", "time_start", "t0", "timestamp")
-			t1 = pick(row, "end", "time_end", "t1")
-			dur = pick(row, "duration", "time", "dt")
-			start = ns_from_cell(t0) if t0 else None
-			end = ns_from_cell(t1) if t1 else None
-			duration = ns_from_cell(dur) if dur else None
-			if duration is None and start is not None and end is not None:
-				duration = abs(end - start)
-			if duration is None:
+			if end_s is not None and t_s > end_s:
 				continue
-			# Unwrap timestamps are Tracy time (ns). Agent events are game seconds.
-			# Align by using the first/last Frame if window is set in seconds —
-			# caller should pass None when units cannot be matched. We treat
-			# start_s/end_s as game seconds and skip unwrap windowing unless
-			# timestamps look like seconds already (< 1e7).
-			if start is not None and start_s is not None:
-				t_s = start if start < 1e7 else start / 1_000_000_000
-				if t_s < start_s:
-					continue
-				if end_s is not None and t_s > end_s:
-					continue
-			by_name[name].append(duration)
+		by_name[str(row["name"])].append(float(row["duration_ns"]))
 	ranked: list[tuple[str, int, float, float]] = []
 	for name, samples in by_name.items():
+		if len(samples) < 8:
+			continue
 		ranked.append((name, len(samples), statistics.fmean(samples), max(samples)))
 	ranked.sort(key=lambda item: item[2] * item[1], reverse=True)
 	hot = [item for item in ranked if interesting(item[0])]
 	return (hot or ranked)[:top]
 
 
-def render_table(
+def render_agg(title: str, rows: list[dict[str, float | str | int]]) -> str:
+	lines = [title, f"{'zone':<72} {'n':>7} {'mean_ms':>9} {'max_ms':>9}", "-" * 100]
+	for row in rows:
+		name = str(row["name"])
+		if len(name) > 72:
+			name = name[:69] + "..."
+		lines.append(
+			f"{name:<72} {int(row['count']):>7} {ms(float(row['mean_ns'])):>9} {ms(float(row['max_ns'])):>9}"
+		)
+	return "\n".join(lines) + "\n"
+
+
+def render_unwrap(
 	title: str,
 	rows: list[tuple[str, int, float, float]],
 	window: tuple[float | None, float | None],
 ) -> str:
-	lines = [title]
 	start, end = window
+	lines = [title]
 	if start is not None or end is not None:
-		lines.append(f"measure window t=[{start if start is not None else '?'}, {end if end is not None else '?'}] s")
-	lines.append(f"{'zone':<56} {'n':>7} {'mean_ms':>10} {'max_ms':>10}")
-	lines.append("-" * 86)
+		lines.append(f"window t=[{start}, {end}] s")
+	lines.append(f"{'zone':<72} {'n':>7} {'mean_ms':>9} {'max_ms':>9}")
+	lines.append("-" * 100)
 	for name, count, mean, maximum in rows:
-		lines.append(f"{name:<56} {count:>7} {format_ms(mean):>10} {format_ms(maximum):>10}")
+		if len(name) > 72:
+			name = name[:69] + "..."
+		lines.append(f"{name:<72} {count:>7} {ms(mean):>9} {ms(maximum):>9}")
 	return "\n".join(lines) + "\n"
 
 
@@ -196,31 +219,18 @@ def main() -> int:
 	window = measure_window(args.events, args.scenario)
 	chunks: list[str] = []
 	if args.zones.is_file():
-		rows = load_aggregate(args.zones)
-		if rows:
-			chunks.append(
-				render_table(
-					f"aggregate zones ({args.zones.name})",
-					summarize_aggregate(rows, args.top),
-					window,
-				)
-			)
-		else:
-			chunks.append(f"no rows in {args.zones}\n")
+		rows = load_zones(args.zones)
+		chunks.append(render_agg(f"aggregate recurring zones ({args.zones.name})", summarize_aggregate(rows, args.top)))
 	if args.unwrap and args.unwrap.is_file():
 		chunks.append(
-			render_table(
-				f"unwrapped zones ({args.unwrap.name})",
+			render_unwrap(
+				f"unwrapped ({args.unwrap.name})",
 				summarize_unwrap(args.unwrap, window[0], window[1], args.top),
 				window,
 			)
 		)
 	if args.events and args.events.is_file():
-		start, end = window
-		chunks.append(
-			f"events: {args.events.name} measure={args.scenario or '(none)'} "
-			f"start={start} end={end}\n"
-		)
+		chunks.append(f"events measure={args.scenario or '(none)'} window={window}\n")
 	text = "\n".join(chunks) if chunks else "no input\n"
 	if args.out:
 		args.out.write_text(text)

@@ -135,8 +135,26 @@ fi
 unwrap_csv="${base}-unwrap.csv"
 tracy-csvexport "$tracy_file" >"$zones_csv"
 tracy-csvexport -m "$tracy_file" >"$messages_csv"
-# Unwrapped events are large; keep them local (not committed) for windowed means.
-tracy-csvexport -u "$tracy_file" >"$unwrap_csv"
+# Full unwrap is multi-GB. Keep a filtered CPU slice for measure-window means.
+wrote_unwrap_header=0
+: >"$unwrap_csv"
+for zone_filter in Update Frame fill_lod fulfill drain_lod visibility write_binned \
+	check_visibility render_system sync_stick queue_terrain begin_chunk \
+	PhysicsSchedule reindex_moved chico_grove extract Present; do
+	chunk="$(mktemp)"
+	tracy-csvexport -u -f "$zone_filter" "$tracy_file" >"$chunk" || true
+	if [[ ! -s "$chunk" ]]; then
+		rm -f "$chunk"
+		continue
+	fi
+	if [[ "$wrote_unwrap_header" -eq 0 ]]; then
+		cat "$chunk" >>"$unwrap_csv"
+		wrote_unwrap_header=1
+	else
+		tail -n +2 "$chunk" >>"$unwrap_csv"
+	fi
+	rm -f "$chunk"
+done
 
 python3 "$root/profiling/summarize-zones.py" \
 	--zones "$zones_csv" \
