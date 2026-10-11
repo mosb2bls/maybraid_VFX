@@ -1,7 +1,5 @@
 //! Dispatch message, live source, and shared presets.
 
-use std::time::Duration;
-
 use bevy::prelude::*;
 
 use crate::channels::{CameraRumbleShape, GroundRumbleShape, PadRumbleShape, RumbleChannels};
@@ -98,10 +96,6 @@ impl SpatialRumble {
 
 	pub fn clamped_duration(self) -> f32 {
 		self.duration.max(0.0)
-	}
-
-	pub fn pad_duration(self) -> Duration {
-		Duration::from_secs_f32(self.clamped_duration().min(4.0))
 	}
 
 	pub fn is_silent(self) -> bool {

@@ -1,9 +1,18 @@
 //! Apply composed output to camera, ground sample, and pad pulses.
 
-use bevy::prelude::*;
+use std::time::Duration;
 
-use crate::compose::SpatialRumbleOutput;
+use bevy::prelude::*;
+use maybraid_input::PadRumble;
+
+use crate::compose::{SpatialRumbleOutput, SpatialRumbleSettings};
 use crate::listener::{AppliedCameraRumble, SpatialRumbleListener};
+
+/// Time until the next composed pad pulse may be written.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+pub struct PadRumbleClock {
+	pub remaining: f32,
+}
 
 pub(crate) fn present_camera_rumble(
 	mut commands: Commands,
@@ -50,6 +59,41 @@ pub(crate) fn cleanup_removed_listeners(
 	}
 }
 
+/// Emit one [`PadRumble`] from the composed, bounded pad channels.
+/// Refresh is limited so overlapping sources do not spam `GamepadRumbleRequest`.
+pub(crate) fn present_pad_rumble(
+	time: Res<Time>,
+	output: Res<SpatialRumbleOutput>,
+	settings: Res<SpatialRumbleSettings>,
+	mut clock: ResMut<PadRumbleClock>,
+	mut pad: MessageWriter<PadRumble>,
+) {
+	clock.remaining -= time.delta_secs().max(0.0);
+	if clock.remaining > 0.0 {
+		return;
+	}
+	if let Some(pulse) = pad_pulse_from_output(&output, settings.pad_refresh) {
+		pad.write(pulse);
+		clock.remaining = settings.pad_refresh.max(1.0 / 60.0);
+	}
+}
+
+pub fn pad_pulse_from_output(output: &SpatialRumbleOutput, refresh: f32) -> Option<PadRumble> {
+	if output.pad_weak <= 0.0 && output.pad_strong <= 0.0 {
+		return None;
+	}
+	let pulse = PadRumble::motors(
+		Duration::from_secs_f32(refresh.max(1.0 / 60.0)),
+		output.pad_weak,
+		output.pad_strong,
+	);
+	if pulse.is_silent() {
+		None
+	} else {
+		Some(pulse)
+	}
+}
+
 /// Write the composed offset without accumulating onto last frame's shake.
 pub fn apply_camera_shake(
 	output: &SpatialRumbleOutput,
@@ -78,6 +122,76 @@ pub fn apply_camera_shake(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::channels::{CameraRumbleShape, PadRumbleShape, RumbleChannels};
+	use crate::compose::compose_output;
+	use crate::math::{noise, RumbleEnvelope, RumbleFalloff};
+	use crate::source::{SpatialRumble, SpatialRumbleSource};
+
+	fn known_source() -> SpatialRumbleSource {
+		SpatialRumbleSource::from_spec(
+			SpatialRumble {
+				origin: Vec3::ZERO,
+				intensity: 1.0,
+				duration: 2.0,
+				envelope: RumbleEnvelope::new(0.0, 0.0),
+				falloff: RumbleFalloff::new(0.0, 20.0),
+				seed: Some(11),
+				channels: RumbleChannels::ALL,
+				camera: CameraRumbleShape { translation: 0.2, roll: 0.1, frequency: 0.0 },
+				pad: PadRumbleShape { weak: 0.4, strong: 0.8 },
+				..SpatialRumble::default()
+			}
+			.with_seed(11),
+			11,
+		)
+	}
+
+	fn expected_camera_offset(
+		source: SpatialRumbleSource,
+		settings: &SpatialRumbleSettings,
+	) -> Vec3 {
+		let ticks = (source.age * source.spec.camera.frequency.max(0.0) * 60.0) as u32;
+		Vec3::new(
+			noise(source.seed, ticks, 1),
+			noise(source.seed, ticks, 2),
+			noise(source.seed, ticks, 3),
+		) * source.spec.camera.translation
+			* source.strength_at(Vec3::ZERO)
+			* settings.channel_gain(true, false, false)
+	}
+
+	#[test]
+	fn listener_gain_is_applied_once_to_a_known_offset() {
+		let source = known_source();
+		let settings = SpatialRumbleSettings::default();
+		let composed = compose_output([&source], Vec3::ZERO, 1.0, &settings);
+		let expected = expected_camera_offset(source, &settings);
+		assert!((composed.camera_offset - expected).length() < 1e-5);
+
+		let listener = SpatialRumbleListener::new(0.5);
+		let mut transform = Transform::from_translation(Vec3::Y);
+		let mut applied = AppliedCameraRumble::default();
+		apply_camera_shake(&composed, &mut transform, &listener, &mut applied);
+		assert!((applied.translation - expected * 0.5).length() < 1e-5);
+		assert!((applied.translation - expected * 0.25).length() > 1e-4);
+		assert!((transform.translation - (Vec3::Y + expected * 0.5)).length() < 1e-5);
+	}
+
+	#[test]
+	fn pad_pulse_matches_composed_motors() -> anyhow::Result<()> {
+		let output = SpatialRumbleOutput {
+			pad_weak: 0.3,
+			pad_strong: 0.25,
+			..SpatialRumbleOutput::default()
+		};
+		let pulse = pad_pulse_from_output(&output, 0.0625)
+			.ok_or_else(|| anyhow::anyhow!("expected a pulse"))?;
+		assert!((pulse.intensity.weak_motor - 0.3).abs() < 1e-5);
+		assert!((pulse.intensity.strong_motor - 0.25).abs() < 1e-5);
+		assert_eq!(pulse.duration, Duration::from_secs_f32(0.0625));
+		assert!(pad_pulse_from_output(&SpatialRumbleOutput::default(), 0.0625).is_none());
+		Ok(())
+	}
 
 	#[test]
 	fn shake_does_not_accumulate_on_a_standalone_camera() {

@@ -1,7 +1,6 @@
 //! Admit, tick, bound, and present concurrent sources.
 
 use bevy::prelude::*;
-use maybraid_input::PadRumble;
 
 use crate::channels::GroundRumbleSample;
 use crate::listener::{AppliedCameraRumble, SpatialRumbleListener, SpatialRumbleReceiver};
@@ -28,6 +27,9 @@ pub struct SpatialRumbleSettings {
 	pub max_pad_intensity: f32,
 	pub max_ground_amplitude: f32,
 	pub max_sources: usize,
+	/// Seconds between composed [`PadRumble`] pulses. Keeps `GamepadRumbleRequest`
+	/// from stacking every frame while the envelope still updates.
+	pub pad_refresh: f32,
 }
 
 impl Default for SpatialRumbleSettings {
@@ -42,9 +44,12 @@ impl Default for SpatialRumbleSettings {
 			max_pad_intensity: 1.0,
 			max_ground_amplitude: 1.5,
 			max_sources: 8,
+			pad_refresh: DEFAULT_PAD_REFRESH,
 		}
 	}
 }
+
+pub const DEFAULT_PAD_REFRESH: f32 = 1.0 / 16.0;
 
 impl SpatialRumbleSettings {
 	pub fn silent() -> Self {
@@ -106,11 +111,7 @@ pub(crate) fn ingest_rumbles(
 	mut messages: MessageReader<SpatialRumble>,
 	settings: Res<SpatialRumbleSettings>,
 	existing: Query<(Entity, &SpatialRumbleSource)>,
-	receivers: Query<&GlobalTransform, With<SpatialRumbleReceiver>>,
-	listeners: Query<&GlobalTransform, With<SpatialRumbleListener>>,
-	mut pad: MessageWriter<PadRumble>,
 ) {
-	let sample_at = sample_pose(receivers.iter().next(), listeners.iter().next());
 	let mut live: Vec<(Entity, f32)> =
 		existing.iter().map(|(entity, source)| (entity, source.age)).collect();
 	live.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -133,11 +134,6 @@ pub(crate) fn ingest_rumbles(
 		}
 		salt = salt.wrapping_add(1);
 		let seed = resolve_seed(spec.seed, salt);
-		if spec.channels.pad {
-			if let Some(pulse) = pad_pulse(spec, sample_at, &settings) {
-				pad.write(pulse);
-			}
-		}
 		commands.spawn(SpatialRumbleSource::from_spec(*spec, seed));
 		admitted += 1;
 	}
@@ -164,10 +160,13 @@ pub(crate) fn compose_rumbles(
 	listeners: Query<(&GlobalTransform, &SpatialRumbleListener, Option<&AppliedCameraRumble>)>,
 	mut output: ResMut<SpatialRumbleOutput>,
 ) {
+	// Listener gain is camera presentation only and is applied once in
+	// [`crate::present::apply_camera_shake`]. A body receiver may still scale
+	// compose; a listener-only host samples at the camera rest pose with gain 1.
 	let (sample_at, receiver_gain) = if let Some((transform, receiver)) = receivers.iter().next() {
 		(transform.translation(), receiver.gain)
 	} else if let Some((transform, listener, applied)) = listeners.iter().next() {
-		(rest_translation(transform.translation(), listener, applied), listener.gain)
+		(rest_translation(transform.translation(), listener, applied), 1.0)
 	} else {
 		(Vec3::ZERO, 1.0)
 	};
@@ -294,34 +293,6 @@ fn rest_translation(
 	}
 }
 
-fn sample_pose(receiver: Option<&GlobalTransform>, listener: Option<&GlobalTransform>) -> Vec3 {
-	receiver.or(listener).map(GlobalTransform::translation).unwrap_or(Vec3::ZERO)
-}
-
-fn pad_pulse(
-	spec: &SpatialRumble,
-	sample_at: Vec3,
-	settings: &SpatialRumbleSettings,
-) -> Option<PadRumble> {
-	let strength = spec.clamped_intensity()
-		* spec.falloff.sample(spec.origin.distance(sample_at))
-		* settings.channel_gain(false, true, false);
-	if strength <= 0.0 {
-		return None;
-	}
-	let limit = settings.max_pad_intensity.max(0.0);
-	let pulse = PadRumble::motors(
-		spec.pad_duration(),
-		(spec.pad.weak * strength).clamp(0.0, limit),
-		(spec.pad.strong * strength).clamp(0.0, limit),
-	);
-	if pulse.is_silent() {
-		None
-	} else {
-		Some(pulse)
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -380,5 +351,38 @@ mod tests {
 		let source = hold_source(Vec3::ZERO, 4);
 		let output = compose_output([&source], Vec3::ZERO, 1.0, &SpatialRumbleSettings::silent());
 		assert!(output.is_quiet());
+	}
+
+	#[test]
+	fn overlapping_sources_share_caps_and_envelopes_on_all_channels() {
+		let settings = SpatialRumbleSettings {
+			max_camera_offset: 0.05,
+			max_camera_roll: 0.02,
+			max_ground_amplitude: 0.4,
+			max_pad_intensity: 0.3,
+			..SpatialRumbleSettings::default()
+		};
+		let mut attack = hold_source(Vec3::ZERO, 1);
+		attack.spec.envelope = RumbleEnvelope::new(0.4, 0.0);
+		attack.spec.duration = 1.0;
+		let mut peak = hold_source(Vec3::ZERO, 2);
+		peak.spec.envelope = RumbleEnvelope::new(0.0, 0.0);
+		let early = compose_output([&attack, &peak], Vec3::ZERO, 1.0, &settings);
+		attack.age = 0.4;
+		let late = compose_output([&attack, &peak], Vec3::ZERO, 1.0, &settings);
+		assert!(early.camera_offset.length() <= settings.max_camera_offset + 1e-5);
+		assert!(late.camera_offset.length() <= settings.max_camera_offset + 1e-5);
+		assert!(early.camera_roll.abs() <= settings.max_camera_roll + 1e-5);
+		assert!(late.pad_weak <= settings.max_pad_intensity + 1e-5);
+		assert!(late.pad_strong <= settings.max_pad_intensity + 1e-5);
+		assert!(late.ground.amplitude <= settings.max_ground_amplitude + 1e-5);
+		assert!(late.pad_strong + 1e-5 >= early.pad_strong);
+		assert!(late.ground.amplitude + 1e-5 >= early.ground.amplitude);
+		let pulse = crate::pad_pulse_from_output(&late, settings.pad_refresh);
+		assert!(pulse.is_some());
+		if let Some(pulse) = pulse {
+			assert!(pulse.intensity.weak_motor <= settings.max_pad_intensity + 1e-5);
+			assert!(pulse.intensity.strong_motor <= settings.max_pad_intensity + 1e-5);
+		}
 	}
 }

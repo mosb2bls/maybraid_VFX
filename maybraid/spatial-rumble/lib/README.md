@@ -20,7 +20,7 @@ one bounded [`SpatialRumbleOutput`](src/compose.rs) each frame.
 |---|---|
 | Camera | Translation + roll on [`SpatialRumbleListener`](src/listener.rs). Shake is a per-frame offset; it does not write look yaw/pitch or locomotion. |
 | Ground | [`GroundRumbleSample`](src/channels.rs) — amplitude, frequency, planar direction, origin. Dust, rings, or material motion may consume this. The crate does not displace terrain or spawn hazards. |
-| Pad | One [`PadRumble`](../../input/src/rumble.rs) pulse per source. No gamepad means no vibration; keyboard/mouse play is unchanged. |
+| Pad | Rate-limited [`PadRumble`](../../input/src/rumble.rs) from the same composed, bounded output as camera and ground. No gamepad means no vibration; keyboard/mouse play is unchanged. |
 
 ## Hosts
 
@@ -37,4 +37,6 @@ and the composed output.
 
 [`SpatialRumbleSettings`](src/compose.rs) is the intensity and bound control:
 master / per-channel gain, max camera offset and roll, max pad motors, max
-ground amplitude, and a live-source cap.
+ground amplitude, a live-source cap, and pad refresh. Listener gain scales
+camera presentation once; a [`SpatialRumbleReceiver`](src/listener.rs) scales
+compose (falloff / pad / ground) when present.
