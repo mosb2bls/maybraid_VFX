@@ -207,6 +207,99 @@ When you commit with `git commit-std`, the full commit message file (including t
 
 Without the marker, your CI checks will pass but no packages will be built, and packaging regressions may only surface later on `main`.
 
+## Traces Releases
+
+Profiling captures (Tracy `.tracy` files and Xcode Instruments `.trace` bundles) are published as **GitHub Release assets**, never committed to git. Each capture asset has an identically named companion `.md` with findings for that file.
+
+### Release identity
+
+One Traces release per workspace version. Read `X.Y.Z` from `[workspace.package] version` in the root `Cargo.toml`.
+
+| | |
+|---|---|
+| Title | `vX.Y.Z Traces` |
+| Tag | `vX.Y.Z-traces` |
+
+Later captures for the same version are **appended** as assets on that release. Do not open a second Traces release for the same version.
+
+The release must **not** be Latest, a pre-release, or a draft:
+
+```bash
+gh release create vX.Y.Z-traces \
+  --title "vX.Y.Z Traces" \
+  --latest=false \
+  --notes-file notes.md
+```
+
+Do not pass `--prerelease` or `--draft`. Release notes are an index table: file stem, scenario/setting, commit, date, device, one-line finding.
+
+### Packaging guard
+
+[`.github/workflows/package.yml`](.github/workflows/package.yml) runs on `release: published`. Its `publish-release` job builds the game and uploads DMG/zip/tarball into the release. That must not happen for Traces releases. Every job in that workflow skips when:
+
+```
+github.event_name == 'release' && endsWith(github.event.release.tag_name, '-traces')
+```
+
+**Release events use the workflow file at the tagged commit.** A Traces tag must point at a commit that already contains this guard. Until that change is on `main`, target the branch commit that added it; afterwards, any `main` commit is fine.
+
+### Asset naming
+
+```
+<commit7>_<YYYYMMDD>_<device>_<setting>.<ext>
+```
+
+Example: `1f79999_20261011_m4pro-macmini_crowd-16-ab-after-r1.tracy`
+
+| Field | Meaning |
+|---|---|
+| `commit7` | 7-character commit of the **source the binary was built from** |
+| `YYYYMMDD` | Capture date (UTC) |
+| `device` | Short slug, e.g. `m4pro-macmini` |
+| `setting` | Kebab-case scenario + variant + repeat, e.g. `crowd-16-ab-after-r1`, `crowd-0-gpu-metal-r1` |
+| `ext` | `tracy` for Tracy; `trace.zip` for zipped Instruments bundles |
+
+Zip Instruments bundles with `ditto -c -k --keepParent X.trace X.trace.zip`. Each asset has a companion with the **identical stem** and `.md` (e.g. `1f79999_20261011_m4pro-macmini_crowd-16-ab-after-r1.md`).
+
+Hard limits: **2 GB per asset**. Exclude incomplete, failed, or `Monitor removed` runs.
+
+### Companion `.md` template
+
+```markdown
+# <asset file name>
+
+- **Tool:** Tracy 0.13.1 `tracy-capture`  (or Xcode Instruments Metal System Trace)
+- **Commit:** [`<full hash>`](https://github.com/ramate-io/maybraid/commit/<full hash>)
+- **Date:** YYYY-MM-DD (UTC)
+- **Device:** Apple M4 Pro Mac mini, 48 GB, display 1920×1080 @ 60 Hz
+- **Build:** release, `--features bevy/trace_tracy`
+- **Env:** `MAYBRAID_VSYNC=off`
+- **Command:** <script or attach command>
+- **Setting:** <scenario, actor count, repeat>
+
+## Summary metrics
+
+| window | frames | main app | render app | present wait | GPU ms |
+|---|---|---|---|---|---|
+| … | … | … | … | … | … |
+
+## Findings
+
+- …
+- …
+
+## Related
+
+- [PR](…) · [issue](…) · [gist](…)
+- Sibling: `<partner stem>`
+
+## How to open
+
+Download the asset first. Open `.tracy` in Tracy GUI 0.13.x, or the [web viewer](https://topolarity.github.io/trace-viewer/) (release-asset URLs may fail CORS — download, then open the local file). Unzip `.trace.zip` and open the bundle in Instruments.
+```
+
+Findings should be 3–8 bullets about **this file**, including caveats (throttled regime, lost encoder labels, GPU clock state).
+
 ## Spotting and combat targeting
 
 Keep semantic eligibility, visual knowledge, combat membership, and weapon
