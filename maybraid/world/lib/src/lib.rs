@@ -16,10 +16,14 @@ mod crate_loot;
 mod first_wave;
 mod intelligence;
 mod map_view;
-mod world_lubikan;
+pub mod world_lubikan;
 
 #[cfg(feature = "debug-commands")]
 pub mod world_debug;
+
+#[cfg(feature = "debug-commands")]
+pub mod auto_capture;
+
 mod pitch;
 mod player_lifecycle;
 mod player_position;

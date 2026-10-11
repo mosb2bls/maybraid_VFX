@@ -25,7 +25,7 @@ use lubikan_points::{ingest_lubikan_point_flyers, update_lubikan_point_flyers};
 use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
-pub use continuous_health::{ContinuousHealthBar, HealthBarLayout, HealthFill, HealthTrail};
+pub use continuous_health::{HealthBarLayout, HealthFill, HealthTrail};
 pub use cycle_cue::CombatHudInventoryCycleCategory;
 pub use lubikan_charge::LubikanChargeFlyTarget;
 pub use score::{CombatScore, LiveEnemies};
@@ -139,6 +139,7 @@ impl Plugin for CombatHudPlugin {
 /// Shared continuous health bar content updates (for both world health bars and player vitals).
 fn configure_health_content(app: &mut App) {
 	app.init_resource::<ContinuousHealthConfig>()
+		.add_message::<lubikans::LubikanActivationFinished>()
 		.add_systems(
 			Update,
 			position_continuous_health_bars.in_set(CombatHudSystems::Health),
@@ -155,8 +156,7 @@ fn configure_health_content(app: &mut App) {
 
 /// World-anchored health bars above NPCs and field totals.
 fn configure_world_health_anchors(app: &mut App) {
-	app.init_resource::<CombatHudOpponentTotal>()
-		.add_message::<lubikans::LubikanActivationFinished>();
+	app.init_resource::<CombatHudOpponentTotal>();
 	app.add_systems(
 		Update,
 		ensure_continuous_health_bars.in_set(CombatHudSystems::Health),

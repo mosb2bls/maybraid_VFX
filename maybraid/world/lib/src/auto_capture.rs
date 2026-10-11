@@ -1,9 +1,13 @@
 //! Automated screenshot capture with frame-based scripting (debug-commands feature only).
 //!
+//! **DEPRECATED:** This script interpreter should be replaced with a minimal `SelfLoopCapturePlugin`
+//! using Bevy's `Screenshot` API. The current frame-script approach is incomplete (screenshot support
+//! is stubbed) and should be removed or reimplemented as a proper Bevy plugin with screenshot manager integration.
+//!
 //! Script format (one command per line, # comments ignored):
 //! - `wait <frames>` - wait N frames before next command
 //! - `debug <command>` - run a debug command (e.g., `debug grant-points 15`)
-//! - `screenshot <path>` - capture screenshot to path
+//! - `screenshot <path>` - capture screenshot to path (STUB - needs screenshot plugin wire-up)
 //! - `exit` - quit the app
 
 use bevy::prelude::*;

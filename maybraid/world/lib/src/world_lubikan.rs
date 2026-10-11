@@ -3,9 +3,10 @@
 use bevy::prelude::*;
 use game_commands::command::TextEntryFocus;
 use lubikans::{
-	LubikanActivationRequest, LubikanDamagePlugin, LubikanHealingEnabled, LubikanOwner,
+	LubikanActivationRequest, LubikanHealingEnabled, LubikanOwner,
 	LubikanOwnerLifetime, LubikanOwnerLifetimeKind, LubikansPlugin, LubikanSystems,
 };
+use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use player::{
 	CharacterController, CharacterStance, LocomotionCapsule, MotorTraction, Player as MaybraidPlayer, RestLocomotionCapsule, StanceKind,
@@ -27,6 +28,23 @@ use crate::map_view::WorldMapView;
 /// in the motor setup lifecycle. The motor is applied when the world player spawns
 /// and persists through pause (gameplay off, physics on). On respawn after death,
 /// the motor and markers are reapplied.
+///
+/// ## Schedule Ordering
+///
+/// Systems run in three Bevy schedules with explicit intra-schedule ordering:
+///
+/// | Schedule   | Stage         | Systems                                                      |
+/// |------------|---------------|--------------------------------------------------------------|
+/// | PreUpdate  | Owner/Input   | `grant_world_player_lubikan_owner`, `sync_lubikan_session` (before `LubikanSystems::Owner`) |
+/// | Update     | Activation    | `request_lubikan_activation` (PowerUseItem → LubikanActivationRequest) |
+/// | PostUpdate | Healing Sync  | `sync_lubikan_healing_enabled` (WorldGameplayEnabled → LubikanHealingEnabled) |
+///
+/// **Activation timing:** `request_lubikan_activation` runs in Update, emitting `LubikanActivationRequest`
+/// messages. `LubikansPlugin` processes these in the same frame (Update schedule, `LubikanSystems::Activate` set),
+/// starting activation if charge is sufficient. Healing begins immediately when activation starts (same frame).
+///
+/// **Healing timing:** `sync_lubikan_healing_enabled` runs in PostUpdate. When gameplay is disabled,
+/// the healing gate is updated before the next frame's healing tick, so healing pauses on the next frame.
 pub struct WorldLubikanPlugin;
 
 impl Plugin for WorldLubikanPlugin {
@@ -45,12 +63,14 @@ impl Plugin for WorldLubikanPlugin {
 		
 		app.add_systems(
 			Update,
-			(
-				sync_lubikan_healing_enabled,
-				request_lubikan_activation
-					.after(CharacterControlSystems)
-					.before(LubikanSystems::Activate),
-			),
+			request_lubikan_activation
+				.after(CharacterControlSystems)
+				.before(LubikanSystems::Activate),
+		);
+		
+		app.add_systems(
+			PostUpdate,
+			sync_lubikan_healing_enabled,
 		);
 	}
 }
@@ -102,21 +122,16 @@ fn stamp_world_player_motor(
 }
 
 /// Mark the world player as a Lubikan owner. `LubikansPlugin` attaches the Self ledger
-/// in `LubikanSystems::Owner`. Also inserts `player::Player` (the generic player marker
-/// from the player crate) so that combat-hud vitals and continuous bars can query this entity.
+/// in `LubikanSystems::Owner`.
 ///
 /// This system runs on spawn AND on respawn after death, establishing player identity
 /// whenever the world player entity exists.
 fn grant_world_player_lubikan_owner(
 	mut commands: Commands,
-	world_only: Query<Entity, (With<Player>, Without<MaybraidPlayer>, Added<Player>)>,
+	world_only: Query<Entity, (With<Player>, Without<LubikanOwner>, Added<Player>)>,
 ) {
 	for player in &world_only {
-		commands.entity(player).insert((
-			player::Player,
-			LubikanOwner,
-			MaybraidPlayer,
-		));
+		commands.entity(player).insert(LubikanOwner);
 	}
 }
 
@@ -146,6 +161,13 @@ fn sync_lubikan_healing_enabled(
 	if healing.0 != gameplay.0 {
 		healing.0 = gameplay.0;
 	}
+}
+
+/// Configure world lubikan routing systems for headless tests.
+/// This registers only the input routing (PowerUseItem → LubikanActivationRequest),
+/// not the full WorldLubikanPlugin lifecycle.
+pub fn configure(app: &mut App) {
+	app.add_systems(Update, request_lubikan_activation);
 }
 
 /// Route PowerUseItem intent to equipped Lubikan activation.

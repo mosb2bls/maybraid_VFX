@@ -1,7 +1,7 @@
 //! World-level HUD integration tests.
 
 use bevy::prelude::*;
-use combat_hud::{CombatHudPlugin, ContinuousHealthBar, HealthBarLayout, HealthFill, HealthTrail, PlayerVitalsHealthBar};
+use combat_hud::{CombatHudPlugin, continuous_health::ContinuousHealthBar, HealthBarLayout, HealthFill, HealthTrail, vitals::PlayerVitalsHealthBar};
 use damage::Health;
 use player::Player as MaybraidPlayer;
 use world_player::Player as WorldPlayer;
@@ -141,7 +141,7 @@ fn test_lubikan_charge_plate_shows_healing() {
 		Health { current: 50.0, max: 100.0 },
 		Transform::default(),
 		lubikans::LubikanOwner,
-		lubikans::LubikanLedger::with_self(),
+		lubikans::LubikanLedger::with_self(&app.world().resource::<lubikans::LubikanSelfConfig>()),
 		lubikans::LubikanSelfHealChannel {
 			active: true,
 			remaining: 20.0,

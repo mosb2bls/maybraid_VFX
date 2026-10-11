@@ -21,7 +21,7 @@ use lubikans::{
 };
 use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::CharacterIntent;
-use maybraid_world::{control, lubikan_activate, WorldGameplayEnabled, WorldPlaySessionEnded};
+use maybraid_world::{control, world_lubikan, WorldGameplayEnabled, WorldPlaySessionEnded};
 use world_player::Player;
 use std::time::Duration;
 
@@ -42,12 +42,9 @@ fn self_loop_app() -> App {
 	// Add world-side wiring systems (headless-safe subset)
 	app.add_systems(
 		PreUpdate,
-		(
-			control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
-			control::sync_lubikan_session.before(LubikanSystems::Owner),
-		),
+		control::sync_lubikan_session.before(LubikanSystems::Owner),
 	);
-	lubikan_activate::configure(&mut app);
+	world_lubikan::configure(&mut app);
 	
 	app.world_mut()
 		.resource_mut::<Time<Virtual>>()
@@ -56,10 +53,10 @@ fn self_loop_app() -> App {
 }
 
 fn spawn_player(app: &mut App, current_hp: f32, max_hp: f32) -> Entity {
-	// Spawn as Player so world systems grant LubikanOwner
+	// Spawn as world Player with LubikanOwner so LubikansPlugin attaches the ledger
 	let player = app
 		.world_mut()
-		.spawn((Player, Health { current: current_hp, max: max_hp }, Name::new("Player")))
+		.spawn((Player, LubikanOwner, Health { current: current_hp, max: max_hp }, Name::new("Player")))
 		.id();
 	app.update();
 	player
@@ -319,3 +316,4 @@ fn session_restart_via_world_event_resets_charge() -> anyhow::Result<()> {
 	
 	Ok(())
 }
+
