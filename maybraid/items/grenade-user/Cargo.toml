@@ -20,7 +20,9 @@ firearm-user = { workspace = true }
 grenades = { workspace = true }
 maybraid-audio = { workspace = true }
 maybraid-character-controller = { workspace = true }
+maybraid-input = { workspace = true }
 player = { workspace = true }
+player-camera = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

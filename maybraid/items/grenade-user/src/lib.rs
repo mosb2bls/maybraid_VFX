@@ -1,5 +1,6 @@
 //! Held grenade, overhand throw, and owned recharge clocks.
 
+mod feel;
 mod hold;
 mod throw;
 
@@ -9,6 +10,7 @@ use character_items::{Inventory, InventoryItem};
 use characters::CharacterMotionSystems;
 use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 
+pub use feel::{blast_presence, blast_rumble};
 pub use hold::{spawn_held_grenade, HeldGrenade, HoldingGrenade};
 pub use throw::{GrenadePhase, GrenadeThrow, GrenadeUser, GrenadeUserSettings};
 
@@ -49,6 +51,7 @@ impl Plugin for GrenadeUserPlugin {
 					.before(throw::advance_throw),
 			)
 			.add_systems(Update, throw::advance_throw.after(PlayerPoseSystems::Overlay))
+			.add_systems(Update, feel::pulse_blast_feel.after(grenades::apply_grenade_blasts))
 			.add_systems(
 				Update,
 				(
@@ -56,7 +59,8 @@ impl Plugin for GrenadeUserPlugin {
 					tick_owned_recharge,
 					despawn_orphaned_held_grenades,
 				),
-			);
+			)
+			.add_message::<maybraid_input::PadRumble>();
 	}
 }
 

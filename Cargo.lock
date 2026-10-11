@@ -5354,7 +5354,9 @@ dependencies = [
  "grenades",
  "maybraid-audio",
  "maybraid-character-controller",
+ "maybraid-input",
  "player",
+ "player-camera",
 ]
 
 [[package]]
@@ -7074,6 +7076,7 @@ dependencies = [
  "firearm-user",
  "firearms-components",
  "game-commands",
+ "grenades",
  "lod",
  "maybraid-character-ui-menu-renderer",
  "maybraid-input",
