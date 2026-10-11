@@ -15,8 +15,8 @@ pub mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
-pub mod lubikan_activate;
 mod map_view;
+mod world_lubikan;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
@@ -194,8 +194,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldIntelligencePlugin)
 			.add_plugins(WeatherPlugin)
 			.add_plugins(SkillMapPlugin)
-			.add_plugins(LubikansPlugin)
-			.add_plugins(LubikanDamagePlugin)
+			.add_plugins(world_lubikan::WorldLubikanPlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
 			.add_plugins(WorldMapViewPlugin)
@@ -238,36 +237,28 @@ impl Plugin for WorldPlugin {
 			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands))
 			.add_systems(PostStartup, spawn_default_braidman);
 		
+		app.configure_sets(Update, control::WorldSurfaceSet)
+		.add_systems(
+			Update,
+			(
+				control::update_world_surface_ready.in_set(control::WorldSurfaceSet),
+				control::sync_world_scenery,
+				control::sync_combat_hud_visible,
+				control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
+				control::apply_intents_to_movement
+					.after(CharacterControlSystems)
+					.after(map_view::WorldMapSet::Toggle)
+					.after(PlayerSystems::Intent)
+					.before(PlayerSystems::Body)
+					.before(PlayerControlSystems),
+			),
+		);
+		
 		#[cfg(feature = "debug-commands")]
 		app.add_systems(
 			Update,
 			auto_capture::run_auto_capture.after(lubikans::LubikanSystems::Heal),
-		)
-			.add_systems(
-				PreUpdate,
-				(
-					control::stamp_vegetation_motor_traction,
-					control::stamp_world_player_motor,
-					control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
-					control::sync_lubikan_session.before(LubikanSystems::Owner),
-				),
-			)
-			.configure_sets(Update, control::WorldSurfaceSet)
-			.add_systems(
-				Update,
-				(
-					control::update_world_surface_ready.in_set(control::WorldSurfaceSet),
-					control::sync_world_scenery,
-					control::sync_combat_hud_visible,
-					control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
-					control::apply_intents_to_movement
-						.after(CharacterControlSystems)
-						.after(map_view::WorldMapSet::Toggle)
-						.after(PlayerSystems::Intent)
-						.before(PlayerSystems::Body)
-						.before(PlayerControlSystems),
-				),
-			);
+		);
 		camera::configure(app);
 		weapon::configure(app);
 		app.configure_sets(
@@ -311,7 +302,6 @@ impl Plugin for WorldPlugin {
 				),
 			);
 		}
-		lubikan_activate::configure(app);
 		#[cfg(feature = "debug-commands")]
 		{
 			app.init_resource::<DebugPeacefulMode>();
@@ -329,8 +319,8 @@ impl Plugin for WorldPlugin {
 			),
 			);
 			app.add_systems(
-				PostUpdate,
-				undo_npc_damage_in_peaceful.after(damage::DamageSystems::Apply),
+				PreUpdate,
+				suppress_npc_hits_in_peaceful.before(damage::DamageSystems::Apply),
 			);
 		}
 	}
@@ -360,33 +350,18 @@ fn apply_debug_grant_points(
 #[cfg(feature = "debug-commands")]
 fn apply_debug_take_damage(
 	requests: Query<(Entity, &commands::RequestTakeDamage)>,
-	// Query WorldPlayer - the world player entity has both world_player::Player and player::Player
-	mut players: Query<(Entity, &mut damage::Health), With<WorldPlayer>>,
-	mut damage_events: MessageWriter<damage::DamageApplied>,
+	players: Query<Entity, With<WorldPlayer>>,
+	mut hits: MessageWriter<damage::Hit>,
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
-		eprintln!("[APPLY_DAMAGE] System running, found {} damage requests, {} players", 
-			requests.iter().count(), players.iter().count());
-		if let Some((player_entity, mut health)) = players.iter_mut().next() {
-			let before = health.current;
-			let applied = health.take_damage(request.amount);
-			let after = health.current;
-			
-			eprintln!("[APPLY_DAMAGE] Applied {:.1} damage to player {:?}, HP {:.1} -> {:.1}", 
-				request.amount, player_entity, before, after);
-			
-			// Write DamageApplied event so lubikan healing cap latches correctly
-			damage_events.write(damage::DamageApplied {
+		if let Some(player_entity) = players.iter().next() {
+			hits.write(damage::Hit {
 				target: player_entity,
 				source: None,
 				amount: request.amount,
-				applied,
-				remaining: after,
 				point: Vec3::ZERO,
 			});
-		} else {
-			eprintln!("[APPLY_DAMAGE] No player found to apply damage to!");
 		}
 		commands.entity(entity).despawn();
 	}
@@ -426,40 +401,31 @@ fn apply_debug_peaceful(
 
 
 #[cfg(feature = "debug-commands")]
-fn undo_npc_damage_in_peaceful(
+fn suppress_npc_hits_in_peaceful(
 	peaceful: Res<DebugPeacefulMode>,
 	players: Query<Entity, With<player::Player>>,
-	mut damage_applied: MessageReader<damage::DamageApplied>,
-	mut healths: Query<&mut damage::Health>,
-	mut blocked_count: Local<usize>,
-	mut total_damage: Local<usize>,
+	mut hits: MessageReader<damage::Hit>,
+	mut suppressed_count: Local<usize>,
 ) {
+	if !peaceful.0 {
+		return;
+	}
+	
 	let Ok(player) = players.single() else {
 		return;
 	};
 	
-	// Log ALL damage to player
-	for applied in damage_applied.read() {
-		if applied.target == player && applied.applied > 0.0 {
-			*total_damage += 1;
-			eprintln!("[DAMAGE] Player took {:.1} HP from source={:?} (remaining HP: {:.1})", 
-				applied.applied, applied.source, applied.remaining);
-			
-			// In peaceful mode, undo NPC damage (source is Some)
-			if peaceful.0 && applied.source.is_some() {
-				*blocked_count += 1;
-				eprintln!("[PEACEFUL] Undoing NPC damage #{}: restoring {:.1} HP", 
-					*blocked_count, applied.applied);
-				
-				// Restore the HP that was lost
-				if let Ok(mut health) = healths.get_mut(player) {
-					let before = health.current;
-					health.heal(applied.applied);
-					eprintln!("[PEACEFUL] HP restored: {:.1} -> {:.1}", before, health.current);
-				}
-			}
+	let mut hits_vec: Vec<damage::Hit> = hits.read().copied().collect();
+	hits_vec.retain(|hit| {
+		if hit.target == player && hit.source.is_some() {
+			*suppressed_count += 1;
+			log::info!("[PEACEFUL] Suppressed NPC hit #{}: {:.1} damage from {:?}", 
+				*suppressed_count, hit.amount, hit.source);
+			false
+		} else {
+			true
 		}
-	}
+	});
 }
 
 #[cfg(feature = "debug-commands")]

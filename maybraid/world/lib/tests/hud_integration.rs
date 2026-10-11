@@ -1,7 +1,7 @@
 //! World-level HUD integration tests.
 
 use bevy::prelude::*;
-use combat_hud::{CombatHudPlugin, continuous_health::{ContinuousHealthBar, HealthBarLayout}};
+use combat_hud::{CombatHudPlugin, ContinuousHealthBar, HealthBarLayout, HealthFill, HealthTrail, PlayerVitalsHealthBar};
 use damage::Health;
 use player::Player as MaybraidPlayer;
 use world_player::Player as WorldPlayer;
@@ -67,8 +67,8 @@ fn test_player_vitals_update_on_damage() {
 		
 		// Check the fill node width
 		let mut query = app.world_mut().query_filtered::<&Node, (
-			With<combat_hud::continuous_health::HealthFill>,
-			Without<combat_hud::continuous_health::HealthTrail>,
+			With<HealthFill>,
+			Without<HealthTrail>,
 		)>();
 		
 		if let Some(fill_node) = query.iter(app.world()).next() {
@@ -91,7 +91,7 @@ fn test_player_vitals_update_on_damage() {
 	);
 	
 	// Verify the continuous health bar is targeting the correct entity
-	let mut bar_query = app.world_mut().query_filtered::<&ContinuousHealthBar, With<combat_hud::vitals::PlayerVitalsHealthBar>>();
+	let mut bar_query = app.world_mut().query_filtered::<&ContinuousHealthBar, With<PlayerVitalsHealthBar>>();
 	let bar = bar_query.iter(app.world()).next().expect("Should have a vitals health bar");
 	assert_eq!(
 		bar.target, player,

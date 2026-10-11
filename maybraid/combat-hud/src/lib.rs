@@ -25,10 +25,12 @@ use lubikan_points::{ingest_lubikan_point_flyers, update_lubikan_point_flyers};
 use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
+pub use continuous_health::{ContinuousHealthBar, HealthBarLayout, HealthFill, HealthTrail};
 pub use cycle_cue::CombatHudInventoryCycleCategory;
 pub use lubikan_charge::LubikanChargeFlyTarget;
 pub use score::{CombatScore, LiveEnemies};
 pub use screen_pin::ScreenPin;
+pub use vitals::PlayerVitalsHealthBar;
 
 /// When `false`, the player vitals plate stays hidden (pause / menu overlays).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,27 +110,32 @@ impl Plugin for CombatHudPlugin {
 					.after(LubikanSystems::Award),
 			)
 			.add_systems(Startup, spawn_combat_hud);
+		
+		// Register continuous health bar content updates when either health_bars OR player_vitals is enabled
+		if self.health_bars || self.player_vitals {
+			app.init_resource::<ContinuousHealthConfig>()
+				.add_systems(
+					Update,
+					position_continuous_health_bars.in_set(CombatHudSystems::Health),
+				)
+				.add_systems(
+					Update,
+					update_continuous_health_bar_content.in_set(CombatHudSystems::Health),
+				)
+				.add_systems(
+					Update,
+					trigger_completion_flash.in_set(CombatHudSystems::Health),
+				);
+		}
+		
 		if self.health_bars {
 			app.init_resource::<CombatHudOpponentTotal>()
-				.init_resource::<ContinuousHealthConfig>()
 				.add_message::<lubikans::LubikanActivationFinished>();
 			app.add_systems(
 				Update,
 				ensure_continuous_health_bars.in_set(CombatHudSystems::Health),
 			);
 			app.add_systems(Update, sync_health_hud.in_set(CombatHudSystems::Health));
-			app.add_systems(
-				Update,
-				position_continuous_health_bars.in_set(CombatHudSystems::Health),
-			);
-			app.add_systems(
-				Update,
-				update_continuous_health_bar_content.in_set(CombatHudSystems::Health),
-			);
-			app.add_systems(
-				Update,
-				trigger_completion_flash.in_set(CombatHudSystems::Health),
-			);
 		}
 		if self.player_vitals && self.lubikan_charge && self.lubikan_point_feedback {
 			app.add_systems(

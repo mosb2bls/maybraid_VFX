@@ -20,7 +20,7 @@ pub(crate) struct PlayerVitalsRoot;
 pub(crate) struct PlayerVitalsName;
 
 #[derive(Component)]
-pub(crate) struct PlayerVitalsHealthBar;
+pub struct PlayerVitalsHealthBar;
 
 pub(crate) fn vitals_fonts(asset_server: Option<&AssetServer>) -> HudFonts {
 	match asset_server {

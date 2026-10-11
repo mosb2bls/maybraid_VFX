@@ -67,11 +67,11 @@ pub struct ContinuousHealthBar {
 
 /// Marker for the fill element (current HP).
 #[derive(Component)]
-pub(crate) struct HealthFill;
+pub struct HealthFill;
 
 /// Marker for the damage trail element (shows recent damage).
 #[derive(Component)]
-pub(crate) struct HealthTrail;
+pub struct HealthTrail;
 
 /// Marker for the heal preview element.
 #[derive(Component)]
