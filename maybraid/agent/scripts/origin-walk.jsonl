@@ -3,7 +3,6 @@
 # steers to a nearby XZ so the events log shows real locomotion.
 
 {"cmd":"scenario","name":"origin-walk","mark":"start"}
-{"cmd":"console","line":"stats vsync"}
 {"cmd":"wait","secs":1}
 {"cmd":"hold","move":[0,1],"secs":4}
 {"cmd":"goto","xz":[20,20],"timeout":25,"radius":3}

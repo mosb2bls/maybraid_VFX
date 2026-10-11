@@ -3,7 +3,6 @@
 # do not dominate zone means.
 
 {"cmd":"scenario","name":"origin-idle-warmup","mark":"start"}
-{"cmd":"console","line":"stats vsync"}
 {"cmd":"console","line":"sky noon"}
 {"cmd":"wait","secs":20}
 {"cmd":"scenario","name":"origin-idle-warmup","mark":"end"}

@@ -3,7 +3,6 @@
 # so animation / camera / character-controller zones show up in Tracy.
 
 {"cmd":"scenario","name":"locomotion-mix-warmup","mark":"start"}
-{"cmd":"console","line":"stats vsync"}
 {"cmd":"console","line":"sky noon"}
 {"cmd":"wait","secs":12}
 {"cmd":"hold","move":[0,1],"secs":4}

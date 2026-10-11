@@ -52,6 +52,9 @@ Profile scripts mark a `*-warmup` scenario (stream-in / first steps) and then
 the measure window. `goto.look` holds the look stick while steering so a
 traversal can sweep the camera without a separate `hold`.
 
+Do **not** send `stats vsync` when the process already has `MAYBRAID_VSYNC=off`:
+that command *toggles*, so it turns vsync back on and locks the Frame plot.
+
 ## Events
 
 Line-delimited JSON to `--agent-events`. Every line has `t` (game seconds)

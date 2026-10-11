@@ -6,7 +6,6 @@
 # sprint, look-while-goto, and a few jumps.
 
 {"cmd":"scenario","name":"biome-traverse-warmup","mark":"start"}
-{"cmd":"console","line":"stats vsync"}
 {"cmd":"console","line":"sky noon"}
 {"cmd":"wait","secs":10}
 {"cmd":"hold","move":[0,1],"secs":6}
