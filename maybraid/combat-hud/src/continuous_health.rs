@@ -302,7 +302,7 @@ pub fn position_continuous_health_bars(
 	}
 }
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn update_continuous_health_bar_content(
 	time: Res<Time>,
 	config: Option<Res<ContinuousHealthConfig>>,
