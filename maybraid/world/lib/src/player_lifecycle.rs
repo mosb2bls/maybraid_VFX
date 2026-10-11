@@ -796,7 +796,7 @@ mod tests {
 	use bevy::math::bounding::Aabb3d;
 	use durham::TerrainCellLayout;
 	use layer_stack::GenerationMode;
-	use lod::hcsg::{HcsgStorage, HcsgWorker};
+	use lod::hcsg::{spawn_worker, HcsgStorage};
 	use world_player::WorldBaseTerrain;
 
 	#[test]
@@ -1491,7 +1491,7 @@ mod tests {
 		);
 		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
 
-		let _worker = HcsgWorker::spawn(storage, demand.clone())?;
+		let _worker = spawn_worker(storage, demand.clone())?;
 		anyhow::ensure!(demand.wait_idle(std::time::Duration::from_secs(10)));
 		world
 			.run_system_once(queue_first_spawn_picker)

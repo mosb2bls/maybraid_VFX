@@ -347,6 +347,24 @@ impl hcsg::GenerationScheme for PreWatershedTerrain {
 	}
 }
 
+/// Pocket-water leaf metadata for one origin cell after [`HydroComplexCell`]
+/// has materialized both bands (avoids a second `original_ids_for` walk).
+fn marazion_leaves_in(cx: &mut GenerationContext, bounds: Aabb3d) -> Vec<WatershedLeafBounds> {
+	let mut high: Vec<Id> = cx.overlapping::<PocketWatersHighPass>(bounds);
+	high.sort();
+	let mut leaves: Vec<WatershedLeafBounds> = high
+		.into_iter()
+		.filter_map(|id| cx.get::<PocketWatersHighPass>(id).map(|leaf| leaf.leaf_bounds()))
+		.collect();
+	let mut low: Vec<Id> = cx.overlapping::<PocketWatersLowPass>(bounds);
+	low.sort();
+	leaves.extend(
+		low.into_iter()
+			.filter_map(|id| cx.get::<PocketWatersLowPass>(id).map(|leaf| leaf.leaf_bounds())),
+	);
+	leaves
+}
+
 /// Final terrain: pre-watershed + Watershed correction stages (carve → rim → apron).
 ///
 /// Shares [`PreWatershedTerrain`]'s origin ids. Pocket-water leaves, the
@@ -363,17 +381,9 @@ impl hcsg::GenerationScheme for Terrain {
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
 		let bounds = id.origin_cell_bounds()?;
 		let pre = cx.get_or_generate::<PreWatershedTerrain>(id)?;
-
-		// Authored leaf overlays (banded); hydrology composition is cellular below.
-		let high = cx.get_or_generate_all_in::<PocketWatersHighPass>(bounds)?;
-		let low = cx.get_or_generate_all_in::<PocketWatersLowPass>(bounds)?;
-		let marazion_leaves = high
-			.iter()
-			.map(|leaf| leaf.leaf_bounds())
-			.chain(low.iter().map(|leaf| leaf.leaf_bounds()))
-			.collect();
-
-		let complex = cx.get_or_generate::<HydroComplexCell>(id)?.indexed().cloned();
+		let complex_cell = cx.get_or_generate::<HydroComplexCell>(id)?;
+		let marazion_leaves = marazion_leaves_in(cx, bounds);
+		let complex = complex_cell.indexed().cloned();
 
 		// Keep stage cells materialized for later policy work; elevation uses
 		// the cellular HydroComplex directly (internal carve → rim → apron).
@@ -423,5 +433,119 @@ impl Terrain {
 			stream_ring: layout.stream_ring_for_cell_size(cell_size),
 			wall_faces,
 		}
+	}
+}
+
+#[cfg(test)]
+mod scheme_perf_tests {
+	use super::*;
+	use crate::terrain::host::TerrainCoverage;
+	use bevy::math::IVec2;
+	use lod::gen::OriginalId;
+	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
+	use std::time::Instant;
+
+	fn seed_storage(storage: &HcsgStorage, seed: u32, layout: &TerrainCellLayout) {
+		storage.seed(layout.clone(), universal_bounds());
+		storage.seed(TerrainStampConfigs::from_world_seed(seed), universal_bounds());
+		storage.seed(WatershedConfigs::default().with_seed(seed), universal_bounds());
+		storage.seed(
+			mesh_assets(
+				TerrainConfig::new(seed),
+				Handle::default(),
+				TerrainCoverage::FinePatch,
+				1,
+			),
+			universal_bounds(),
+		);
+	}
+
+	fn leaves_via_pocket_discovery(
+		cx: &mut GenerationContext,
+		bounds: Aabb3d,
+	) -> Vec<WatershedLeafBounds> {
+		let high = cx.get_or_generate_all_in::<PocketWatersHighPass>(bounds).unwrap();
+		let low = cx.get_or_generate_all_in::<PocketWatersLowPass>(bounds).unwrap();
+		high
+			.iter()
+			.map(|leaf| leaf.leaf_bounds())
+			.chain(low.iter().map(|leaf| leaf.leaf_bounds()))
+			.collect()
+	}
+
+	#[test]
+	fn marazion_leaves_match_pocket_water_discovery() -> anyhow::Result<()> {
+		let storage = HcsgStorage::default();
+		let layout = fine_patch_cell_layout(1, IVec2::new(-1, -1));
+		seed_storage(&storage, 11, &layout);
+		let mut cx = GenerationContext::new(&storage);
+		for OriginalId(id) in layout.cell_ids(layout.request_region()) {
+			let bounds = id.origin_cell_bounds().unwrap();
+			anyhow::ensure!(cx.get_or_generate::<HydroComplexCell>(id).is_some());
+			let indexed = marazion_leaves_in(&mut cx, bounds);
+			let discovered = leaves_via_pocket_discovery(&mut cx, bounds);
+			assert_eq!(format!("{indexed:?}"), format!("{discovered:?}"), "{id:?}");
+		}
+		Ok(())
+	}
+
+	/// Mirrors `main`'s pocket-water discovery order (before [`HydroComplexCell`]).
+	fn build_terrain_main_order(cx: &mut GenerationContext, id: Id) -> Option<()> {
+		let bounds = id.origin_cell_bounds()?;
+		let pre = cx.get_or_generate::<PreWatershedTerrain>(id)?;
+		let high = cx.get_or_generate_all_in::<PocketWatersHighPass>(bounds)?;
+		let low = cx.get_or_generate_all_in::<PocketWatersLowPass>(bounds)?;
+		let marazion_leaves = high
+			.iter()
+			.map(|leaf| leaf.leaf_bounds())
+			.chain(low.iter().map(|leaf| leaf.leaf_bounds()))
+			.collect();
+		let complex = cx.get_or_generate::<HydroComplexCell>(id)?.indexed().cloned();
+		cx.get_or_generate::<WatershedCarvingCell>(id)?;
+		cx.get_or_generate::<WatershedRimmingCell>(id)?;
+		cx.get_or_generate::<WatershedAproningCell>(id)?;
+		let layout = cx.get::<TerrainCellLayout>(Id::Universal).unwrap_or_default();
+		let assets = cx.get_or_generate::<TerrainMeshAssets>(Id::Universal)?;
+		let _terrain =
+			Terrain::compose(bounds, &pre, marazion_leaves, complex, &layout, &assets);
+		Some(())
+	}
+
+	fn cold_build_time(seed: u32, ids: &[Id], main_order: bool) -> std::time::Duration {
+		let storage = HcsgStorage::default();
+		let layout = fine_patch_cell_layout(1, IVec2::new(-1, -1));
+		seed_storage(&storage, seed, &layout);
+		let mut cx = GenerationContext::new(&storage);
+		let start = Instant::now();
+		for id in ids {
+			if main_order {
+				build_terrain_main_order(&mut cx, *id).expect("main-order build");
+			} else {
+				cx.get_or_generate::<Terrain>(*id).expect("terrain");
+			}
+		}
+		start.elapsed()
+	}
+
+	/// `cargo test -p durham terrain_scheme_microbench --release -- --ignored --nocapture`
+	#[test]
+	#[ignore = "microbench"]
+	fn terrain_scheme_microbench() {
+		let layout = fine_patch_cell_layout(1, IVec2::new(-1, -1));
+		let ids: Vec<Id> = layout
+			.cell_ids(layout.request_region())
+			.into_iter()
+			.map(|OriginalId(id)| id)
+			.collect();
+		let count = ids.len();
+		let main_order = cold_build_time(42, &ids, true);
+		let optimized = cold_build_time(42, &ids, false);
+		eprintln!(
+			"terrain_scheme_microbench: {} cold cells main-order {:?} optimized {:?} ({:.2}x)",
+			count,
+			main_order,
+			optimized,
+			main_order.as_secs_f64() / optimized.as_secs_f64().max(1e-9)
+		);
 	}
 }

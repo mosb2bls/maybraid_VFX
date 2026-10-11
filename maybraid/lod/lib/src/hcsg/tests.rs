@@ -12,8 +12,9 @@ use crate::gen::{Id, OriginalId};
 use super::bounds::HcsgClass;
 use super::demand::{quantum_cost, QuantumProgress, SubscriptionId, QUANTUM_IDS, QUANTUM_TIME};
 use super::{
-	GenerationContext, GenerationScheme, HcsgDemand, HcsgStorage, HcsgWorker, Outstanding,
+	GenerationContext, GenerationScheme, HcsgDemand, HcsgStorage, Outstanding,
 };
+use crate::hcsg::worker::HcsgWorker;
 
 fn subscribe<T: GenerationScheme>(
 	demand: &HcsgDemand,

@@ -26,13 +26,16 @@ fn cascade_chunk(surface: &TerrainWithPads) -> (Vec3, Vec3) {
 
 #[cfg(test)]
 mod tests {
+	use std::sync::Arc;
+
 	use bevy::math::bounding::Aabb3d;
 	use bevy::math::Vec3;
 	use bevy::prelude::World;
 	use durham::{
-		BaseTerrainNoise, HcsgStorage, SharedTerrainStorage, TerrainCellLayout, TerrainConfig,
-		TerrainMeshBuilder,
+		BaseTerrainNoise, Terrain, TerrainCellLayout, TerrainConfig, TerrainMeshBuilder,
 	};
+	use lod::gen::Id;
+	use lod::hcsg::HcsgStorage;
 	use lod_cascade::Chunk;
 	use terrain_chunk_ref::TerrainChunkRef;
 
@@ -44,9 +47,11 @@ mod tests {
 		let layout = TerrainCellLayout::default();
 		let base = BaseTerrainNoise::from_config(&TerrainConfig::new(7));
 		world.init_resource::<HcsgStorage>();
+		let terrain = Terrain::base_cell_for_test(&layout, 0, 0, base);
+		let cell = terrain.cell;
 		world
 			.resource::<HcsgStorage>()
-			.publish_base_terrain_for_test(&layout, 0, 0, base);
+			.publish(Id::from_cell(cell), Arc::new(terrain), cell);
 		let store = world.resource::<HcsgStorage>();
 		let probe = Aabb3d::from_min_max(Vec3::new(1.0, -10.0, 1.0), Vec3::new(2.0, 10.0, 2.0));
 		let id = store

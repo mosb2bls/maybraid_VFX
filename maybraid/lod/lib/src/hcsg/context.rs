@@ -64,7 +64,6 @@ impl<'a> GenerationContext<'a> {
 
 	/// Crate-only escape hatch. Schemes must read through `get` / `entry` so
 	/// reach is recorded.
-	#[allow(dead_code)]
 	pub(crate) fn storage(&self) -> &HcsgStorage {
 		self.storage
 	}
@@ -82,8 +81,9 @@ impl<'a> GenerationContext<'a> {
 		std::mem::take(&mut self.reached)
 	}
 
-	/// Bounds of a value already stored for `id`.
-	pub fn stored_bounds<T: HcsgValue>(&self, id: Id) -> Option<Aabb3d> {
+	/// Bounds of a value already stored for `id`, recording `T` on this fill's reach.
+	pub fn stored_bounds<T: HcsgValue>(&mut self, id: Id) -> Option<Aabb3d> {
+		self.touch::<T>();
 		self.storage.entry::<T>(id).map(|entry| entry.bounds)
 	}
 
@@ -98,7 +98,8 @@ impl<'a> GenerationContext<'a> {
 		self.storage.entry(id)
 	}
 
-	pub fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
+	pub fn overlapping<T: HcsgValue>(&mut self, region: Aabb3d) -> Vec<Id> {
+		self.touch::<T>();
 		self.storage.overlapping::<T>(region)
 	}
 
