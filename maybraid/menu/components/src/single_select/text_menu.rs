@@ -84,6 +84,10 @@ pub struct TextMenuItem {
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct MenuItemLocked;
 
+/// Row that consumes left/right to change a value instead of moving the cursor.
+#[derive(Component, Debug, Default, Clone, Copy)]
+pub struct MenuStepper;
+
 impl TextMenuItem {
 	pub fn yellow(index: usize) -> Self {
 		Self { index, idle: TEXT_YELLOW, active: TEXT_YELLOW_HOVER }
@@ -364,6 +368,15 @@ pub struct MenuActivate<E> {
 	pub choice: E,
 }
 
+/// In-screen left/right step: triggered on the [`TextMenu`], bubbles to the screen.
+#[derive(EntityEvent, Clone, Copy, Debug)]
+#[entity_event(propagate, auto_propagate)]
+pub struct MenuStep<E> {
+	pub entity: Entity,
+	pub choice: E,
+	pub delta: i32,
+}
+
 fn selected_item<E: Component + Copy>(
 	menu_entity: Entity,
 	menu: &TextMenu,
@@ -486,6 +499,8 @@ pub fn apply_text_menu_nav(
 	impulse: On<MenuNavImpulse>,
 	lock: Res<TextMenuInputLock>,
 	mut menus: Query<&mut TextMenu>,
+	items: Query<(&TextMenuItem, &ChildOf), With<MenuStepper>>,
+	child_of: Query<&ChildOf>,
 ) {
 	if lock.0 {
 		return;
@@ -493,7 +508,58 @@ pub fn apply_text_menu_nav(
 	let Ok(mut menu) = menus.get_mut(impulse.entity) else {
 		return;
 	};
-	menu.apply_nav(impulse.event().nav);
+	let nav = impulse.event().nav;
+	if matches!(nav, MenuNav::Left | MenuNav::Right)
+		&& selected_item_is_stepper(impulse.entity, &menu, &items, &child_of)
+	{
+		return;
+	}
+	menu.apply_nav(nav);
+}
+
+fn selected_item_is_stepper(
+	menu_entity: Entity,
+	menu: &TextMenu,
+	items: &Query<(&TextMenuItem, &ChildOf), With<MenuStepper>>,
+	child_of: &Query<&ChildOf>,
+) -> bool {
+	items.iter().any(|(item, item_child)| {
+		item.index == menu.selected && entity_is_under(item_child.parent(), menu_entity, child_of)
+	})
+}
+
+/// Trigger [`MenuStep<E>`] when the focused row is a [`MenuStepper`].
+pub fn emit_menu_step_on_nav<E: Component + Copy + Send + Sync + 'static>(
+	impulse: On<MenuNavImpulse>,
+	lock: Res<TextMenuInputLock>,
+	menus: Query<&TextMenu>,
+	items: Query<(Entity, &TextMenuItem, &E, &ChildOf), With<MenuStepper>>,
+	locked: Query<(), With<MenuItemLocked>>,
+	child_of: Query<&ChildOf>,
+	mut commands: Commands,
+) {
+	if lock.0 {
+		return;
+	}
+	let delta = match impulse.event().nav {
+		MenuNav::Left => -1,
+		MenuNav::Right => 1,
+		_ => return,
+	};
+	let menu_entity = impulse.entity;
+	let Ok(menu) = menus.get(menu_entity) else {
+		return;
+	};
+	if let Some((item, choice)) = items.iter().find_map(|(entity, item, choice, item_child)| {
+		(item.index == menu.selected
+			&& entity_is_under(item_child.parent(), menu_entity, &child_of))
+		.then_some((entity, *choice))
+	}) {
+		if locked.contains(item) {
+			return;
+		}
+		commands.trigger(MenuStep { entity: menu_entity, choice, delta });
+	}
 }
 
 /// Screen-boundary adapter: [`MenuActivate<E>`] → [`Message<E>`].
@@ -664,5 +730,24 @@ mod tests {
 		app.world_mut()
 			.trigger(maybraid_input::MenuNavImpulse::new(menu, maybraid_input::MenuNav::Select));
 		assert_eq!(app.world().resource::<ActivateHits>().0, 0);
+	}
+
+	#[test]
+	fn stepper_row_keeps_selection_on_left_right() {
+		let mut app = App::new();
+		app.init_resource::<super::TextMenuInputLock>()
+			.add_observer(super::apply_text_menu_nav);
+		let menu = app.world_mut().spawn(super::TextMenu::new(2)).id();
+		app.world_mut().spawn((
+			super::TextMenuItem::yellow(0),
+			TestChoice::Go,
+			super::MenuStepper,
+			ChildOf(menu),
+		));
+		app.world_mut()
+			.spawn((super::TextMenuItem::yellow(1), TestChoice::Go, ChildOf(menu)));
+		app.world_mut()
+			.trigger(maybraid_input::MenuNavImpulse::new(menu, maybraid_input::MenuNav::Right));
+		assert_eq!(app.world().entity(menu).get::<super::TextMenu>().unwrap().selected, 0);
 	}
 }

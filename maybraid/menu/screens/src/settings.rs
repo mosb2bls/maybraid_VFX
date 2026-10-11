@@ -7,12 +7,12 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use character_persist::SaveRoot;
 use maybraid_menu_controller::MenuController;
-use menu_components::info::description::{set_description_for_menu, TextMenuDescription};
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
-	screen_back_scene, set_brand_mode_title, BrandModeLine, BrandModeTitle, MenuFocus,
-	TextColumnAlign, TextColumnAnchor, TextCursorRow, TextMenuPlugin,
+	screen_back_scene, set_brand_mode_title, set_info_box_for_menu, BrandModeLine, BrandModeTitle,
+	MenuFocus, MenuInfoBox, MenuInfoBoxLabel, MenuStep, TextColumnAlign, TextColumnAnchor,
+	TextCursorRow, TextMenuPlugin,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +30,9 @@ pub use persist::{
 
 /// Queue an in-game settings spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Default, Clone, Copy)]
-pub struct RequestShowInGameSettings;
+pub struct RequestShowInGameSettings {
+	pub selected: Option<InGameSettingsChoice>,
+}
 
 /// Marker on the spawned in-game settings root.
 #[derive(Component, Debug, Default, Clone, Copy)]
@@ -82,13 +84,14 @@ pub enum InGameRenderScale {
 impl InGameRenderScale {
 	pub const ALL: [Self; 4] = [Self::Auto, Self::Native, Self::ThreeQuarter, Self::Half];
 
+	pub fn step(self, delta: i32) -> Self {
+		let index = Self::ALL.iter().position(|&value| value == self).unwrap_or(0) as i32;
+		let n = Self::ALL.len() as i32;
+		Self::ALL[(index + delta).rem_euclid(n) as usize]
+	}
+
 	pub fn cycle(self) -> Self {
-		match self {
-			Self::Auto => Self::Native,
-			Self::Native => Self::ThreeQuarter,
-			Self::ThreeQuarter => Self::Half,
-			Self::Half => Self::Auto,
-		}
+		self.step(1)
 	}
 
 	pub fn label(self) -> &'static str {
@@ -130,8 +133,8 @@ impl InGameRenderScale {
 		}
 	}
 
-	pub fn subtext(self, readout: RenderScaleReadout) -> String {
-		format_render_scale_subtext(self, readout)
+	pub fn subtext(self) -> String {
+		self.label().to_string()
 	}
 }
 
@@ -155,41 +158,26 @@ impl Default for RenderScaleReadout {
 	}
 }
 
-fn format_render_scale_subtext(
-	preference: InGameRenderScale,
-	readout: RenderScaleReadout,
-) -> String {
-	let mut label = preference.label().to_string();
-	if preference == InGameRenderScale::Auto
-		&& readout.window_physical.x > 0
-		&& readout.env_override.is_none()
-		&& (readout.effective - 1.0).abs() > 1e-3
-	{
-		label = format!("Auto ({:.0}%)", readout.effective * 100.0);
-	}
-	let body = resolution_subtext(&label, readout);
-	match readout.env_override {
-		Some(env) => format!("{body} · env {:.0}%", env * 100.0),
-		None => body,
-	}
-}
-
-fn resolution_subtext(label: &str, readout: RenderScaleReadout) -> String {
-	if readout.window_physical.x == 0 || readout.window_physical.y == 0 {
-		return label.to_string();
-	}
+fn format_render_scale_info(readout: RenderScaleReadout) -> String {
 	let target = if readout.target_physical.x == 0 {
 		readout.window_physical
 	} else {
 		readout.target_physical
 	};
+	if target.x == 0 || target.y == 0 {
+		return String::from("Rendered at display size.");
+	}
 	if target == readout.window_physical {
-		format!("{label} · {}×{}", target.x, target.y)
+		format!("Rendered at {} x {}.", target.x, target.y)
 	} else {
-		format!(
-			"{label} · {}×{} → window {}×{}",
-			target.x, target.y, readout.window_physical.x, readout.window_physical.y
-		)
+		format!("Rendered at {} x {}. Upscaled to display.", target.x, target.y)
+	}
+}
+
+fn settings_info_copy(choice: InGameSettingsChoice, readout: RenderScaleReadout) -> String {
+	match choice {
+		InGameSettingsChoice::RenderScale => format_render_scale_info(readout),
+		other => other.description().to_string(),
 	}
 }
 
@@ -219,10 +207,10 @@ impl InGameSettings {
 		}
 	}
 
-	pub fn state_label(self, choice: InGameSettingsChoice, readout: RenderScaleReadout) -> String {
+	pub fn state_label(self, choice: InGameSettingsChoice) -> String {
 		match choice {
 			InGameSettingsChoice::Shadows => self.shadows.label().to_string(),
-			InGameSettingsChoice::RenderScale => self.render_scale.subtext(readout),
+			InGameSettingsChoice::RenderScale => self.render_scale.subtext(),
 			InGameSettingsChoice::MobHud => self.mob_hud_state_label().to_string(),
 		}
 	}
@@ -236,6 +224,7 @@ pub enum InGameSettingsSystems {
 }
 
 /// Settings rows. Activate toggles or cycles the matching [`InGameSettings`] field.
+/// Render Scale also steps on left/right.
 ///
 /// In-screen: [`MenuFocus<Self>`] / [`menu_components::MenuActivate<Self>`] bubble
 /// to this root. Outside the screen: [`republish_menu_activate`] copies activate
@@ -264,9 +253,7 @@ impl InGameSettingsChoice {
 			Self::Shadows => {
 				"Sun cascade shadows. High is four maps to 150 m. Low is four maps to 60 m. Off disables the sun's shadow maps."
 			}
-			Self::RenderScale => {
-				"3D shading scale. Auto matches logical resolution on Retina (1 / scale factor). 100% shades every physical pixel. 75% and 50% upscale a smaller 3D image; UI stays native. MAYBRAID_RENDER_SCALE overrides the live scale when set."
-			}
+			Self::RenderScale => "How sharp the 3D world is drawn.",
 			Self::MobHud => {
 				"Pins and colored poles on presented mob hosts. Use this to find where groups should stand."
 			}
@@ -279,21 +266,42 @@ impl InGameSettingsScreen {
 		mode: &GameMode,
 		settings: InGameSettings,
 		readout: RenderScaleReadout,
+		selected: InGameSettingsChoice,
 	) -> impl Scene + 'static {
-		let children: Vec<Box<dyn Scene>> = vec![
+		let selected_index = InGameSettingsChoice::ALL
+			.iter()
+			.position(|&choice| choice == selected)
+			.unwrap_or(0);
+		let column: Vec<Box<dyn Scene>> = vec![
 			Box::new(
 				TextCursorColumn::rows(
 					"Settings",
 					InGameSettingsChoice::ALL.into_iter().map(|choice| {
-						TextCursorRow::new(choice.label(), choice)
-							.with_subtext(settings.state_label(choice, readout))
+						let row = TextCursorRow::new(choice.label(), choice)
+							.with_subtext(settings.state_label(choice));
+						if choice == InGameSettingsChoice::RenderScale {
+							row.stepper()
+						} else {
+							row
+						}
 					}),
 				)
 				.anchored(TextColumnAnchor::Center)
 				.aligned(TextColumnAlign::Center)
-				.with_description(InGameSettingsChoice::Shadows.description())
+				.with_selected(selected_index)
 				.scene(),
 			),
+			Box::new(MenuInfoBox::scene(settings_info_copy(selected, readout))),
+		];
+		let children: Vec<Box<dyn Scene>> = vec![
+			Box::new(bsn! {
+				Node {
+					flex_direction: FlexDirection::Column,
+					align_items: AlignItems::Center,
+				}
+				Pickable::IGNORE
+				Children [ {column} ]
+			}),
 			Box::new(BrandModeLine::new(mode.label.clone()).scene()),
 			Box::new(screen_back_scene()),
 		];
@@ -310,13 +318,18 @@ impl InGameSettingsScreen {
 			Pickable::IGNORE
 			on(sync_settings_description)
 			on(republish_menu_activate::<InGameSettingsChoice>)
+			on(apply_settings_step)
 			Children [ {children} ]
 		}
 	}
 }
 
 pub fn request_show_in_game_settings(commands: &mut Commands) {
-	commands.spawn(RequestShowInGameSettings);
+	commands.spawn(RequestShowInGameSettings { selected: None });
+}
+
+fn request_show_in_game_settings_at(commands: &mut Commands, selected: InGameSettingsChoice) {
+	commands.spawn(RequestShowInGameSettings { selected: Some(selected) });
 }
 
 pub struct InGameSettingsPlugin;
@@ -374,21 +387,47 @@ fn apply_in_game_settings_choice(
 		}
 		InGameSettingsChoice::MobHud => settings.mob_hud = !settings.mob_hud,
 	}
-	request_show_in_game_settings(&mut commands);
+	request_show_in_game_settings_at(&mut commands, choice);
+}
+
+fn apply_settings_step(
+	step: On<MenuStep<InGameSettingsChoice>>,
+	mut settings: ResMut<InGameSettings>,
+	mut machine: ResMut<persist::MachineSettings>,
+	save_root: Option<Res<SaveRoot>>,
+	mut commands: Commands,
+) {
+	if step.event().choice != InGameSettingsChoice::RenderScale {
+		return;
+	}
+	settings.render_scale = settings.render_scale.step(step.event().delta);
+	persist::write_machine_preference::<catalog::RenderScalePref>(
+		Some(&mut machine),
+		settings.render_scale,
+		save_root.as_deref(),
+	);
+	request_show_in_game_settings_at(&mut commands, InGameSettingsChoice::RenderScale);
 }
 
 fn apply_show_in_game_settings(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowInGameSettings>>,
+	requests: Query<(Entity, &RequestShowInGameSettings)>,
 	existing: Query<Entity, With<MenuScreen>>,
 	mode: Res<GameMode>,
 	settings: Res<InGameSettings>,
 	readout: Res<RenderScaleReadout>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	let selected = requests.iter().last().and_then(|(_, request)| request.selected);
+	if !take_menu_show_request(&mut commands, requests.iter().map(|(entity, _)| entity), &existing)
+	{
 		return;
 	}
-	commands.spawn_scene(InGameSettingsScreen::scene(&mode, *settings, *readout));
+	commands.spawn_scene(InGameSettingsScreen::scene(
+		&mode,
+		*settings,
+		*readout,
+		selected.unwrap_or(InGameSettingsChoice::Shadows),
+	));
 }
 
 fn sync_in_game_settings_brand(
@@ -408,12 +447,13 @@ fn sync_in_game_settings_brand(
 
 fn sync_settings_description(
 	focus: On<MenuFocus<InGameSettingsChoice>>,
+	readout: Res<RenderScaleReadout>,
 	children: Query<&Children>,
-	mut lines: Query<&mut Text, With<TextMenuDescription>>,
+	mut lines: Query<&mut Text, With<MenuInfoBoxLabel>>,
 ) {
-	set_description_for_menu(
+	set_info_box_for_menu(
 		focus.event().entity,
-		focus.event().choice.description(),
+		settings_info_copy(focus.event().choice, *readout),
 		&children,
 		&mut lines,
 	);
@@ -423,8 +463,10 @@ fn sync_settings_description(
 mod tests {
 	use bevy::prelude::UVec2;
 
+	use menu_components::TextCursorRow;
+
 	use super::{
-		format_render_scale_subtext, InGameRenderScale, InGameSettings, InGameSettingsChoice,
+		format_render_scale_info, InGameRenderScale, InGameSettings, InGameSettingsChoice,
 		InGameShadowQuality, RenderScaleReadout,
 	};
 
@@ -434,6 +476,25 @@ mod tests {
 			assert!(!choice.label().is_empty());
 			assert!(!choice.description().is_empty());
 		}
+	}
+
+	#[test]
+	fn render_scale_row_is_a_stepper() {
+		let rows: Vec<_> = InGameSettingsChoice::ALL
+			.into_iter()
+			.map(|choice| {
+				let row = TextCursorRow::new(choice.label(), choice);
+				if choice == InGameSettingsChoice::RenderScale {
+					row.stepper()
+				} else {
+					row
+				}
+			})
+			.collect();
+		assert!(!rows[0].stepper);
+		assert!(rows[1].stepper);
+		assert!(!rows[2].stepper);
+		assert_eq!(rows[1].action, InGameSettingsChoice::RenderScale);
 	}
 
 	#[test]
@@ -465,11 +526,7 @@ mod tests {
 		assert_eq!(InGameShadowQuality::High.cycle(), InGameShadowQuality::Low);
 		assert_eq!(InGameShadowQuality::Low.cycle(), InGameShadowQuality::Off);
 		assert_eq!(InGameShadowQuality::Off.cycle(), InGameShadowQuality::High);
-		assert_eq!(
-			InGameSettings::default()
-				.state_label(InGameSettingsChoice::Shadows, RenderScaleReadout::default()),
-			"Off"
-		);
+		assert_eq!(InGameSettings::default().state_label(InGameSettingsChoice::Shadows), "Off");
 	}
 
 	#[test]
@@ -479,6 +536,8 @@ mod tests {
 		assert_eq!(InGameRenderScale::Native.cycle(), InGameRenderScale::ThreeQuarter);
 		assert_eq!(InGameRenderScale::ThreeQuarter.cycle(), InGameRenderScale::Half);
 		assert_eq!(InGameRenderScale::Half.cycle(), InGameRenderScale::Auto);
+		assert_eq!(InGameRenderScale::Auto.step(-1), InGameRenderScale::Half);
+		assert_eq!(InGameRenderScale::Half.step(1), InGameRenderScale::Auto);
 		assert_eq!(InGameRenderScale::from_factor(1.0), InGameRenderScale::Native);
 		assert_eq!(InGameRenderScale::from_factor(0.75), InGameRenderScale::ThreeQuarter);
 		assert_eq!(InGameRenderScale::from_factor(0.5), InGameRenderScale::Half);
@@ -492,7 +551,17 @@ mod tests {
 	}
 
 	#[test]
-	fn render_scale_subtext_shows_resolution_and_env() -> anyhow::Result<()> {
+	fn render_scale_select_is_just_the_step() {
+		assert_eq!(InGameRenderScale::Half.subtext(), "50%");
+		assert_eq!(InGameRenderScale::Auto.subtext(), "Auto");
+		assert_eq!(
+			InGameSettings::default().state_label(InGameSettingsChoice::RenderScale),
+			"Auto"
+		);
+	}
+
+	#[test]
+	fn render_scale_info_is_a_short_pixel_line() -> anyhow::Result<()> {
 		let retina = RenderScaleReadout {
 			effective: 0.5,
 			window_physical: UVec2::new(3024, 1964),
@@ -500,12 +569,8 @@ mod tests {
 			env_override: None,
 		};
 		assert_eq!(
-			format_render_scale_subtext(InGameRenderScale::Auto, retina),
-			"Auto (50%) · 1512×982 → window 3024×1964"
-		);
-		assert_eq!(
-			format_render_scale_subtext(InGameRenderScale::Half, retina),
-			"50% · 1512×982 → window 3024×1964"
+			format_render_scale_info(retina),
+			"Rendered at 1512 x 982. Upscaled to display."
 		);
 		let native = RenderScaleReadout {
 			effective: 1.0,
@@ -513,18 +578,10 @@ mod tests {
 			target_physical: UVec2::new(1280, 720),
 			env_override: None,
 		};
+		assert_eq!(format_render_scale_info(native), "Rendered at 1280 x 720.");
 		assert_eq!(
-			format_render_scale_subtext(InGameRenderScale::Native, native),
-			"100% · 1280×720"
-		);
-		let env = RenderScaleReadout { env_override: Some(0.75), ..retina };
-		assert_eq!(
-			format_render_scale_subtext(InGameRenderScale::Auto, env),
-			"Auto · 1512×982 → window 3024×1964 · env 75%"
-		);
-		assert_eq!(
-			format_render_scale_subtext(InGameRenderScale::Auto, RenderScaleReadout::default()),
-			"Auto"
+			format_render_scale_info(RenderScaleReadout::default()),
+			"Rendered at display size."
 		);
 		Ok(())
 	}

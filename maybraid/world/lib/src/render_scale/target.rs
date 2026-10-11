@@ -92,7 +92,7 @@ pub(super) fn sync_render_scale_target(
 		|| (applied.last_scale - plan.scale).abs() > 1e-5
 	{
 		info!(
-			"render scale {:.3}: 3D {}x{} → window {}x{}",
+			"render scale {:.3}: 3D {}x{} -> window {}x{}",
 			plan.scale, plan.target_size.x, plan.target_size.y, physical.x, physical.y
 		);
 		applied.last_offscreen = true;

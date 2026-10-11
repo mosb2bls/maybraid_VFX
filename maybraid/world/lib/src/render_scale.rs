@@ -151,11 +151,11 @@ pub fn parse_render_scale_env(raw: Option<&str>) -> Option<f32> {
 	match raw.parse::<f32>() {
 		Ok(value) if value.is_finite() => Some(RenderScale::clamp(value)),
 		Ok(_) => {
-			eprintln!("[{RENDER_SCALE_ENV}] non-finite {raw:?} (use 0.5–1.0 or auto)");
+			eprintln!("[{RENDER_SCALE_ENV}] non-finite {raw:?} (use 0.5-1.0 or auto)");
 			None
 		}
 		Err(_) => {
-			eprintln!("[{RENDER_SCALE_ENV}] unknown {raw:?} (use 0.5–1.0 or auto)");
+			eprintln!("[{RENDER_SCALE_ENV}] unknown {raw:?} (use 0.5-1.0 or auto)");
 			None
 		}
 	}
