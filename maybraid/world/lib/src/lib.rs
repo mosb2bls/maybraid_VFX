@@ -105,8 +105,6 @@ use firearms::EnergyMaterialPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
-use lubikans::{LubikanSystems, LubikansPlugin};
-use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
@@ -120,7 +118,7 @@ use player::{
 use player_camera::{PlayerCameraPlugin, PlayerCameraSystems};
 use world_player::{
 	CharacterCameraFollowEnabled, CharacterLocomotion, CharacterSpecies, MeshStatsPlugin,
-	PadMovementEnabled, Player as WorldPlayer, PlayerControlSystems, PlaygroundDiag, PlaygroundMode,
+	PadMovementEnabled, PlayerControlSystems, PlaygroundDiag, PlaygroundMode,
 	PlaygroundTimingPlugin, RequestSetCharacter, VegetationHostPlugin, VegetationPlayerMotor,
 };
 

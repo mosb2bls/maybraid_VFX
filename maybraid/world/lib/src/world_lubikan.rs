@@ -9,7 +9,7 @@ use lubikans::{
 use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use player::{
-	CharacterController, CharacterStance, LocomotionCapsule, MotorTraction, Player as MaybraidPlayer, RestLocomotionCapsule, StanceKind,
+	CharacterController, CharacterStance, LocomotionCapsule, MotorTraction, RestLocomotionCapsule, StanceKind,
 };
 use world_player::{Player, PlayerPhysicsEnabled};
 
