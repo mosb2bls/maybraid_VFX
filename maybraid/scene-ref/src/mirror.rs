@@ -9,34 +9,36 @@ use bevy::world_serialization::WorldAsset;
 
 use crate::scene_ref::MirrorAxis;
 
-/// Clone `mesh`, negate `axis` on positions/normals/tangents, and reverse winding.
-pub fn mirror_mesh(mesh: &Mesh, axis: MirrorAxis) -> Mesh {
-	let mut out = mesh.clone();
-	out.transform_by(Transform::from_scale(axis.scale()));
-	// Odd negative scale reverses winding; restore front-face orientation.
-	let _ = out.invert_winding();
-	out
-}
-
-/// Reflect `transform` through `axis` so it matches a parent scale-flip.
-///
-/// Vertex-only mirroring leaves GLB node translations on the source side of the
-/// axis. Conjugating each local TRS (`S M S`) plus [`mirror_mesh`] is equivalent
-/// to a parent `scale(axis)` with positive scale at the caller.
-pub fn mirror_transform(transform: Transform, axis: MirrorAxis) -> Transform {
-	let s = axis.scale();
-	Transform {
-		translation: transform.translation * s,
-		rotation: mirror_rotation(transform.rotation, axis),
-		scale: transform.scale,
+impl MirrorAxis {
+	/// Clone `mesh`, negate this axis on positions/normals/tangents, and reverse winding.
+	pub fn mirror_mesh(self, mesh: &Mesh) -> Mesh {
+		let mut out = mesh.clone();
+		out.transform_by(Transform::from_scale(self.scale()));
+		// Odd negative scale reverses winding; restore front-face orientation.
+		let _ = out.invert_winding();
+		out
 	}
-}
 
-fn mirror_rotation(rotation: Quat, axis: MirrorAxis) -> Quat {
-	match axis {
-		MirrorAxis::X => Quat::from_xyzw(rotation.x, -rotation.y, -rotation.z, rotation.w),
-		MirrorAxis::Y => Quat::from_xyzw(-rotation.x, rotation.y, -rotation.z, rotation.w),
-		MirrorAxis::Z => Quat::from_xyzw(-rotation.x, -rotation.y, rotation.z, rotation.w),
+	/// Reflect `transform` through this axis so it matches a parent scale-flip.
+	///
+	/// Vertex-only mirroring leaves GLB node translations on the source side of the
+	/// axis. Conjugating each local TRS (`S M S`) plus [`Self::mirror_mesh`] is equivalent
+	/// to a parent `scale(axis)` with positive scale at the caller.
+	pub fn mirror_transform(self, transform: Transform) -> Transform {
+		let s = self.scale();
+		Transform {
+			translation: transform.translation * s,
+			rotation: self.mirror_rotation(transform.rotation),
+			scale: transform.scale,
+		}
+	}
+
+	fn mirror_rotation(self, rotation: Quat) -> Quat {
+		match self {
+			Self::X => Quat::from_xyzw(rotation.x, -rotation.y, -rotation.z, rotation.w),
+			Self::Y => Quat::from_xyzw(-rotation.x, rotation.y, -rotation.z, rotation.w),
+			Self::Z => Quat::from_xyzw(-rotation.x, -rotation.y, rotation.z, rotation.w),
+		}
 	}
 }
 
@@ -71,7 +73,7 @@ pub(crate) fn mirror_world_asset(
 		let new_handle = if let Some(h) = remap.get(&old_handle.id()) {
 			h.clone()
 		} else {
-			let mirrored = mirror_mesh(meshes.get(&old_handle)?, axis);
+			let mirrored = axis.mirror_mesh(meshes.get(&old_handle)?);
 			let h = meshes.add(mirrored);
 			remap.insert(old_handle.id(), h.clone());
 			h
@@ -85,7 +87,7 @@ pub(crate) fn mirror_world_asset(
 		let Some(transform) = cloned.world.get::<Transform>(entity).copied() else {
 			continue;
 		};
-		let mirrored = mirror_transform(transform, axis);
+		let mirrored = axis.mirror_transform(transform);
 		if let Some(mut transform) = cloned.world.get_mut::<Transform>(entity) {
 			*transform = mirrored;
 		}
@@ -112,7 +114,7 @@ mod tests {
 			rotation: Quat::from_rotation_y(FRAC_PI_4),
 			scale: Vec3::splat(0.15),
 		};
-		let mirrored = mirror_transform(src, MirrorAxis::X);
+		let mirrored = MirrorAxis::X.mirror_transform(src);
 		assert!((mirrored.translation.x + 0.2).abs() < 1e-5);
 		assert!((mirrored.translation.y + 0.1).abs() < 1e-5);
 		assert!((mirrored.translation.z - 0.05).abs() < 1e-5);
@@ -133,7 +135,7 @@ mod tests {
 		let parent_flip = Transform::from_scale(Vec3::new(-1.0, 1.0, 1.0));
 		let via_parent = parent_flip.transform_point(m.transform_point(p));
 
-		let m_prime = mirror_transform(m, MirrorAxis::X);
+		let m_prime = MirrorAxis::X.mirror_transform(m);
 		let p_prime = Vec3::new(-p.x, p.y, p.z);
 		let via_mirror = m_prime.transform_point(p_prime);
 
