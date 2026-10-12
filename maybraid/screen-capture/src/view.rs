@@ -67,6 +67,11 @@ impl CaptureView {
 	pub const DEFAULT_NEAR: f32 = 0.05;
 	pub const DEFAULT_FAR: f32 = 24.0;
 
+	/// Stable dummy view for [`crate::CaptureScene::Image`]. Not used to place a camera.
+	pub fn unused() -> Self {
+		Self::look_at(Vec3::ZERO, Vec3::ZERO)
+	}
+
 	pub fn look_at(eye: Vec3, look_at: Vec3) -> Self {
 		Self {
 			eye,

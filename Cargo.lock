@@ -6115,6 +6115,7 @@ dependencies = [
  "characters",
  "firearm-user",
  "firearms-components",
+ "grenades",
  "lod",
  "material-ref",
  "screen-capture",

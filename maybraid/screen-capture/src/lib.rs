@@ -103,7 +103,7 @@ mod tests {
 			CaptureMode::Silhouette,
 			CaptureResolution::ICON,
 			CaptureLighting::studio(),
-			CaptureRevision::new(10),
+			CaptureRevision::new(12),
 		);
 		assert_ne!(CaptureCacheKey::from_request(&a), CaptureCacheKey::from_request(&b));
 		Ok(())

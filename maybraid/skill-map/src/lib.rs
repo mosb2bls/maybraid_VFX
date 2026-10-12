@@ -106,6 +106,8 @@ impl Plugin for SkillMapPlugin {
 			.add_systems(Startup, burst::setup_burst_assets)
 			.init_resource::<SkillMapEnabled>()
 			.init_resource::<controller::SkillMapController>()
+			.init_resource::<icon::SkillMapPaintSlots>()
+			.init_resource::<icon::SkillMapIconSubmitted>()
 			.add_message::<SkillMapEvent>()
 			.add_message::<controller::SkillMapFlick>()
 			.configure_sets(

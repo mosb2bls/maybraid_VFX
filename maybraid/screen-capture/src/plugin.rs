@@ -297,6 +297,7 @@ fn advance_sessions(
 			&queries.mesh_entities,
 			&queries.children,
 			&queries.hosts,
+			&images,
 		) {
 			return;
 		}

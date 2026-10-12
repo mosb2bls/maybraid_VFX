@@ -75,6 +75,8 @@ pub(crate) struct CaptureReadback {
 	pub render_height: u32,
 	/// Image-space alpha crop padding for [`CaptureFraming::FitExtents`].
 	pub crop: Option<f32>,
+	pub mode: CaptureMode,
+	pub from_image: bool,
 }
 
 #[derive(Component)]
@@ -118,6 +120,27 @@ pub(crate) fn spawn_session(
 	layer: usize,
 ) -> CaptureSession {
 	let request = queued.request;
+	let image_target = match &request.scene {
+		CaptureScene::Image(handle) => Some(handle.clone()),
+		_ => None,
+	};
+	if let Some(target) = image_target {
+		let root = commands
+			.spawn((Name::new("capture_image"), CaptureRoot, Visibility::Hidden))
+			.id();
+		return CaptureSession {
+			key: CaptureCacheKey::from_request(&request),
+			request,
+			ticket: queued.image,
+			target,
+			root,
+			camera: root,
+			extras: Vec::new(),
+			readback: None,
+			phase: CapturePhase::Load { frames: 0 },
+			framed: true,
+		};
+	}
 	let framed = matches!(request.framing, CaptureFraming::Authored);
 	let key = CaptureCacheKey::from_request(&request);
 	let origin = Vec3::new(SLOT_ORIGIN_X + slot as f32 * SLOT_SPACING, 0.0, 0.0);
@@ -224,6 +247,9 @@ fn spawn_subject(
 				CaptureRoot,
 				Name::new("capture_host"),
 			))
+			.id(),
+		CaptureScene::Image(_) => commands
+			.spawn((Name::new("capture_image"), transform, Visibility::Hidden, layers, CaptureRoot))
 			.id(),
 	};
 	if silhouette {
@@ -480,6 +506,7 @@ pub(crate) fn scene_ready(
 	mesh_entities: &Query<Entity, With<Mesh3d>>,
 	children: &Query<&Children>,
 	hosts: &Query<(), With<CaptureHostReady>>,
+	images: &Assets<Image>,
 ) -> bool {
 	match &session.request.scene {
 		CaptureScene::Mesh(_) => mesh_entities.get(session.root).is_ok(),
@@ -492,6 +519,9 @@ pub(crate) fn scene_ready(
 		CaptureScene::Host { .. } => {
 			hosts.get(session.root).is_ok()
 				&& descendant_has_mesh(session.root, children, mesh_entities)
+		}
+		CaptureScene::Image(handle) => {
+			images.get(handle).is_some_and(|image| image.width() > 0 && image.height() > 0)
 		}
 	}
 }
@@ -519,6 +549,9 @@ pub(crate) fn apply_silhouette(
 	meshes: &Query<Entity, With<Mesh3d>>,
 ) -> Result<Option<CaptureWarning>, CaptureError> {
 	if session.request.mode != CaptureMode::Silhouette {
+		return Ok(None);
+	}
+	if matches!(session.request.scene, CaptureScene::Image(_)) {
 		return Ok(None);
 	}
 	let mut warning = None;
@@ -613,6 +646,8 @@ pub(crate) fn spawn_readback(commands: &mut Commands, session: &mut CaptureSessi
 				render_width: render.width,
 				render_height: render.height,
 				crop: crop_padding(session.request.framing),
+				mode: session.request.mode,
+				from_image: matches!(session.request.scene, CaptureScene::Image(_)),
 			},
 			CaptureRoot,
 			Name::new("capture_readback"),
@@ -643,7 +678,7 @@ pub(crate) fn take_pixels(
 	let (width, height) = (readback.width, readback.height);
 	let rendered = bgra_to_rgba(bgra, readback.render_width, readback.render_height)
 		.map_err(|_| CaptureError::Readback)?;
-	let rgba = match readback.crop {
+	let mut rgba = match readback.crop {
 		Some(padding) => crop_to_alpha(
 			&rendered,
 			readback.render_width,
@@ -654,6 +689,9 @@ pub(crate) fn take_pixels(
 		),
 		None => rendered,
 	};
+	if readback.from_image && readback.mode == CaptureMode::Silhouette {
+		tint_silhouette_rgba(&mut rgba);
+	}
 	let ticket = &readback.ticket;
 	let image = Image::new(
 		bevy::render::render_resource::Extent3d { width, height, depth_or_array_layers: 1 },
@@ -664,6 +702,18 @@ pub(crate) fn take_pixels(
 	);
 	let _ = images.insert(ticket.id(), image);
 	Ok(rgba)
+}
+
+fn tint_silhouette_rgba(rgba: &mut [u8]) {
+	let tone = (SILHOUETTE_GRAY * 255.0) as u8;
+	for pixel in rgba.chunks_exact_mut(4) {
+		if pixel[3] == 0 {
+			continue;
+		}
+		pixel[0] = tone;
+		pixel[1] = tone;
+		pixel[2] = tone;
+	}
 }
 
 pub(crate) fn despawn_session(commands: &mut Commands, session: &CaptureSession) {

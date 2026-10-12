@@ -1,6 +1,6 @@
 //! Capture subject contract and built-in scene descriptions.
 
-use bevy::prelude::{Color, Vec3};
+use bevy::prelude::{Color, Handle, Image, Vec3};
 use scene_ref::SceneRef;
 
 use crate::id::CaptureId;
@@ -22,11 +22,15 @@ pub trait CaptureSubject: Send + Sync + Clone + 'static {
 /// [`CaptureScene::Host`] is an empty isolated root; the application realizes
 /// the posed subject and stamps [`crate::CaptureHostReady`] when meshes and
 /// materials are in place.
+/// [`CaptureScene::Image`] is an already-painted GPU texture; capture
+/// readbacks that handle and writes the PNG. The handle is not part of the
+/// cache key.
 #[derive(Clone, Debug, PartialEq)]
 pub enum CaptureScene {
 	SceneRef(SceneRef),
 	Mesh(CaptureMesh),
 	Host { kind: String, fragment: String },
+	Image(Handle<Image>),
 }
 
 /// Procedural mesh used when a GLB is not required.
@@ -59,11 +63,16 @@ impl CaptureScene {
 		Self::Host { kind: kind.into(), fragment: fragment.into() }
 	}
 
+	pub fn image(handle: Handle<Image>) -> Self {
+		Self::Image(handle)
+	}
+
 	pub fn cache_fragment(&self) -> String {
 		match self {
 			Self::SceneRef(scene) => format!("ref:{}", scene.labeled_path()),
 			Self::Mesh(mesh) => mesh.cache_fragment(),
 			Self::Host { kind, fragment } => format!("host:{kind}:{fragment}"),
+			Self::Image(_) => String::from("image"),
 		}
 	}
 }
@@ -165,5 +174,10 @@ mod tests {
 		let scene = CaptureScene::host("generated-firearm", "firearm:body=silopup");
 		assert_eq!(scene.cache_fragment(), "host:generated-firearm:firearm:body=silopup");
 		Ok(())
+	}
+
+	#[test]
+	fn image_cache_fragment_ignores_the_handle() {
+		assert_eq!(CaptureScene::image(Handle::default()).cache_fragment(), "image");
 	}
 }

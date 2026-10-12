@@ -112,7 +112,7 @@ mod tests {
 			CaptureRevision::CURRENT,
 		));
 		let bumped =
-			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::new(10)));
+			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::new(12)));
 		assert_ne!(shaded, silhouette);
 		assert_ne!(shaded, bumped);
 		Ok(())

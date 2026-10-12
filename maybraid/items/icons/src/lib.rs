@@ -17,7 +17,7 @@ use screen_capture::{
 	ScreenCapturePlugin, ScreenCaptureSystems,
 };
 
-pub use host::{CaptureHostRealized, ItemCaptureSubjects, HOST_SKILL_MAP};
+pub use host::{CaptureHostRealized, ItemCaptureSubjects, HOST_GRENADE, HOST_SKILL_MAP};
 pub use prune::{
 	kept_icon_file_names, prune_icon_cache, prune_icon_cache_to_saved_inventories,
 	RequestPruneItemIconCache,
@@ -33,8 +33,6 @@ pub const ITEM_ICON_RESOLUTION: CaptureResolution = CaptureResolution::ICON;
 pub const FIREARM_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(256, 112);
 /// Square HUD / catalog charge. The in-world grenade is a sphere.
 pub const GRENADE_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(128, 128);
-/// Authored skill-map world span (`MapExtents` 256). Kept here to avoid a crate cycle.
-const SKILL_MAP_ICON_SPAN: f32 = 256.0;
 
 /// Clothing inspect camera (catalog thumbnail).
 const CLOTHING_EYE: Vec3 = Vec3::new(0.0, 0.75, 2.5);
@@ -190,20 +188,15 @@ impl InventoryItemSubject {
 			}),
 			InventoryItem::Grenade { .. } => Some(Self {
 				id: id.clone(),
-				scene: CaptureScene::sphere([0.42, 0.48, 0.32, 1.0]),
+				scene: CaptureScene::host(HOST_GRENADE, id.as_str()),
 				view: CaptureView::look_at(Vec3::new(1.2, 0.9, 1.2), Vec3::ZERO)
 					.perspective(CaptureView::DEFAULT_FOV),
 			}),
-			InventoryItem::SkillMap { spec, .. } => {
-				let [red, green, blue] = spec.kind.preview_srgb();
-				Some(Self {
-					id: id.clone(),
-					scene: CaptureScene::host(HOST_SKILL_MAP, id.as_str()),
-					view: CaptureView::look_at(Vec3::new(0.0, 0.0, 1.0), Vec3::ZERO)
-						.orthographic_2d(SKILL_MAP_ICON_SPAN)
-						.with_clear(Color::srgb(red, green, blue)),
-				})
-			}
+			InventoryItem::SkillMap { .. } => Some(Self {
+				id: id.clone(),
+				scene: CaptureScene::image(Handle::default()),
+				view: CaptureView::unused(),
+			}),
 		}
 	}
 }
@@ -296,6 +289,9 @@ pub fn pending_inventory_icons(
 			continue;
 		}
 		remember_item(subjects, item);
+		if matches!(item, InventoryItem::SkillMap { .. }) {
+			continue;
+		}
 		out.extend(item_icon_requests(item, lighting, revision));
 	}
 	out
@@ -380,7 +376,7 @@ mod tests {
 	#[test]
 	fn clothing_grenades_and_skill_maps_are_capturable() -> anyhow::Result<()> {
 		use character_items::{SkillMapKind, SkillMapSpec};
-		use screen_capture::{CaptureMeshKind, CaptureScene};
+		use screen_capture::CaptureScene;
 
 		let clothing = InventoryItem::clothing(
 			ClothingMesh::Pants,
@@ -394,7 +390,7 @@ mod tests {
 			InventoryItemSubject::from_item(&grenade).ok_or_else(|| anyhow::anyhow!("grenade"))?;
 		assert!(matches!(
 			grenade_subject.capture_scene(),
-			CaptureScene::Mesh(mesh) if mesh.kind == CaptureMeshKind::Sphere
+			CaptureScene::Host { kind, .. } if kind == HOST_GRENADE
 		));
 		let grenade_requests =
 			item_icon_requests(&grenade, CaptureLighting::studio(), CaptureRevision::CURRENT);
@@ -403,14 +399,46 @@ mod tests {
 		let map = InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1));
 		let map_subject =
 			InventoryItemSubject::from_item(&map).ok_or_else(|| anyhow::anyhow!("skill map"))?;
-		assert!(matches!(
-			map_subject.capture_scene(),
-			CaptureScene::Host { kind, .. } if kind == HOST_SKILL_MAP
-		));
-		assert!(map_subject.preferred_view().two_d);
+		assert!(matches!(map_subject.capture_scene(), CaptureScene::Image(_)));
+		assert_eq!(map_subject.preferred_view(), CaptureView::unused());
 		let map_requests =
 			item_icon_requests(&map, CaptureLighting::studio(), CaptureRevision::CURRENT);
 		assert_eq!(map_requests[0].framing, CaptureFraming::Authored);
+		assert_eq!(
+			CaptureCacheKey::from_request(&map_requests[0]),
+			CaptureCacheKey::from_request(
+				&CaptureRequest::from_image_handle(
+					map_subject.capture_id(),
+					Handle::default(),
+					CaptureMode::Shaded,
+					ITEM_ICON_RESOLUTION,
+					CaptureRevision::CURRENT,
+				)
+				.with_file_stem(map.name())
+			)
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn skill_maps_are_remembered_not_enqueued() -> anyhow::Result<()> {
+		use character_items::{SkillMapKind, SkillMapSpec};
+
+		let item = InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1));
+		let inventory = Inventory::with_starter_outfit(vec![item.clone()]);
+		let mut discovery = ItemIconDiscovery::default();
+		let mut subjects = ItemCaptureSubjects::default();
+		let pending = pending_inventory_icons(
+			&inventory,
+			&mut discovery,
+			&mut subjects,
+			CaptureLighting::studio(),
+			CaptureRevision::CURRENT,
+		);
+		assert!(pending.is_empty());
+		assert_eq!(discovery.requested_len(), 1);
+		let id = CaptureId::new(item.capture_id_label().ok_or_else(|| anyhow::anyhow!("label"))?);
+		assert!(subjects.get(&id).is_some());
 		Ok(())
 	}
 

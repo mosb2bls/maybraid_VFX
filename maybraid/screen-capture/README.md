@@ -30,14 +30,16 @@ A [`CaptureSubject`] supplies:
 
 - a stable, serializable [`CaptureId`] (visual identity; distinct for
   procedural or customized variants)
-- a [`CaptureScene`] (`SceneRef`, a mesh primitive, or an application
-  [`CaptureScene::Host`] realized by the caller)
+- a [`CaptureScene`] (`SceneRef`, a mesh primitive, an application
+  [`CaptureScene::Host`] realized by the caller, or an already-painted
+  [`CaptureScene::Image`])
 - a preferred [`CaptureView`] (eye, look-at, projection)
 
 Requests specify mode, resolution, lighting, framing, and an explicit capture
 revision. [`CaptureFraming::Authored`] keeps the supplied view.
-2D hosts (`CaptureView::two_d`) spawn a `Camera2d` with a fixed-size
-ortho so skill-map tiles can be snapshotted the same way as 3D kits.
+[`CaptureRequest::from_image_handle`] skips the isolated camera and
+readbacks the supplied GPU image (skill-map icons paint tiles, then
+archive that texture).
 
 [`CaptureFraming::FitExtents`] fits in two stages:
 

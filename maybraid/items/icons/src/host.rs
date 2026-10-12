@@ -14,6 +14,7 @@ use firearms_components::{
 	add_firearm_components_host, firearm_bounds, spawn_firearm_components, ActiveRigPose,
 	FirearmComponentsPlugin, PoseApplied,
 };
+use grenades::{grenade_material, grenade_mesh, GrenadeMaterial, GrenadeMaterialPlugin};
 use lod::lod_ref::LodRef;
 use lod::scene::{LodScene, LodSceneLevel};
 use lod::{
@@ -26,6 +27,7 @@ use std::collections::HashMap;
 
 pub const HOST_FIREARM: &str = "generated-firearm";
 pub const HOST_CLOTHING: &str = "clothing-preview";
+pub const HOST_GRENADE: &str = "grenade-preview";
 pub const HOST_SKILL_MAP: &str = "skill-map-preview";
 
 #[derive(Resource, Default, Debug)]
@@ -40,6 +42,10 @@ impl ItemCaptureSubjects {
 
 	pub fn get(&self, id: &CaptureId) -> Option<&InventoryItem> {
 		self.items.get(id)
+	}
+
+	pub fn items(&self) -> impl Iterator<Item = &InventoryItem> {
+		self.items.values()
 	}
 }
 
@@ -82,6 +88,9 @@ pub fn install_capture_hosts(app: &mut App) {
 		app.add_plugins(CharacterComponentsPlugin);
 	}
 	add_character_components_host::<ClothingIconPreview>(app);
+	if !app.is_plugin_added::<GrenadeMaterialPlugin>() {
+		app.add_plugins(GrenadeMaterialPlugin);
+	}
 }
 
 pub fn remember_item(subjects: &mut ItemCaptureSubjects, item: &InventoryItem) {
@@ -93,6 +102,8 @@ pub fn remember_item(subjects: &mut ItemCaptureSubjects, item: &InventoryItem) {
 
 pub fn realize_capture_hosts(
 	mut commands: Commands,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut grenade_materials: Option<ResMut<Assets<GrenadeMaterial>>>,
 	subjects: Res<ItemCaptureSubjects>,
 	hosts: Query<(Entity, &CaptureHostRoot), Without<CaptureHostRealized>>,
 ) {
@@ -100,7 +111,8 @@ pub fn realize_capture_hosts(
 		let Some(item) = subjects.get(&host.id) else {
 			continue;
 		};
-		if spawn_item_host(&mut commands, root, item) {
+		if spawn_item_host(&mut commands, &mut meshes, grenade_materials.as_deref_mut(), root, item)
+		{
 			commands.entity(root).try_insert(CaptureHostRealized);
 		}
 	}
@@ -120,6 +132,7 @@ pub fn mark_capture_hosts_ready(
 	standard: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
 	clothing: Query<(), With<MeshMaterial3d<ClothingShaderMaterial>>>,
 	faces: Query<(), With<MeshMaterial3d<FaceShaderMaterial>>>,
+	grenades: Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: Query<(), With<ActiveRigPose>>,
 	posed: Query<(), With<PoseApplied>>,
 ) {
@@ -134,6 +147,7 @@ pub fn mark_capture_hosts_ready(
 			&standard,
 			&clothing,
 			&faces,
+			&grenades,
 			&poses,
 			&posed,
 		) {
@@ -150,6 +164,7 @@ pub fn prepare_silhouette_hosts(
 	children: Query<&Children>,
 	clothing: Query<Entity, With<MeshMaterial3d<ClothingShaderMaterial>>>,
 	faces: Query<Entity, With<MeshMaterial3d<FaceShaderMaterial>>>,
+	grenades: Query<Entity, With<MeshMaterial3d<GrenadeMaterial>>>,
 ) {
 	for root in &roots {
 		visit_descendants(root, &children, &mut |entity| {
@@ -158,6 +173,9 @@ pub fn prepare_silhouette_hosts(
 			}
 			if faces.get(entity).is_ok() {
 				commands.entity(entity).try_remove::<MeshMaterial3d<FaceShaderMaterial>>();
+			}
+			if grenades.get(entity).is_ok() {
+				commands.entity(entity).try_remove::<MeshMaterial3d<GrenadeMaterial>>();
 			}
 		});
 	}
@@ -180,7 +198,13 @@ pub fn keep_capture_hosts_visible(
 	}
 }
 
-fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) -> bool {
+fn spawn_item_host(
+	commands: &mut Commands,
+	meshes: &mut Assets<Mesh>,
+	grenade_materials: Option<&mut Assets<GrenadeMaterial>>,
+	root: Entity,
+	item: &InventoryItem,
+) -> bool {
 	match item {
 		InventoryItem::Firearm { spec, .. } => {
 			let preview = GeneratedFirearm::from_spec(*spec);
@@ -206,7 +230,23 @@ fn spawn_item_host(commands: &mut Commands, root: Entity, item: &InventoryItem) 
 			pin_capture_host(commands, entity, root);
 			true
 		}
-		InventoryItem::Grenade { .. } | InventoryItem::SkillMap { .. } => false,
+		InventoryItem::Grenade { .. } => {
+			let Some(materials) = grenade_materials else {
+				return false;
+			};
+			let entity = commands
+				.spawn((
+					Name::new("capture-grenade"),
+					Mesh3d(meshes.add(grenade_mesh())),
+					MeshMaterial3d(materials.add(grenade_material())),
+					Transform::IDENTITY,
+					Visibility::default(),
+				))
+				.id();
+			pin_capture_host(commands, entity, root);
+			true
+		}
+		InventoryItem::SkillMap { .. } => false,
 	}
 }
 
@@ -248,6 +288,7 @@ fn host_tree_ready(
 	standard: &Query<(), With<MeshMaterial3d<StandardMaterial>>>,
 	clothing: &Query<(), With<MeshMaterial3d<ClothingShaderMaterial>>>,
 	faces: &Query<(), With<MeshMaterial3d<FaceShaderMaterial>>>,
+	grenades: &Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: &Query<(), With<ActiveRigPose>>,
 	posed: &Query<(), With<PoseApplied>>,
 ) -> bool {
@@ -274,6 +315,7 @@ fn host_tree_ready(
 			&& standard.get(entity).is_err()
 			&& clothing.get(entity).is_err()
 			&& faces.get(entity).is_err()
+			&& grenades.get(entity).is_err()
 		{
 			unpainted = true;
 		}
@@ -312,6 +354,13 @@ mod tests {
 		let item = InventoryItem::from_firearm_spec(spec);
 		assert!(item.capture_id_label().is_some());
 		let _ = GeneratedFirearm::from_spec(spec);
+	}
+
+	#[test]
+	fn grenade_host_uses_the_thrown_mesh() {
+		let item = InventoryItem::standard_grenade();
+		assert!(item.capture_id_label().is_some());
+		assert_eq!(HOST_GRENADE, "grenade-preview");
 	}
 
 	#[test]

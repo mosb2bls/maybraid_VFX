@@ -35,7 +35,7 @@ pub struct CaptureRevision(pub u32);
 
 impl CaptureRevision {
 	/// Bump when captured shaders, framing, or silhouette rules change.
-	pub const CURRENT: Self = Self(9);
+	pub const CURRENT: Self = Self(11);
 
 	// `Default` is 0 so an unset discovery resource regenerates on first sight.
 
@@ -74,6 +74,29 @@ impl CaptureRequest {
 			mode,
 			resolution,
 			lighting,
+			revision,
+			file_stem: String::new(),
+			framing: CaptureFraming::Authored,
+		}
+	}
+
+	/// Read back an already-painted GPU image. View, lighting, and framing
+	/// are unused; the cache key still includes their defaults so prune
+	/// can rebuild the same name without the live handle.
+	pub fn from_image_handle(
+		id: CaptureId,
+		image: bevy::prelude::Handle<bevy::prelude::Image>,
+		mode: CaptureMode,
+		resolution: CaptureResolution,
+		revision: CaptureRevision,
+	) -> Self {
+		Self {
+			id,
+			scene: CaptureScene::image(image),
+			view: CaptureView::unused(),
+			mode,
+			resolution,
+			lighting: CaptureLighting::studio(),
 			revision,
 			file_stem: String::new(),
 			framing: CaptureFraming::Authored,
@@ -120,5 +143,22 @@ mod tests {
 		assert_eq!(request.mode, CaptureMode::Silhouette);
 		assert_eq!(request.resolution, CaptureResolution::ICON);
 		Ok(())
+	}
+
+	#[test]
+	fn from_image_handle_uses_authored_defaults() {
+		use bevy::prelude::Handle;
+
+		let request = CaptureRequest::from_image_handle(
+			CaptureId::new("skill-map:fireball:1"),
+			Handle::default(),
+			CaptureMode::Shaded,
+			CaptureResolution::ICON,
+			CaptureRevision::CURRENT,
+		);
+		assert!(matches!(request.scene, CaptureScene::Image(_)));
+		assert_eq!(request.view, CaptureView::unused());
+		assert_eq!(request.framing, CaptureFraming::Authored);
+		assert_eq!(request.scene.cache_fragment(), "image");
 	}
 }
