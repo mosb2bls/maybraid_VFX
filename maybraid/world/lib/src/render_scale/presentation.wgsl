@@ -19,16 +19,16 @@ struct TreatmentParams {
 }
 
 // IMPRESSIONIST: Linear upscale with painterly softening.
-// Still 5 samples (center + 4 cardinals). Wider radius + weaker center
-// + a cheap hue pull; no extra taps. Linear filtering already averages
-// four source texels per tap, so the larger offset is mostly free.
+// Still 5 samples (center + 4 cardinals). Radius / mix / center weight
+// are the wash knobs; no extra taps. Linear filtering already averages
+// four source texels per tap.
 @fragment
 fn impressionist_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let texel_size = 1.0 / treatment_params.source_size;
 
     let center = textureSample(source_texture, source_sampler, uv);
-    // ~2.4 source texels ≈ 9 output pixels at 700×394 → 2560×1440.
+    // ~2.4 source texels ≈ 5 output pixels at 1280×720 → 2560×1440.
     let offset = texel_size * 2.4;
 
     let n1 = textureSample(source_texture, source_sampler, uv + vec2<f32>(-offset.x, 0.0));

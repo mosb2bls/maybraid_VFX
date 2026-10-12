@@ -717,7 +717,7 @@ mod tests {
 	fn visual_style_applied_detail_includes_resolved_size() {
 		assert_eq!(
 			visual_style_applied_detail(VisualStyle::Impressionist, UVec2::new(1920, 1080), 1.0),
-			"applied impressionist 700x394"
+			"applied impressionist 1280x720"
 		);
 		assert_eq!(
 			visual_style_applied_detail(VisualStyle::Sharp, UVec2::new(1920, 1080), 1.0),

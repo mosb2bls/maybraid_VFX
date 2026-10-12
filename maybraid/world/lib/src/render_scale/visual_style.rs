@@ -35,7 +35,7 @@ impl VisualStyle {
 	pub fn description(self) -> &'static str {
 		match self {
 			Self::Impressionist => {
-				"Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with artistic blur. Default."
+				"Painterly softening at ~1280×720 (16:9). Inexpensive linear upscale with artistic blur. Default."
 			}
 			Self::Sharp => "Native physical resolution, untreated. Primarily useful for testing.",
 			Self::Retro => "Nearest-neighbor upscale from ~540×304 (16:9). Performance mode.",
@@ -51,7 +51,7 @@ impl VisualStyle {
 	/// Reference height at 16:9 aspect ratio for this style.
 	pub fn reference_height(self) -> u32 {
 		match self {
-			Self::Impressionist => 394,
+			Self::Impressionist => 720,
 			Self::Sharp => 0,
 			Self::Retro => 304,
 			Self::Antediluvian => 225,
@@ -212,7 +212,7 @@ mod tests {
 
 	#[test]
 	fn reference_heights_match_spec() {
-		assert_eq!(VisualStyle::Impressionist.reference_height(), 394);
+		assert_eq!(VisualStyle::Impressionist.reference_height(), 720);
 		assert_eq!(VisualStyle::Sharp.reference_height(), 0);
 		assert_eq!(VisualStyle::Retro.reference_height(), 304);
 		assert_eq!(VisualStyle::Antediluvian.reference_height(), 225);
@@ -230,8 +230,8 @@ mod tests {
 	#[test]
 	fn impressionist_scales_to_reference_height() {
 		let plan = VisualStyle::Impressionist.plan(UVec2::new(1920, 1080), 1.0);
-		assert_eq!(plan.target_size.y, 394);
-		let expected_width = (394.0_f32 * 1920.0 / 1080.0).round() as u32;
+		assert_eq!(plan.target_size.y, 720);
+		let expected_width = (720.0_f32 * 1920.0 / 1080.0).round() as u32;
 		assert_eq!(plan.target_size.x, expected_width);
 		assert_eq!(plan.treatment, PresentationTreatment::Impressionist);
 		assert!(plan.requires_offscreen(UVec2::new(1920, 1080)));

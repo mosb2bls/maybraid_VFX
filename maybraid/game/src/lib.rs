@@ -769,9 +769,9 @@ mod tests {
 			readout,
 			RenderScaleReadout {
 				style: VisualStyle::Impressionist,
-				effective_scale: 394.0 / 1080.0,
+				effective_scale: 720.0 / 1080.0,
 				window_physical: UVec2::new(1920, 1080),
-				target_physical: UVec2::new(700, 394),
+				target_physical: UVec2::new(1280, 720),
 				env_override: Some(VisualStyle::Impressionist),
 			}
 		);

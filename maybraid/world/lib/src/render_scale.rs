@@ -2,7 +2,7 @@
 //!
 //! Replaces the legacy render scale system. Styles render at characteristic resolutions
 //! (preserving aspect ratio) and apply effects during presentation:
-//! - **Impressionist** (~700×394): painterly softening, default
+//! - **Impressionist** (~1280×720): painterly softening, default
 //! - **Sharp**: native resolution, no treatment
 //! - **Retro** (~540×304): nearest-neighbor, performance
 //! - **Antediluvian** (~400×225): nearest-neighbor, extreme performance
@@ -373,7 +373,7 @@ mod tests {
 		setting.set_treatment_override(Some(PresentationTreatment::None));
 		let window = UVec2::new(1920, 1080);
 		let plan = setting.plan(window, 1.0);
-		assert_eq!(plan.target_size, UVec2::new(700, 394));
+		assert_eq!(plan.target_size, UVec2::new(1280, 720));
 		assert_eq!(plan.treatment, PresentationTreatment::None);
 		assert!(plan.requires_offscreen(window));
 		assert_eq!(parse_presentation_treatment_env(Some("none")), Some(PresentationTreatment::None));

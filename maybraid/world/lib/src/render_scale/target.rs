@@ -547,7 +547,7 @@ mod tests {
 	fn visual_styles_resize_and_sharp_is_direct() -> anyhow::Result<()> {
 		let mut app = boot_target_app();
 		for (style, size, present) in [
-			(VisualStyle::Impressionist, UVec2::new(700, 394), true),
+			(VisualStyle::Impressionist, UVec2::new(1280, 720), true),
 			(VisualStyle::Sharp, UVec2::new(1280, 720), false),
 			(VisualStyle::Retro, UVec2::new(540, 304), true),
 			(VisualStyle::Antediluvian, UVec2::new(400, 225), true),
