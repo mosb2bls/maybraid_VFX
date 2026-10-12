@@ -152,7 +152,8 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 					drive_respawn_picker,
 					respawn_world_player
 						.after(queue_first_spawn_picker)
-						.after(drive_respawn_picker),
+						.after(drive_respawn_picker)
+						.run_if(world_player_respawn_pending),
 					apply_camera_begin_life.after(respawn_world_player),
 				)
 					.after(PoiSystems::Index)
@@ -402,6 +403,12 @@ fn drive_respawn_picker(
 	{
 		chosen.write(PlayerChoseRespawnPoi { poi: pending.highlighted });
 	}
+}
+
+/// Skip the mesh / material / surface params on the live combat path
+/// ([#1209](https://github.com/ramate-io/maybraid/issues/1209)).
+fn world_player_respawn_pending(state: Res<WorldPlayerRespawnState>) -> bool {
+	state.pending.is_some()
 }
 
 /// A mode that keeps the player respawns near a POI. A mode whose policy ends
@@ -1126,6 +1133,17 @@ mod tests {
 			character_items::Inventory::default(),
 		));
 		world
+	}
+
+	#[test]
+	fn respawn_system_gate_is_pending_only() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldPlayerRespawnState>();
+		let pending = world
+			.run_system_once(world_player_respawn_pending)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!pending);
+		Ok(())
 	}
 
 	#[test]
