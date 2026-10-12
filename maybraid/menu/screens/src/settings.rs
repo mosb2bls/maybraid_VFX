@@ -12,7 +12,7 @@ use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
 	screen_back_scene, set_brand_mode_title, set_info_box_for_menu, BrandModeLine, BrandModeTitle,
 	MenuFocus, MenuInfoBox, MenuInfoBoxLabel, MenuStep, TextColumnAlign, TextColumnAnchor,
-	TextCursorRow, TextMenuPlugin,
+	TextCursorRow, TextMenuPlugin, TextMenuSystems,
 };
 use serde::{Deserialize, Serialize};
 
@@ -217,10 +217,19 @@ impl InGameSettings {
 }
 
 /// Settings plugin stages so the game can apply live 3D scale before the screen respawns.
+///
+/// [`Self::ApplyChoice`] is after [`TextMenuSystems::Navigate`] so left/right
+/// [`MenuStep`] messages land in the same frame as the live 3D copy.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InGameSettingsSystems {
 	ApplyChoice,
 	Show,
+}
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+struct SettingsStep {
+	choice: InGameSettingsChoice,
+	delta: i32,
 }
 
 /// Settings rows. Activate toggles or cycles the matching [`InGameSettings`] field.
@@ -318,7 +327,7 @@ impl InGameSettingsScreen {
 			Pickable::IGNORE
 			on(sync_settings_description)
 			on(republish_menu_activate::<InGameSettingsChoice>)
-			on(apply_settings_step)
+			on(queue_settings_step)
 			Children [ {children} ]
 		}
 	}
@@ -341,7 +350,12 @@ impl Plugin for InGameSettingsPlugin {
 			.init_resource::<InGameSettings>()
 			.init_resource::<RenderScaleReadout>()
 			.init_resource::<persist::MachineSettings>()
+			.add_message::<SettingsStep>()
 			.add_plugins(TextMenuPlugin::<InGameSettingsChoice>::default())
+			.configure_sets(
+				Update,
+				InGameSettingsSystems::ApplyChoice.after(TextMenuSystems::Navigate),
+			)
 			.add_systems(Startup, persist::seed_in_game_settings)
 			.add_systems(Last, persist::persist_machine_settings_on_exit)
 			.add_systems(
@@ -360,12 +374,21 @@ impl Plugin for InGameSettingsPlugin {
 
 fn apply_in_game_settings_choice(
 	mut choices: MessageReader<InGameSettingsChoice>,
+	mut steps: MessageReader<SettingsStep>,
 	mut settings: ResMut<InGameSettings>,
 	mut machine: ResMut<persist::MachineSettings>,
 	save_root: Option<Res<SaveRoot>>,
 	mut commands: Commands,
 ) {
-	let Some(choice) = choices.read().last().copied() else {
+	let step = steps.read().last().copied();
+	let choice = choices.read().last().copied();
+	if let Some(step) = step {
+		if apply_settings_step(step, &mut settings, &mut machine, save_root.as_deref()) {
+			request_show_in_game_settings_at(&mut commands, step.choice);
+			return;
+		}
+	}
+	let Some(choice) = choice else {
 		return;
 	};
 	match choice {
@@ -390,23 +413,29 @@ fn apply_in_game_settings_choice(
 	request_show_in_game_settings_at(&mut commands, choice);
 }
 
-fn apply_settings_step(
+fn queue_settings_step(
 	step: On<MenuStep<InGameSettingsChoice>>,
-	mut settings: ResMut<InGameSettings>,
-	mut machine: ResMut<persist::MachineSettings>,
-	save_root: Option<Res<SaveRoot>>,
-	mut commands: Commands,
+	mut writer: MessageWriter<SettingsStep>,
 ) {
-	if step.event().choice != InGameSettingsChoice::RenderScale {
-		return;
+	writer.write(SettingsStep { choice: step.event().choice, delta: step.event().delta });
+}
+
+fn apply_settings_step(
+	step: SettingsStep,
+	settings: &mut InGameSettings,
+	machine: &mut persist::MachineSettings,
+	save_root: Option<&SaveRoot>,
+) -> bool {
+	if step.choice != InGameSettingsChoice::RenderScale {
+		return false;
 	}
-	settings.render_scale = settings.render_scale.step(step.event().delta);
+	settings.render_scale = settings.render_scale.step(step.delta);
 	persist::write_machine_preference::<catalog::RenderScalePref>(
-		Some(&mut machine),
+		Some(machine),
 		settings.render_scale,
-		save_root.as_deref(),
+		save_root,
 	);
-	request_show_in_game_settings_at(&mut commands, InGameSettingsChoice::RenderScale);
+	true
 }
 
 fn apply_show_in_game_settings(
@@ -466,8 +495,8 @@ mod tests {
 	use menu_components::TextCursorRow;
 
 	use super::{
-		format_render_scale_info, InGameRenderScale, InGameSettings, InGameSettingsChoice,
-		InGameShadowQuality, RenderScaleReadout,
+		apply_settings_step, format_render_scale_info, persist, InGameRenderScale, InGameSettings,
+		InGameSettingsChoice, InGameShadowQuality, RenderScaleReadout, SettingsStep,
 	};
 
 	#[test]
@@ -527,6 +556,36 @@ mod tests {
 		assert_eq!(InGameShadowQuality::Low.cycle(), InGameShadowQuality::Off);
 		assert_eq!(InGameShadowQuality::Off.cycle(), InGameShadowQuality::High);
 		assert_eq!(InGameSettings::default().state_label(InGameSettingsChoice::Shadows), "Off");
+	}
+
+	#[test]
+	fn left_right_step_updates_the_preference() {
+		let mut settings = InGameSettings {
+			mob_hud: false,
+			shadows: InGameShadowQuality::Off,
+			render_scale: InGameRenderScale::Auto,
+		};
+		let mut machine = persist::MachineSettings::default();
+		assert!(apply_settings_step(
+			SettingsStep { choice: InGameSettingsChoice::RenderScale, delta: 1 },
+			&mut settings,
+			&mut machine,
+			None,
+		));
+		assert_eq!(settings.render_scale, InGameRenderScale::Native);
+		assert!(apply_settings_step(
+			SettingsStep { choice: InGameSettingsChoice::RenderScale, delta: -1 },
+			&mut settings,
+			&mut machine,
+			None,
+		));
+		assert_eq!(settings.render_scale, InGameRenderScale::Auto);
+		assert!(!apply_settings_step(
+			SettingsStep { choice: InGameSettingsChoice::Shadows, delta: 1 },
+			&mut settings,
+			&mut machine,
+			None,
+		));
 	}
 
 	#[test]

@@ -44,15 +44,15 @@ pub use loading::{
 pub use single_select::{
 	apply_text_menu_nav, clear_menu_back_consumed, consume_screen_back,
 	emit_menu_activate_on_click, emit_menu_activate_on_enter, emit_menu_activate_on_nav,
-	emit_menu_focus, emit_menu_step_on_nav, emit_screen_back_on_click, emit_screen_edit_on_click,
+	emit_menu_focus, emit_menu_step, emit_screen_back_on_click, emit_screen_edit_on_click,
 	navigate_text_menus, republish_menu_activate, screen_back_scene, screen_edit_scene,
 	scroll_text_cursor_selection_into_view, select_text_menu_item_on_over, sync_screen_edit_cursor,
 	sync_text_cursor_icons, sync_text_menu_item_colors, ButtonWithSubtext, KeyboardMenuNav,
 	MenuActivate, MenuBackConsumed, MenuFocus, MenuItemLocked, MenuObjectiveKind,
-	MenuObjectiveMarker, MenuStep, MenuStepper, ScreenBack, ScreenBackPressed, ScreenEdit,
-	ScreenEditPressed, TextColumnAlign, TextColumnAnchor, TextCursorColumn, TextCursorMenu,
-	TextCursorRow, TextCursorScroll, TextCursorSlot, TextMenu, TextMenuColumn, TextMenuHeader,
-	TextMenuInputLock, TextMenuItem, TextMenuItemLabel,
+	MenuObjectiveMarker, MenuStep, MenuStepRow, MenuStepper, ScreenBack, ScreenBackPressed,
+	ScreenEdit, ScreenEditPressed, TextColumnAlign, TextColumnAnchor, TextCursorColumn,
+	TextCursorMenu, TextCursorRow, TextCursorScroll, TextCursorSlot, TextMenu, TextMenuColumn,
+	TextMenuHeader, TextMenuInputLock, TextMenuItem, TextMenuItemLabel,
 };
 pub use spin_reveal::{
 	SpinRevealCover, SpinRevealFace, SpinRevealPayload, SpinRevealSlot, SpinRevealViewport,
@@ -178,7 +178,7 @@ where
 		app.add_message::<E>()
 			.add_observer(emit_menu_activate_on_click::<E>)
 			.add_observer(emit_menu_activate_on_nav::<E>)
-			.add_observer(emit_menu_step_on_nav::<E>)
+			.add_observer(emit_menu_step::<E>)
 			.add_systems(
 				Update,
 				(

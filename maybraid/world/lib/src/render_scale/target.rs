@@ -19,6 +19,14 @@ pub(super) struct AppliedRenderScale {
 	last_offscreen: bool,
 	last_size: UVec2,
 	last_scale: f32,
+	source: Option<(Entity, SourceTarget)>,
+}
+
+/// What the follow camera last rendered into.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SourceTarget {
+	Window,
+	Image { size: UVec2, scale_factor: f32 },
 }
 
 #[derive(Component)]
@@ -50,8 +58,8 @@ pub(super) fn sync_render_scale_target(
 	windows: Query<&Window, With<PrimaryWindow>>,
 	mut images: ResMut<Assets<Image>>,
 	mut applied: ResMut<AppliedRenderScale>,
-	sources: Query<
-		(Entity, &Camera, Has<IsDefaultUiCamera>),
+	mut sources: Query<
+		(Entity, &Camera, &mut RenderTarget, &mut Projection, Has<IsDefaultUiCamera>),
 		(With<Camera3d>, With<FollowCamera>, Without<RenderScalePresentCamera>),
 	>,
 	presents: Query<(Entity, &Camera), With<RenderScalePresentCamera>>,
@@ -63,7 +71,9 @@ pub(super) fn sync_render_scale_target(
 	};
 	let physical = UVec2::new(window.physical_width(), window.physical_height());
 	let plan = scale.plan(physical, window.scale_factor());
-	let Ok((source, source_camera, source_is_ui)) = sources.single() else {
+	let Ok((source, source_camera, mut render_target, mut projection, source_is_ui)) =
+		sources.single_mut()
+	else {
 		teardown_present(&mut commands, &presents, &sprites);
 		return;
 	};
@@ -72,7 +82,10 @@ pub(super) fn sync_render_scale_target(
 		if source_camera.is_active && !source_is_ui {
 			commands.entity(source).insert(IsDefaultUiCamera);
 		}
-		commands.entity(source).insert(RenderTarget::default());
+		if retarget(&mut applied, source, SourceTarget::Window) {
+			*render_target = RenderTarget::default();
+			projection.set_changed();
+		}
 		teardown_present(&mut commands, &presents, &sprites);
 		if applied.last_offscreen || applied.last_size == UVec2::ZERO {
 			info!(
@@ -99,10 +112,15 @@ pub(super) fn sync_render_scale_target(
 		applied.last_size = plan.target_size;
 		applied.last_scale = plan.scale;
 	}
-	commands.entity(source).insert(RenderTarget::Image(ImageRenderTarget {
-		handle: handle.clone(),
-		scale_factor: plan.image_scale_factor,
-	}));
+	let image_target =
+		SourceTarget::Image { size: plan.target_size, scale_factor: plan.image_scale_factor };
+	if retarget(&mut applied, source, image_target) {
+		*render_target = RenderTarget::Image(ImageRenderTarget {
+			handle: handle.clone(),
+			scale_factor: plan.image_scale_factor,
+		});
+		projection.set_changed();
+	}
 	if source_is_ui {
 		commands.entity(source).remove::<IsDefaultUiCamera>();
 	}
@@ -134,6 +152,20 @@ pub(super) fn sync_render_scale_target(
 			spawn_present(&mut commands, handle, plan.window_logical);
 		}
 	}
+}
+
+/// Record `want` as the source camera's target; `true` when the camera must be retargeted.
+///
+/// Bevy's `camera_system` only refreshes a camera's cached target size on window or
+/// image asset events (read a frame late) or a projection change. Swapping
+/// [`RenderTarget`] alone leaves the 3D pass at the previous target's resolution, so
+/// callers mark [`Projection`] changed whenever this returns `true`.
+fn retarget(applied: &mut AppliedRenderScale, source: Entity, want: SourceTarget) -> bool {
+	if applied.source == Some((source, want)) {
+		return false;
+	}
+	applied.source = Some((source, want));
+	true
 }
 
 fn ensure_target_image(
@@ -239,6 +271,47 @@ mod tests {
 		let cursor = Vec2::new(100.0, 200.0);
 		let mapped = map_window_to_render(cursor, plan.window_logical, render_logical);
 		assert!((mapped - cursor).length() < 1e-3);
+		Ok(())
+	}
+
+	fn source_target_size(app: &mut App) -> Option<UVec2> {
+		let mut cameras = app.world_mut().query_filtered::<&Camera, With<FollowCamera>>();
+		cameras.single(app.world()).ok()?.physical_target_size()
+	}
+
+	#[test]
+	fn every_step_resizes_the_3d_pass() -> anyhow::Result<()> {
+		use bevy::render::camera::camera_system;
+		use bevy::render::texture::ManualTextureViews;
+		use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
+
+		let mut app = App::new();
+		app.init_resource::<Assets<Image>>()
+			.init_resource::<ManualTextureViews>()
+			.init_resource::<AppliedRenderScale>()
+			.insert_resource(RenderScale::default())
+			.add_message::<WindowCreated>()
+			.add_message::<WindowResized>()
+			.add_message::<WindowScaleFactorChanged>()
+			.add_message::<AssetEvent<Image>>()
+			.add_systems(Update, (sync_render_scale_target, camera_system).chain());
+		app.world_mut().spawn((Window::default(), PrimaryWindow));
+		app.world_mut().spawn((Camera3d::default(), FollowCamera::default()));
+		app.update();
+		assert_eq!(source_target_size(&mut app), Some(UVec2::new(1280, 720)));
+
+		for (scale, size) in [
+			(0.5, UVec2::new(640, 360)),
+			(1.0, UVec2::new(1280, 720)),
+			(0.75, UVec2::new(960, 540)),
+			(1.0, UVec2::new(1280, 720)),
+			(0.5, UVec2::new(640, 360)),
+			(0.75, UVec2::new(960, 540)),
+		] {
+			app.world_mut().resource_mut::<RenderScale>().set(scale);
+			app.update();
+			assert_eq!(source_target_size(&mut app), Some(size), "scale {scale}");
+		}
 		Ok(())
 	}
 
