@@ -58,14 +58,13 @@ fn run(storage: &HcsgStorage, demand: &HcsgDemand) {
 			WorkerWait::Job(job) => {
 				let id = job.id;
 				let reach = job.reach.clone();
-				let progress =
-					panic::catch_unwind(AssertUnwindSafe(|| fill_quantum(storage, job)))
-						.unwrap_or_else(|_| {
-							error!(
-								"hcsg worker: generation panicked; subscription {id:?} left partial"
-							);
-							QuantumProgress { done: true, ..QuantumProgress::default() }
-						});
+				let progress = panic::catch_unwind(AssertUnwindSafe(|| fill_quantum(storage, job)))
+					.unwrap_or_else(|_| {
+						error!(
+							"hcsg worker: generation panicked; subscription {id:?} left partial"
+						);
+						QuantumProgress { done: true, ..QuantumProgress::default() }
+					});
 				demand.finish_quantum(id, progress, Some(reach));
 			}
 		}

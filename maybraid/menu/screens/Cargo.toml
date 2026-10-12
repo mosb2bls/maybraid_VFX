@@ -14,6 +14,7 @@ bevy = { workspace = true }
 character-items = { workspace = true }
 character-model-user = { workspace = true }
 character-persist = { workspace = true }
+item-icons = { workspace = true }
 game-commands = { workspace = true }
 maybraid-menu-controller = { workspace = true }
 menu-components = { workspace = true }

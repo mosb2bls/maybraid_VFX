@@ -28,6 +28,9 @@ pub(crate) fn face_wish_yaw(
 		let Ok(wish) = wishes.get(child_of.parent()) else {
 			continue;
 		};
+		if !heading.would_turn_toward(&visual, wish.0) {
+			continue;
+		}
 		heading.turn_toward(&mut visual, wish.0, time.delta_secs());
 	}
 }
@@ -253,5 +256,39 @@ mod tests {
 			locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, 0.0).id(),
 			AnimId::SquatDescent
 		);
+	}
+
+	#[test]
+	fn settled_wish_does_not_rewrite_heading() -> anyhow::Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
+
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		let body = world.spawn((CharacterController, MoveWish(Vec3::ZERO))).id();
+		let visual = world
+			.spawn((
+				CharacterRoot,
+				Transform::IDENTITY,
+				CharacterHeading::from_rotation(Quat::IDENTITY),
+				PlayerYawOwner::Wish,
+				ChildOf(body),
+			))
+			.id();
+		anyhow::ensure!(world.run_system_once(face_wish_yaw).is_ok());
+		let before = world
+			.entity(visual)
+			.get_change_ticks::<Transform>()
+			.ok_or_else(|| anyhow::anyhow!("missing transform"))?
+			.changed
+			.get();
+		anyhow::ensure!(world.run_system_once(face_wish_yaw).is_ok());
+		let after = world
+			.entity(visual)
+			.get_change_ticks::<Transform>()
+			.ok_or_else(|| anyhow::anyhow!("missing transform"))?
+			.changed
+			.get();
+		anyhow::ensure!(before == after);
+		Ok(())
 	}
 }

@@ -445,6 +445,41 @@ fn far_skip_does_not_reset_skips() -> anyhow::Result<()> {
 }
 
 #[test]
+fn settled_discover_leaves_capped_learner_unchanged() -> anyhow::Result<()> {
+	let mut app = discover_app();
+	let learner = spawn_learner(
+		&mut app,
+		camp_learner(),
+		PoiKnowledge::default(),
+		IntelligenceLod::missing(),
+	);
+	app.update();
+	if let Some(mut user) = app.world_mut().get_mut::<PoiIntelligenceUser>(learner) {
+		user.learning_credit = user.policy.candidates_per_scan.max(1) as f32;
+		user.next_forget_at = 100.0;
+		user.next_local_scan_at = 100.0;
+		user.next_global_scan_at = 100.0;
+	}
+	let before = app
+		.world()
+		.entity(learner)
+		.get_change_ticks::<PoiIntelligenceUser>()
+		.ok_or_else(|| anyhow::anyhow!("missing learner"))?
+		.changed
+		.get();
+	app.update();
+	let after = app
+		.world()
+		.entity(learner)
+		.get_change_ticks::<PoiIntelligenceUser>()
+		.ok_or_else(|| anyhow::anyhow!("missing learner"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled discover rewrote learner: {before} -> {after}");
+	Ok(())
+}
+
+#[test]
 fn maintain_still_runs_on_far_we_do_not_scan() -> anyhow::Result<()> {
 	let mut app = discover_app();
 	app.insert_resource(PoiDiscoverLimits { max_scans_per_tick: 1 });

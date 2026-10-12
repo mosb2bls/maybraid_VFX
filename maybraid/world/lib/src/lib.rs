@@ -9,17 +9,21 @@
 //! Painted furniture is a generate pass over Richmond High slots, presented as
 //! flattened 50 m cell hosts in a neighborhood around the camera.
 
+mod agent;
 mod camera;
 pub mod commands;
 mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
+mod item_icons;
 mod map_view;
+mod mob_spawn;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
 mod poi;
+mod render_scale;
 mod spawn_surface;
 mod start;
 mod stash;
@@ -31,6 +35,7 @@ mod world_layers;
 
 pub use world_furnished::WorldFurnished;
 
+pub use agent::AgentDrive;
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldSceneryVisible, WorldSurfaceReady,
@@ -42,6 +47,10 @@ pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
+pub use item_icons::{
+	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
+	ItemIconPlugin, ITEM_ICON_RESOLUTION,
+};
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
@@ -57,6 +66,10 @@ pub use player_position::{
 	resume_discovery_from_saved_waypoints, PlayerPositionPlugin, PlayerPositionWaypoints,
 };
 pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
+pub use render_scale::{
+	map_render_to_window, map_window_to_render, parse_render_scale_env, target_physical_size,
+	RenderScale, RequestRenderScale, RENDER_SCALE_ENV,
+};
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
 	START_AT_ENV,
@@ -129,6 +142,8 @@ const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbe
 /// Playground chrome (command drawer and FPS HUD) is on by default.
 /// The game executable uses [`WorldPlugin::game`] (FPS log, no HUD or console).
 /// `F8` / `/stats vsync` / `MAYBRAID_VSYNC=off` toggles vsync for Tracy flights.
+/// `/render scale <f>` / `MAYBRAID_RENDER_SCALE` shades 3D below native window
+/// size without resizing the window.
 pub struct WorldPlugin {
 	/// `/` console, debug gizmos, and FPS HUD.
 	pub debug_chrome: bool,
@@ -190,6 +205,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldMapViewPlugin)
 			.add_plugins(WorldPlayerLifecyclePlugin)
 			.add_plugins(WorldStashPlugin)
+			.add_plugins(ItemIconPlugin)
 			.add_plugins(PlayerPositionPlugin)
 			.insert_resource(PadMovementEnabled(false))
 			.insert_resource(VegetationPlayerMotor(false))
@@ -222,9 +238,16 @@ impl Plugin for WorldPlugin {
 		} else {
 			app.init_resource::<TextEntryFocus>();
 		}
-		app.add_systems(Startup, vsync::apply_startup_vsync)
-			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands))
-			.add_systems(PostStartup, spawn_default_braidman)
+		app.add_systems(Startup, vsync::apply_startup_vsync).add_systems(
+			Update,
+			(
+				vsync::toggle_vsync,
+				commands::apply_sky_commands,
+				mob_spawn::apply_spawn_mob_requests,
+			),
+		);
+		render_scale::configure(app);
+		app.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,
 				(control::stamp_vegetation_motor_traction, control::stamp_world_player_motor),
@@ -277,6 +300,9 @@ impl Plugin for WorldPlugin {
 				ui::draw_npc_behavior_gizmos.run_if(resource_equals(WorldMobHudEnabled(true))),
 			),
 		);
+		if app.world().contains_resource::<AgentDrive>() {
+			app.add_plugins(agent::WorldAgentPlugin);
+		}
 		if self.debug_chrome {
 			app.add_systems(Startup, ui::spawn_mob_debug_hud).add_systems(
 				Update,

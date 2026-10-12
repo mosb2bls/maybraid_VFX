@@ -52,6 +52,7 @@ material-ref = { workspace = true }
 world-materials = { workspace = true }
 maybraid-character-controller = { workspace = true }
 maybraid-input = { workspace = true }
+maybraid-agent = { workspace = true }
 menu-components = { workspace = true }
 maybraid-skill-map = { workspace = true }
 maybraid-vfx = { workspace = true }
@@ -74,6 +75,7 @@ world-player = { workspace = true }
 richmond = { workspace = true }
 urbanization-cells = { workspace = true }
 routing-intelligence = { workspace = true }
+item-icons = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 spotting-intelligence = { workspace = true }

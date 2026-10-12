@@ -20,9 +20,22 @@ pub struct BoneFit {
 	pub thickness: f32,
 }
 
+impl BoneFit {
+	pub const BIND: Self = Self { length: 1.0, thickness: 1.0 };
+	pub const COLLAPSED: Self = Self { length: 0.0, thickness: 0.0 };
+
+	pub const fn collapsed_if(missing: bool) -> Self {
+		if missing {
+			Self::COLLAPSED
+		} else {
+			Self::BIND
+		}
+	}
+}
+
 impl Default for BoneFit {
 	fn default() -> Self {
-		Self { length: 1.0, thickness: 1.0 }
+		Self::BIND
 	}
 }
 

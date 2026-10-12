@@ -432,12 +432,7 @@ mod scheme_perf_tests {
 		storage.seed(TerrainStampConfigs::from_world_seed(seed), universal_bounds());
 		storage.seed(WatershedConfigs::default().with_seed(seed), universal_bounds());
 		storage.seed(
-			mesh_assets(
-				TerrainConfig::new(seed),
-				Handle::default(),
-				TerrainCoverage::FinePatch,
-				1,
-			),
+			mesh_assets(TerrainConfig::new(seed), Handle::default(), TerrainCoverage::FinePatch, 1),
 			universal_bounds(),
 		);
 	}
@@ -511,8 +506,7 @@ mod scheme_perf_tests {
 		cx.get_or_generate::<WatershedAproningCell>(id)?;
 		let layout = cx.get::<TerrainCellLayout>(Id::Universal).unwrap_or_default();
 		let assets = cx.get_or_generate::<TerrainMeshAssets>(Id::Universal)?;
-		let _terrain =
-			Terrain::compose(bounds, &pre, marazion_leaves, complex, &layout, &assets);
+		let _terrain = Terrain::compose(bounds, &pre, marazion_leaves, complex, &layout, &assets);
 		Some(())
 	}
 
