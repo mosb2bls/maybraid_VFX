@@ -21,9 +21,10 @@ use poi_intelligence::{
 use spotting_intelligence::SpotSubject;
 use threat_intelligence::{Affiliations, ThreatSubject};
 use world_player::{
-	player_position_above_surface, spawn_player_body, CharacterLocomotion, CharacterSpecies,
-	ModePlayerPolicies, MoveWish, Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet,
-	PlayerSpawnXz, RequestSetCharacter, RequestSetCharacterAppearance, RespawnOrigin,
+	player_position_above_surface, player_spawn_point_at, spawn_player_body, surface_or_hold_at,
+	AwaitingTerrainSurface, CharacterLocomotion, CharacterSpecies, ModePlayerPolicies, MoveWish,
+	Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet, PlayerSpawnXz, RequestSetCharacter,
+	RequestSetCharacterAppearance, RespawnOrigin,
 };
 
 use layer_stack::ActiveGenerationMode;
@@ -493,9 +494,14 @@ fn respawn_world_player(
 	let position = match placed {
 		Some(record) => {
 			state.last_poi = Some(record.id);
-			player_position_above_surface(surface_at(record.position, &surface))
+			player_spawn_point_at(
+				record.position.xz(),
+				surface_or_hold_at(&surface, record.position.xz()),
+			)
 		}
-		None => player_position_above_surface(surface_at(fallback_at, &surface)),
+		None => {
+			player_spawn_point_at(fallback_at.xz(), surface_or_hold_at(&surface, fallback_at.xz()))
+		}
 	};
 	finish_world_player_spawn(
 		&mut commands,
@@ -699,15 +705,6 @@ fn xz_distance(a: Vec3, b: Vec3) -> f32 {
 	(a.xz() - b.xz()).length()
 }
 
-fn surface_at(mut point: Vec3, surface: &DurhamSurface) -> Vec3 {
-	if let Ok(terrain_y) = surface.height_or_fallback(point.xz()) {
-		if terrain_y.is_finite() {
-			point.y = terrain_y;
-		}
-	}
-	point
-}
-
 #[allow(clippy::too_many_arguments)]
 fn finish_world_player_spawn(
 	commands: &mut Commands,
@@ -720,6 +717,10 @@ fn finish_world_player_spawn(
 	position: Vec3,
 ) {
 	let player = spawn_player_body(commands, meshes, materials, locomotion, position);
+	// First-drop hold: snap teleports onto composed height and waits for a
+	// local trimesh. Without this marker, gravity can turn on while the body
+	// is still sitting on a base-noise or death-pose Y under the mesh.
+	commands.entity(player).insert(AwaitingTerrainSurface);
 	crate::control::apply_world_player_motor(commands, player);
 	if let Some(loadout) = loadout {
 		if !origin.ends_life(now) {
@@ -1244,6 +1245,39 @@ mod tests {
 		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
 		assert!(!world.resource::<WorldMapView>().open);
 		assert!(world.resource::<WorldMapView>().begin_life);
+		Ok(())
+	}
+
+	#[test]
+	fn discovery_respawn_holds_above_unpublished_terrain() -> anyhow::Result<()> {
+		let mut world = discovery_respawn_world(0.2);
+		let poi = world.spawn_empty().id();
+		world.resource_mut::<PoiRegistry>().upsert(
+			poi,
+			poi_intelligence::Poi::new(PoiId(1), URBAN_POI).with_arrival_radius(8.0),
+			Vec3::new(80.0, 4.0, 5.0),
+			true,
+			false,
+		)?;
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.write_message(PlayerChoseRespawnPoi { poi: Some(PoiId(1)) });
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+		let mut bodies = world
+			.query_filtered::<(&Transform, Has<AwaitingTerrainSurface>), With<VegetationPlayer>>();
+		let (body, awaiting) = bodies.single(&world)?;
+		let base = &world.resource::<WorldBaseTerrain>().0;
+		let expected = player_spawn_point_at(
+			Vec2::new(80.0, 5.0),
+			world_player::holding_elevation(base, 80.0, 5.0),
+		);
+		assert_eq!(body.translation, expected);
+		assert!(body.translation.y > base.height_at(80.0, 5.0) + 50.0);
+		assert!(awaiting);
 		Ok(())
 	}
 

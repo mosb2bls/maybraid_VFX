@@ -62,6 +62,7 @@ mob-scenes = { workspace = true }
 player = { workspace = true }
 player-camera = { workspace = true }
 mob-characters = { workspace = true }
+mob-intelligence = { workspace = true }
 barking = { workspace = true }
 mob-layer-model = { workspace = true }
 meandering-intelligence = { workspace = true }

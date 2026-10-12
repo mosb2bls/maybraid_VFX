@@ -90,6 +90,11 @@ mod tests {
 		"biome-traverse.jsonl",
 		"locomotion-mix.jsonl",
 		"remote-start.jsonl",
+		"origin-first-spawn.jsonl",
+		"origin-picker.jsonl",
+		"dusk-spawn.jsonl",
+		"death-picker.jsonl",
+		"mob-spawns.jsonl",
 	];
 
 	#[test]
@@ -111,8 +116,8 @@ mod tests {
 
 	#[test]
 	fn no_start_leaves_commands() -> anyhow::Result<()> {
-		let mut commands =
-			read_script_text("{\"cmd\":\"wait\",\"secs\":1}\n").map_err(|e| anyhow::anyhow!("{e}"))?;
+		let mut commands = read_script_text("{\"cmd\":\"wait\",\"secs\":1}\n")
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(take_leading_start(&mut commands), None);
 		assert_eq!(commands.len(), 1);
 		Ok(())
