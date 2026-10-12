@@ -68,13 +68,9 @@ impl<U: FurnitureSlots> Furnished<U> {
 	fn developments(cx: &mut GenerationContext, region: Aabb3d) -> Vec<Arc<DevelopmentSlots<U>>> {
 		cx.get_or_generate_in::<DevelopmentSlots<U>>(region)
 	}
-}
 
-impl<U: FurnitureSlots> hcsg::GenerationScheme for Furnished<U> {
-	lod::hcsg_index_scale!(CELL_SCALE);
-
-	/// The cells overlapping `region` that hold a slot.
-	fn original_ids_for(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+	/// Furniture cells in `region` that hold a slot from one of `U`'s developments.
+	fn furnished_cell_ids(cx: &mut GenerationContext, region: Aabb3d) -> BTreeSet<Id> {
 		let mut ids = BTreeSet::new();
 		for development in Self::developments(cx, region) {
 			for slot in &development.slots {
@@ -86,7 +82,16 @@ impl<U: FurnitureSlots> hcsg::GenerationScheme for Furnished<U> {
 				}
 			}
 		}
-		ids.into_iter().map(OriginalId).collect()
+		ids
+	}
+}
+
+impl<U: FurnitureSlots> hcsg::GenerationScheme for Furnished<U> {
+	lod::hcsg_index_scale!(CELL_SCALE);
+
+	/// The cells overlapping `region` that hold a slot.
+	fn original_ids_for(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+		Self::furnished_cell_ids(cx, region).into_iter().map(OriginalId).collect()
 	}
 
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
