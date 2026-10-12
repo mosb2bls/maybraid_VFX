@@ -93,10 +93,13 @@ fn hit_npc(app: &mut App, player: Entity, npc: Entity, damage: f32) {
 }
 
 fn take_damage(app: &mut App, target: Entity, amount: f32) {
-	// Direct damage for test setup (bypasses Hit flow)
-	if let Some(mut health) = app.world_mut().get_mut::<Health>(target) {
-		health.take_damage(amount);
-	}
+	app.world_mut().write_message(Hit {
+		target,
+		source: None,
+		amount,
+		point: Vec3::ZERO,
+		allow_self: false,
+	});
 	app.update();
 }
 
@@ -168,7 +171,7 @@ fn earn_charge_from_hits_activate_via_intent_heal() -> anyhow::Result<()> {
 		"should have enough charge from combat hits, got {earned} need {cost}"
 	);
 	
-	// Take damage to enable 70% healing cap
+	// Pre-activation damage must not impose the 70% ceiling.
 	take_damage(&mut app, player, 20.0);
 	anyhow::ensure!(
 		health_current(&app, player) == 20.0,
@@ -196,21 +199,18 @@ fn earn_charge_from_hits_activate_via_intent_heal() -> anyhow::Result<()> {
 	anyhow::ensure!(heal.active, "heal should be active");
 	anyhow::ensure!(heal.owner == Some(player), "heal owner should be player");
 	
-	// Let healing run
 	let start_hp = health_current(&app, player);
-	for i in 0..600 {
+	for _ in 0..600 {
 		app.update();
 		if !app.world().resource::<LubikanSelfHeal>().active {
-			eprintln!("Healing finished after {} updates", i + 1);
 			break;
 		}
 	}
-	
-	// Verify healing reached 70% cap
+
 	let healed_hp = health_current(&app, player);
 	anyhow::ensure!(
-		healed_hp >= 65.0,
-		"should heal near 70% cap, got {healed_hp}"
+		(healed_hp - 100.0).abs() < 0.01,
+		"pre-activation hits must not latch the 70% ceiling, got {healed_hp}"
 	);
 	anyhow::ensure!(healed_hp > start_hp, "should have healed");
 	
@@ -381,6 +381,69 @@ fn activation_and_healing_from_low_hp() -> anyhow::Result<()> {
 fn healing_responds_to_gameplay_state() -> anyhow::Result<()> {
 	// This validates that sync_lubikan_healing_enabled connects WorldGameplayEnabled
 	// to LubikanHealingEnabled. The detailed freeze test is pause_freezes_heal_via_gameplay_enabled.
+	Ok(())
+}
+
+#[test]
+fn hit_during_world_heal_latches_seventy() -> anyhow::Result<()> {
+	let mut app = self_loop_app();
+	let player = spawn_player(&mut app, 40.0, 100.0);
+	earn_activation_charge(&mut app, player);
+	activate_self(&mut app);
+	anyhow::ensure!(app.world().resource::<LubikanSelfHeal>().active);
+	take_damage(&mut app, player, 5.0);
+	anyhow::ensure!(
+		app.world().resource::<LubikanSelfHeal>().damaged,
+		"a Hit during the session must latch"
+	);
+	for _ in 0..600 {
+		app.update();
+		if !app.world().resource::<LubikanSelfHeal>().active {
+			break;
+		}
+	}
+	let hp = health_current(&app, player);
+	anyhow::ensure!((hp - 70.0).abs() < 0.01, "damaged heal caps at 70, got {hp}");
+	Ok(())
+}
+
+#[test]
+fn activate_and_award_same_frame_as_death_keep_charge() -> anyhow::Result<()> {
+	let mut app = self_loop_app();
+	let player = spawn_player(&mut app, 20.0, 100.0);
+	earn_activation_charge(&mut app, player);
+	let before = charge(&app, player);
+	let cost = app.world().resource::<lubikans::LubikanCatalog>().self_definition().activation_cost;
+	let npc = spawn_npc(&mut app);
+	app.world_mut().write_message(CharacterIntent::PowerUseItem);
+	app.world_mut().write_message(Hit {
+		target: npc,
+		source: Some(player),
+		amount: 10.0,
+		point: Vec3::ZERO,
+		allow_self: false,
+	});
+	app.world_mut().write_message(Hit {
+		target: player,
+		source: None,
+		amount: 200.0,
+		point: Vec3::ZERO,
+		allow_self: false,
+	});
+	app.update();
+	let after = charge(&app, player);
+	anyhow::ensure!(
+		(after - (before - cost + 10.0)).abs() < 0.01,
+		"same-frame spend+award must land, before={before} after={after} cost={cost}"
+	);
+	app.world_mut().entity_mut(player).remove::<Player>();
+	app.update();
+	let replacement = spawn_player(&mut app, 100.0, 100.0);
+	anyhow::ensure!(
+		(charge(&app, replacement) - after).abs() < 0.01,
+		"replacement must keep the final ledger, got {}",
+		charge(&app, replacement)
+	);
 	Ok(())
 }
 

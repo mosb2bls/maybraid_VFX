@@ -111,6 +111,7 @@ impl LubikanAccount {
 /// Owned Lubikan accounts for one owner. Self is always present and cannot
 /// be removed or merged into another account.
 #[derive(Component, Clone, Debug, PartialEq)]
+#[component(on_remove = crate::plugin::capture_retiring_ledger)]
 pub struct LubikanLedger {
 	accounts: Vec<LubikanAccount>,
 	selection: LubikanSelection,

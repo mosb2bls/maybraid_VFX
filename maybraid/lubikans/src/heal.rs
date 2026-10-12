@@ -242,14 +242,23 @@ pub(crate) fn configure(app: &mut App) {
 		.init_resource::<LubikanSelfHealRuntime>()
 		.init_resource::<DamageHistory>()
 		.init_resource::<DamageHistoryPolicy>()
-		.configure_sets(Update, LubikanSystems::Heal.after(LubikanSystems::Activate))
+		.configure_sets(
+			PostUpdate,
+			LubikanSystems::Heal
+				.after(DamageSystems::History)
+				.after(LubikanSystems::Award),
+		)
 		.add_systems(
-			Update,
-			(accept_self_sessions, cancel_self_heal, tick_self_heal)
+			PostUpdate,
+			(
+				accept_self_sessions,
+				latch_self_heal_damage,
+				cancel_self_heal,
+				tick_self_heal,
+			)
 				.chain()
 				.in_set(LubikanSystems::Heal),
-		)
-		.add_systems(PostUpdate, latch_self_heal_damage.after(DamageSystems::Apply));
+		);
 }
 
 fn accept_self_sessions(
@@ -347,19 +356,8 @@ fn tick_self_heal(
 			let rate = config.hp_per_sec(health.max);
 			let amount = rate * time.delta_secs().max(0.0);
 			let cap = config.cap_hp(health.max, live.damaged);
-			let hp_before = health.current;
 			health.heal_toward(amount, cap);
-			let hp_after = health.current;
 			let remaining = config.remaining_hp(*health, live.damaged);
-			
-			// Log healing with cap info when damaged flag is set
-			if live.damaged && (hp_after - hp_before).abs() > 0.01 {
-				eprintln!(
-					"[HEAL_TICK] HP {:.1} -> {:.1} (max={:.1}, cap={:.1}, damaged={}, remaining={:.1})",
-					hp_before, hp_after, health.max, cap, live.damaged, remaining
-				);
-			}
-			
 			publish_heal(
 				&mut close.commands,
 				&mut close.presentation,
@@ -387,6 +385,8 @@ fn latch_self_heal_damage(
 	mut presentation: ResMut<LubikanSelfHeal>,
 	mut commands: Commands,
 ) {
+	// Always drain so pre-session hits cannot latch a later activation.
+	let hits: Vec<DamageApplied> = applied.read().copied().collect();
 	let Some(mut live) = runtime.live else {
 		return;
 	};
@@ -394,23 +394,13 @@ fn latch_self_heal_damage(
 		return;
 	}
 	let owner = live.session.owner;
-	let from_events = applied.read().any(|event| event.target == owner && !event.is_zero_effect());
+	let from_events = hits.iter().any(|event| event.target == owner && !event.is_zero_effect());
 	let from_history =
 		history.received_positive_damage_since(DamageActorId::from_entity(owner), live.started_at);
 	if !(from_events || from_history) {
 		return;
 	}
 	live.latch_damage();
-	
-	// Log cap latch event with current HP
-	if let Ok(health) = healths.get(owner) {
-		let cap = config.cap_hp(health.max, true);
-		eprintln!(
-			"[CAP_LATCH] HP={:.1}/{:.1} at latch, new cap={:.1} ({:.0}%)",
-			health.current, health.max, cap, (cap / health.max) * 100.0
-		);
-	}
-	
 	publish_heal(
 		&mut commands,
 		&mut presentation,
@@ -537,7 +527,7 @@ mod tests {
 	};
 	use anyhow::{anyhow, Result};
 	use bevy::time::{TimeUpdateStrategy, Virtual};
-	use damage::DamageRecord;
+	use damage::{DamagePlugin, DamageRecord, Hit};
 	use std::time::Duration;
 
 	const DT: f32 = 1.0;
@@ -607,6 +597,18 @@ mod tests {
 
 	fn applied(target: Entity, amount: f32, lost: f32, remaining: f32) -> DamageApplied {
 		DamageApplied { target, source: None, amount, applied: lost, remaining, point: Vec3::ZERO }
+	}
+
+	fn hit(target: Entity, amount: f32) -> Hit {
+		Hit { target, source: None, amount, point: Vec3::ZERO, allow_self: false }
+	}
+
+	fn hit_app() -> App {
+		let mut app = heal_app();
+		if !app.is_plugin_added::<DamagePlugin>() {
+			app.add_plugins(DamagePlugin);
+		}
+		app
 	}
 
 	fn finished(app: &mut App) -> Vec<LubikanActivationFinished> {
@@ -862,6 +864,73 @@ mod tests {
 				|| !app.world().resource::<LubikanSelfHeal>().active
 		);
 		assert_eq!(health(&app, owner)?.current, 70.0);
+		Ok(())
+	}
+
+	#[test]
+	fn pre_activation_hit_does_not_latch_the_ceiling() -> Result<()> {
+		let mut app = hit_app();
+		let owner = spawn_owner(&mut app, 40.0, 100.0);
+		app.world_mut().write_message(hit(owner, 10.0));
+		app.update();
+		assert_eq!(health(&app, owner)?.current, 30.0);
+		fund_and_activate(&mut app, owner)?;
+		assert!(!app.world().resource::<LubikanSelfHeal>().damaged);
+		for _ in 0..20 {
+			app.update();
+		}
+		assert!(!app.world().resource::<LubikanSelfHeal>().active);
+		assert_eq!(health(&app, owner)?.current, 100.0);
+		Ok(())
+	}
+
+	#[test]
+	fn hit_during_healing_latches_seventy() -> Result<()> {
+		let mut app = hit_app();
+		let owner = spawn_owner(&mut app, 40.0, 100.0);
+		fund_and_activate(&mut app, owner)?;
+		assert_eq!(health(&app, owner)?.current, 45.0);
+		app.world_mut().write_message(hit(owner, 5.0));
+		app.update();
+		assert!(app.world().resource::<LubikanSelfHeal>().damaged);
+		assert_eq!(app.world().resource::<LubikanSelfHeal>().cap_fraction, 0.7);
+		for _ in 0..12 {
+			app.update();
+		}
+		assert_eq!(health(&app, owner)?.current, 70.0);
+		Ok(())
+	}
+
+	#[test]
+	fn hit_near_completion_does_not_subtract_existing_hp() -> Result<()> {
+		let mut app = hit_app();
+		let owner = spawn_owner(&mut app, 90.0, 100.0);
+		fund_and_activate(&mut app, owner)?;
+		assert_eq!(health(&app, owner)?.current, 95.0);
+		app.world_mut().write_message(hit(owner, 5.0));
+		app.update();
+		let after = health(&app, owner)?.current;
+		assert_eq!(after, 90.0);
+		assert!(app.world().resource::<LubikanSelfHeal>().damaged);
+		assert!(!app.world().resource::<LubikanSelfHeal>().active);
+		app.update();
+		assert_eq!(health(&app, owner)?.current, 90.0);
+		Ok(())
+	}
+
+	#[test]
+	fn pause_freezes_healing_on_the_same_update() -> Result<()> {
+		let mut app = heal_app();
+		let owner = spawn_owner(&mut app, 40.0, 100.0);
+		fund_and_activate(&mut app, owner)?;
+		assert_eq!(health(&app, owner)?.current, 45.0);
+		app.world_mut().resource_mut::<LubikanHealingEnabled>().0 = false;
+		app.update();
+		assert_eq!(health(&app, owner)?.current, 45.0);
+		assert_eq!(phase(&app, owner, LubikanAccountId::SELF)?, LubikanActivationPhase::Active);
+		app.world_mut().resource_mut::<LubikanHealingEnabled>().0 = true;
+		app.update();
+		assert_eq!(health(&app, owner)?.current, 50.0);
 		Ok(())
 	}
 

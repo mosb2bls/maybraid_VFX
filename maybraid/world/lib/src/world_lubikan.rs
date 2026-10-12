@@ -31,20 +31,14 @@ use crate::map_view::WorldMapView;
 ///
 /// ## Schedule Ordering
 ///
-/// Systems run in three Bevy schedules with explicit intra-schedule ordering:
+/// Intra-schedule constraints only. A same-named set in another schedule does
+/// not order these systems.
 ///
-/// | Schedule   | Stage         | Systems                                                      |
-/// |------------|---------------|--------------------------------------------------------------|
-/// | PreUpdate  | Owner/Input   | `grant_world_player_lubikan_owner`, `sync_lubikan_session` (before `LubikanSystems::Owner`) |
-/// | Update     | Activation    | `request_lubikan_activation` (PowerUseItem → LubikanActivationRequest) |
-/// | PostUpdate | Healing Sync  | `sync_lubikan_healing_enabled` (WorldGameplayEnabled → LubikanHealingEnabled) |
-///
-/// **Activation timing:** `request_lubikan_activation` runs in Update, emitting `LubikanActivationRequest`
-/// messages. `LubikansPlugin` processes these in the same frame (Update schedule, `LubikanSystems::Activate` set),
-/// starting activation if charge is sufficient. Healing begins immediately when activation starts (same frame).
-///
-/// **Healing timing:** `sync_lubikan_healing_enabled` runs in PostUpdate. When gameplay is disabled,
-/// the healing gate is updated before the next frame's healing tick, so healing pauses on the next frame.
+/// | Schedule   | Stage      | Systems |
+/// |------------|------------|---------|
+/// | PreUpdate  | Owner      | grant / session-end before `LubikanSystems::Owner` |
+/// | Update     | Gate+Act   | `sync_lubikan_healing_enabled` then activation request before `LubikanSystems::Activate` |
+/// | PostUpdate | Heal       | `LubikanSystems::Heal` after damage history / awards; HUD after Heal |
 pub struct WorldLubikanPlugin;
 
 impl Plugin for WorldLubikanPlugin {
@@ -64,9 +58,10 @@ impl Plugin for WorldLubikanPlugin {
 		app.add_systems(
 			Update,
 			(
-				sync_lubikan_healing_enabled,
+				sync_lubikan_healing_enabled.before(LubikanSystems::Activate),
 				request_lubikan_activation
 					.after(CharacterControlSystems)
+					.after(sync_lubikan_healing_enabled)
 					.before(LubikanSystems::Activate),
 			),
 		);
@@ -154,7 +149,12 @@ fn sync_lubikan_healing_enabled(
 pub fn configure(app: &mut App) {
 	app.add_systems(
 		Update,
-		(sync_lubikan_healing_enabled, request_lubikan_activation),
+		(
+			sync_lubikan_healing_enabled.before(LubikanSystems::Activate),
+			request_lubikan_activation
+				.after(sync_lubikan_healing_enabled)
+				.before(LubikanSystems::Activate),
+		),
 	);
 }
 
