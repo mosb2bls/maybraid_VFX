@@ -96,6 +96,7 @@ mod tests {
 		"death-picker.jsonl",
 		"mob-spawns.jsonl",
 		"visual-style-idle.jsonl",
+		"visual-style-idle-watercolor.jsonl",
 		"visual-style-idle-sharp.jsonl",
 		"visual-style-idle-retro.jsonl",
 		"visual-style-idle-antediluvian.jsonl",

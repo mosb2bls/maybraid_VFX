@@ -7,6 +7,7 @@ use bevy::prelude::*;
 pub enum VisualStyle {
 	#[default]
 	Impressionist,
+	Watercolor,
 	Sharp,
 	Retro,
 	Antediluvian,
@@ -14,8 +15,9 @@ pub enum VisualStyle {
 }
 
 impl VisualStyle {
-	pub const ALL: [Self; 5] = [
+	pub const ALL: [Self; 6] = [
 		Self::Impressionist,
+		Self::Watercolor,
 		Self::Sharp,
 		Self::Retro,
 		Self::Antediluvian,
@@ -25,6 +27,7 @@ impl VisualStyle {
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Impressionist => "Impressionist",
+			Self::Watercolor => "Watercolor",
 			Self::Sharp => "Sharp",
 			Self::Retro => "Retro",
 			Self::Antediluvian => "Antediluvian",
@@ -35,7 +38,10 @@ impl VisualStyle {
 	pub fn description(self) -> &'static str {
 		match self {
 			Self::Impressionist => {
-				"Painterly softening at ~1280×720 (16:9). Inexpensive linear upscale with artistic blur. Default."
+				"Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with artistic blur. Default."
+			}
+			Self::Watercolor => {
+				"Wet wash at ~1280×720 (16:9). Same painterly blit as Impressionist, more source detail."
 			}
 			Self::Sharp => "Native physical resolution, untreated. Primarily useful for testing.",
 			Self::Retro => "Nearest-neighbor upscale from ~540×304 (16:9). Performance mode.",
@@ -51,11 +57,11 @@ impl VisualStyle {
 	/// Reference height at 16:9 aspect ratio for this style.
 	pub fn reference_height(self) -> u32 {
 		match self {
-			Self::Impressionist => 720,
+			Self::Impressionist => 394,
+			Self::Watercolor | Self::PrePostModern => 720,
 			Self::Sharp => 0,
 			Self::Retro => 304,
 			Self::Antediluvian => 225,
-			Self::PrePostModern => 720,
 		}
 	}
 
@@ -63,6 +69,7 @@ impl VisualStyle {
 	pub fn from_script_id(id: &str) -> Option<Self> {
 		match id {
 			"impressionist" => Some(Self::Impressionist),
+			"watercolor" => Some(Self::Watercolor),
 			"sharp" => Some(Self::Sharp),
 			"retro" => Some(Self::Retro),
 			"antediluvian" => Some(Self::Antediluvian),
@@ -75,6 +82,7 @@ impl VisualStyle {
 	pub fn script_id(self) -> &'static str {
 		match self {
 			Self::Impressionist => "impressionist",
+			Self::Watercolor => "watercolor",
 			Self::Sharp => "sharp",
 			Self::Retro => "retro",
 			Self::Antediluvian => "antediluvian",
@@ -92,11 +100,7 @@ impl VisualStyle {
 	}
 
 	/// Plan resolution and presentation parameters for this style.
-	pub fn plan(
-		self,
-		window_physical: UVec2,
-		window_scale_factor: f32,
-	) -> VisualStylePlan {
+	pub fn plan(self, window_physical: UVec2, window_scale_factor: f32) -> VisualStylePlan {
 		if window_physical.x == 0 || window_physical.y == 0 {
 			return VisualStylePlan {
 				style: self,
@@ -119,7 +123,7 @@ impl VisualStyle {
 			let target_size = UVec2::new(target_width.max(1), target_height.max(1));
 
 			let treatment = match self {
-				Self::Impressionist => PresentationTreatment::Impressionist,
+				Self::Impressionist | Self::Watercolor => PresentationTreatment::Impressionist,
 				Self::Retro | Self::Antediluvian => PresentationTreatment::NearestNeighbor,
 				Self::PrePostModern => PresentationTreatment::PrePostModern,
 				Self::Sharp => PresentationTreatment::None,
@@ -134,13 +138,7 @@ impl VisualStyle {
 			1.0
 		};
 
-		VisualStylePlan {
-			style: self,
-			target_size,
-			window_logical,
-			image_scale_factor,
-			treatment,
-		}
+		VisualStylePlan { style: self, target_size, window_logical, image_scale_factor, treatment }
 	}
 }
 
@@ -167,7 +165,8 @@ impl VisualStylePlan {
 	/// Whether this plan requires an offscreen render target and presentation pass.
 	pub fn requires_offscreen(&self, window_physical: UVec2) -> bool {
 		self.target_size != UVec2::ZERO
-			&& (self.treatment != PresentationTreatment::None || self.target_size != window_physical)
+			&& (self.treatment != PresentationTreatment::None
+				|| self.target_size != window_physical)
 	}
 }
 
@@ -212,7 +211,8 @@ mod tests {
 
 	#[test]
 	fn reference_heights_match_spec() {
-		assert_eq!(VisualStyle::Impressionist.reference_height(), 720);
+		assert_eq!(VisualStyle::Impressionist.reference_height(), 394);
+		assert_eq!(VisualStyle::Watercolor.reference_height(), 720);
 		assert_eq!(VisualStyle::Sharp.reference_height(), 0);
 		assert_eq!(VisualStyle::Retro.reference_height(), 304);
 		assert_eq!(VisualStyle::Antediluvian.reference_height(), 225);
@@ -230,9 +230,17 @@ mod tests {
 	#[test]
 	fn impressionist_scales_to_reference_height() {
 		let plan = VisualStyle::Impressionist.plan(UVec2::new(1920, 1080), 1.0);
-		assert_eq!(plan.target_size.y, 720);
-		let expected_width = (720.0_f32 * 1920.0 / 1080.0).round() as u32;
+		assert_eq!(plan.target_size.y, 394);
+		let expected_width = (394.0_f32 * 1920.0 / 1080.0).round() as u32;
 		assert_eq!(plan.target_size.x, expected_width);
+		assert_eq!(plan.treatment, PresentationTreatment::Impressionist);
+		assert!(plan.requires_offscreen(UVec2::new(1920, 1080)));
+	}
+
+	#[test]
+	fn watercolor_is_720p_painterly() {
+		let plan = VisualStyle::Watercolor.plan(UVec2::new(1920, 1080), 1.0);
+		assert_eq!(plan.target_size, UVec2::new(1280, 720));
 		assert_eq!(plan.treatment, PresentationTreatment::Impressionist);
 		assert!(plan.requires_offscreen(UVec2::new(1920, 1080)));
 	}

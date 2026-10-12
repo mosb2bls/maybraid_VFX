@@ -4,16 +4,16 @@ mod catalog;
 mod persist;
 
 use bevy::prelude::*;
-use bevy::scene::prelude::{bsn, Scene};
+use bevy::scene::prelude::{Scene, bsn};
 use character_persist::SaveRoot;
 use maybraid_menu_controller::MenuController;
 use maybraid_world::render_scale::VisualStyle;
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
-	screen_back_scene, set_brand_mode_title, set_info_box_for_menu, BrandModeLine, BrandModeTitle,
-	MenuFocus, MenuInfoBox, MenuInfoBoxLabel, MenuStep, TextColumnAlign, TextColumnAnchor,
-	TextCursorRow, TextMenuPlugin, TextMenuSystems,
+	BrandModeLine, BrandModeTitle, MenuFocus, MenuInfoBox, MenuInfoBoxLabel, MenuStep,
+	TextColumnAlign, TextColumnAnchor, TextCursorRow, TextMenuPlugin, TextMenuSystems,
+	screen_back_scene, set_brand_mode_title, set_info_box_for_menu,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,11 +22,11 @@ use crate::show::take_menu_show_request;
 use crate::{GameMode, MenuScreen};
 
 pub use catalog::{
-	classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, PersistPolicy, Preference,
+	DeviceClass, DeviceType, HostProbe, PersistPolicy, Preference, classify_host, seed_device_class,
 };
 pub use persist::{
-	apply_seed, apply_shadows_env, load_machine_settings, parse_render_scale_env,
-	parse_shadows_env, save_machine_settings, QualitySeeded, ENV_RENDER_SCALE, ENV_SHADOWS,
+	ENV_RENDER_SCALE, ENV_SHADOWS, QualitySeeded, apply_seed, apply_shadows_env,
+	load_machine_settings, parse_render_scale_env, parse_shadows_env, save_machine_settings,
 };
 
 /// Queue an in-game settings spawn (despawns any existing menu screen first).
@@ -74,6 +74,7 @@ impl InGameShadowQuality {
 pub enum InGameVisualStyle {
 	#[default]
 	Impressionist,
+	Watercolor,
 	Sharp,
 	Retro,
 	Antediluvian,
@@ -82,8 +83,9 @@ pub enum InGameVisualStyle {
 }
 
 impl InGameVisualStyle {
-	pub const ALL: [Self; 5] = [
+	pub const ALL: [Self; 6] = [
 		Self::Impressionist,
+		Self::Watercolor,
 		Self::Sharp,
 		Self::Retro,
 		Self::Antediluvian,
@@ -103,6 +105,7 @@ impl InGameVisualStyle {
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Impressionist => "Impressionist",
+			Self::Watercolor => "Watercolor",
 			Self::Sharp => "Sharp",
 			Self::Retro => "Retro",
 			Self::Antediluvian => "Antediluvian",
@@ -113,6 +116,7 @@ impl InGameVisualStyle {
 	pub fn to_visual_style(self) -> VisualStyle {
 		match self {
 			Self::Impressionist => VisualStyle::Impressionist,
+			Self::Watercolor => VisualStyle::Watercolor,
 			Self::Sharp => VisualStyle::Sharp,
 			Self::Retro => VisualStyle::Retro,
 			Self::Antediluvian => VisualStyle::Antediluvian,
@@ -123,6 +127,7 @@ impl InGameVisualStyle {
 	pub fn from_visual_style(style: VisualStyle) -> Self {
 		match style {
 			VisualStyle::Impressionist => Self::Impressionist,
+			VisualStyle::Watercolor => Self::Watercolor,
 			VisualStyle::Sharp => Self::Sharp,
 			VisualStyle::Retro => Self::Retro,
 			VisualStyle::Antediluvian => Self::Antediluvian,
@@ -249,10 +254,7 @@ fn format_visual_style_info(readout: RenderScaleReadout) -> String {
 	if target == readout.window_physical {
 		format!("Rendered at {} x {}.", target.x, target.y)
 	} else {
-		format!(
-			"Rendered at {} x {}. Upscaled to display.",
-			target.x, target.y
-		)
+		format!("Rendered at {} x {}. Upscaled to display.", target.x, target.y)
 	}
 }
 
@@ -282,11 +284,7 @@ impl Default for InGameSettings {
 
 impl InGameSettings {
 	pub fn mob_hud_state_label(self) -> &'static str {
-		if self.mob_hud {
-			"On"
-		} else {
-			"Off"
-		}
+		if self.mob_hud { "On" } else { "Off" }
 	}
 
 	pub fn state_label(self, choice: InGameSettingsChoice) -> String {
@@ -344,7 +342,9 @@ impl InGameSettingsChoice {
 			Self::Shadows => {
 				"Sun cascade shadows. High is four maps to 150 m. Low is four maps to 60 m. Off disables the sun's shadow maps."
 			}
-			Self::VisualStyle => "Presentation mode: impressionist (painterly, default), sharp (native, testing), retro / antediluvian (nearest-neighbor, performance), or pre-post-modern (color-print effect).",
+			Self::VisualStyle => {
+				"Presentation mode: impressionist (painterly, default), watercolor (720p wash), sharp (native, testing), retro / antediluvian (nearest-neighbor, performance), or pre-post-modern (color-print effect)."
+			}
 			Self::MobHud => {
 				"Pins and colored poles on presented mob hosts. Use this to find where groups should stand."
 			}
@@ -577,9 +577,8 @@ mod tests {
 	use menu_components::TextCursorRow;
 
 	use super::{
-		apply_settings_step, format_visual_style_info, persist, InGameSettings,
-		InGameSettingsChoice, InGameShadowQuality, InGameVisualStyle, RenderScaleReadout,
-		SettingsStep,
+		InGameSettings, InGameSettingsChoice, InGameShadowQuality, InGameVisualStyle,
+		RenderScaleReadout, SettingsStep, apply_settings_step, format_visual_style_info, persist,
 	};
 
 	#[test]
@@ -596,11 +595,7 @@ mod tests {
 			.into_iter()
 			.map(|choice| {
 				let row = TextCursorRow::new(choice.label(), choice);
-				if choice == InGameSettingsChoice::VisualStyle {
-					row.stepper()
-				} else {
-					row
-				}
+				if choice == InGameSettingsChoice::VisualStyle { row.stepper() } else { row }
 			})
 			.collect();
 		assert!(!rows[0].stepper);
@@ -655,7 +650,7 @@ mod tests {
 			&mut machine,
 			None,
 		));
-		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Watercolor);
 		assert!(apply_settings_step(
 			SettingsStep { choice: InGameSettingsChoice::VisualStyle, delta: -1 },
 			&mut settings,
@@ -674,7 +669,8 @@ mod tests {
 	#[test]
 	fn visual_style_starts_impressionist_and_cycles() -> anyhow::Result<()> {
 		assert_eq!(InGameSettings::default().visual_style, InGameVisualStyle::Impressionist);
-		assert_eq!(InGameVisualStyle::Impressionist.cycle(), InGameVisualStyle::Sharp);
+		assert_eq!(InGameVisualStyle::Impressionist.cycle(), InGameVisualStyle::Watercolor);
+		assert_eq!(InGameVisualStyle::Watercolor.cycle(), InGameVisualStyle::Sharp);
 		assert_eq!(InGameVisualStyle::Sharp.cycle(), InGameVisualStyle::Retro);
 		assert_eq!(InGameVisualStyle::Retro.cycle(), InGameVisualStyle::Antediluvian);
 		assert_eq!(InGameVisualStyle::Antediluvian.cycle(), InGameVisualStyle::PrePostModern);

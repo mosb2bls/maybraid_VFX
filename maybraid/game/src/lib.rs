@@ -9,10 +9,10 @@ pub use flow::{GameFlow, HomeRoute, PauseMenuRoute, PlaySession, WorldPause};
 pub use paths::assets_root;
 
 use crate::shell::{
-	apply_pause_character_look, apply_shell_look, attach_preview_camera, despawn_loading_backdrop,
-	detach_preview_camera, enter_characters, enter_home, enter_loading_world, enter_world,
-	enter_world_menu, exit_world_menu, restore_stashed_world_camera, spawn_loading_backdrop,
-	stamp_preview_render_layers, ShellRoute,
+	ShellRoute, apply_pause_character_look, apply_shell_look, attach_preview_camera,
+	despawn_loading_backdrop, detach_preview_camera, enter_characters, enter_home,
+	enter_loading_world, enter_world, enter_world_menu, exit_world_menu,
+	restore_stashed_world_camera, spawn_loading_backdrop, stamp_preview_render_layers,
 };
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -20,15 +20,15 @@ use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use maybraid_input::MenuNavPad;
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
-	parse_visual_style_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
-	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
-	TerrainStreaming, VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMobHudEnabled,
-	WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady,
-	WorldSurfaceSet, VISUAL_STYLE_ENV,
+	Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
+	TerrainStreaming, VISUAL_STYLE_ENV, VisualStyle, VisualStyleSetting, WorldGameplayEnabled,
+	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, parse_visual_style_env,
+	reset_first_spawn_offer, resume_discovery_from_saved_waypoints,
 };
 use menu_components::{
-	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-	TextMenuSystems, MENU_CLEAR,
+	ActiveOverlayKey, MENU_CLEAR, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
+	TextMenuSystems, consume_screen_back,
 };
 use menu_playground::{
 	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterLeavePrompt,
@@ -36,11 +36,11 @@ use menu_playground::{
 	CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
 };
 use menu_screens::{
-	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
-	request_show_in_game_settings, CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice,
-	HomeScreenPlugin, InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
+	CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice, HomeScreenPlugin,
+	InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
 	InGameSettingsSystems, InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin,
-	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen,
+	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen, cancel_pending_create,
+	request_show_gallery, request_show_home, request_show_in_game, request_show_in_game_settings,
 };
 
 pub struct GamePlugin;
@@ -530,10 +530,10 @@ mod tests {
 	use menu_playground::ActiveCharacter;
 
 	use crate::{
-		apply_settings_to_visual_style, assets_root, clear_play_session,
+		GameFlow, PlaySession, apply_settings_to_visual_style, assets_root, clear_play_session,
 		load_active_player_loadout, persist_changed_player_inventory, read_player_loadout,
 		route_home_choice, sync_world_loadout_from_editor, sync_world_shadows,
-		visual_style_readout, GameFlow, PlaySession,
+		visual_style_readout,
 	};
 	use maybraid_world::{
 		ShadowQuality, VisualStyle, VisualStyleSetting, WorldPlaySessionEnded, WorldPlayerLoadout,
@@ -769,9 +769,9 @@ mod tests {
 			readout,
 			RenderScaleReadout {
 				style: VisualStyle::Impressionist,
-				effective_scale: 720.0 / 1080.0,
+				effective_scale: 394.0 / 1080.0,
 				window_physical: UVec2::new(1920, 1080),
-				target_physical: UVec2::new(1280, 720),
+				target_physical: UVec2::new(700, 394),
 				env_override: Some(VisualStyle::Impressionist),
 			}
 		);

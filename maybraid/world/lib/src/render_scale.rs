@@ -2,7 +2,8 @@
 //!
 //! Replaces the legacy render scale system. Styles render at characteristic resolutions
 //! (preserving aspect ratio) and apply effects during presentation:
-//! - **Impressionist** (~1280×720): painterly softening, default
+//! - **Impressionist** (~700×394): painterly softening, default
+//! - **Watercolor** (~1280×720): same wash as Impressionist, more source detail
 //! - **Sharp**: native resolution, no treatment
 //! - **Retro** (~540×304): nearest-neighbor, performance
 //! - **Antediluvian** (~400×225): nearest-neighbor, extreme performance
@@ -124,7 +125,9 @@ pub fn parse_visual_style_env(raw: Option<&str>) -> Option<VisualStyle> {
 	match VisualStyle::from_script_id(raw) {
 		Some(style) => Some(style),
 		None => {
-			eprintln!("[{VISUAL_STYLE_ENV}] unknown {raw:?} (use impressionist, sharp, retro, antediluvian, or pre_post_modern)");
+			eprintln!(
+				"[{VISUAL_STYLE_ENV}] unknown {raw:?} (use impressionist, watercolor, sharp, retro, antediluvian, or pre_post_modern)"
+			);
 			None
 		}
 	}
@@ -348,6 +351,7 @@ mod tests {
 		assert_eq!(parse_visual_style_env(None), None);
 		assert_eq!(parse_visual_style_env(Some("")), None);
 		assert_eq!(parse_visual_style_env(Some("impressionist")), Some(VisualStyle::Impressionist));
+		assert_eq!(parse_visual_style_env(Some("watercolor")), Some(VisualStyle::Watercolor));
 		assert_eq!(parse_visual_style_env(Some("sharp")), Some(VisualStyle::Sharp));
 		assert_eq!(parse_visual_style_env(Some("retro")), Some(VisualStyle::Retro));
 		assert_eq!(parse_visual_style_env(Some("antediluvian")), Some(VisualStyle::Antediluvian));
@@ -373,10 +377,13 @@ mod tests {
 		setting.set_treatment_override(Some(PresentationTreatment::None));
 		let window = UVec2::new(1920, 1080);
 		let plan = setting.plan(window, 1.0);
-		assert_eq!(plan.target_size, UVec2::new(1280, 720));
+		assert_eq!(plan.target_size, UVec2::new(700, 394));
 		assert_eq!(plan.treatment, PresentationTreatment::None);
 		assert!(plan.requires_offscreen(window));
-		assert_eq!(parse_presentation_treatment_env(Some("none")), Some(PresentationTreatment::None));
+		assert_eq!(
+			parse_presentation_treatment_env(Some("none")),
+			Some(PresentationTreatment::None)
+		);
 		Ok(())
 	}
 
@@ -391,10 +398,7 @@ mod tests {
 		world
 			.run_system_once(apply_visual_style_requests)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert_eq!(
-			world.resource::<VisualStyleSetting>().requested(),
-			Some(VisualStyle::Retro)
-		);
+		assert_eq!(world.resource::<VisualStyleSetting>().requested(), Some(VisualStyle::Retro));
 		Ok(())
 	}
 

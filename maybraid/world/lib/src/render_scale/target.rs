@@ -10,8 +10,8 @@ use bevy::window::PrimaryWindow;
 use player_camera::FollowCamera;
 
 use super::presentation::{
-	create_presentation_material, ImpressionistMaterial, NearestNeighborMaterial,
-	PrePostModernMaterial, PresentationMaterial,
+	ImpressionistMaterial, NearestNeighborMaterial, PrePostModernMaterial, PresentationMaterial,
+	create_presentation_material,
 };
 use super::visual_style::{PresentationTreatment, VisualStyle};
 use super::{RenderScale, VisualStyleSetting};
@@ -90,35 +90,41 @@ pub(super) fn sync_render_scale_target(
 	let legacy_plan = scale.plan(physical, window.scale_factor());
 
 	// Visual style takes precedence when explicitly set
-	let (target_size, window_logical, image_scale_factor, treatment, effective_style, requires_offscreen) =
-		if visual_style.requested().is_some() || !scale.is_explicit() {
-			(
-				style_plan.target_size,
-				style_plan.window_logical,
-				style_plan.image_scale_factor,
-				style_plan.treatment,
-				Some(style_plan.style),
-				style_plan.requires_offscreen(physical),
-			)
-		} else {
-			// Legacy render scale mode
-			(
-				legacy_plan.target_size,
-				legacy_plan.window_logical,
-				legacy_plan.image_scale_factor,
-				PresentationTreatment::None,
-				None,
-				legacy_plan.offscreen,
-			)
-		};
-	
+	let (
+		target_size,
+		window_logical,
+		image_scale_factor,
+		treatment,
+		effective_style,
+		requires_offscreen,
+	) = if visual_style.requested().is_some() || !scale.is_explicit() {
+		(
+			style_plan.target_size,
+			style_plan.window_logical,
+			style_plan.image_scale_factor,
+			style_plan.treatment,
+			Some(style_plan.style),
+			style_plan.requires_offscreen(physical),
+		)
+	} else {
+		// Legacy render scale mode
+		(
+			legacy_plan.target_size,
+			legacy_plan.window_logical,
+			legacy_plan.image_scale_factor,
+			PresentationTreatment::None,
+			None,
+			legacy_plan.offscreen,
+		)
+	};
+
 	let Ok((source, source_camera, mut render_target, mut projection, source_is_ui)) =
 		sources.single_mut()
 	else {
 		teardown_present(&mut commands, &presents, &sprites);
 		return;
 	};
-	
+
 	if !requires_offscreen || !source_camera.is_active {
 		if source_camera.is_active && !source_is_ui {
 			commands.entity(source).insert(IsDefaultUiCamera);
@@ -183,8 +189,7 @@ pub(super) fn sync_render_scale_target(
 		applied.last_style = effective_style;
 		applied.last_treatment = Some(treatment);
 	}
-	let image_target =
-		SourceTarget::Image { size: target_size, scale_factor: image_scale_factor };
+	let image_target = SourceTarget::Image { size: target_size, scale_factor: image_scale_factor };
 	if retarget(&mut applied, source, image_target) {
 		*render_target = RenderTarget::Image(ImageRenderTarget {
 			handle: handle.clone(),
@@ -284,7 +289,7 @@ fn ensure_target_image(
 		PresentationTreatment::NearestNeighbor => ImageSampler::nearest(),
 		_ => ImageSampler::linear(),
 	};
-	
+
 	if let Some(handle) = applied.image.clone() {
 		if let Some(mut image) = images.get_mut(&handle) {
 			let current = UVec2::new(image.width(), image.height());
@@ -369,14 +374,11 @@ fn spawn_present_blit(
 	window_logical: Vec2,
 	treatment: PresentationTreatment,
 ) {
-	let mesh = applied
-		.blit_mesh
-		.clone()
-		.unwrap_or_else(|| {
-			let handle = meshes.add(Rectangle::new(1.0, 1.0));
-			applied.blit_mesh = Some(handle.clone());
-			handle
-		});
+	let mesh = applied.blit_mesh.clone().unwrap_or_else(|| {
+		let handle = meshes.add(Rectangle::new(1.0, 1.0));
+		applied.blit_mesh = Some(handle.clone());
+		handle
+	});
 	let transform = Transform {
 		translation: Vec3::ZERO,
 		scale: Vec3::new(window_logical.x, window_logical.y, 1.0),
@@ -490,7 +492,7 @@ mod tests {
 			.add_systems(Update, (sync_render_scale_target, camera_system).chain());
 		app.world_mut().spawn((Window::default(), PrimaryWindow));
 		app.world_mut().spawn((Camera3d::default(), FollowCamera::default()));
-		
+
 		// Set explicit render scale to 1.0 to take precedence over visual style
 		app.world_mut().resource_mut::<RenderScale>().set(1.0);
 		app.update();
@@ -512,9 +514,8 @@ mod tests {
 	}
 
 	fn present_count(app: &mut App) -> usize {
-		let mut presents = app
-			.world_mut()
-			.query_filtered::<Entity, With<RenderScalePresentCamera>>();
+		let mut presents =
+			app.world_mut().query_filtered::<Entity, With<RenderScalePresentCamera>>();
 		presents.iter(app.world()).count()
 	}
 
@@ -547,7 +548,8 @@ mod tests {
 	fn visual_styles_resize_and_sharp_is_direct() -> anyhow::Result<()> {
 		let mut app = boot_target_app();
 		for (style, size, present) in [
-			(VisualStyle::Impressionist, UVec2::new(1280, 720), true),
+			(VisualStyle::Impressionist, UVec2::new(700, 394), true),
+			(VisualStyle::Watercolor, UVec2::new(1280, 720), true),
 			(VisualStyle::Sharp, UVec2::new(1280, 720), false),
 			(VisualStyle::Retro, UVec2::new(540, 304), true),
 			(VisualStyle::Antediluvian, UVec2::new(400, 225), true),
