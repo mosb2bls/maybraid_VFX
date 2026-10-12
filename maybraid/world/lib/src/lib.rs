@@ -316,6 +316,8 @@ impl Plugin for WorldPlugin {
 		if app.world().contains_resource::<AgentDrive>() {
 			app.add_plugins(agent::WorldAgentPlugin);
 		}
+		#[cfg(feature = "debug-commands")]
+		app.add_plugins(world_debug::WorldDebugPlugin);
 		if self.debug_chrome {
 			app.add_systems(Startup, ui::spawn_mob_debug_hud).add_systems(
 				Update,
