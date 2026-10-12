@@ -597,7 +597,7 @@ fn agent_actor_census(
 				ground_at_min_y = surface.composed_height_at(transform.translation.xz());
 			}
 		}
-		max_y = Some(max_y.map_or(y, |current| current.max(y)));
+		max_y = Some(max_y.map_or(y, |current: f32| current.max(y)));
 	}
 	let census = ActorCensus {
 		hosts: hosts.iter().len() as u32,
