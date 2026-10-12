@@ -1,4 +1,5 @@
-//! Offscreen 3D target + window blit. Despawned entirely at scale 1.0.
+//! Offscreen 3D target + window blit with visual style treatments.
+//! Despawned entirely for Sharp (native resolution, no treatment).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::{ClearColorConfig, ImageRenderTarget, RenderTarget};
@@ -8,7 +9,8 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 use bevy::window::PrimaryWindow;
 use player_camera::FollowCamera;
 
-use crate::render_scale::RenderScale;
+use super::visual_style::{PresentationTreatment, VisualStyle};
+use super::{RenderScale, VisualStyleSetting};
 
 /// Present camera order matches the loading backdrop (`1`) and sits above the 3D camera (`0`).
 const PRESENT_ORDER: isize = 1;
@@ -19,6 +21,8 @@ pub(super) struct AppliedRenderScale {
 	last_offscreen: bool,
 	last_size: UVec2,
 	last_scale: f32,
+	last_style: Option<VisualStyle>,
+	last_treatment: Option<PresentationTreatment>,
 	source: Option<(Entity, SourceTarget)>,
 }
 
@@ -54,6 +58,7 @@ fn scale_point(pos: Vec2, from: Vec2, to: Vec2) -> Vec2 {
 
 pub(super) fn sync_render_scale_target(
 	mut commands: Commands,
+	visual_style: Res<VisualStyleSetting>,
 	scale: Res<RenderScale>,
 	windows: Query<&Window, With<PrimaryWindow>>,
 	mut images: ResMut<Assets<Image>>,
@@ -70,15 +75,43 @@ pub(super) fn sync_render_scale_target(
 		return;
 	};
 	let physical = UVec2::new(window.physical_width(), window.physical_height());
-	let plan = scale.plan(physical, window.scale_factor());
+	
+	// Use visual style if set, otherwise fall back to legacy render scale
+	let style_plan = visual_style.plan(physical, window.scale_factor());
+	let legacy_plan = scale.plan(physical, window.scale_factor());
+	
+	// Visual style takes precedence when explicitly set
+	let (target_size, window_logical, image_scale_factor, treatment, effective_style, requires_offscreen) =
+		if visual_style.requested().is_some() || !scale.is_explicit() {
+			let requires_offscreen = style_plan.treatment != PresentationTreatment::None;
+			(
+				style_plan.target_size,
+				style_plan.window_logical,
+				style_plan.image_scale_factor,
+				style_plan.treatment,
+				Some(style_plan.style),
+				requires_offscreen,
+			)
+		} else {
+			// Legacy render scale mode
+			(
+				legacy_plan.target_size,
+				legacy_plan.window_logical,
+				legacy_plan.image_scale_factor,
+				PresentationTreatment::None,
+				None,
+				legacy_plan.offscreen,
+			)
+		};
+	
 	let Ok((source, source_camera, mut render_target, mut projection, source_is_ui)) =
 		sources.single_mut()
 	else {
 		teardown_present(&mut commands, &presents, &sprites);
 		return;
 	};
-
-	if !plan.offscreen || !source_camera.is_active {
+	
+	if !requires_offscreen || !source_camera.is_active {
 		if source_camera.is_active && !source_is_ui {
 			commands.entity(source).insert(IsDefaultUiCamera);
 		}
@@ -88,36 +121,63 @@ pub(super) fn sync_render_scale_target(
 		}
 		teardown_present(&mut commands, &presents, &sprites);
 		if applied.last_offscreen || applied.last_size == UVec2::ZERO {
-			info!(
-				"render scale {:.3}: window {}x{} (offscreen path off)",
-				plan.scale, physical.x, physical.y
-			);
+			if let Some(style) = effective_style {
+				info!(
+					"visual style {}: window {}x{} (direct render, no treatment)",
+					style.label(),
+					physical.x,
+					physical.y
+				);
+			} else {
+				info!(
+					"render scale 1.0: window {}x{} (offscreen path off)",
+					physical.x, physical.y
+				);
+			}
 			applied.last_offscreen = false;
 			applied.last_size = physical;
-			applied.last_scale = plan.scale;
+			applied.last_scale = 1.0;
+			applied.last_style = effective_style;
+			applied.last_treatment = None;
 		}
 		return;
 	}
 
-	let handle = ensure_target_image(&mut images, &mut applied, plan.target_size);
+	let handle = ensure_target_image(&mut images, &mut applied, target_size, treatment);
 	if !applied.last_offscreen
-		|| applied.last_size != plan.target_size
-		|| (applied.last_scale - plan.scale).abs() > 1e-5
+		|| applied.last_size != target_size
+		|| applied.last_style != effective_style
+		|| applied.last_treatment != Some(treatment)
 	{
-		info!(
-			"render scale {:.3}: 3D {}x{} -> window {}x{}",
-			plan.scale, plan.target_size.x, plan.target_size.y, physical.x, physical.y
-		);
+		if let Some(style) = effective_style {
+			info!(
+				"visual style {}: 3D {}x{} -> window {}x{} ({})",
+				style.label(),
+				target_size.x,
+				target_size.y,
+				physical.x,
+				physical.y,
+				treatment_label(treatment)
+			);
+		} else {
+			let scale = target_size.x as f32 / physical.x as f32;
+			info!(
+				"render scale {:.3}: 3D {}x{} -> window {}x{}",
+				scale, target_size.x, target_size.y, physical.x, physical.y
+			);
+		}
 		applied.last_offscreen = true;
-		applied.last_size = plan.target_size;
-		applied.last_scale = plan.scale;
+		applied.last_size = target_size;
+		applied.last_scale = target_size.x as f32 / physical.x as f32;
+		applied.last_style = effective_style;
+		applied.last_treatment = Some(treatment);
 	}
 	let image_target =
-		SourceTarget::Image { size: plan.target_size, scale_factor: plan.image_scale_factor };
+		SourceTarget::Image { size: target_size, scale_factor: image_scale_factor };
 	if retarget(&mut applied, source, image_target) {
 		*render_target = RenderTarget::Image(ImageRenderTarget {
 			handle: handle.clone(),
-			scale_factor: plan.image_scale_factor,
+			scale_factor: image_scale_factor,
 		});
 		projection.set_changed();
 	}
@@ -142,15 +202,24 @@ pub(super) fn sync_render_scale_target(
 			}
 			if let Ok(mut sprite) = sprite_images.single_mut() {
 				sprite.image = handle;
-				sprite.custom_size = Some(plan.window_logical);
+				sprite.custom_size = Some(window_logical);
 			} else if sprites.is_empty() {
-				spawn_present_sprite(&mut commands, handle, plan.window_logical);
+				spawn_present_sprite(&mut commands, handle, window_logical);
 			}
 		}
 		Err(_) => {
 			teardown_present(&mut commands, &presents, &sprites);
-			spawn_present(&mut commands, handle, plan.window_logical);
+			spawn_present(&mut commands, handle, window_logical);
 		}
+	}
+}
+
+fn treatment_label(treatment: PresentationTreatment) -> &'static str {
+	match treatment {
+		PresentationTreatment::None => "no treatment",
+		PresentationTreatment::NearestNeighbor => "nearest-neighbor",
+		PresentationTreatment::Impressionist => "painterly",
+		PresentationTreatment::PrePostModern => "color-print",
 	}
 }
 
@@ -172,22 +241,31 @@ fn ensure_target_image(
 	images: &mut Assets<Image>,
 	applied: &mut AppliedRenderScale,
 	size: UVec2,
+	treatment: PresentationTreatment,
 ) -> Handle<Image> {
+	let sampler = match treatment {
+		PresentationTreatment::NearestNeighbor => ImageSampler::nearest(),
+		_ => ImageSampler::linear(),
+	};
+	
 	if let Some(handle) = applied.image.clone() {
 		if let Some(mut image) = images.get_mut(&handle) {
 			let current = UVec2::new(image.width(), image.height());
 			if current != size {
 				image.resize(Extent3d { width: size.x, height: size.y, depth_or_array_layers: 1 });
 			}
+			if image.sampler != sampler {
+				image.sampler = sampler;
+			}
 			return handle;
 		}
 	}
-	let handle = images.add(create_target_image(size));
+	let handle = images.add(create_target_image(size, sampler));
 	applied.image = Some(handle.clone());
 	handle
 }
 
-fn create_target_image(size: UVec2) -> Image {
+fn create_target_image(size: UVec2, sampler: ImageSampler) -> Image {
 	let mut image = Image::new_uninit(
 		Extent3d { width: size.x.max(1), height: size.y.max(1), depth_or_array_layers: 1 },
 		TextureDimension::D2,
@@ -198,7 +276,7 @@ fn create_target_image(size: UVec2) -> Image {
 		| TextureUsages::RENDER_ATTACHMENT
 		| TextureUsages::COPY_SRC
 		| TextureUsages::COPY_DST;
-	image.sampler = ImageSampler::linear();
+	image.sampler = sampler;
 	image
 }
 
@@ -242,6 +320,7 @@ fn teardown_present(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::render_scale::VisualStyleSetting;
 
 	#[test]
 	fn mapping_is_identity_when_spaces_match() -> anyhow::Result<()> {
@@ -289,6 +368,7 @@ mod tests {
 		app.init_resource::<Assets<Image>>()
 			.init_resource::<ManualTextureViews>()
 			.init_resource::<AppliedRenderScale>()
+			.insert_resource(VisualStyleSetting::default())
 			.insert_resource(RenderScale::default())
 			.add_message::<WindowCreated>()
 			.add_message::<WindowResized>()
@@ -297,6 +377,9 @@ mod tests {
 			.add_systems(Update, (sync_render_scale_target, camera_system).chain());
 		app.world_mut().spawn((Window::default(), PrimaryWindow));
 		app.world_mut().spawn((Camera3d::default(), FollowCamera::default()));
+		
+		// Set explicit render scale to 1.0 to take precedence over visual style
+		app.world_mut().resource_mut::<RenderScale>().set(1.0);
 		app.update();
 		assert_eq!(source_target_size(&mut app), Some(UVec2::new(1280, 720)));
 
@@ -317,7 +400,7 @@ mod tests {
 
 	#[test]
 	fn image_target_matches_resolved_output_usage() -> anyhow::Result<()> {
-		let image = create_target_image(UVec2::new(64, 32));
+		let image = create_target_image(UVec2::new(64, 32), ImageSampler::linear());
 		assert_eq!(image.width(), 64);
 		assert_eq!(image.height(), 32);
 		assert_eq!(image.texture_descriptor.format, TextureFormat::Bgra8UnormSrgb);
