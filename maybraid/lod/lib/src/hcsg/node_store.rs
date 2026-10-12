@@ -248,7 +248,7 @@ impl<T> NodeStore<T> {
 	pub(super) fn clear_non_universal(&mut self, revision: u64) -> Vec<Id> {
 		#[cfg(debug_assertions)]
 		let removed: Vec<Id> =
-			self.entries.keys().filter(|id| *id != Id::Universal).copied().collect();
+			self.entries.keys().filter(|id| **id != Id::Universal).copied().collect();
 		#[cfg(debug_assertions)]
 		if removed.is_empty() {
 			return removed;
