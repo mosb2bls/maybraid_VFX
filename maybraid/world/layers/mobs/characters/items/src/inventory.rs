@@ -261,6 +261,28 @@ impl InventoryItem {
 		}
 	}
 
+	/// Stable screen-capture identity.
+	pub fn capture_id_label(&self) -> Option<String> {
+		match self {
+			Self::Firearm { spec, .. } => Some(format!("firearm:{}", spec.identity_label())),
+			Self::Clothing { mesh, material, .. } => Some(format!(
+				"clothing:{}:{}:{}",
+				mesh.label(),
+				material.id.label(),
+				material.color.label()
+			)),
+			Self::Grenade { spec, .. } => Some(format!("grenade:{}", spec.mesh.label())),
+			Self::SkillMap { spec } => {
+				Some(format!("skill-map:{}:{}", spec.kind.label(), spec.seed))
+			}
+		}
+	}
+
+	/// Catalog thumbnail key in a namespace that does not collide with skill maps.
+	pub fn icon_catalog_key(&self) -> Option<u64> {
+		Some(icon_catalog_key_for_label(&self.capture_id_label()?))
+	}
+
 	/// Authored identity: spec/stats/kind match, excluding transient grenade recharge.
 	pub fn same_catalog_identity(&self, other: &Self) -> bool {
 		match (self, other) {
@@ -650,6 +672,21 @@ impl ItemRng {
 		indices.truncate(count);
 		indices
 	}
+}
+
+/// High-word tag so item-icon keys never collide with [`SkillMapSpec::catalog_key`].
+pub const ITEM_ICON_CATALOG_TAG: u64 = 0xC0DE_0000_0000_0000;
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0100_0000_01b3;
+
+/// FNV-1a catalog key for a capture-id label.
+pub fn icon_catalog_key_for_label(label: &str) -> u64 {
+	let mut hash = FNV_OFFSET;
+	for byte in label.as_bytes() {
+		hash ^= u64::from(*byte);
+		hash = hash.wrapping_mul(FNV_PRIME);
+	}
+	ITEM_ICON_CATALOG_TAG | (hash & 0x0000_FFFF_FFFF_FFFF)
 }
 
 fn remap_selected(selected: &[usize], remap: &[Option<usize>]) -> Vec<usize> {
@@ -1123,6 +1160,54 @@ mod tests {
 		let taken = all.take_fraction(&mut ItemRng::from_seed(1), LootFraction::ALL);
 		assert_eq!(taken.items.len(), 3);
 		assert!(all.items.is_empty());
+	}
+
+	#[test]
+	fn capture_ids_are_stable_and_distinct() -> anyhow::Result<()> {
+		let bullpup = InventoryItem::firearm(FirearmMesh::Bullpup);
+		let reltor = InventoryItem::firearm(FirearmMesh::Reltor);
+		let pants = InventoryItem::clothing(
+			ClothingMesh::Pants,
+			ClothingMaterial::Cloth,
+			ItemColor::Natural,
+		);
+		let painted =
+			InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Red);
+		let a = bullpup.capture_id_label().ok_or_else(|| anyhow::anyhow!("bullpup"))?;
+		let b = reltor.capture_id_label().ok_or_else(|| anyhow::anyhow!("reltor"))?;
+		assert_ne!(a, b);
+		assert_eq!(a, bullpup.capture_id_label().ok_or_else(|| anyhow::anyhow!("stable"))?);
+		assert_ne!(
+			pants.capture_id_label().ok_or_else(|| anyhow::anyhow!("pants"))?,
+			painted.capture_id_label().ok_or_else(|| anyhow::anyhow!("painted"))?
+		);
+		assert_eq!(
+			InventoryItem::standard_grenade().capture_id_label().as_deref(),
+			Some("grenade:Grenade")
+		);
+		assert_eq!(
+			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1))
+				.capture_id_label()
+				.as_deref(),
+			Some("skill-map:fireball:1")
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn icon_catalog_keys_stay_out_of_the_skill_map_namespace() -> anyhow::Result<()> {
+		let item = InventoryItem::firearm(FirearmMesh::Bullpup);
+		let key = item.icon_catalog_key().ok_or_else(|| anyhow::anyhow!("firearm key"))?;
+		assert_eq!(key & ITEM_ICON_CATALOG_TAG, ITEM_ICON_CATALOG_TAG);
+		let map = SkillMapSpec::new(SkillMapKind::Fireball, u32::MAX).catalog_key();
+		assert_ne!(key & ITEM_ICON_CATALOG_TAG, map & ITEM_ICON_CATALOG_TAG);
+		assert_eq!(
+			icon_catalog_key_for_label(
+				&item.capture_id_label().ok_or_else(|| anyhow::anyhow!("label"))?
+			),
+			key
+		);
+		Ok(())
 	}
 
 	#[test]

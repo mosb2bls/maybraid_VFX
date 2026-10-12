@@ -17,6 +17,7 @@ clap = { workspace = true }
 characters-playground = { workspace = true }
 character-items = { workspace = true }
 character-model-user = { workspace = true }
+item-icons = { workspace = true }
 character-persist = { workspace = true }
 character-creation-menus = { workspace = true }
 characters = { workspace = true }
@@ -33,6 +34,9 @@ maybraid-menu-controller = { workspace = true }
 menu-components = { workspace = true }
 menu-screens = { workspace = true }
 player = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
 
 [lints]
 workspace = true

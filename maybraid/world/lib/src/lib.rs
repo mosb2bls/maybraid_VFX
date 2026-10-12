@@ -16,6 +16,7 @@ mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
+mod item_icons;
 mod map_view;
 mod mob_spawn;
 mod pitch;
@@ -45,6 +46,10 @@ pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
+pub use item_icons::{
+	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
+	ItemIconPlugin, ITEM_ICON_RESOLUTION,
+};
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
@@ -198,6 +203,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldMapViewPlugin)
 			.add_plugins(WorldPlayerLifecyclePlugin)
 			.add_plugins(WorldStashPlugin)
+			.add_plugins(ItemIconPlugin)
 			.add_plugins(PlayerPositionPlugin)
 			.insert_resource(PadMovementEnabled(false))
 			.insert_resource(VegetationPlayerMotor(false))

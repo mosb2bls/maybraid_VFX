@@ -246,13 +246,13 @@ pub const PANEL_CURSOR_ICON_GAP: f32 = 10.0;
 pub const PANEL_SWATCH_SIZE: f32 = 22.0;
 
 /// Floor width so a grid cell does not collapse under long wrap.
-pub const PANEL_TILE_MIN_WIDTH: f32 = 88.0;
+pub const PANEL_TILE_MIN_WIDTH: f32 = 72.0;
 
-/// Catalog / select tiles sit two to a row.
-pub const PANEL_TILE_COLUMNS: u16 = 2;
+/// Catalog / select tiles sit three to a row.
+pub const PANEL_TILE_COLUMNS: u16 = 3;
 
 /// Minimum asset-tile height when thumbnails are off.
-pub const PANEL_TILE_MIN_HEIGHT: f32 = 56.0;
+pub const PANEL_TILE_MIN_HEIGHT: f32 = 44.0;
 
 /// Vertical rhythm inside a panel.
 pub const PANEL_ROW_GAP: f32 = 10.0;

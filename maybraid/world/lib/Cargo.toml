@@ -74,6 +74,7 @@ world-player = { workspace = true }
 richmond = { workspace = true }
 urbanization-cells = { workspace = true }
 routing-intelligence = { workspace = true }
+item-icons = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 spotting-intelligence = { workspace = true }

@@ -385,7 +385,7 @@ fn sync_preview(
 			sync.key = key;
 			sync.anim = None;
 			for entity in &roots {
-				commands.entity(entity).despawn();
+				commands.entity(entity).try_despawn();
 			}
 			spawn_from_item(&mut commands, &spin.item);
 			let focus = if spin.item.firearm_mesh().is_some() {
@@ -444,7 +444,7 @@ fn respawn_from_menu(
 	sync.key = key;
 	sync.anim = Some(AnimRef::from(menu.animation()));
 	for entity in roots {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 	spawn_from_menu(commands, menu);
 	pending.frame = None;
@@ -461,7 +461,7 @@ fn clear_preview(
 	roots: &Query<Entity, With<CharacterPreviewRoot>>,
 ) {
 	for entity in roots {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 	sync.key.clear();
 	sync.anim = None;
@@ -652,7 +652,7 @@ fn stamp_preview_animation(
 				Err(_) => true,
 			};
 			if needs_clip {
-				commands.entity(member).insert(AnimRefRoot(desired));
+				commands.entity(member).try_insert(AnimRefRoot(desired));
 			}
 		}
 	}

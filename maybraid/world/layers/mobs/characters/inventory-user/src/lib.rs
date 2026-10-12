@@ -179,11 +179,9 @@ impl InventoryItemFile {
 			InventoryItem::SkillMap { spec } => {
 				Self::SkillMap { skill: spec.kind, seed: spec.seed }
 			}
-			InventoryItem::Grenade { spec, stats, recharge } => Self::Grenade {
-				mesh: spec.mesh,
-				stats: Some(*stats),
-				recharge: recharge.remaining,
-			},
+			InventoryItem::Grenade { spec, stats, recharge } => {
+				Self::Grenade { mesh: spec.mesh, stats: Some(*stats), recharge: recharge.remaining }
+			}
 		}
 	}
 
