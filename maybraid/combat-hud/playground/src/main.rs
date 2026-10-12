@@ -175,7 +175,6 @@ fn main() {
 		.insert_resource(ClearColor(Color::srgb(0.05, 0.06, 0.08)))
 		.add_plugins(LubikanInterfacePlugin)
 		.add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,

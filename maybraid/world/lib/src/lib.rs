@@ -140,7 +140,6 @@ const WORLD_BULLSEYE_OUTER_M: f32 = 2_000.0;
 const WORLD_LATTICE_EXCLUDE_M: f32 = 2_000.0;
 const WORLD_LATTICE_OUTER_M: f32 = 8_000.0;
 const WORLD_COMBAT_HUD: CombatHudPlugin = CombatHudPlugin {
-	health_bars: false,
 	hit_markers: true,
 	directional_damage: true,
 	player_vitals: true,
@@ -368,7 +367,6 @@ mod tests {
 
 	#[test]
 	fn world_only_enables_combat_feedback_without_health_bars() {
-		assert!(!WORLD_COMBAT_HUD.health_bars);
 		assert!(WORLD_COMBAT_HUD.hit_markers);
 		assert!(WORLD_COMBAT_HUD.directional_damage);
 		assert!(WORLD_COMBAT_HUD.player_vitals);

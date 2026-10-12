@@ -11,12 +11,11 @@ mod vitals;
 
 use bevy::prelude::*;
 use continuous_health::{
-	position_continuous_health_bars, spawn_continuous_health_bar, trigger_completion_flash,
-	update_continuous_health_bar_content, ContinuousHealthBar, ContinuousHealthConfig,
+	trigger_completion_flash, update_continuous_health_bar_content, ContinuousHealthConfig,
 };
-use damage::{DamageApplied, Downed, HeadshotBand, Health};
+use damage::{DamageApplied, HeadshotBand};
 use lubikans::LubikanSystems;
-use player::{Npc, Player};
+use player::Player;
 use lubikan_charge::{
 	ingest_lubikan_activation_finished_pulse, spawn_lubikan_charge, sync_lubikan_charge,
 	LubikanActivationFinishedHudPulse,
@@ -25,7 +24,7 @@ use lubikan_points::{ingest_lubikan_point_flyers, update_lubikan_point_flyers};
 use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
-pub use continuous_health::{HealthBarLayout, HealthFill, HealthTrail};
+pub use continuous_health::{HealthFill, HealthTrail};
 pub use cycle_cue::CombatHudInventoryCycleCategory;
 pub use lubikan_charge::LubikanChargeFlyTarget;
 pub use score::{CombatScore, LiveEnemies};
@@ -42,8 +41,6 @@ impl Default for CombatHudVisible {
 	}
 }
 
-const BAR_WIDTH: f32 = 240.0;
-const BAR_HEIGHT: f32 = 18.0;
 const INDICATOR_COUNT: usize = 8;
 const INDICATOR_RADIUS: f32 = 148.0;
 const INDICATOR_LIFE: f32 = 1.4;
@@ -55,12 +52,14 @@ const HEAD_POINTS: u8 = 2;
 const DOWN_POINTS: u8 = 5;
 
 /// Independently configurable combat feedback categories.
+///
+/// Health presentation is the persistent player vitals plate only. World and
+/// NPC bars are not spawned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CombatHudPlugin {
-	pub health_bars: bool,
 	pub hit_markers: bool,
 	pub directional_damage: bool,
-	/// Bottom-left name + pip bar. Independent of the top YOU/NPC [`health_bars`].
+	/// Bottom-left name + health meter. Hidden when there is no live player.
 	pub player_vitals: bool,
 	/// Lubikan charge row above [`player_vitals`]. Reads [`lubikans::LubikanLedger`] only.
 	pub lubikan_charge: bool,
@@ -73,7 +72,6 @@ pub struct CombatHudPlugin {
 impl Default for CombatHudPlugin {
 	fn default() -> Self {
 		Self {
-			health_bars: true,
 			hit_markers: true,
 			directional_damage: true,
 			player_vitals: false,
@@ -86,8 +84,7 @@ impl Default for CombatHudPlugin {
 
 impl Plugin for CombatHudPlugin {
 	fn build(&self, app: &mut App) {
-		let any = self.health_bars
-			|| self.hit_markers
+		let any = self.hit_markers
 			|| self.directional_damage
 			|| self.player_vitals
 			|| self.lubikan_charge
@@ -99,7 +96,9 @@ impl Plugin for CombatHudPlugin {
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
 			.init_resource::<CombatHudInventoryCycleCategory>();
-		
+
+		// Order inside PostUpdate only. A same-named set in Update does not
+		// constrain these systems relative to Heal / Award.
 		app.configure_sets(
 			PostUpdate,
 			CombatHudSystems::Health
@@ -108,15 +107,9 @@ impl Plugin for CombatHudPlugin {
 		)
 		.add_systems(Startup, spawn_combat_hud)
 		.add_systems(Update, sync_combat_hud_root_visibility);
-		
-		// Configure features independently
-		if self.health_bars || self.player_vitals {
-			configure_health_content(app);
-		}
-		if self.health_bars {
-			configure_world_health_anchors(app);
-		}
+
 		if self.player_vitals {
+			configure_health_content(app);
 			configure_player_vitals(app);
 		}
 		if self.lubikan_charge {
@@ -137,32 +130,20 @@ impl Plugin for CombatHudPlugin {
 	}
 }
 
-/// Shared continuous health bar content updates (for both world health bars and player vitals).
+/// Shared meter content for the persistent player health widget.
 fn configure_health_content(app: &mut App) {
 	app.init_resource::<ContinuousHealthConfig>()
 		.add_message::<lubikans::LubikanActivationFinished>()
 		.add_systems(
-			Update,
-			position_continuous_health_bars.in_set(CombatHudSystems::Health),
-		)
-		.add_systems(
-			Update,
-			update_continuous_health_bar_content.in_set(CombatHudSystems::Health),
-		)
-		.add_systems(
-			Update,
-			trigger_completion_flash.in_set(CombatHudSystems::Health),
+			PostUpdate,
+			(
+				update_continuous_health_bar_content,
+				trigger_completion_flash,
+			)
+				.chain()
+				.in_set(CombatHudSystems::Health)
+				.after(sync_player_vitals),
 		);
-}
-
-/// World-anchored health bars above NPCs and field totals.
-fn configure_world_health_anchors(app: &mut App) {
-	app.init_resource::<CombatHudOpponentTotal>();
-	app.add_systems(
-		Update,
-		ensure_continuous_health_bars.in_set(CombatHudSystems::Health),
-	);
-	app.add_systems(Update, sync_health_hud.in_set(CombatHudSystems::Health));
 }
 
 /// Bottom-left player name + health bar (reuses continuous health bar).
@@ -223,34 +204,11 @@ pub enum CombatHudSystems {
 	Health,
 }
 
-/// Optional total used to render an aggregate opponent health bar.
-///
-/// Leave this as `None` for a single opponent. Set it to the field size when
-/// many NPCs represent one encounter.
-#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CombatHudOpponentTotal(pub Option<usize>);
-
-/// Optional color-coded status dot rendered above a world health bar.
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
-pub struct CombatHudStatusColor(pub Color);
-
 #[derive(Resource, Clone, Copy)]
 struct CombatHudConfig(CombatHudPlugin);
 
 #[derive(Component)]
 struct CombatHudRoot;
-
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
-enum CombatantHud {
-	Player,
-	Npc,
-}
-
-#[derive(Component)]
-struct HudBarFill;
-
-#[derive(Component)]
-struct HudBarLabel;
 
 #[derive(Component)]
 struct DamageTick {
@@ -311,9 +269,6 @@ fn spawn_combat_hud(
 			Pickable::IGNORE,
 		))
 		.with_children(|root| {
-			if config.0.health_bars {
-				spawn_screen_health_bars(root);
-			}
 			if config.0.directional_damage {
 				spawn_directional_damage_ring(root);
 			}
@@ -329,23 +284,6 @@ fn spawn_combat_hud(
 			spawn_combat_score(root, &fonts);
 		}
 		});
-}
-
-fn spawn_screen_health_bars(root: &mut ChildSpawnerCommands) {
-	root.spawn(Node {
-		position_type: PositionType::Absolute,
-		top: Val::Px(16.0),
-		left: Val::Px(16.0),
-		right: Val::Px(16.0),
-		justify_content: JustifyContent::SpaceBetween,
-		align_items: AlignItems::FlexStart,
-		column_gap: Val::Px(24.0),
-		..default()
-	})
-	.with_children(|row| {
-		spawn_screen_bar(row, CombatantHud::Player, "YOU");
-		spawn_screen_bar(row, CombatantHud::Npc, "NPC");
-	});
 }
 
 fn spawn_directional_damage_ring(root: &mut ChildSpawnerCommands) {
@@ -383,137 +321,6 @@ fn spawn_directional_damage_ring(root: &mut ChildSpawnerCommands) {
 		}
 	});
 }
-
-fn spawn_screen_bar(parent: &mut ChildSpawnerCommands, kind: CombatantHud, title: &'static str) {
-	parent
-		.spawn((
-			Node {
-				flex_direction: FlexDirection::Column,
-				row_gap: Val::Px(4.0),
-				padding: UiRect::all(Val::Px(8.0)),
-				min_width: Val::Px(BAR_WIDTH + 16.0),
-				border_radius: BorderRadius::all(Val::Px(4.0)),
-				..default()
-			},
-			BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
-		))
-		.with_children(|cluster| {
-			cluster.spawn((
-				kind,
-				HudBarLabel,
-				Text::new(format!("{title}  --")),
-				TextFont { font_size: FontSize::Px(16.0), ..default() },
-				TextColor(Color::srgb(0.95, 0.97, 1.0)),
-			));
-			cluster
-				.spawn((
-					Node {
-						width: Val::Px(BAR_WIDTH),
-						height: Val::Px(BAR_HEIGHT),
-						padding: UiRect::all(Val::Px(2.0)),
-						border_radius: BorderRadius::all(Val::Px(3.0)),
-						..default()
-					},
-					BackgroundColor(Color::srgba(0.08, 0.09, 0.1, 0.95)),
-				))
-				.with_children(|track| {
-					track.spawn((
-						kind,
-						HudBarFill,
-						Node {
-							width: Val::Percent(100.0),
-							height: Val::Percent(100.0),
-							border_radius: BorderRadius::all(Val::Px(2.0)),
-							..default()
-						},
-						BackgroundColor(bar_color(1.0)),
-					));
-				});
-		});
-}
-
-fn spawn_world_bar(
-	parent: Entity,
-	target: Entity,
-	commands: &mut Commands,
-	config: &ContinuousHealthConfig,
-) {
-	spawn_continuous_health_bar(parent, target, commands, config);
-}
-
-type LiveEntities<'w, 's> = Query<'w, 's, Entity, (With<Health>, Without<Downed>)>;
-
-fn ensure_continuous_health_bars(
-	mut commands: Commands,
-	hud: Query<Entity, With<CombatHudRoot>>,
-	entities: LiveEntities,
-	bars: Query<(Entity, &ContinuousHealthBar)>,
-	config: Res<ContinuousHealthConfig>,
-	players: Query<Entity, (With<Player>, Without<Downed>)>,
-) {
-	let Ok(hud) = hud.single() else {
-		return;
-	};
-	
-	// Include both player and NPCs
-	let mut live: Vec<Entity> = entities.iter().collect();
-	if let Ok(player) = players.single() {
-		if !live.contains(&player) {
-			live.push(player);
-		}
-	}
-	
-	let existing: Vec<(Entity, Entity)> =
-		bars.iter().map(|(entity, bar)| (entity, bar.target)).collect();
-	
-	for (entity, target) in &existing {
-		if !live.contains(target) {
-			commands.entity(*entity).try_despawn();
-		}
-	}
-	
-	for entity in live {
-		if !existing.iter().any(|(_, target)| *target == entity) {
-			spawn_world_bar(hud, entity, &mut commands, &config);
-		}
-	}
-}
-
-fn sync_health_hud(
-	total: Res<CombatHudOpponentTotal>,
-	players: Query<&Health, (With<Player>, Without<Downed>)>,
-	npcs: Query<&Health, (With<Npc>, Without<Downed>)>,
-	mut fills: Query<(&CombatantHud, &mut Node, &mut BackgroundColor), With<HudBarFill>>,
-	mut labels: Query<(&CombatantHud, &mut Text), With<HudBarLabel>>,
-) {
-	let player = players.single().ok().copied();
-	let alive = npcs.iter().count();
-	let npc = npcs.single().ok().copied();
-	let opponent_fraction = total
-		.0
-		.map(|total| alive as f32 / total.max(1) as f32)
-		.unwrap_or_else(|| npc.map(Health::fraction).unwrap_or(0.0))
-		.clamp(0.0, 1.0);
-	for (kind, mut node, mut color) in &mut fills {
-		let fraction = match *kind {
-			CombatantHud::Player => player.map(Health::fraction).unwrap_or(0.0),
-			CombatantHud::Npc => opponent_fraction,
-		};
-		node.width = Val::Percent(fraction * 100.0);
-		color.0 = bar_color(fraction);
-	}
-	for (kind, mut text) in &mut labels {
-		text.0 = match *kind {
-			CombatantHud::Player => health_label("YOU", player),
-			CombatantHud::Npc => total
-				.0
-				.map(|total| format!("FIELD  {alive}/{}", total.max(1)))
-				.unwrap_or_else(|| health_label("NPC", npc)),
-		};
-	}
-}
-
-// Continuous health bars are now handled by the continuous_health module
 
 fn ingest_directional_damage(
 	time: Res<Time>,
@@ -670,27 +477,6 @@ fn update_hit_markers(
 	}
 }
 
-fn health_label(name: &str, health: Option<Health>) -> String {
-	match health {
-		Some(health) if !health.is_dead() => {
-			format!("{name}  {:.0}/{:.0}", health.current, health.max)
-		}
-		_ => format!("{name}  DOWN"),
-	}
-}
-
-fn bar_color(fraction: f32) -> Color {
-	if fraction <= 0.0 {
-		Color::srgb(0.28, 0.08, 0.08)
-	} else if fraction < 0.35 {
-		Color::srgb(0.86, 0.18, 0.14)
-	} else if fraction < 0.7 {
-		Color::srgb(0.92, 0.72, 0.18)
-	} else {
-		Color::srgb(0.28, 0.82, 0.38)
-	}
-}
-
 fn hit_marker_label(points: u8) -> String {
 	format!("+{points}")
 }
@@ -769,13 +555,15 @@ fn angle_delta(a: f32, b: f32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::continuous_health::ContinuousHealthBar;
+	use crate::vitals::PlayerVitalsHealthBar;
+	use damage::Health;
 
 	#[test]
 	fn categories_default_to_enabled() {
 		assert_eq!(
 			CombatHudPlugin::default(),
 			CombatHudPlugin {
-				health_bars: true,
 				hit_markers: true,
 				directional_damage: true,
 				player_vitals: false,
@@ -795,16 +583,19 @@ mod tests {
 		app.update();
 		let world = app.world_mut();
 		assert_eq!(world.query::<&CombatHudRoot>().iter(world).count(), 1);
-		assert_eq!(world.query::<&HudBarFill>().iter(world).count(), 2);
 		assert_eq!(world.query::<&DamageTick>().iter(world).count(), INDICATOR_COUNT);
 		assert_eq!(world.query::<&vitals::PlayerVitalsRoot>().iter(world).count(), 0);
+		assert_eq!(
+			world.query::<&ContinuousHealthBar>().iter(world).count(),
+			0,
+			"default combat HUD must not spawn world or NPC health bars"
+		);
 	}
 
 	#[test]
 	fn player_vitals_spawn_name_and_health_bar() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
@@ -826,7 +617,6 @@ mod tests {
 	fn vitals_app() -> App {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
@@ -883,7 +673,6 @@ mod tests {
 	fn player_vitals_follow_the_named_player() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
@@ -911,6 +700,64 @@ mod tests {
 	}
 
 	#[test]
+	fn player_vitals_rebind_across_respawn_without_world_bars() -> anyhow::Result<()> {
+		let mut app = vitals_app();
+		app.update();
+		let first = app
+			.world_mut()
+			.spawn((Player, Health { current: 40.0, max: 100.0 }, Name::new("Ada")))
+			.id();
+		let npc = app
+			.world_mut()
+			.spawn((
+				player::Npc,
+				Health { current: 80.0, max: 100.0 },
+				Name::new("Pack"),
+			))
+			.id();
+		app.update();
+		let bar = {
+			let world = app.world_mut();
+			assert_eq!(
+				world.query::<&ContinuousHealthBar>().iter(world).count(),
+				1,
+				"NPCs must not receive health bars"
+			);
+			world
+				.query_filtered::<(Entity, &ContinuousHealthBar), With<PlayerVitalsHealthBar>>()
+				.iter(world)
+				.next()
+				.map(|(entity, bar)| (entity, bar.target))
+				.ok_or_else(|| anyhow::anyhow!("player vitals bar"))?
+		};
+		assert_eq!(bar.1, first);
+		assert!(app.world().get_entity(npc).is_ok());
+
+		app.world_mut().entity_mut(first).remove::<Player>();
+		app.update();
+		assert_eq!(vitals_visibility(app.world_mut())?, Visibility::Hidden);
+		let second = app
+			.world_mut()
+			.spawn((Player, Health { current: 100.0, max: 100.0 }, Name::new("Ada")))
+			.id();
+		app.update();
+		assert_eq!(vitals_visibility(app.world_mut())?, Visibility::Visible);
+		let rebound = {
+			let world = app.world_mut();
+			assert_eq!(world.query::<&ContinuousHealthBar>().iter(world).count(), 1);
+			world
+				.query_filtered::<(Entity, &ContinuousHealthBar), With<PlayerVitalsHealthBar>>()
+				.iter(world)
+				.next()
+				.map(|(entity, bar)| (entity, bar.target))
+				.ok_or_else(|| anyhow::anyhow!("rebound vitals bar"))?
+		};
+		assert_eq!(rebound.0, bar.0, "the player widget is persistent");
+		assert_eq!(rebound.1, second);
+		Ok(())
+	}
+
+	#[test]
 	fn forward_damage_sits_above_center() {
 		let camera = GlobalTransform::from(
 			Transform::from_translation(Vec3::ZERO).looking_to(Dir3::NEG_Z, Dir3::Y),
@@ -924,7 +771,6 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_message::<DamageApplied>().add_plugins(
 			CombatHudPlugin {
-				health_bars: false,
 				hit_markers: false,
 				directional_damage: false,
 				player_vitals: false,
@@ -1005,7 +851,6 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_message::<DamageApplied>().add_plugins(
 			CombatHudPlugin {
-				health_bars: false,
 				hit_markers: true,
 				directional_damage: false,
 				player_vitals: false,
@@ -1037,7 +882,6 @@ mod tests {
 		let mut app = App::new();
 		lubikans::fixtures::install_interface(&mut app);
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,

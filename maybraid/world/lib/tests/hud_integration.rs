@@ -1,7 +1,7 @@
 //! World-level HUD integration tests.
 
 use bevy::prelude::*;
-use combat_hud::{CombatHudPlugin, HealthBarLayout, HealthFill, HealthTrail};
+use combat_hud::{CombatHudPlugin, HealthFill};
 use damage::Health;
 use player::Player as MaybraidPlayer;
 use world_player::Player as WorldPlayer;
@@ -18,7 +18,6 @@ fn test_player_vitals_update_on_damage() {
 	
 	// Add the CombatHudPlugin with player_vitals enabled
 	app.add_plugins(CombatHudPlugin {
-		health_bars: false,
 		hit_markers: false,
 		directional_damage: false,
 		player_vitals: true,

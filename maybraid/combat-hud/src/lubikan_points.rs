@@ -19,6 +19,8 @@ const LOSS: Color = Color::srgb(0.95, 0.38, 0.32);
 
 #[derive(Component)]
 pub(crate) struct LubikanPointFlyer {
+	/// Account that earned this flyer. Kept across equipped-selection changes.
+	#[allow(dead_code)]
 	credited: LubikanAccountId,
 	born: f32,
 	start: Vec2,
@@ -134,7 +136,6 @@ pub(crate) fn update_lubikan_point_flyers(
 ) {
 	let now = time.elapsed_secs();
 	let show = hud.0 && players.single().is_ok();
-	let displayed_account = players.single().ok().map(|(_, ledger)| ledger.equipped().id());
 	if !show {
 		for (entity, _, _, _, _) in &mut flyers {
 			commands.entity(entity).try_despawn();
@@ -162,10 +163,6 @@ pub(crate) fn update_lubikan_point_flyers(
 		};
 		let age = now - flyer.born;
 		if age >= FLY_DURATION + STACK_HOLD {
-			commands.entity(entity).try_despawn();
-			continue;
-		}
-		if Some(flyer.credited) != displayed_account {
 			commands.entity(entity).try_despawn();
 			continue;
 		}
