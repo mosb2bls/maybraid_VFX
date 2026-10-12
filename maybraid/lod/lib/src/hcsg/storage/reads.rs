@@ -50,9 +50,18 @@ impl HcsgStorage {
 		self.blocking_entry::<T>(id)
 	}
 
+	fn contains_impl<T: HcsgValue>(&self, id: Id) -> bool {
+		self.store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
+	}
+
+	#[cfg(not(any(test, feature = "test-support")))]
+	pub(crate) fn contains<T: HcsgValue>(&self, id: Id) -> bool {
+		self.contains_impl::<T>(id)
+	}
+
 	#[cfg(any(test, feature = "test-support"))]
 	pub fn contains<T: HcsgValue>(&self, id: Id) -> bool {
-		self.store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
+		self.contains_impl::<T>(id)
 	}
 
 	#[cfg(not(any(test, feature = "test-support")))]

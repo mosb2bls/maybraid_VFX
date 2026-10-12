@@ -67,7 +67,11 @@ impl HcsgStorage {
 				.map(|region| expand_region(*region, margin))
 				.collect();
 			let stamp = self.stamp();
-			let removed = store.evict_outside(&expanded, stamp);
+			let removed = if expanded.is_empty() {
+				store.clear_non_universal(stamp)
+			} else {
+				store.evict_outside(&expanded, stamp)
+			};
 			if removed.is_empty() {
 				continue;
 			}

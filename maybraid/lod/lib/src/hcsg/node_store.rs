@@ -79,8 +79,7 @@ impl<T> NodeStore<T> {
 		self.entries.get(&id).map(|entry| &entry.value)
 	}
 
-	#[cfg(any(test, feature = "test-support"))]
-	pub fn contains(&self, id: Id) -> bool {
+	pub(crate) fn contains(&self, id: Id) -> bool {
 		self.entries.contains_key(&id)
 	}
 
@@ -159,23 +158,28 @@ impl<T> NodeStore<T> {
 
 	/// Ids that would be dropped by [`Self::retain_overlapping`], without mutating.
 	pub(super) fn ids_outside(&self, regions: &[Aabb3d]) -> Vec<Id> {
+		let keep = KeepRegions::new(regions);
 		self.entries
 			.iter()
-			.filter(|(id, entry)| **id != Id::Universal && !overlaps_regions(entry.bounds, regions))
+			.filter(|(id, entry)| **id != Id::Universal && !keep.overlaps(entry.bounds))
 			.map(|(id, _)| *id)
 			.collect()
 	}
 
 	/// Removes entries outside `regions` and bumps the membership revision.
 	pub(super) fn evict_outside(&mut self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
+		if regions.is_empty() {
+			return self.clear_non_universal(revision);
+		}
+		let keep = KeepRegions::new(regions);
 		let mut removed = Vec::new();
 		let before = self.entries.len();
 		self.entries.retain(|id, entry| {
-			let keep = *id == Id::Universal || overlaps_regions(entry.bounds, regions);
-			if !keep {
+			let retain = *id == Id::Universal || keep.overlaps(entry.bounds);
+			if !retain {
 				removed.push(*id);
 			}
-			keep
+			retain
 		});
 		if removed.is_empty() {
 			return removed;
@@ -236,6 +240,41 @@ impl<T> NodeStore<T> {
 		*self = Self::new(self.base_scale);
 		self.membership_revision = revision;
 	}
+
+	/// Worker sweep when no live subscription reaches this type: drop every
+	/// entry except [`Id::Universal`] without rebuilding the spatial index from
+	/// thousands of per-id removes. Under release builds, does not list removed
+	/// ids (see [`ErasedStore::clear_non_universal`]).
+	pub(super) fn clear_non_universal(&mut self, revision: u64) -> Vec<Id> {
+		#[cfg(debug_assertions)]
+		let removed: Vec<Id> =
+			self.entries.keys().filter(|id| *id != Id::Universal).copied().collect();
+		#[cfg(debug_assertions)]
+		if removed.is_empty() {
+			return removed;
+		}
+		#[cfg(not(debug_assertions))]
+		{
+			let len = self.entries.len();
+			if len == 0 || (len == 1 && self.entries.contains_key(&Id::Universal)) {
+				return Vec::new();
+			}
+		}
+		let universal = self.entries.remove(&Id::Universal);
+		let base_scale = self.base_scale;
+		*self = Self::new(base_scale);
+		self.membership_revision = revision;
+		if let Some(entry) = universal {
+			self.index(Id::Universal, entry.bounds);
+			self.entries.insert(Id::Universal, entry);
+		}
+		#[cfg(debug_assertions)]
+		{
+			return removed;
+		}
+		#[cfg(not(debug_assertions))]
+		Vec::new()
+	}
 }
 
 fn regions_envelope(regions: &[Aabb3d]) -> Aabb3d {
@@ -246,13 +285,27 @@ fn regions_envelope(regions: &[Aabb3d]) -> Aabb3d {
 	envelope
 }
 
-fn overlaps_regions(bounds: Aabb3d, regions: &[Aabb3d]) -> bool {
-	match regions {
-		[] => false,
-		[region] => bounds.intersects(region),
-		_ => {
-			let envelope = regions_envelope(regions);
-			bounds.intersects(&envelope) && regions.iter().any(|region| bounds.intersects(region))
+/// Precomputes the bounding envelope for multi-region retention checks.
+struct KeepRegions<'a> {
+	regions: &'a [Aabb3d],
+	envelope: Option<Aabb3d>,
+}
+
+impl<'a> KeepRegions<'a> {
+	fn new(regions: &'a [Aabb3d]) -> Self {
+		let envelope = if regions.len() > 1 { Some(regions_envelope(regions)) } else { None };
+		Self { regions, envelope }
+	}
+
+	fn overlaps(&self, bounds: Aabb3d) -> bool {
+		match self.regions {
+			[] => false,
+			[region] => bounds.intersects(region),
+			_ => {
+				let envelope = self.envelope.expect("envelope set for multiple regions");
+				bounds.intersects(&envelope)
+					&& self.regions.iter().any(|region| bounds.intersects(region))
+			}
 		}
 	}
 }
