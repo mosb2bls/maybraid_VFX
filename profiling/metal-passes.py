@@ -613,6 +613,8 @@ def main():
         "encoder_labels": dict(sorted(labels_seen.items(), key=lambda kv: -kv[1])),
         "n_gpu_intervals": result["n_gpu_intervals"],
         "n_frames": result["n_frames"],
+        "frame_grouping": result.get("frame_grouping"),
+        "collapsed_frame_numbers": result.get("collapsed_frame_numbers"),
         "gpu_union_ms": result["gpu_union_ms"],
         "gpu_sum_ms": result["gpu_sum_ms"],
         "passes": result["passes"],
