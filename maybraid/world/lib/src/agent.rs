@@ -3,6 +3,7 @@
 use avian3d::prelude::{LinearVelocity, Position};
 use bevy::app::AppExit;
 use bevy::prelude::*;
+use damage::{Health, Hit};
 use durham::{CascadeChunk, DurhamSurface, WorldBaseTerrain};
 use maybraid_agent::{
 	read_script_commands, take_leading_start, AgentArgs, AgentButton, AgentCommand, AgentEvent,
@@ -20,6 +21,7 @@ use world_player::Player as VegetationPlayer;
 
 use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
+use crate::map_view::WorldMapView;
 use crate::PlayerSpawnXz;
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
@@ -131,6 +133,7 @@ impl Plugin for WorldAgentPlugin {
 				(
 					agent_apply_world_ops,
 					agent_sample_player,
+					agent_sample_picker,
 					agent_chunk_loads,
 					agent_actor_census,
 					agent_maybe_quit,
@@ -383,6 +386,7 @@ fn agent_apply_world_ops(
 	mut commands: Commands,
 	surface: DurhamSurface,
 	base: Res<WorldBaseTerrain>,
+	mut hits: MessageWriter<Hit>,
 	mut players: Query<
 		(
 			Entity,
@@ -390,6 +394,7 @@ fn agent_apply_world_ops(
 			&mut GlobalTransform,
 			Option<&mut Position>,
 			Option<&mut LinearVelocity>,
+			Option<&Health>,
 		),
 		With<MotorPlayer>,
 	>,
@@ -411,7 +416,7 @@ fn agent_apply_world_ops(
 					},
 				};
 				let at = player_spawn_point_at(target, elevation);
-				if let Ok((entity, mut transform, mut global, mut body, mut velocity)) =
+				if let Ok((entity, mut transform, mut global, mut body, mut velocity, _)) =
 					players.single_mut()
 				{
 					transform.translation = at;
@@ -423,6 +428,24 @@ fn agent_apply_world_ops(
 						velocity.0 = Vec3::ZERO;
 					}
 					commands.entity(entity).insert(AwaitingTerrainSurface);
+				}
+			}
+			AgentCommand::Console { line } if line.trim() == "player down" => {
+				// Agent-only: not a PlaygroundCommand, so production `/` never
+				// registers a kill. Lethal self-hit so death-picker scripts can
+				// confirm a POI without debug-commands in the game plugin.
+				if let Ok((entity, transform, _, _, _, health)) = players.single() {
+					let amount = health.map(|pool| pool.current + 1.0).unwrap_or(200.0);
+					hits.write(Hit {
+						target: entity,
+						source: None,
+						amount,
+						point: transform.translation,
+						allow_self: true,
+					});
+					info!(target: "maybraid.agent", "player down: hit {amount:.0}");
+				} else {
+					warn!(target: "maybraid.agent", "player down: no live player");
 				}
 			}
 			AgentCommand::Console { line } => {
@@ -444,6 +467,8 @@ fn agent_apply_world_ops(
 fn agent_sample_player(
 	mut runtime: ResMut<AgentRuntime>,
 	time: Res<Time>,
+	surface: DurhamSurface,
+	map: Option<Res<WorldMapView>>,
 	motors: Query<&Transform, With<MotorPlayer>>,
 	vegetation: Query<&Transform, (With<VegetationPlayer>, Without<MotorPlayer>)>,
 	cameras: Query<&CameraController, With<Camera3d>>,
@@ -462,12 +487,48 @@ fn agent_sample_player(
 	let p = transform.translation;
 	let yaw = cameras.single().ok().map(|camera| camera.yaw).unwrap_or(0.0);
 	let r#move = runtime.last_intent.move_stick;
+	let ground = surface.composed_height_at(p.xz());
+	let map_open = map.as_deref().is_some_and(|map| map.open);
+	let picker = map.as_deref().is_some_and(|map| map.open && map.close_locked);
 	emit(
 		&runtime.sink,
 		AgentEvent {
 			t: now,
 			frame: runtime.frame,
-			body: AgentEventBody::Player { x: p.x, y: p.y, z: p.z, yaw, r#move },
+			body: AgentEventBody::Player {
+				x: p.x,
+				y: p.y,
+				z: p.z,
+				yaw,
+				r#move,
+				ground,
+				map_open,
+				picker,
+			},
+		},
+	);
+}
+
+fn agent_sample_picker(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	map: Option<Res<WorldMapView>>,
+	mut last: Local<Option<bool>>,
+) {
+	if !runtime.ready {
+		return;
+	}
+	let open = map.as_deref().is_some_and(|map| map.open && map.close_locked);
+	if *last == Some(open) {
+		return;
+	}
+	*last = Some(open);
+	emit(
+		&runtime.sink,
+		AgentEvent {
+			t: time.elapsed_secs(),
+			frame: runtime.frame,
+			body: AgentEventBody::Picker { open },
 		},
 	);
 }
@@ -496,13 +557,21 @@ struct ActorCensus {
 	hosts: u32,
 	bodies: u32,
 	brains: u32,
+	/// 0.5 m bins so a post-spawn sink is a census change.
+	min_y_q: Option<i32>,
+	max_y_q: Option<i32>,
+}
+
+fn quantize_metres(y: f32) -> i32 {
+	(y * 2.0).round() as i32
 }
 
 fn agent_actor_census(
 	runtime: Res<AgentRuntime>,
 	time: Res<Time>,
+	surface: DurhamSurface,
 	hosts: Query<(), With<MobScene>>,
-	bodies: Query<(), (With<CharacterSceneRecipe>, Without<MotorPlayer>)>,
+	bodies: Query<&Transform, (With<CharacterSceneRecipe>, Without<MotorPlayer>)>,
 	brains: Query<(), With<ThreatManagementIntelligence>>,
 	mut last: Local<Option<ActorCensus>>,
 	mut last_at: Local<f32>,
@@ -514,10 +583,28 @@ fn agent_actor_census(
 	if last.is_some() && now - *last_at < runtime.sample_period {
 		return;
 	}
+	let mut min_y = None;
+	let mut max_y = None;
+	let mut ground_at_min_y = None;
+	let mut body_count = 0u32;
+	for transform in &bodies {
+		let y = transform.translation.y;
+		body_count += 1;
+		match min_y {
+			Some(current) if y >= current => {}
+			_ => {
+				min_y = Some(y);
+				ground_at_min_y = surface.composed_height_at(transform.translation.xz());
+			}
+		}
+		max_y = Some(max_y.map_or(y, |current| current.max(y)));
+	}
 	let census = ActorCensus {
 		hosts: hosts.iter().len() as u32,
-		bodies: bodies.iter().len() as u32,
+		bodies: body_count,
 		brains: brains.iter().len() as u32,
+		min_y_q: min_y.map(quantize_metres),
+		max_y_q: max_y.map(quantize_metres),
 	};
 	if *last == Some(census) {
 		return;
@@ -534,6 +621,9 @@ fn agent_actor_census(
 				hosts: census.hosts,
 				bodies: census.bodies,
 				brains: census.brains,
+				min_y,
+				max_y,
+				ground_at_min_y,
 			},
 		},
 	);

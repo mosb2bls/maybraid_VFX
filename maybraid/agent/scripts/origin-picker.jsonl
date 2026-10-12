@@ -1,0 +1,17 @@
+# First-life Discovery picker at the origin. No leading `start` — launch
+# WITHOUT --start-at / MAYBRAID_START_AT so pick_first_spawn can open.
+# tracy-flight.sh always passes --start-at=0,0 and will skip this picker.
+# After FirstWave, confirm with jump and assert post-pick Y vs ground.
+# Do not send `stats vsync`.
+
+{"cmd":"scenario","name":"origin-picker-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":24}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"origin-picker-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"origin-picker","mark":"start"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"origin-picker","mark":"end"}
+{"cmd":"quit"}
