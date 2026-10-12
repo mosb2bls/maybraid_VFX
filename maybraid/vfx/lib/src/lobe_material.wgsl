@@ -107,7 +107,9 @@ fn deform(local: vec3<f32>, age_n: f32) -> vec3<f32> {
     return rotate_y(q + dir * ((large + fine) * amount), -age_n * extras.y);
 }
 
-fn deform_normal(local: vec3<f32>, age_n: f32, n: vec3<f32>) -> vec3<f32> {
+// `p0` is `deform(local, age_n)` from the position path — do not
+// sample the 4-octave FBM a fourth time for the same point.
+fn deform_normal(local: vec3<f32>, age_n: f32, n: vec3<f32>, p0: vec3<f32>) -> vec3<f32> {
     let eps = 0.03;
     var t1 = cross(n, vec3<f32>(0.0, 1.0, 0.0));
     if length(t1) < 1e-3 {
@@ -115,7 +117,6 @@ fn deform_normal(local: vec3<f32>, age_n: f32, n: vec3<f32>) -> vec3<f32> {
     }
     t1 = normalize(t1);
     let t2 = normalize(cross(n, t1));
-    let p0 = deform(local, age_n);
     let p1 = deform(local + t1 * eps, age_n);
     let p2 = deform(local + t2 * eps, age_n);
     return normalize(cross(p1 - p0, p2 - p0));
@@ -129,7 +130,7 @@ fn vertex(vertex_no_morph: Vertex) -> VertexOutput {
     let age_n = saturate(params.x / max(params.y, 1e-3));
     let local0 = object_pos(vertex);
     let local = deform(local0, age_n);
-    let n_local = deform_normal(local0, age_n, vertex.normal);
+    let n_local = deform_normal(local0, age_n, vertex.normal, local);
 #ifdef VERTEX_NORMALS
     out.world_normal = mesh_functions::mesh_normal_local_to_world(
         n_local,
