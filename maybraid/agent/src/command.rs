@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Script API version. Bump when a command is added or its meaning changes;
 /// record each bump in `maybraid/agent/README.md`.
-pub const SCRIPT_API_VERSION: u32 = 2;
+pub const SCRIPT_API_VERSION: u32 = 3;
 
 const DEFAULT_GOTO_TIMEOUT: f32 = 30.0;
 const DEFAULT_GOTO_RADIUS: f32 = 3.0;
@@ -141,6 +141,9 @@ pub enum AgentCommand {
 	},
 	/// Existing `/` console line (`stats vsync`, `sky noon`, …).
 	Console { line: String },
+	/// Set visual style presentation mode. Accepts `impressionist`, `sharp`, `retro`,
+	/// `antediluvian`, or `pre_post_modern`.
+	VisualStyle { style: String },
 	/// Scenario marker (also a Tracy message when Tracy is enabled).
 	Scenario { name: String, mark: ScenarioMark },
 	/// Request process exit after the current tick's events flush.
@@ -165,6 +168,7 @@ impl AgentCommand {
 			Self::Goto { xz, .. } => format!("goto {:.1},{:.1}", xz[0], xz[1]),
 			Self::Teleport { xz, .. } => format!("teleport {:.1},{:.1}", xz[0], xz[1]),
 			Self::Console { line } => format!("console {line}"),
+			Self::VisualStyle { style } => format!("visual_style {style}"),
 			Self::Scenario { name, mark } => format!("scenario {name} {mark:?}"),
 			Self::Quit => "quit".into(),
 		}
@@ -257,6 +261,10 @@ mod tests {
 		let console = AgentCommand::parse_line(r#"{"cmd":"console","line":"stats vsync"}"#)
 			.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(console, AgentCommand::Console { line: "stats vsync".into() });
+		let visual_style =
+			AgentCommand::parse_line(r#"{"cmd":"visual_style","style":"impressionist"}"#)
+				.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(visual_style, AgentCommand::VisualStyle { style: "impressionist".into() });
 		Ok(())
 	}
 
