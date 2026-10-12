@@ -2,6 +2,9 @@
 //
 // These shaders run at output resolution during the Camera2d sprite blit.
 // Keep them inexpensive: texture-sample counts are design constraints.
+//
+// Material2d loads this file as one Shader asset and picks an @fragment
+// entry in specialize. Do not address entries as asset-path #labels.
 
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 

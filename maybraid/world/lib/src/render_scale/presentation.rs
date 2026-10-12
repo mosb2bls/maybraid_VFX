@@ -1,13 +1,32 @@
 //! Presentation materials for visual style upscale treatments.
 
+use std::borrow::Cow;
+
 use bevy::asset::embedded_asset;
+use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::render::render_resource::{
+	AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+};
 use bevy::shader::ShaderRef;
-use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dPlugin};
+use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dKey, Material2dPlugin};
 
 use super::visual_style::PresentationTreatment;
+
+/// Asset path Bevy registers for `embedded_asset!(app, "presentation.wgsl")`
+/// called from this module (`src` is stripped; the subdirectory is not).
+///
+/// Do not append `#entry` — that is an asset-server label, not a WGSL
+/// function. [`Material2d::specialize`] selects the fragment entry point.
+const PRESENTATION_SHADER: &str =
+	concat!("embedded://", env!("CARGO_CRATE_NAME"), "/render_scale/presentation.wgsl");
+
+fn use_presentation_entry(descriptor: &mut RenderPipelineDescriptor, entry: &'static str) {
+	if let Some(fragment) = descriptor.fragment.as_mut() {
+		fragment.entry_point = Some(Cow::Borrowed(entry));
+	}
+}
 
 /// Parameters passed to presentation shaders.
 #[derive(Clone, Copy, Debug, ShaderType)]
@@ -28,17 +47,20 @@ pub struct ImpressionistMaterial {
 
 impl Material2d for ImpressionistMaterial {
 	fn fragment_shader() -> ShaderRef {
-		concat!(
-			"embedded://",
-			env!("CARGO_CRATE_NAME"),
-			"/",
-			"presentation.wgsl#impressionist_fragment"
-		)
-		.into()
+		PRESENTATION_SHADER.into()
 	}
 
 	fn alpha_mode(&self) -> AlphaMode2d {
 		AlphaMode2d::Opaque
+	}
+
+	fn specialize(
+		descriptor: &mut RenderPipelineDescriptor,
+		_layout: &MeshVertexBufferLayoutRef,
+		_key: Material2dKey<Self>,
+	) -> Result<(), SpecializedMeshPipelineError> {
+		use_presentation_entry(descriptor, "impressionist_fragment");
+		Ok(())
 	}
 }
 
@@ -66,17 +88,20 @@ pub struct PrePostModernMaterial {
 
 impl Material2d for PrePostModernMaterial {
 	fn fragment_shader() -> ShaderRef {
-		concat!(
-			"embedded://",
-			env!("CARGO_CRATE_NAME"),
-			"/",
-			"presentation.wgsl#pre_post_modern_fragment"
-		)
-		.into()
+		PRESENTATION_SHADER.into()
 	}
 
 	fn alpha_mode(&self) -> AlphaMode2d {
 		AlphaMode2d::Opaque
+	}
+
+	fn specialize(
+		descriptor: &mut RenderPipelineDescriptor,
+		_layout: &MeshVertexBufferLayoutRef,
+		_key: Material2dKey<Self>,
+	) -> Result<(), SpecializedMeshPipelineError> {
+		use_presentation_entry(descriptor, "pre_post_modern_fragment");
+		Ok(())
 	}
 }
 
@@ -104,17 +129,20 @@ pub struct NearestNeighborMaterial {
 
 impl Material2d for NearestNeighborMaterial {
 	fn fragment_shader() -> ShaderRef {
-		concat!(
-			"embedded://",
-			env!("CARGO_CRATE_NAME"),
-			"/",
-			"presentation.wgsl#nearest_neighbor_fragment"
-		)
-		.into()
+		PRESENTATION_SHADER.into()
 	}
 
 	fn alpha_mode(&self) -> AlphaMode2d {
 		AlphaMode2d::Opaque
+	}
+
+	fn specialize(
+		descriptor: &mut RenderPipelineDescriptor,
+		_layout: &MeshVertexBufferLayoutRef,
+		_key: Material2dKey<Self>,
+	) -> Result<(), SpecializedMeshPipelineError> {
+		use_presentation_entry(descriptor, "nearest_neighbor_fragment");
+		Ok(())
 	}
 }
 
@@ -180,6 +208,23 @@ pub fn create_presentation_material(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use bevy::asset::embedded_path;
+
+	#[test]
+	fn shader_ref_matches_embedded_asset_path() {
+		let path = embedded_path!("presentation.wgsl");
+		let registered = path.to_str().unwrap().replace('\\', "/");
+		assert_eq!(
+			registered,
+			format!("{}/render_scale/presentation.wgsl", env!("CARGO_CRATE_NAME")),
+			"Material2d ShaderRef must use this path; Bevy embeds subdirectory WGSL under src/"
+		);
+		assert!(PRESENTATION_SHADER.ends_with(&registered));
+		assert!(
+			!PRESENTATION_SHADER.contains('#'),
+			"ShaderRef #suffix is an asset label; WGSL entries are selected in specialize"
+		);
+	}
 
 	#[test]
 	fn none_treatment_has_no_material() {

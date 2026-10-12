@@ -437,13 +437,15 @@ fn quantize_map_axis(value: f32) -> i32 {
 	(value / MAP_PIN_QUANT_M).round() as i32
 }
 
+type MapCameraQuery<'w, 's> = Query<'w, 's, (&'static Camera, &'static GlobalTransform), (With<Camera3d>, With<FollowCamera>)>;
+
 fn prepare_map_presentation(
 	map: Res<WorldMapView>,
 	gameplay: Res<WorldGameplayEnabled>,
 	overlay: Res<LanguageOverlay>,
 	registry: Option<Res<PoiRegistry>>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
-	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
+	camera: MapCameraQuery,
 	surface: DurhamSurface,
 	places: Query<(Entity, &DiscoverablePlace, &GlobalTransform)>,
 	mut presentation: ResMut<MapPresentation>,
@@ -1425,7 +1427,7 @@ fn sync_map_player_marker(
 	map: Res<WorldMapView>,
 	gameplay: Res<WorldGameplayEnabled>,
 	players: Query<&Transform, With<VegetationPlayer>>,
-	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
+	camera: MapCameraQuery,
 	surface: DurhamSurface,
 	hud: Query<Entity, With<MapNameHud>>,
 	mut markers: Query<(&mut Node, &mut Visibility), With<MapPlayerMarker>>,

@@ -21,9 +21,10 @@ use maybraid_input::MenuNavPad;
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	parse_visual_style_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
-	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality, TerrainStreaming,
-	VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlayerLoadout,
-	WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, VISUAL_STYLE_ENV,
+	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
+	TerrainStreaming, VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMobHudEnabled,
+	WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady,
+	WorldSurfaceSet, VISUAL_STYLE_ENV,
 };
 use menu_components::{
 	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
@@ -183,10 +184,12 @@ fn clear_play_session(
 	mut session: ResMut<PlaySession>,
 	mut mode: ResMut<GameMode>,
 	mut ready: ResMut<WorldSurfaceReady>,
+	mut ended: MessageWriter<WorldPlaySessionEnded>,
 ) {
 	ready.0 = false;
 	*session = PlaySession::None;
 	mode.label = String::from(PlaySession::Discovery.label());
+	ended.write(WorldPlaySessionEnded);
 }
 
 fn load_active_player_loadout(
@@ -529,11 +532,12 @@ mod tests {
 	use crate::{
 		apply_settings_to_visual_style, assets_root, clear_play_session,
 		load_active_player_loadout, persist_changed_player_inventory, read_player_loadout,
-		route_home_choice, sync_world_loadout_from_editor, sync_world_shadows, visual_style_readout,
-		GameFlow, PlaySession,
+		route_home_choice, sync_world_loadout_from_editor, sync_world_shadows,
+		visual_style_readout, GameFlow, PlaySession,
 	};
 	use maybraid_world::{
-		ShadowQuality, VisualStyle, VisualStyleSetting, WorldPlayerLoadout, WorldSurfaceReady,
+		ShadowQuality, VisualStyle, VisualStyleSetting, WorldPlaySessionEnded, WorldPlayerLoadout,
+		WorldSurfaceReady,
 	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
@@ -593,6 +597,7 @@ mod tests {
 	#[test]
 	fn leave_drops_the_session() -> anyhow::Result<()> {
 		let mut world = World::new();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
 		world.insert_resource(PlaySession::Discovery);
 		world.insert_resource(GameMode::new("Elsewhere"));
 		world.insert_resource(WorldSurfaceReady(true));
@@ -602,6 +607,8 @@ mod tests {
 		assert_eq!(*world.resource::<PlaySession>(), PlaySession::None);
 		assert_eq!(world.resource::<GameMode>().label, "Discovery");
 		assert!(!world.resource::<WorldSurfaceReady>().0);
+		let ended = world.resource_mut::<Messages<WorldPlaySessionEnded>>().drain().count();
+		assert_eq!(ended, 1, "leave should emit WorldPlaySessionEnded for Lubikan teardown");
 		Ok(())
 	}
 
@@ -739,7 +746,11 @@ mod tests {
 		assert_eq!(style.requested(), Some(VisualStyle::PrePostModern));
 		apply_settings_to_visual_style(&mut style, InGameVisualStyle::Impressionist, None);
 		assert_eq!(style.requested(), Some(VisualStyle::Impressionist));
-		apply_settings_to_visual_style(&mut style, InGameVisualStyle::Retro, Some(VisualStyle::Sharp));
+		apply_settings_to_visual_style(
+			&mut style,
+			InGameVisualStyle::Retro,
+			Some(VisualStyle::Sharp),
+		);
 		assert_eq!(style.requested(), Some(VisualStyle::Sharp));
 		Ok(())
 	}
@@ -748,7 +759,12 @@ mod tests {
 	fn visual_style_readout_reports_resolution_and_env() -> anyhow::Result<()> {
 		let mut style = VisualStyleSetting::default();
 		style.set(VisualStyle::Impressionist);
-		let readout = visual_style_readout(&style, UVec2::new(1920, 1080), 1.0, Some(VisualStyle::Impressionist));
+		let readout = visual_style_readout(
+			&style,
+			UVec2::new(1920, 1080),
+			1.0,
+			Some(VisualStyle::Impressionist),
+		);
 		assert_eq!(
 			readout,
 			RenderScaleReadout {

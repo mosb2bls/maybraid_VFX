@@ -1,0 +1,25 @@
+[package]
+name = "combat-hud-playground"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[[bin]]
+name = "combat-hud-playground"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true }
+clap = { workspace = true }
+combat-hud = { workspace = true }
+damage = { workspace = true }
+lubikans = { workspace = true, features = ["test-support"] }
+player = { workspace = true }
+
+[lints]
+workspace = true
