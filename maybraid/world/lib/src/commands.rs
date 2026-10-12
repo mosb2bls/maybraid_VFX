@@ -17,6 +17,9 @@ use mob_scenes::MobKind;
 use crate::mob_spawn::RequestSpawnMobs;
 use crate::{RequestRenderScale, RequestVsyncToggle};
 
+#[cfg(feature = "debug-commands")]
+use std::path::PathBuf;
+
 pub const PLAYGROUND_CLI_NAME: &str = "maybraid-world";
 pub type Script = CommandScript<PlaygroundCommand>;
 
@@ -49,6 +52,17 @@ pub enum PlaygroundCommand {
 	/// Debug mob placement (Tracy actor-density flights).
 	#[command(subcommand)]
 	Mobs(Mobs),
+	/// Debug commands for testing (debug builds only).
+	#[cfg(feature = "debug-commands")]
+	#[command(subcommand)]
+	Debug(DebugCommand),
+	/// Auto-capture screenshots via script (debug builds only).
+	#[cfg(feature = "debug-commands")]
+	AutoCapture {
+		/// Path to script file with wait/debug/screenshot/exit commands
+		#[arg(long)]
+		script: PathBuf,
+	},
 }
 
 #[derive(Clone, Subcommand)]
@@ -167,6 +181,39 @@ pub enum Stats {
 	Vsync,
 }
 
+#[cfg(feature = "debug-commands")]
+#[derive(Clone, Subcommand)]
+#[command(rename_all = "kebab-case")]
+pub enum DebugCommand {
+	/// Grant Lubikan charge points (goes through LubikanChargeRequest).
+	GrantPoints { amount: f32 },
+	/// Apply damage to the player.
+	TakeDamage { amount: f32 },
+	/// Spawn an NPC at player position.
+	SpawnNpc,
+	/// Activate the equipped Lubikan (writes LubikanActivationRequest).
+	Activate,
+	/// Toggle peaceful mode (disables hostile AI damage to player).
+	Peaceful,
+	/// Force third-person camera view (close map).
+	Camera {
+		#[arg(value_enum)]
+		mode: CameraMode,
+	},
+	/// Teleport the player to the specified XYZ world position.
+	Teleport {
+		x: f32,
+		y: f32,
+		z: f32,
+	},
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum CameraMode {
+	ThirdPerson,
+}
+
 impl PlaygroundCommand {
 	pub fn long_help_string() -> String {
 		<Self as GameCommand>::long_help_string()
@@ -195,6 +242,12 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
 			PlaygroundCommand::Render(render) => render.react(commands, console),
 			PlaygroundCommand::Mobs(mobs) => mobs.react(commands, console),
+			#[cfg(feature = "debug-commands")]
+			PlaygroundCommand::Debug(debug) => debug.react(commands, console),
+			#[cfg(feature = "debug-commands")]
+			PlaygroundCommand::AutoCapture { script: _ } => {
+				*console = "Auto-capture removed: use Bevy Screenshot API instead".to_string();
+			}
 		}
 	}
 
@@ -293,6 +346,78 @@ pub(crate) fn apply_sky_commands(
 		}
 		commands.entity(entity).despawn();
 	}
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestGrantPoints {
+	pub amount: f32,
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestTakeDamage {
+	pub amount: f32,
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestSpawnNpc;
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestActivate;
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestPeaceful;
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestCamera {
+	pub mode: CameraMode,
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestTeleport {
+	pub position: Vec3,
+}
+
+#[cfg(feature = "debug-commands")]
+impl DebugCommand {
+	fn react(self, commands: &mut Commands, console: &mut String) {
+		match self {
+			DebugCommand::GrantPoints { amount } => {
+				commands.spawn(RequestGrantPoints { amount });
+				*console = format!("debug grant-points {amount}: pending");
+			}
+			DebugCommand::TakeDamage { amount } => {
+				commands.spawn(RequestTakeDamage { amount });
+				*console = format!("debug take-damage {amount}: pending");
+			}
+			DebugCommand::SpawnNpc => {
+				commands.spawn(RequestSpawnNpc);
+				*console = "debug spawn-npc: pending".into();
+			}
+		DebugCommand::Activate => {
+			commands.spawn(RequestActivate);
+			*console = "debug activate: pending".into();
+		}
+		DebugCommand::Peaceful => {
+			commands.spawn(RequestPeaceful);
+			*console = "debug peaceful: pending".into();
+		}
+		DebugCommand::Camera { mode } => {
+			commands.spawn(RequestCamera { mode });
+			*console = format!("debug camera {:?}: pending", mode);
+		}
+		DebugCommand::Teleport { x, y, z } => {
+			commands.spawn(RequestTeleport { position: Vec3::new(x, y, z) });
+			*console = format!("debug teleport ({}, {}, {}): pending", x, y, z);
+		}
+	}
+}
 }
 
 impl GameCommand for PlaygroundCommand {

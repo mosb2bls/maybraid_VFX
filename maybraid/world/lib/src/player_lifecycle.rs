@@ -9,6 +9,7 @@ use durham::DurhamSurface;
 use firearm_user::FirearmUser;
 use firearms::WeaponTrigger;
 use grenade_user::GrenadeUser;
+use lubikans::LubikanOwner;
 use maybraid_character_controller::CharacterIntent;
 use maybraid_input::{PadButton, VirtualPad};
 use mob_characters::{LOCAL_POI, SALOON_POI, URBAN_POI, VEGETATION_POI};
@@ -264,6 +265,7 @@ fn queue_downed_world_player(
 			SpotSubject,
 			ThreatSubject,
 			Affiliations,
+			LubikanOwner,
 		)>();
 	}
 }
