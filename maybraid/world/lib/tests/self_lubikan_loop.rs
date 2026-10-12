@@ -436,7 +436,11 @@ fn activate_and_award_same_frame_as_death_keep_charge() -> anyhow::Result<()> {
 		(after - (before - cost + 10.0)).abs() < 0.01,
 		"same-frame spend+award must land, before={before} after={after} cost={cost}"
 	);
-	app.world_mut().entity_mut(player).remove::<Player>();
+	// World retirement strips LubikanOwner (and the generic player marker),
+	// not only world_player::Player.
+	app.world_mut()
+		.entity_mut(player)
+		.remove::<(LubikanOwner, player::Player)>();
 	app.update();
 	let replacement = spawn_player(&mut app, 100.0, 100.0);
 	anyhow::ensure!(
