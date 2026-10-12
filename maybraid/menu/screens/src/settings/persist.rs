@@ -192,7 +192,7 @@ mod tests {
 		ENV_RENDER_SCALE, ENV_SHADOWS,
 	};
 	use crate::settings::catalog::{DeviceClass, Shadows, VisualStylePref};
-	use crate::settings::{InGameRenderScale, InGameSettings, InGameShadowQuality, InGameVisualStyle};
+	use crate::settings::{InGameSettings, InGameShadowQuality, InGameVisualStyle};
 
 	fn write_fields(root: &SaveRoot, json: &str) {
 		root.ensure_dirs().expect("dirs");

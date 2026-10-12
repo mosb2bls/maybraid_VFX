@@ -9,6 +9,10 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 use bevy::window::PrimaryWindow;
 use player_camera::FollowCamera;
 
+use super::presentation::{
+	create_presentation_material, ImpressionistMaterial, NearestNeighborMaterial,
+	PrePostModernMaterial, PresentationMaterial,
+};
 use super::visual_style::{PresentationTreatment, VisualStyle};
 use super::{RenderScale, VisualStyleSetting};
 
@@ -18,6 +22,7 @@ const PRESENT_ORDER: isize = 1;
 #[derive(Resource, Default)]
 pub(super) struct AppliedRenderScale {
 	image: Option<Handle<Image>>,
+	blit_mesh: Option<Handle<Mesh>>,
 	last_offscreen: bool,
 	last_size: UVec2,
 	last_scale: f32,
@@ -62,6 +67,10 @@ pub(super) fn sync_render_scale_target(
 	scale: Res<RenderScale>,
 	windows: Query<&Window, With<PrimaryWindow>>,
 	mut images: ResMut<Assets<Image>>,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut impressionist: ResMut<Assets<ImpressionistMaterial>>,
+	mut pre_post_modern: ResMut<Assets<PrePostModernMaterial>>,
+	mut nearest_neighbor: ResMut<Assets<NearestNeighborMaterial>>,
 	mut applied: ResMut<AppliedRenderScale>,
 	mut sources: Query<
 		(Entity, &Camera, &mut RenderTarget, &mut Projection, Has<IsDefaultUiCamera>),
@@ -69,28 +78,27 @@ pub(super) fn sync_render_scale_target(
 	>,
 	presents: Query<(Entity, &Camera), With<RenderScalePresentCamera>>,
 	sprites: Query<Entity, With<RenderScalePresentSprite>>,
-	mut sprite_images: Query<&mut Sprite, With<RenderScalePresentSprite>>,
+	mut blit_transforms: Query<&mut Transform, With<RenderScalePresentSprite>>,
 ) {
 	let Ok(window) = windows.single() else {
 		return;
 	};
 	let physical = UVec2::new(window.physical_width(), window.physical_height());
-	
+
 	// Use visual style if set, otherwise fall back to legacy render scale
 	let style_plan = visual_style.plan(physical, window.scale_factor());
 	let legacy_plan = scale.plan(physical, window.scale_factor());
-	
+
 	// Visual style takes precedence when explicitly set
 	let (target_size, window_logical, image_scale_factor, treatment, effective_style, requires_offscreen) =
 		if visual_style.requested().is_some() || !scale.is_explicit() {
-			let requires_offscreen = style_plan.treatment != PresentationTreatment::None;
 			(
 				style_plan.target_size,
 				style_plan.window_logical,
 				style_plan.image_scale_factor,
 				style_plan.treatment,
 				Some(style_plan.style),
-				requires_offscreen,
+				style_plan.requires_offscreen(physical),
 			)
 		} else {
 			// Legacy render scale mode
@@ -144,6 +152,9 @@ pub(super) fn sync_render_scale_target(
 	}
 
 	let handle = ensure_target_image(&mut images, &mut applied, target_size, treatment);
+	let rebuild_blit = sprites.is_empty()
+		|| applied.last_treatment != Some(treatment)
+		|| applied.last_size != target_size;
 	if !applied.last_offscreen
 		|| applied.last_size != target_size
 		|| applied.last_style != effective_style
@@ -200,16 +211,42 @@ pub(super) fn sync_render_scale_target(
 			} else {
 				commands.entity(present).insert(IsDefaultUiCamera);
 			}
-			if let Ok(mut sprite) = sprite_images.single_mut() {
-				sprite.image = handle;
-				sprite.custom_size = Some(window_logical);
-			} else if sprites.is_empty() {
-				spawn_present_sprite(&mut commands, handle, window_logical);
+			if rebuild_blit {
+				for entity in &sprites {
+					commands.entity(entity).despawn();
+				}
+				spawn_present_blit(
+					&mut commands,
+					&mut applied,
+					&mut meshes,
+					&mut impressionist,
+					&mut pre_post_modern,
+					&mut nearest_neighbor,
+					handle,
+					target_size,
+					physical,
+					window_logical,
+					treatment,
+				);
+			} else if let Ok(mut transform) = blit_transforms.single_mut() {
+				transform.scale = Vec3::new(window_logical.x, window_logical.y, 1.0);
 			}
 		}
 		Err(_) => {
 			teardown_present(&mut commands, &presents, &sprites);
-			spawn_present(&mut commands, handle, window_logical);
+			spawn_present(
+				&mut commands,
+				&mut applied,
+				&mut meshes,
+				&mut impressionist,
+				&mut pre_post_modern,
+				&mut nearest_neighbor,
+				handle,
+				target_size,
+				physical,
+				window_logical,
+				treatment,
+			);
 		}
 	}
 }
@@ -280,7 +317,19 @@ fn create_target_image(size: UVec2, sampler: ImageSampler) -> Image {
 	image
 }
 
-fn spawn_present(commands: &mut Commands, image: Handle<Image>, window_logical: Vec2) {
+fn spawn_present(
+	commands: &mut Commands,
+	applied: &mut AppliedRenderScale,
+	meshes: &mut Assets<Mesh>,
+	impressionist: &mut Assets<ImpressionistMaterial>,
+	pre_post_modern: &mut Assets<PrePostModernMaterial>,
+	nearest_neighbor: &mut Assets<NearestNeighborMaterial>,
+	image: Handle<Image>,
+	source_size: UVec2,
+	window_physical: UVec2,
+	window_logical: Vec2,
+	treatment: PresentationTreatment,
+) {
 	commands.spawn((
 		Name::new("render-scale-present"),
 		Camera2d,
@@ -292,16 +341,76 @@ fn spawn_present(commands: &mut Commands, image: Handle<Image>, window_logical: 
 		IsDefaultUiCamera,
 		RenderScalePresentCamera,
 	));
-	spawn_present_sprite(commands, image, window_logical);
+	spawn_present_blit(
+		commands,
+		applied,
+		meshes,
+		impressionist,
+		pre_post_modern,
+		nearest_neighbor,
+		image,
+		source_size,
+		window_physical,
+		window_logical,
+		treatment,
+	);
 }
 
-fn spawn_present_sprite(commands: &mut Commands, image: Handle<Image>, window_logical: Vec2) {
-	commands.spawn((
+fn spawn_present_blit(
+	commands: &mut Commands,
+	applied: &mut AppliedRenderScale,
+	meshes: &mut Assets<Mesh>,
+	impressionist: &mut Assets<ImpressionistMaterial>,
+	pre_post_modern: &mut Assets<PrePostModernMaterial>,
+	nearest_neighbor: &mut Assets<NearestNeighborMaterial>,
+	image: Handle<Image>,
+	source_size: UVec2,
+	window_physical: UVec2,
+	window_logical: Vec2,
+	treatment: PresentationTreatment,
+) {
+	let mesh = applied
+		.blit_mesh
+		.clone()
+		.unwrap_or_else(|| {
+			let handle = meshes.add(Rectangle::new(1.0, 1.0));
+			applied.blit_mesh = Some(handle.clone());
+			handle
+		});
+	let transform = Transform {
+		translation: Vec3::ZERO,
+		scale: Vec3::new(window_logical.x, window_logical.y, 1.0),
+		..default()
+	};
+	let mut entity = commands.spawn((
 		Name::new("render-scale-blit"),
-		Sprite { image, custom_size: Some(window_logical), ..default() },
-		Transform::from_xyz(0.0, 0.0, 0.0),
+		Mesh2d(mesh),
+		transform,
 		RenderScalePresentSprite,
 	));
+	if let Some(material) = create_presentation_material(
+		treatment,
+		image.clone(),
+		source_size,
+		window_physical,
+		impressionist,
+		pre_post_modern,
+		nearest_neighbor,
+	) {
+		match material {
+			PresentationMaterial::Impressionist(handle) => {
+				entity.insert(MeshMaterial2d(handle));
+			}
+			PresentationMaterial::PrePostModern(handle) => {
+				entity.insert(MeshMaterial2d(handle));
+			}
+			PresentationMaterial::NearestNeighbor(handle) => {
+				entity.insert(MeshMaterial2d(handle));
+			}
+		}
+	} else {
+		entity.insert(Sprite { image, custom_size: Some(window_logical), ..default() });
+	}
 }
 
 fn teardown_present(
@@ -366,6 +475,10 @@ mod tests {
 
 		let mut app = App::new();
 		app.init_resource::<Assets<Image>>()
+			.init_resource::<Assets<Mesh>>()
+			.init_resource::<Assets<ImpressionistMaterial>>()
+			.init_resource::<Assets<PrePostModernMaterial>>()
+			.init_resource::<Assets<NearestNeighborMaterial>>()
 			.init_resource::<ManualTextureViews>()
 			.init_resource::<AppliedRenderScale>()
 			.insert_resource(VisualStyleSetting::default())
@@ -395,6 +508,69 @@ mod tests {
 			app.update();
 			assert_eq!(source_target_size(&mut app), Some(size), "scale {scale}");
 		}
+		Ok(())
+	}
+
+	fn present_count(app: &mut App) -> usize {
+		let mut presents = app
+			.world_mut()
+			.query_filtered::<Entity, With<RenderScalePresentCamera>>();
+		presents.iter(app.world()).count()
+	}
+
+	fn boot_target_app() -> App {
+		use bevy::render::camera::camera_system;
+		use bevy::render::texture::ManualTextureViews;
+		use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
+
+		let mut app = App::new();
+		app.init_resource::<Assets<Image>>()
+			.init_resource::<Assets<Mesh>>()
+			.init_resource::<Assets<ImpressionistMaterial>>()
+			.init_resource::<Assets<PrePostModernMaterial>>()
+			.init_resource::<Assets<NearestNeighborMaterial>>()
+			.init_resource::<ManualTextureViews>()
+			.init_resource::<AppliedRenderScale>()
+			.insert_resource(VisualStyleSetting::default())
+			.insert_resource(RenderScale::default())
+			.add_message::<WindowCreated>()
+			.add_message::<WindowResized>()
+			.add_message::<WindowScaleFactorChanged>()
+			.add_message::<AssetEvent<Image>>()
+			.add_systems(Update, (sync_render_scale_target, camera_system).chain());
+		app.world_mut().spawn((Window::default(), PrimaryWindow));
+		app.world_mut().spawn((Camera3d::default(), FollowCamera::default()));
+		app
+	}
+
+	#[test]
+	fn visual_styles_resize_and_sharp_is_direct() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		for (style, size, present) in [
+			(VisualStyle::Impressionist, UVec2::new(700, 394), true),
+			(VisualStyle::Sharp, UVec2::new(1280, 720), false),
+			(VisualStyle::Retro, UVec2::new(540, 304), true),
+			(VisualStyle::Antediluvian, UVec2::new(400, 225), true),
+			(VisualStyle::PrePostModern, UVec2::new(1280, 720), true),
+		] {
+			app.world_mut().resource_mut::<VisualStyleSetting>().set(style);
+			app.update();
+			assert_eq!(source_target_size(&mut app), Some(size), "{style:?}");
+			assert_eq!(present_count(&mut app) > 0, present, "{style:?} present");
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn impressionist_window_mapping_scales_into_the_render_target() -> anyhow::Result<()> {
+		let plan = VisualStyle::Impressionist.plan(UVec2::new(1920, 1080), 1.0);
+		let window = plan.window_logical;
+		let render = plan.target_size.as_vec2() / plan.image_scale_factor;
+		let cursor = window * 0.5;
+		let mapped = map_window_to_render(cursor, window, render);
+		let back = map_render_to_window(mapped, window, render);
+		assert!((back - cursor).length() < 1e-3);
+		assert!(mapped.x > 0.0 && mapped.y > 0.0);
 		Ok(())
 	}
 

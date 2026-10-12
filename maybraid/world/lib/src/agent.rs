@@ -20,6 +20,7 @@ use world_player::Player as VegetationPlayer;
 
 use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
+use crate::render_scale::{RequestVisualStyle, VisualStyle};
 use crate::PlayerSpawnXz;
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
@@ -357,6 +358,20 @@ fn apply_intent(overlay: &mut PadOverlay, intent: &PadIntent) {
 	}
 }
 
+fn visual_style_applied_detail(
+	style: VisualStyle,
+	window_physical: UVec2,
+	window_scale_factor: f32,
+) -> String {
+	let plan = style.plan(window_physical, window_scale_factor);
+	format!(
+		"applied {} {}x{}",
+		style.script_id(),
+		plan.target_size.x,
+		plan.target_size.y
+	)
+}
+
 fn pad_button(button: AgentButton) -> PadButton {
 	match button {
 		AgentButton::Jump => PadButton::A,
@@ -381,8 +396,11 @@ fn pad_button(button: AgentButton) -> PadButton {
 fn agent_apply_world_ops(
 	mut runtime: ResMut<AgentRuntime>,
 	mut commands: Commands,
+	mut visual_style_req: MessageWriter<RequestVisualStyle>,
 	surface: DurhamSurface,
 	base: Res<WorldBaseTerrain>,
+	windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+	time: Res<Time>,
 	mut players: Query<
 		(
 			Entity,
@@ -395,7 +413,9 @@ fn agent_apply_world_ops(
 	>,
 ) {
 	let pending = std::mem::take(&mut runtime.pending);
-	for (_id, command) in pending {
+	let t = time.elapsed_secs();
+	let frame = runtime.frame;
+	for (id, command) in pending {
 		let command = match command {
 			AgentCommand::Start { xz } => AgentCommand::Teleport { xz, y: None },
 			other => other,
@@ -433,6 +453,49 @@ fn agent_apply_world_ops(
 				}
 				if !console.is_empty() {
 					info!(target: "maybraid.agent", "{console}");
+				}
+			}
+			AgentCommand::VisualStyle { style } => {
+				if let Some(visual_style) = VisualStyle::from_script_id(&style) {
+					visual_style_req.write(RequestVisualStyle(visual_style));
+					let (physical, factor) = match windows.single() {
+						Ok(window) => (
+							UVec2::new(window.physical_width(), window.physical_height()),
+							window.scale_factor(),
+						),
+						Err(_) => (UVec2::ZERO, 1.0),
+					};
+					emit(
+						&runtime.sink,
+						AgentEvent {
+							t,
+							frame,
+							body: AgentEventBody::Command {
+								id,
+								status: CommandStatus::Finished,
+								cmd: format!("visual_style {style}"),
+								detail: Some(visual_style_applied_detail(
+									visual_style,
+									physical,
+									factor,
+								)),
+							},
+						},
+					);
+				} else {
+					emit(
+						&runtime.sink,
+						AgentEvent {
+							t,
+							frame,
+							body: AgentEventBody::Command {
+								id,
+								status: CommandStatus::Failed,
+								cmd: format!("visual_style {style}"),
+								detail: Some(format!("unknown visual style: {style}")),
+							},
+						},
+					);
 				}
 			}
 			AgentCommand::Quit => runtime.quit = true,
@@ -563,6 +626,18 @@ mod tests {
 	fn jump_maps_to_face_a() {
 		assert_eq!(pad_button(AgentButton::Jump), PadButton::A);
 		assert_eq!(pad_button(AgentButton::Sprint), PadButton::StickClickMove);
+	}
+
+	#[test]
+	fn visual_style_applied_detail_includes_resolved_size() {
+		assert_eq!(
+			visual_style_applied_detail(VisualStyle::Impressionist, UVec2::new(1920, 1080), 1.0),
+			"applied impressionist 700x394"
+		);
+		assert_eq!(
+			visual_style_applied_detail(VisualStyle::Sharp, UVec2::new(1920, 1080), 1.0),
+			"applied sharp 1920x1080"
+		);
 	}
 
 	#[test]

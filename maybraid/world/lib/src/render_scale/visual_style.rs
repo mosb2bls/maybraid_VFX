@@ -165,8 +165,9 @@ pub struct VisualStylePlan {
 
 impl VisualStylePlan {
 	/// Whether this plan requires an offscreen render target and presentation pass.
-	pub fn requires_offscreen(&self) -> bool {
-		self.treatment != PresentationTreatment::None
+	pub fn requires_offscreen(&self, window_physical: UVec2) -> bool {
+		self.target_size != UVec2::ZERO
+			&& (self.treatment != PresentationTreatment::None || self.target_size != window_physical)
 	}
 }
 
@@ -223,7 +224,7 @@ mod tests {
 		let plan = VisualStyle::Sharp.plan(UVec2::new(1920, 1080), 1.0);
 		assert_eq!(plan.target_size, UVec2::new(1920, 1080));
 		assert_eq!(plan.treatment, PresentationTreatment::None);
-		assert!(!plan.requires_offscreen());
+		assert!(!plan.requires_offscreen(UVec2::new(1920, 1080)));
 	}
 
 	#[test]
@@ -233,7 +234,7 @@ mod tests {
 		let expected_width = (394.0_f32 * 1920.0 / 1080.0).round() as u32;
 		assert_eq!(plan.target_size.x, expected_width);
 		assert_eq!(plan.treatment, PresentationTreatment::Impressionist);
-		assert!(plan.requires_offscreen());
+		assert!(plan.requires_offscreen(UVec2::new(1920, 1080)));
 	}
 
 	#[test]

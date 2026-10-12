@@ -20,10 +20,10 @@ use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use maybraid_input::MenuNavPad;
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
-	parse_render_scale_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
-	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, RenderScale, ShadowQuality,
-	TerrainStreaming, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlayerLoadout, WorldPlugin,
-	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, RENDER_SCALE_ENV,
+	parse_visual_style_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
+	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality, TerrainStreaming,
+	VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlayerLoadout,
+	WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, VISUAL_STYLE_ENV,
 };
 use menu_components::{
 	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
@@ -37,8 +37,8 @@ use menu_playground::{
 use menu_screens::{
 	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
 	request_show_in_game_settings, CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice,
-	HomeScreenPlugin, InGameMenuChoice, InGameRenderScale, InGameScreenPlugin, InGameSettings,
-	InGameSettingsScreen, InGameSettingsSystems, InGameShadowQuality, LoadingScreenPlugin,
+	HomeScreenPlugin, InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
+	InGameSettingsSystems, InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin,
 	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen,
 };
 
@@ -352,53 +352,61 @@ fn sync_world_shadows(settings: Res<InGameSettings>, mut quality: ResMut<ShadowQ
 	}
 }
 
-fn sync_world_render_scale(settings: Res<InGameSettings>, mut scale: ResMut<RenderScale>) {
-	let env = parse_render_scale_env(std::env::var(RENDER_SCALE_ENV).ok().as_deref());
-	apply_settings_to_render_scale(&mut scale, settings.render_scale, env);
+fn sync_world_render_scale(
+	settings: Res<InGameSettings>,
+	mut visual_style: ResMut<VisualStyleSetting>,
+) {
+	let env = parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref());
+	if env.is_some() || settings.is_changed() || visual_style.requested().is_none() {
+		apply_settings_to_visual_style(&mut visual_style, settings.visual_style, env);
+	}
 }
 
-fn apply_settings_to_render_scale(
-	scale: &mut RenderScale,
-	preference: InGameRenderScale,
-	env: Option<f32>,
+fn apply_settings_to_visual_style(
+	style: &mut VisualStyleSetting,
+	preference: InGameVisualStyle,
+	env: Option<VisualStyle>,
 ) {
-	let wanted = preference.live_request(env);
-	if scale.requested() == wanted {
+	let wanted = env.unwrap_or_else(|| preference.to_visual_style());
+	if style.requested() == Some(wanted) {
 		return;
 	}
-	match wanted {
-		Some(value) => scale.set(value),
-		None => scale.clear_to_auto(),
-	}
+	style.set(wanted);
 }
 
 fn sync_render_scale_readout(
-	scale: Res<RenderScale>,
+	style: Res<VisualStyleSetting>,
 	windows: Query<&Window, With<PrimaryWindow>>,
 	mut readout: ResMut<RenderScaleReadout>,
 ) {
-	let env = parse_render_scale_env(std::env::var(RENDER_SCALE_ENV).ok().as_deref());
+	let env = parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref());
 	let (physical, factor) = match windows.single() {
 		Ok(window) => {
 			(UVec2::new(window.physical_width(), window.physical_height()), window.scale_factor())
 		}
 		Err(_) => (UVec2::ZERO, 1.0),
 	};
-	let next = render_scale_readout(&scale, physical, factor, env);
+	let next = visual_style_readout(&style, physical, factor, env);
 	if *readout != next {
 		*readout = next;
 	}
 }
 
-fn render_scale_readout(
-	scale: &RenderScale,
+fn visual_style_readout(
+	style: &VisualStyleSetting,
 	window_physical: UVec2,
 	window_scale_factor: f32,
-	env_override: Option<f32>,
+	env_override: Option<VisualStyle>,
 ) -> RenderScaleReadout {
-	let plan = scale.plan(window_physical, window_scale_factor);
+	let plan = style.plan(window_physical, window_scale_factor);
+	let effective_scale = if window_physical.y == 0 {
+		1.0
+	} else {
+		plan.target_size.y as f32 / window_physical.y as f32
+	};
 	RenderScaleReadout {
-		effective: plan.scale,
+		style: plan.style,
+		effective_scale,
 		window_physical,
 		target_physical: plan.target_size,
 		env_override,
@@ -519,17 +527,19 @@ mod tests {
 	use menu_playground::ActiveCharacter;
 
 	use crate::{
-		apply_settings_to_render_scale, assets_root, clear_play_session,
+		apply_settings_to_visual_style, assets_root, clear_play_session,
 		load_active_player_loadout, persist_changed_player_inventory, read_player_loadout,
-		render_scale_readout, route_home_choice, sync_world_loadout_from_editor,
-		sync_world_shadows, GameFlow, PlaySession,
+		route_home_choice, sync_world_loadout_from_editor, sync_world_shadows, visual_style_readout,
+		GameFlow, PlaySession,
 	};
-	use maybraid_world::{RenderScale, ShadowQuality, WorldPlayerLoadout, WorldSurfaceReady};
+	use maybraid_world::{
+		ShadowQuality, VisualStyle, VisualStyleSetting, WorldPlayerLoadout, WorldSurfaceReady,
+	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
 	};
 	use menu_screens::{
-		GameMode, HomeMenuChoice, InGameRenderScale, InGameSettings, InGameShadowQuality,
+		GameMode, HomeMenuChoice, InGameSettings, InGameShadowQuality, InGameVisualStyle,
 		RenderScaleReadout,
 	};
 
@@ -712,7 +722,7 @@ mod tests {
 		world.insert_resource(InGameSettings {
 			mob_hud: false,
 			shadows: InGameShadowQuality::Low,
-			render_scale: InGameRenderScale::Auto,
+			visual_style: InGameVisualStyle::Impressionist,
 		});
 		world.insert_resource(ShadowQuality::High);
 		world
@@ -723,29 +733,30 @@ mod tests {
 	}
 
 	#[test]
-	fn settings_render_scale_applies_until_env_wins() -> anyhow::Result<()> {
-		let mut scale = RenderScale::default();
-		apply_settings_to_render_scale(&mut scale, InGameRenderScale::ThreeQuarter, None);
-		assert_eq!(scale.requested(), Some(0.75));
-		apply_settings_to_render_scale(&mut scale, InGameRenderScale::Auto, None);
-		assert_eq!(scale.requested(), None);
-		apply_settings_to_render_scale(&mut scale, InGameRenderScale::Half, Some(1.0));
-		assert_eq!(scale.requested(), Some(1.0));
+	fn settings_visual_style_applies_until_env_wins() -> anyhow::Result<()> {
+		let mut style = VisualStyleSetting::default();
+		apply_settings_to_visual_style(&mut style, InGameVisualStyle::PrePostModern, None);
+		assert_eq!(style.requested(), Some(VisualStyle::PrePostModern));
+		apply_settings_to_visual_style(&mut style, InGameVisualStyle::Impressionist, None);
+		assert_eq!(style.requested(), Some(VisualStyle::Impressionist));
+		apply_settings_to_visual_style(&mut style, InGameVisualStyle::Retro, Some(VisualStyle::Sharp));
+		assert_eq!(style.requested(), Some(VisualStyle::Sharp));
 		Ok(())
 	}
 
 	#[test]
-	fn render_scale_readout_reports_resolution_and_env() -> anyhow::Result<()> {
-		let mut scale = RenderScale::default();
-		scale.set(0.5);
-		let readout = render_scale_readout(&scale, UVec2::new(3024, 1964), 2.0, Some(0.5));
+	fn visual_style_readout_reports_resolution_and_env() -> anyhow::Result<()> {
+		let mut style = VisualStyleSetting::default();
+		style.set(VisualStyle::Impressionist);
+		let readout = visual_style_readout(&style, UVec2::new(1920, 1080), 1.0, Some(VisualStyle::Impressionist));
 		assert_eq!(
 			readout,
 			RenderScaleReadout {
-				effective: 0.5,
-				window_physical: UVec2::new(3024, 1964),
-				target_physical: UVec2::new(1512, 982),
-				env_override: Some(0.5),
+				style: VisualStyle::Impressionist,
+				effective_scale: 394.0 / 1080.0,
+				window_physical: UVec2::new(1920, 1080),
+				target_physical: UVec2::new(700, 394),
+				env_override: Some(VisualStyle::Impressionist),
 			}
 		);
 		Ok(())

@@ -19,39 +19,57 @@ pub use presentation::PresentationMaterialsPlugin;
 use bevy::prelude::*;
 
 pub use target::{map_render_to_window, map_window_to_render};
-pub use visual_style::{VisualStyle, VisualStylePlan};
+pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
 
 /// `MAYBRAID_VISUAL_STYLE=retro` (or `impressionist` by default) at process start.
 pub const VISUAL_STYLE_ENV: &str = "MAYBRAID_VISUAL_STYLE";
+/// Optional override so a capture can keep a style's resolution without its treatment.
+pub const PRESENTATION_TREATMENT_ENV: &str = "MAYBRAID_PRESENTATION_TREATMENT";
 
 /// Console / env request to set an explicit visual style.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct RequestVisualStyle(pub VisualStyle);
+
+impl Message for RequestVisualStyle {}
 
 /// Active visual style setting.
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct VisualStyleSetting {
 	requested: Option<VisualStyle>,
+	treatment_override: Option<PresentationTreatment>,
 }
 
 impl Default for VisualStyleSetting {
 	fn default() -> Self {
-		Self { requested: None }
+		Self { requested: None, treatment_override: None }
 	}
 }
 
 impl VisualStyleSetting {
 	/// Read [`VISUAL_STYLE_ENV`]. Empty → default [`VisualStyle::Impressionist`].
 	pub fn from_env() -> Self {
-		Self { requested: parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref()) }
+		Self {
+			requested: parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref()),
+			treatment_override: parse_presentation_treatment_env(
+				std::env::var(PRESENTATION_TREATMENT_ENV).ok().as_deref(),
+			),
+		}
 	}
 
 	pub fn requested(&self) -> Option<VisualStyle> {
 		self.requested
 	}
 
+	pub fn treatment_override(&self) -> Option<PresentationTreatment> {
+		self.treatment_override
+	}
+
 	pub fn set(&mut self, style: VisualStyle) {
 		self.requested = Some(style);
+	}
+
+	pub fn set_treatment_override(&mut self, treatment: Option<PresentationTreatment>) {
+		self.treatment_override = treatment;
 	}
 
 	pub fn clear_to_default(&mut self) {
@@ -63,7 +81,34 @@ impl VisualStyleSetting {
 	}
 
 	pub fn plan(&self, window_physical: UVec2, window_scale_factor: f32) -> VisualStylePlan {
-		self.effective().plan(window_physical, window_scale_factor)
+		let mut plan = self.effective().plan(window_physical, window_scale_factor);
+		if let Some(treatment) = self.treatment_override {
+			plan.treatment = treatment;
+		}
+		plan
+	}
+}
+
+/// Parse `MAYBRAID_PRESENTATION_TREATMENT`. Empty → keep the style's treatment.
+pub fn parse_presentation_treatment_env(raw: Option<&str>) -> Option<PresentationTreatment> {
+	let Some(raw) = raw else {
+		return None;
+	};
+	let raw = raw.trim();
+	if raw.is_empty() {
+		return None;
+	}
+	match raw {
+		"none" => Some(PresentationTreatment::None),
+		"impressionist" => Some(PresentationTreatment::Impressionist),
+		"nearest" | "nearest_neighbor" => Some(PresentationTreatment::NearestNeighbor),
+		"pre_post_modern" => Some(PresentationTreatment::PrePostModern),
+		other => {
+			eprintln!(
+				"[{PRESENTATION_TREATMENT_ENV}] unknown {other:?} (use none, impressionist, nearest, or pre_post_modern)"
+			);
+			None
+		}
 	}
 }
 
@@ -235,6 +280,7 @@ pub fn parse_render_scale_env(raw: Option<&str>) -> Option<f32> {
 
 pub(crate) fn configure(app: &mut App) {
 	app.add_plugins(presentation::PresentationMaterialsPlugin)
+		.add_message::<RequestVisualStyle>()
 		.insert_resource(VisualStyleSetting::from_env())
 		.insert_resource(RenderScale::from_env())
 		.init_resource::<target::AppliedRenderScale>()
@@ -249,17 +295,16 @@ pub(crate) fn configure(app: &mut App) {
 		);
 }
 
+/// Read RequestVisualStyle messages and apply them.
 pub(crate) fn apply_visual_style_requests(
-	mut commands: Commands,
-	requests: Query<(Entity, &RequestVisualStyle)>,
+	mut requests: MessageReader<RequestVisualStyle>,
 	mut style: ResMut<VisualStyleSetting>,
 	mut status: Option<ResMut<game_commands::ui::GameCommandStatusText>>,
 ) {
 	let mut last = None;
-	for (entity, request) in &requests {
+	for request in requests.read() {
 		style.set(request.0);
 		last = Some(request.0);
-		commands.entity(entity).despawn();
 	}
 	let Some(value) = last else {
 		return;
@@ -322,18 +367,34 @@ mod tests {
 	}
 
 	#[test]
-	fn apply_visual_style_request_despawns() -> anyhow::Result<()> {
+	fn treatment_override_keeps_style_resolution() -> anyhow::Result<()> {
+		let mut setting = VisualStyleSetting::default();
+		setting.set(VisualStyle::Impressionist);
+		setting.set_treatment_override(Some(PresentationTreatment::None));
+		let window = UVec2::new(1920, 1080);
+		let plan = setting.plan(window, 1.0);
+		assert_eq!(plan.target_size, UVec2::new(700, 394));
+		assert_eq!(plan.treatment, PresentationTreatment::None);
+		assert!(plan.requires_offscreen(window));
+		assert_eq!(parse_presentation_treatment_env(Some("none")), Some(PresentationTreatment::None));
+		Ok(())
+	}
+
+	#[test]
+	fn apply_visual_style_request_is_consumed() -> anyhow::Result<()> {
 		use bevy::ecs::system::RunSystemOnce;
 
 		let mut world = World::new();
+		world.init_resource::<Messages<RequestVisualStyle>>();
 		world.insert_resource(VisualStyleSetting::default());
-		world.spawn(RequestVisualStyle(VisualStyle::Retro));
+		world.write_message(RequestVisualStyle(VisualStyle::Retro));
 		world
 			.run_system_once(apply_visual_style_requests)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		let setting = world.resource::<VisualStyleSetting>();
-		assert_eq!(setting.requested(), Some(VisualStyle::Retro));
-		assert_eq!(world.query::<&RequestVisualStyle>().iter(&world).count(), 0);
+		assert_eq!(
+			world.resource::<VisualStyleSetting>().requested(),
+			Some(VisualStyle::Retro)
+		);
 		Ok(())
 	}
 

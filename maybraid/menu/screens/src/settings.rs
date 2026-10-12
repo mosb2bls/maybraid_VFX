@@ -222,7 +222,7 @@ pub struct RenderScaleReadout {
 	pub effective_scale: f32,
 	pub window_physical: UVec2,
 	pub target_physical: UVec2,
-	pub env_override: Option<f32>,
+	pub env_override: Option<VisualStyle>,
 }
 
 impl Default for RenderScaleReadout {

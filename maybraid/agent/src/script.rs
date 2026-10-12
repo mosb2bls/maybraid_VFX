@@ -90,6 +90,14 @@ mod tests {
 		"biome-traverse.jsonl",
 		"locomotion-mix.jsonl",
 		"remote-start.jsonl",
+		"visual-style-idle.jsonl",
+		"visual-style-idle-sharp.jsonl",
+		"visual-style-idle-retro.jsonl",
+		"visual-style-idle-antediluvian.jsonl",
+		"visual-style-idle-pre-post-modern.jsonl",
+		"visual-style-traverse.jsonl",
+		"visual-style-traverse-sharp.jsonl",
+		"visual-style-traverse-antediluvian.jsonl",
 	];
 
 	#[test]

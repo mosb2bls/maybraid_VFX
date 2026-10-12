@@ -41,6 +41,7 @@ with `"cmd"`.
 | `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
+| `visual_style` | `style` (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) | instant; `started` is receipt, `finished` includes resolved `WIDTHxHEIGHT` |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
 | `quit` | | request process exit |
 
@@ -88,6 +89,7 @@ published outside the repo (Traces releases) state the version they target.
 |---|---|
 | 1 | `hold`, `press`, `wait`, `goto` (+ `look`), `teleport`, `console`, `scenario`, `quit` |
 | 2 | `start` — script-chosen spawn point |
+| 3 | `visual_style` — set presentation mode (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) |
 
 ## Events
 

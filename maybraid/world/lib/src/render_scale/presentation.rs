@@ -1,22 +1,19 @@
-///! Presentation materials for visual style upscale treatments.
+//! Presentation materials for visual style upscale treatments.
 
 use bevy::asset::embedded_asset;
-use bevy::mesh::MeshVertexBufferLayoutRef;
-use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
-use bevy::render::render_resource::{
-	AsBindGroup, Face, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
-};
+use bevy::render::render_resource::{AsBindGroup, ShaderType};
 use bevy::shader::ShaderRef;
+use bevy::sprite_render::{AlphaMode2d, Material2d, Material2dPlugin};
 
 use super::visual_style::PresentationTreatment;
 
 /// Parameters passed to presentation shaders.
 #[derive(Clone, Copy, Debug, ShaderType)]
-struct TreatmentParams {
-	source_size: Vec2,
-	target_size: Vec2,
+pub struct TreatmentParams {
+	pub source_size: Vec2,
+	pub target_size: Vec2,
 }
 
 /// Impressionist presentation material: linear upscale with painterly softening.
@@ -29,11 +26,7 @@ pub struct ImpressionistMaterial {
 	params: TreatmentParams,
 }
 
-impl Material for ImpressionistMaterial {
-	fn vertex_shader() -> ShaderRef {
-		concat!("embedded://", env!("CARGO_CRATE_NAME"), "/", "presentation.wgsl").into()
-	}
-
+impl Material2d for ImpressionistMaterial {
 	fn fragment_shader() -> ShaderRef {
 		concat!(
 			"embedded://",
@@ -44,33 +37,8 @@ impl Material for ImpressionistMaterial {
 		.into()
 	}
 
-	fn alpha_mode(&self) -> AlphaMode {
-		AlphaMode::Opaque
-	}
-
-	fn reads_view_transmission_texture(&self) -> bool {
-		false
-	}
-
-	fn enable_prepass() -> bool {
-		false
-	}
-
-	fn enable_shadows() -> bool {
-		false
-	}
-
-	fn specialize(
-		_pipeline: &MaterialPipeline,
-		descriptor: &mut RenderPipelineDescriptor,
-		_layout: &MeshVertexBufferLayoutRef,
-		_key: MaterialPipelineKey<Self>,
-	) -> Result<(), SpecializedMeshPipelineError> {
-		descriptor.primitive.cull_mode = Some(Face::Back);
-		if let Some(depth) = descriptor.depth_stencil.as_mut() {
-			depth.depth_write_enabled = Some(false);
-		}
-		Ok(())
+	fn alpha_mode(&self) -> AlphaMode2d {
+		AlphaMode2d::Opaque
 	}
 }
 
@@ -96,11 +64,7 @@ pub struct PrePostModernMaterial {
 	params: TreatmentParams,
 }
 
-impl Material for PrePostModernMaterial {
-	fn vertex_shader() -> ShaderRef {
-		concat!("embedded://", env!("CARGO_CRATE_NAME"), "/", "presentation.wgsl").into()
-	}
-
+impl Material2d for PrePostModernMaterial {
 	fn fragment_shader() -> ShaderRef {
 		concat!(
 			"embedded://",
@@ -111,33 +75,8 @@ impl Material for PrePostModernMaterial {
 		.into()
 	}
 
-	fn alpha_mode(&self) -> AlphaMode {
-		AlphaMode::Opaque
-	}
-
-	fn reads_view_transmission_texture(&self) -> bool {
-		false
-	}
-
-	fn enable_prepass() -> bool {
-		false
-	}
-
-	fn enable_shadows() -> bool {
-		false
-	}
-
-	fn specialize(
-		_pipeline: &MaterialPipeline,
-		descriptor: &mut RenderPipelineDescriptor,
-		_layout: &MeshVertexBufferLayoutRef,
-		_key: MaterialPipelineKey<Self>,
-	) -> Result<(), SpecializedMeshPipelineError> {
-		descriptor.primitive.cull_mode = Some(Face::Back);
-		if let Some(depth) = descriptor.depth_stencil.as_mut() {
-			depth.depth_write_enabled = Some(false);
-		}
-		Ok(())
+	fn alpha_mode(&self) -> AlphaMode2d {
+		AlphaMode2d::Opaque
 	}
 }
 
@@ -163,11 +102,7 @@ pub struct NearestNeighborMaterial {
 	params: TreatmentParams,
 }
 
-impl Material for NearestNeighborMaterial {
-	fn vertex_shader() -> ShaderRef {
-		concat!("embedded://", env!("CARGO_CRATE_NAME"), "/", "presentation.wgsl").into()
-	}
-
+impl Material2d for NearestNeighborMaterial {
 	fn fragment_shader() -> ShaderRef {
 		concat!(
 			"embedded://",
@@ -178,33 +113,8 @@ impl Material for NearestNeighborMaterial {
 		.into()
 	}
 
-	fn alpha_mode(&self) -> AlphaMode {
-		AlphaMode::Opaque
-	}
-
-	fn reads_view_transmission_texture(&self) -> bool {
-		false
-	}
-
-	fn enable_prepass() -> bool {
-		false
-	}
-
-	fn enable_shadows() -> bool {
-		false
-	}
-
-	fn specialize(
-		_pipeline: &MaterialPipeline,
-		descriptor: &mut RenderPipelineDescriptor,
-		_layout: &MeshVertexBufferLayoutRef,
-		_key: MaterialPipelineKey<Self>,
-	) -> Result<(), SpecializedMeshPipelineError> {
-		descriptor.primitive.cull_mode = Some(Face::Back);
-		if let Some(depth) = descriptor.depth_stencil.as_mut() {
-			depth.depth_write_enabled = Some(false);
-		}
-		Ok(())
+	fn alpha_mode(&self) -> AlphaMode2d {
+		AlphaMode2d::Opaque
 	}
 }
 
@@ -220,7 +130,8 @@ impl NearestNeighborMaterial {
 	}
 }
 
-/// Bundle of presentation materials for different treatments.
+/// Handle to the active presentation material, typed by treatment.
+#[derive(Clone, Debug)]
 pub enum PresentationMaterial {
 	Impressionist(Handle<ImpressionistMaterial>),
 	PrePostModern(Handle<PrePostModernMaterial>),
@@ -233,9 +144,9 @@ impl Plugin for PresentationMaterialsPlugin {
 	fn build(&self, app: &mut App) {
 		embedded_asset!(app, "presentation.wgsl");
 		app.add_plugins((
-			MaterialPlugin::<ImpressionistMaterial>::default(),
-			MaterialPlugin::<PrePostModernMaterial>::default(),
-			MaterialPlugin::<NearestNeighborMaterial>::default(),
+			Material2dPlugin::<ImpressionistMaterial>::default(),
+			Material2dPlugin::<PrePostModernMaterial>::default(),
+			Material2dPlugin::<NearestNeighborMaterial>::default(),
 		));
 	}
 }
@@ -248,22 +159,85 @@ pub fn create_presentation_material(
 	impressionist: &mut Assets<ImpressionistMaterial>,
 	pre_post_modern: &mut Assets<PrePostModernMaterial>,
 	nearest_neighbor: &mut Assets<NearestNeighborMaterial>,
-) -> PresentationMaterial {
+) -> Option<PresentationMaterial> {
 	match treatment {
 		PresentationTreatment::Impressionist => {
 			let material = ImpressionistMaterial::new(source, source_size, target_size);
-			PresentationMaterial::Impressionist(impressionist.add(material))
+			Some(PresentationMaterial::Impressionist(impressionist.add(material)))
 		}
 		PresentationTreatment::PrePostModern => {
 			let material = PrePostModernMaterial::new(source, source_size, target_size);
-			PresentationMaterial::PrePostModern(pre_post_modern.add(material))
+			Some(PresentationMaterial::PrePostModern(pre_post_modern.add(material)))
 		}
 		PresentationTreatment::NearestNeighbor => {
 			let material = NearestNeighborMaterial::new(source, source_size, target_size);
-			PresentationMaterial::NearestNeighbor(nearest_neighbor.add(material))
+			Some(PresentationMaterial::NearestNeighbor(nearest_neighbor.add(material)))
 		}
-		PresentationTreatment::None => {
-			panic!("create_presentation_material called with PresentationTreatment::None")
-		}
+		PresentationTreatment::None => None,
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn none_treatment_has_no_material() {
+		let mut impressionist = Assets::<ImpressionistMaterial>::default();
+		let mut pre_post_modern = Assets::<PrePostModernMaterial>::default();
+		let mut nearest_neighbor = Assets::<NearestNeighborMaterial>::default();
+		assert!(create_presentation_material(
+			PresentationTreatment::None,
+			Handle::default(),
+			UVec2::new(700, 394),
+			UVec2::new(1920, 1080),
+			&mut impressionist,
+			&mut pre_post_modern,
+			&mut nearest_neighbor,
+		)
+		.is_none());
+	}
+
+	#[test]
+	fn each_treatment_adds_a_typed_material() {
+		let mut impressionist = Assets::<ImpressionistMaterial>::default();
+		let mut pre_post_modern = Assets::<PrePostModernMaterial>::default();
+		let mut nearest_neighbor = Assets::<NearestNeighborMaterial>::default();
+		assert!(matches!(
+			create_presentation_material(
+				PresentationTreatment::Impressionist,
+				Handle::default(),
+				UVec2::new(700, 394),
+				UVec2::new(1920, 1080),
+				&mut impressionist,
+				&mut pre_post_modern,
+				&mut nearest_neighbor,
+			),
+			Some(PresentationMaterial::Impressionist(_))
+		));
+		assert!(matches!(
+			create_presentation_material(
+				PresentationTreatment::PrePostModern,
+				Handle::default(),
+				UVec2::new(1280, 720),
+				UVec2::new(1920, 1080),
+				&mut impressionist,
+				&mut pre_post_modern,
+				&mut nearest_neighbor,
+			),
+			Some(PresentationMaterial::PrePostModern(_))
+		));
+		assert!(matches!(
+			create_presentation_material(
+				PresentationTreatment::NearestNeighbor,
+				Handle::default(),
+				UVec2::new(540, 304),
+				UVec2::new(1920, 1080),
+				&mut impressionist,
+				&mut pre_post_modern,
+				&mut nearest_neighbor,
+			),
+			Some(PresentationMaterial::NearestNeighbor(_))
+		));
 	}
 }
