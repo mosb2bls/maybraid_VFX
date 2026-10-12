@@ -10,8 +10,11 @@
 //!
 //! UI stays on the window-sized present camera. HUD, menus, and text remain at native resolution.
 
+mod presentation;
 mod target;
 pub mod visual_style;
+
+pub use presentation::PresentationMaterialsPlugin;
 
 use bevy::prelude::*;
 
@@ -231,7 +234,8 @@ pub fn parse_render_scale_env(raw: Option<&str>) -> Option<f32> {
 }
 
 pub(crate) fn configure(app: &mut App) {
-	app.insert_resource(VisualStyleSetting::from_env())
+	app.add_plugins(presentation::PresentationMaterialsPlugin)
+		.insert_resource(VisualStyleSetting::from_env())
 		.insert_resource(RenderScale::from_env())
 		.init_resource::<target::AppliedRenderScale>()
 		.add_systems(
