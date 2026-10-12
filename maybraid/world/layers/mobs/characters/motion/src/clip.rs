@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 use character_animations::animations::{
-	air_duration, DorsoventralUndulation, EpiphantBray, EpiphantSleepEnter, EpiphantSleepHold,
+	BallisticJump, DorsoventralUndulation, EpiphantBray, EpiphantSleepEnter, EpiphantSleepHold,
 	EpiphantWake, FixedTuck, Flapping, FlipDirection, Gallop, LateralUndulation, Leap,
 	QuadrupedRun, Run, Soaring, TuckProfile, TuckedFlip, TwoFootedJump, Walk, AIR_END,
 	DEFAULT_BACKSWING, DEFAULT_DESCENT_SPEED, DEFAULT_GRAVITY, DEFAULT_JAB_TARGET,
@@ -124,8 +124,9 @@ impl JumpParams {
 		let progress = progress.clamp(0.0, 1.0);
 		let squat = 1.0 / self.pre_squat_speed.max(1e-3);
 		let takeoff = squat + DEFAULT_SPRING_DURATION;
-		let air =
-			(air_duration(self.gravity, self.jump_height) - DEFAULT_SPRING_DURATION).max(0.05);
+		let air = (BallisticJump::new(self.gravity, self.jump_height).air_duration()
+			- DEFAULT_SPRING_DURATION)
+			.max(0.05);
 		let land = 2.0 / self.landing_squat_speed.max(1e-3);
 		if progress < TAKEOFF_END {
 			(progress / TAKEOFF_END) * takeoff

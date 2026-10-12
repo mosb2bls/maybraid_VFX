@@ -233,7 +233,7 @@ pub(crate) fn turn_body_with_look(
 		return;
 	}
 
-	let body = body_yaw(&mut heading, &visual);
+	let body = body_yaw(&heading, &visual);
 	let target = follow_body_yaw(controller.yaw, body, follow.max_look_yaw);
 	let step = wrap_pi(target - body);
 	let max_step = follow.body_turn_rate * time.delta_secs();
@@ -242,11 +242,11 @@ pub(crate) fn turn_body_with_look(
 		set_body_yaw(&mut heading, &mut visual, body + applied);
 	}
 	controller.yaw =
-		clamp_look_yaw(controller.yaw, body_yaw(&mut heading, &visual), follow.max_look_yaw);
+		clamp_look_yaw(controller.yaw, body_yaw(&heading, &visual), follow.max_look_yaw);
 }
 
-fn body_yaw(heading: &mut CharacterHeading, visual: &Transform) -> f32 {
-	camera_yaw_of_forward(heading.resolve(visual))
+fn body_yaw(heading: &CharacterHeading, visual: &Transform) -> f32 {
+	camera_yaw_of_forward(heading.facing(visual))
 }
 
 fn set_body_yaw(heading: &mut CharacterHeading, visual: &mut Transform, yaw: f32) {

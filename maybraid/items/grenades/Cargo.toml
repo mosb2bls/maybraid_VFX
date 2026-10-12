@@ -15,6 +15,7 @@ bevy = { workspace = true }
 character-items = { workspace = true }
 damage = { workspace = true }
 lod-avian = { workspace = true }
+maybraid-audio = { workspace = true }
 
 [lints]
 workspace = true

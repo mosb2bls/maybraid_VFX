@@ -43,7 +43,7 @@ pub use jab::{Jab, DEFAULT_BACKSWING, DEFAULT_JAB_TARGET};
 pub use land::Land;
 pub use lateral_undulation::LateralUndulation;
 pub use leap::{Leap, AIR_END, TAKEOFF_END};
-pub use mix::{smoothstep, Mix, Smooth};
+pub use mix::{burst_envelope, smoothstep, Mix, Smooth, DEFAULT_BURST_EDGE};
 pub use prone::Prone;
 pub use quadruped_bray::{
 	EpiphantBray, MOUTH_EMIT_NECK_LOCAL, MOUTH_EMIT_SOCKET, SONIC_EMIT_NORM,
@@ -64,10 +64,9 @@ pub use transition::{BlendCurve, Transition, TransitionCurve};
 pub use tuck::{Tuck, TuckProfile};
 pub use tucked_flip::{FlipDirection, TuckedFlip};
 pub use two_footed_jump::{
-	air_duration, ballistic_height, launch_speed, touchdown_time_since_launch, JumpSegment,
-	JumpTiming, TwoFootedJump, DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT, DEFAULT_LANDING_SQUAT_SPEED,
-	DEFAULT_PRE_SQUAT_SPEED, DEFAULT_SPRING_DURATION, FALL_BLEND_FRACTION, LAND_BLEND_FRACTION,
-	LAND_POSE_BLEND_MAX_SECS,
+	BallisticJump, JumpSegment, JumpTiming, TwoFootedJump, DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT,
+	DEFAULT_LANDING_SQUAT_SPEED, DEFAULT_PRE_SQUAT_SPEED, DEFAULT_SPRING_DURATION,
+	FALL_BLEND_FRACTION, LAND_BLEND_FRACTION, LAND_POSE_BLEND_MAX_SECS,
 };
 pub use two_footed_tucked_flip::TwoFootedTuckedFlip;
 pub use upright_leap::UprightLeap;

@@ -18,7 +18,7 @@ pub fn apply_hits(
 			health.contains(hit.target),
 			parent.is_some_and(|parent| health.contains(parent)),
 		);
-		if hit.source == Some(target) {
+		if hit.source == Some(target) && !hit.allow_self {
 			continue;
 		}
 		let Ok(mut pool) = health.get_mut(target) else {
@@ -62,6 +62,7 @@ mod tests {
 			source: None,
 			amount: 25.0,
 			point: Vec3::ZERO,
+			allow_self: false,
 		});
 		app.update();
 		let remaining = app.world().get::<Health>(parent).map(|health| health.current);
@@ -83,11 +84,58 @@ mod tests {
 			source: Some(parent),
 			amount: 25.0,
 			point: Vec3::ZERO,
+			allow_self: false,
 		});
 		app.update();
 		let remaining = app.world().get::<Health>(parent).map(|health| health.current);
 		if remaining != Some(100.0) {
 			return Err(anyhow!("self-hit on a child hull should not injure, got {remaining:?}"));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn already_dead_health_ignores_further_hits() -> Result<()> {
+		let mut app = App::new();
+		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
+		app.add_systems(Update, apply_hits);
+		let target = app.world_mut().spawn(Health { current: 0.0, max: 100.0 }).id();
+		app.world_mut().write_message(Hit {
+			target,
+			source: None,
+			amount: 25.0,
+			point: Vec3::ZERO,
+			allow_self: false,
+		});
+		app.update();
+		let remaining = app.world().get::<Health>(target).map(|health| health.current);
+		if remaining != Some(0.0) {
+			return Err(anyhow!("dead health should stay at zero, got {remaining:?}"));
+		}
+		let died: Vec<_> = app.world_mut().resource_mut::<Messages<Died>>().drain().collect();
+		if !died.is_empty() {
+			return Err(anyhow!("already-dead hits must not emit Died, got {}", died.len()));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn allow_self_injures_the_source() -> Result<()> {
+		let mut app = App::new();
+		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
+		app.add_systems(Update, apply_hits);
+		let thrower = app.world_mut().spawn(Health::from_max(100.0)).id();
+		app.world_mut().write_message(Hit {
+			target: thrower,
+			source: Some(thrower),
+			amount: 40.0,
+			point: Vec3::ZERO,
+			allow_self: true,
+		});
+		app.update();
+		let remaining = app.world().get::<Health>(thrower).map(|health| health.current);
+		if remaining != Some(60.0) {
+			return Err(anyhow!("authored self-hit should injure, got {remaining:?}"));
 		}
 		Ok(())
 	}

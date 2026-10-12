@@ -27,6 +27,11 @@ impl GeneratedFirearm {
 		Self { spec, kit: kit_from_spec(spec) }
 	}
 
+	/// Capture / inspect pose: unused stock and barrel bones scale to zero.
+	pub fn icon_pose(self) -> firearms::FirearmPose {
+		self.kit.icon_pose()
+	}
+
 	fn look_material(look: SlotLook) -> MaterialRef {
 		MaterialRef::named(look.material.recipe_id()).with_palette([look.color.color()])
 	}
@@ -119,7 +124,7 @@ impl FirearmComponents for GeneratedFirearm {
 mod tests {
 	use super::*;
 	use character_items::{FirearmMaterial, FirearmMesh, ItemColor};
-	use firearms::SocketRef;
+	use firearms::{SocketRef, StockMesh};
 
 	#[test]
 	fn kit_mapping_preserves_bullpup_concept_slots() {
@@ -152,6 +157,13 @@ mod tests {
 		let nodes = rolled.body_nodes_for_level(LodSceneLevel::High).flatten();
 		assert_eq!(nodes.len(), 1);
 		assert_eq!(nodes[0].material, GeneratedFirearm::look_material(spec.looks.body));
+	}
+
+	#[test]
+	fn icon_pose_collapses_empty_stock() {
+		let rolled = GeneratedFirearm::from_spec(FirearmSpec::from_mesh(FirearmMesh::Snailer));
+		assert_eq!(rolled.kit.stock, StockMesh::None);
+		assert_eq!(rolled.icon_pose().stock.length, 0.0);
 	}
 
 	#[test]

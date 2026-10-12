@@ -13,19 +13,15 @@ use crate::water::{ComposedWater, WaterColumn, WaterMeshAssets};
 use bevy::ecs::system::SystemParam;
 use bevy::math::DVec3;
 use bevy::prelude::*;
-use lod::gen::Id;
+use lod::gen::{Id, OriginalId};
 use lod::hcsg;
 use lod::hcsg::HcsgStorage;
 use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(test)]
 use {
-	crate::terrain::cell::CellTiling,
-	crate::terrain::geography::GeographicFeature,
-	crate::water::Water,
-	bevy::math::bounding::Aabb3d,
-	lod::gen::{OriginalId, Version},
-	lod::hcsg::Busy,
+	crate::terrain::cell::CellTiling, crate::terrain::geography::GeographicFeature,
+	crate::water::Water, bevy::math::bounding::Aabb3d, lod::gen::Version, lod::hcsg::Busy,
 	procedural_common::Bounds2,
 };
 
@@ -102,19 +98,8 @@ pub(crate) fn origin_cell_ids_at(
 	layout: &TerrainCellLayout,
 	x: f32,
 	z: f32,
-) -> impl Iterator<Item = Id> + '_ {
-	std::iter::once(layout.cell_size)
-		.chain(layout.outer_rings.iter().map(|outer| outer.cell_size))
-		.chain(layout.stream_rings.iter().map(|ring| ring.cell_size))
-		.map(move |size| {
-			let size = size.max(1e-3);
-			Id::from_cell(cell_bounds(
-				(x / size).floor() as i32,
-				(z / size).floor() as i32,
-				size,
-				layout.vertical_half_extent,
-			))
-		})
+) -> impl Iterator<Item = Id> {
+	layout.origin_ids_covering_xz(x, z).into_iter().map(|OriginalId(id)| id)
 }
 
 /// Blocking terrain reads over [`HcsgStorage`]. Tests only: frame code uses

@@ -3,8 +3,10 @@
 use bevy::prelude::*;
 
 use crate::commands::render::crook_cylinder::CrookCylinderHelper;
+use crate::commands::render::preview_from_helper::{
+	commit_render_preview, render_helper_preview_config,
+};
 use crate::preview::PreviewConfig;
-use crate::primitive::PlaygroundPrimitive;
 use game_commands::command::CommandConsoleOutput;
 
 pub fn react_render_helper_crook_cylinder(
@@ -14,12 +16,12 @@ pub fn react_render_helper_crook_cylinder(
 	mut console: ResMut<CommandConsoleOutput>,
 ) {
 	for (entity, helper) in &q {
-		*preview = PreviewConfig {
-			primitive: PlaygroundPrimitive::CrookCylinder(helper.inner),
-			res_2: helper.res_2,
-			transform: helper.preview_transform(),
-		};
-		console.0.clear();
-		commands.entity(entity).despawn();
+		commit_render_preview(
+			&mut commands,
+			entity,
+			render_helper_preview_config(helper),
+			&mut preview,
+			&mut console,
+		);
 	}
 }
