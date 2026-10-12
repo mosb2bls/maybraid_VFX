@@ -909,10 +909,11 @@ mod tests {
 		assert_eq!(health(&app, owner)?.current, 95.0);
 		app.world_mut().write_message(hit(owner, 5.0));
 		app.update();
-		let after = health(&app, owner)?.current;
-		assert_eq!(after, 90.0);
-		assert!(app.world().resource::<LubikanSelfHeal>().damaged);
+		assert_eq!(health(&app, owner)?.current, 90.0);
 		assert!(!app.world().resource::<LubikanSelfHeal>().active);
+		let pulse = finished(&mut app);
+		assert_eq!(pulse.len(), 1);
+		assert_eq!(pulse[0].outcome, LubikanActivationOutcome::Completed);
 		app.update();
 		assert_eq!(health(&app, owner)?.current, 90.0);
 		Ok(())
