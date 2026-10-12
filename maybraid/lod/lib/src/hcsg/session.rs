@@ -119,8 +119,8 @@ mod tests {
 
 	use super::*;
 	use crate::gen::{Id, OriginalId};
-	use crate::hcsg::{GenerationContext, GenerationScheme};
 	use crate::hcsg::worker::HcsgWorker;
+	use crate::hcsg::{GenerationContext, GenerationScheme};
 
 	#[derive(Clone, Copy)]
 	struct SessionRoot {

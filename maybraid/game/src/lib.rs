@@ -15,14 +15,16 @@ use crate::shell::{
 	stamp_preview_render_layers, ShellRoute,
 };
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use maybraid_input::MenuNavPad;
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
-	reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
-	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
+	parse_render_scale_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
+	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, RenderScale, ShadowQuality,
 	TerrainStreaming, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlaySessionEnded,
 	WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
+	RENDER_SCALE_ENV,
 };
 use menu_components::{
 	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
@@ -36,8 +38,9 @@ use menu_playground::{
 use menu_screens::{
 	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
 	request_show_in_game_settings, CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice,
-	HomeScreenPlugin, InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
-	InGameShadowQuality, LoadingScreenPlugin, LoadingScreenSystems, MenuScreen, SpinRevealScreen,
+	HomeScreenPlugin, InGameMenuChoice, InGameRenderScale, InGameScreenPlugin, InGameSettings,
+	InGameSettingsScreen, InGameSettingsSystems, InGameShadowQuality, LoadingScreenPlugin,
+	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen,
 };
 
 pub struct GamePlugin;
@@ -110,6 +113,8 @@ impl Plugin for GamePlugin {
 					)
 						.chain(),
 					sync_world_shadows,
+					sync_world_render_scale,
+					sync_render_scale_readout,
 				),
 			)
 			.add_systems(PreUpdate, sync_inventory_edit_follow.run_if(in_state(WorldPause::Menu)))
@@ -131,6 +136,10 @@ impl Plugin for GamePlugin {
 					persist_changed_player_inventory,
 					sync_world_mob_hud,
 					sync_world_shadows,
+					(sync_world_render_scale, sync_render_scale_readout)
+						.chain()
+						.after(InGameSettingsSystems::ApplyChoice)
+						.before(InGameSettingsSystems::Show),
 					pause_menu_back
 						.after(TextMenuSystems::Navigate)
 						.run_if(in_state(WorldPause::Menu)),
@@ -346,6 +355,59 @@ fn sync_world_shadows(settings: Res<InGameSettings>, mut quality: ResMut<ShadowQ
 	}
 }
 
+fn sync_world_render_scale(settings: Res<InGameSettings>, mut scale: ResMut<RenderScale>) {
+	let env = parse_render_scale_env(std::env::var(RENDER_SCALE_ENV).ok().as_deref());
+	apply_settings_to_render_scale(&mut scale, settings.render_scale, env);
+}
+
+fn apply_settings_to_render_scale(
+	scale: &mut RenderScale,
+	preference: InGameRenderScale,
+	env: Option<f32>,
+) {
+	let wanted = preference.live_request(env);
+	if scale.requested() == wanted {
+		return;
+	}
+	match wanted {
+		Some(value) => scale.set(value),
+		None => scale.clear_to_auto(),
+	}
+}
+
+fn sync_render_scale_readout(
+	scale: Res<RenderScale>,
+	windows: Query<&Window, With<PrimaryWindow>>,
+	mut readout: ResMut<RenderScaleReadout>,
+) {
+	let env = parse_render_scale_env(std::env::var(RENDER_SCALE_ENV).ok().as_deref());
+	let (physical, factor) = match windows.single() {
+		Ok(window) => {
+			(UVec2::new(window.physical_width(), window.physical_height()), window.scale_factor())
+		}
+		Err(_) => (UVec2::ZERO, 1.0),
+	};
+	let next = render_scale_readout(&scale, physical, factor, env);
+	if *readout != next {
+		*readout = next;
+	}
+}
+
+fn render_scale_readout(
+	scale: &RenderScale,
+	window_physical: UVec2,
+	window_scale_factor: f32,
+	env_override: Option<f32>,
+) -> RenderScaleReadout {
+	let plan = scale.plan(window_physical, window_scale_factor);
+	RenderScaleReadout {
+		effective: plan.scale,
+		window_physical,
+		target_physical: plan.target_size,
+		env_override,
+	}
+}
+
 fn home_settings_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
@@ -460,17 +522,21 @@ mod tests {
 	use menu_playground::ActiveCharacter;
 
 	use crate::{
-		assets_root, clear_play_session, load_active_player_loadout,
-		persist_changed_player_inventory, read_player_loadout, route_home_choice,
-		sync_world_loadout_from_editor, sync_world_shadows, GameFlow, PlaySession,
+		apply_settings_to_render_scale, assets_root, clear_play_session,
+		load_active_player_loadout, persist_changed_player_inventory, read_player_loadout,
+		render_scale_readout, route_home_choice, sync_world_loadout_from_editor,
+		sync_world_shadows, GameFlow, PlaySession,
 	};
 	use maybraid_world::{
-		ShadowQuality, WorldPlaySessionEnded, WorldPlayerLoadout, WorldSurfaceReady,
+		RenderScale, ShadowQuality, WorldPlaySessionEnded, WorldPlayerLoadout, WorldSurfaceReady,
 	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
 	};
-	use menu_screens::{GameMode, HomeMenuChoice, InGameSettings, InGameShadowQuality};
+	use menu_screens::{
+		GameMode, HomeMenuChoice, InGameRenderScale, InGameSettings, InGameShadowQuality,
+		RenderScaleReadout,
+	};
 
 	#[test]
 	fn crate_assets_contain_barlow() {
@@ -651,12 +717,45 @@ mod tests {
 	#[test]
 	fn pause_settings_copy_onto_the_sky_sun() -> anyhow::Result<()> {
 		let mut world = World::new();
-		world.insert_resource(InGameSettings { mob_hud: false, shadows: InGameShadowQuality::Low });
+		world.insert_resource(InGameSettings {
+			mob_hud: false,
+			shadows: InGameShadowQuality::Low,
+			render_scale: InGameRenderScale::Auto,
+		});
 		world.insert_resource(ShadowQuality::High);
 		world
 			.run_system_once(sync_world_shadows)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(*world.resource::<ShadowQuality>(), ShadowQuality::Low);
+		Ok(())
+	}
+
+	#[test]
+	fn settings_render_scale_applies_until_env_wins() -> anyhow::Result<()> {
+		let mut scale = RenderScale::default();
+		apply_settings_to_render_scale(&mut scale, InGameRenderScale::ThreeQuarter, None);
+		assert_eq!(scale.requested(), Some(0.75));
+		apply_settings_to_render_scale(&mut scale, InGameRenderScale::Auto, None);
+		assert_eq!(scale.requested(), None);
+		apply_settings_to_render_scale(&mut scale, InGameRenderScale::Half, Some(1.0));
+		assert_eq!(scale.requested(), Some(1.0));
+		Ok(())
+	}
+
+	#[test]
+	fn render_scale_readout_reports_resolution_and_env() -> anyhow::Result<()> {
+		let mut scale = RenderScale::default();
+		scale.set(0.5);
+		let readout = render_scale_readout(&scale, UVec2::new(3024, 1964), 2.0, Some(0.5));
+		assert_eq!(
+			readout,
+			RenderScaleReadout {
+				effective: 0.5,
+				window_physical: UVec2::new(3024, 1964),
+				target_physical: UVec2::new(1512, 982),
+				env_override: Some(0.5),
+			}
+		);
 		Ok(())
 	}
 }

@@ -34,8 +34,8 @@ use characters::{
 };
 use damage::{DamageSystems, DespawnAfter, Downed};
 use firearm_user::{held_scale_from_bounds, FirearmUser, FirearmUserSettings, GeneratedFirearm};
-use grenade_user::GrenadeUser;
 use firearms::{firearm_bounds, spawn_firearm_components};
+use grenade_user::GrenadeUser;
 use lod::lod_ref::LodRef;
 use lod::scene::LodSceneLevel;
 use lod::LodScene;
@@ -570,7 +570,9 @@ fn detach_downed_npc_loot(
 		}
 		if let Some(grenade) = grenade {
 			commands.entity(grenade.held).try_despawn();
-			commands.entity(body).remove::<(GrenadeUser, grenade_user::GrenadeThrow, PlayerUse)>();
+			commands
+				.entity(body)
+				.remove::<(GrenadeUser, grenade_user::GrenadeThrow, PlayerUse)>();
 		}
 		let mut policy = settings.ephemeral_policy();
 		policy.loot_secs = settings.loot_secs;
@@ -672,13 +674,8 @@ fn nearest_stash_in_radius<'a>(
 		.map(|(_, entity, bag, policy, translation)| (entity, bag, policy, translation))
 }
 
-type DroppingPlayer<'a> = (
-	Entity,
-	&'a Transform,
-	&'a InventoryUser,
-	Option<&'a FirearmUser>,
-	Option<&'a GrenadeUser>,
-);
+type DroppingPlayer<'a> =
+	(Entity, &'a Transform, &'a InventoryUser, Option<&'a FirearmUser>, Option<&'a GrenadeUser>);
 
 fn drop_player_inventory(
 	settings: Res<WorldStashSettings>,
@@ -705,7 +702,9 @@ fn drop_player_inventory(
 		}
 		if let Some(grenade) = grenade {
 			commands.entity(grenade.held).try_despawn();
-			commands.entity(player).remove::<(GrenadeUser, grenade_user::GrenadeThrow, PlayerUse)>();
+			commands
+				.entity(player)
+				.remove::<(GrenadeUser, grenade_user::GrenadeThrow, PlayerUse)>();
 		}
 		if let Some(loadout) = loadout.as_deref_mut() {
 			apply_dropped_loadout(loadout, &snapshot);

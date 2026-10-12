@@ -1,0 +1,23 @@
+[package]
+name = "screen-capture"
+version = { workspace = true }
+edition  = { workspace = true }
+license  = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+png = "0.17"
+scene-ref = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

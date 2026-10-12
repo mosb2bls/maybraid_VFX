@@ -16,11 +16,11 @@ use building_components::{FurnitureNode, FurnitureWireframePlugin};
 use furniture_assemblies::FurnitureAssembliesPlugin;
 use furniture_shaders::FurnitureShadersPlugin;
 use lod::gen::{Id, OriginalId};
-use procedural_common::union_aabb3_iter;
 use lod::hcsg::{self, GenerationContext, HcsgClass, PresentationPlugin, ViewerHcsgBounds};
 use lod::lod_ref::LodRef;
 use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
+use procedural_common::union_aabb3_iter;
 
 use crate::cell::{
 	intersects_xz, xz_radius_aabb, FurnitureCellExtent, FURNITURE_CELL_SIZE,
