@@ -1,7 +1,7 @@
 //! Preferred camera transform, projection, and framing.
 
 use bevy::math::bounding::Aabb3d;
-use bevy::prelude::{Transform, Vec3};
+use bevy::prelude::{Color, Transform, Vec3};
 
 /// Camera placement and projection for one capture.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -10,13 +10,29 @@ pub struct CaptureView {
 	pub look_at: Vec3,
 	pub up: Vec3,
 	pub projection: CaptureProjection,
+	/// `Camera2d` (XY map) instead of `Camera3d`.
+	pub two_d: bool,
+	pub clear: Color,
 }
 
 /// Perspective or orthographic capture projection.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CaptureProjection {
-	Perspective { fov: f32, near: f32, far: f32 },
-	Orthographic { scale: f32, near: f32, far: f32 },
+	Perspective {
+		fov: f32,
+		near: f32,
+		far: f32,
+	},
+	Orthographic {
+		scale: f32,
+		near: f32,
+		far: f32,
+	},
+	/// Fixed-size 2D ortho. World units, not pixels.
+	Orthographic2d {
+		width: f32,
+		height: f32,
+	},
 }
 
 /// How the camera uses subject extents after the scene is ready.
@@ -61,6 +77,26 @@ impl CaptureView {
 				near: Self::DEFAULT_NEAR,
 				far: Self::DEFAULT_FAR,
 			},
+			two_d: false,
+			clear: Color::srgba(0.0, 0.0, 0.0, 0.0),
+		}
+	}
+
+	pub fn two_d(mut self) -> Self {
+		self.two_d = true;
+		self
+	}
+
+	pub fn with_clear(mut self, clear: Color) -> Self {
+		self.clear = clear;
+		self
+	}
+
+	pub fn orthographic_2d(self, span: f32) -> Self {
+		Self {
+			projection: CaptureProjection::Orthographic2d { width: span, height: span },
+			two_d: true,
+			..self
 		}
 	}
 
@@ -127,7 +163,24 @@ impl CaptureView {
 						aabb, look_at, forward, right, up, fov, aspect, padding, near,
 					);
 				}
-				Self { eye: look_at - forward * dist, look_at, up, projection: self.projection }
+				Self {
+					eye: look_at - forward * dist,
+					look_at,
+					up,
+					projection: self.projection,
+					two_d: self.two_d,
+					clear: self.clear,
+				}
+			}
+			CaptureProjection::Orthographic2d { .. } => {
+				return Self {
+					eye: look_at + Vec3::Z,
+					look_at,
+					up: Vec3::Y,
+					projection: self.projection,
+					two_d: true,
+					clear: self.clear,
+				};
 			}
 			CaptureProjection::Orthographic { near, far, .. } => {
 				let mut min_x = f32::MAX;
@@ -148,6 +201,8 @@ impl CaptureView {
 						near,
 						far,
 					},
+					two_d: self.two_d,
+					clear: self.clear,
 				}
 			}
 		}
@@ -166,7 +221,7 @@ impl CaptureView {
 	/// Canonical cache fragment. Floats use bits so `-0` and `0` stay distinct.
 	pub fn cache_fragment(self) -> String {
 		format!(
-			"eye={}/{}/{} look={}/{}/{} up={}/{}/{} {}",
+			"eye={}/{}/{} look={}/{}/{} up={}/{}/{} 2d={} clear={}/{}/{}/{} {}",
 			self.eye.x.to_bits(),
 			self.eye.y.to_bits(),
 			self.eye.z.to_bits(),
@@ -176,6 +231,11 @@ impl CaptureView {
 			self.up.x.to_bits(),
 			self.up.y.to_bits(),
 			self.up.z.to_bits(),
+			self.two_d as u8,
+			self.clear.to_srgba().red.to_bits(),
+			self.clear.to_srgba().green.to_bits(),
+			self.clear.to_srgba().blue.to_bits(),
+			self.clear.to_srgba().alpha.to_bits(),
 			self.projection.cache_fragment(),
 		)
 	}
@@ -189,6 +249,9 @@ impl CaptureProjection {
 			}
 			Self::Orthographic { scale, near, far } => {
 				format!("ortho:{}/{}/{}", scale.to_bits(), near.to_bits(), far.to_bits())
+			}
+			Self::Orthographic2d { width, height } => {
+				format!("ortho2d:{}/{}", width.to_bits(), height.to_bits())
 			}
 		}
 	}

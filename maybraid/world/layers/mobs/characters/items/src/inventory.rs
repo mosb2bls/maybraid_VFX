@@ -261,7 +261,7 @@ impl InventoryItem {
 		}
 	}
 
-	/// Stable screen-capture identity. Grenades and skill maps have no 3D icon.
+	/// Stable screen-capture identity.
 	pub fn capture_id_label(&self) -> Option<String> {
 		match self {
 			Self::Firearm { spec, .. } => Some(format!("firearm:{}", spec.identity_label())),
@@ -271,7 +271,10 @@ impl InventoryItem {
 				material.id.label(),
 				material.color.label()
 			)),
-			Self::Grenade { .. } | Self::SkillMap { .. } => None,
+			Self::Grenade { spec, .. } => Some(format!("grenade:{}", spec.mesh.label())),
+			Self::SkillMap { spec } => {
+				Some(format!("skill-map:{}:{}", spec.kind.label(), spec.seed))
+			}
 		}
 	}
 
@@ -1178,10 +1181,16 @@ mod tests {
 			pants.capture_id_label().ok_or_else(|| anyhow::anyhow!("pants"))?,
 			painted.capture_id_label().ok_or_else(|| anyhow::anyhow!("painted"))?
 		);
-		assert!(InventoryItem::standard_grenade().capture_id_label().is_none());
-		assert!(InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1))
-			.capture_id_label()
-			.is_none());
+		assert_eq!(
+			InventoryItem::standard_grenade().capture_id_label().as_deref(),
+			Some("grenade:Grenade")
+		);
+		assert_eq!(
+			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1))
+				.capture_id_label()
+				.as_deref(),
+			Some("skill-map:fireball:1")
+		);
 		Ok(())
 	}
 

@@ -80,6 +80,41 @@ pub fn spawn_skill_map_catalog_preview(
 	SkillMapCatalogPreview { host, camera: view.camera, image: view.image, spec }
 }
 
+/// Centered catalog PNG. Inventory no longer keeps a live map camera.
+pub fn spawn_skill_map_spin_reveal_image(
+	commands: &mut Commands,
+	image: Handle<Image>,
+	size: f32,
+) -> Entity {
+	commands
+		.spawn((
+			Name::new("skill-map-spin-reveal-hud"),
+			SkillMapSpinRevealHud,
+			Node {
+				position_type: PositionType::Absolute,
+				left: Val::Px(0.0),
+				right: Val::Px(0.0),
+				top: Val::Px(0.0),
+				bottom: Val::Px(0.0),
+				width: Val::Percent(100.0),
+				height: Val::Percent(100.0),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			Pickable::IGNORE,
+		))
+		.with_children(|center| {
+			center.spawn((
+				SkillMapSpinRevealHudView,
+				ImageNode::new(image),
+				Node { width: Val::Px(size), height: Val::Px(size), ..default() },
+				Pickable::IGNORE,
+			));
+		})
+		.id()
+}
+
 /// Centered root [`ViewportNode`], same attach as the live corner map.
 pub fn spawn_skill_map_spin_reveal_hud(
 	commands: &mut Commands,

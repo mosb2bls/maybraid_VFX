@@ -196,7 +196,12 @@ fn inventory_catalog(menu: &ClothingMenu, owned: &[InventoryItem]) -> MenuNode<M
 				preview: PreviewColor::of(item.material()?.color),
 				image_key: item.icon_catalog_key(),
 				selected: menu.layers.contains(mesh),
-				rank: None,
+				rank: menu
+					.layers
+					.selected
+					.iter()
+					.position(|worn| *worn == mesh)
+					.map(|position| (position + 1) as u8),
 				event: MenuEvent::ToggleInventory(index),
 			})
 		}),
@@ -275,7 +280,7 @@ pub(crate) fn skills_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
 				path: item.path(),
 				thumbnail_camera: ThumbnailCamera::DEFAULT,
 				preview: PreviewColor::srgb(red, green, blue),
-				image_key: Some(spec.catalog_key()),
+				image_key: item.icon_catalog_key(),
 				selected: rank.is_some(),
 				rank,
 				event: MenuEvent::ToggleInventory(index),

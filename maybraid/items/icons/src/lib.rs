@@ -17,7 +17,7 @@ use screen_capture::{
 	ScreenCapturePlugin, ScreenCaptureSystems,
 };
 
-pub use host::ItemCaptureSubjects;
+pub use host::{CaptureHostRealized, ItemCaptureSubjects, HOST_SKILL_MAP};
 pub use prune::{
 	kept_icon_file_names, prune_icon_cache, prune_icon_cache_to_saved_inventories,
 	RequestPruneItemIconCache,
@@ -31,6 +31,10 @@ use std::path::PathBuf;
 pub const ITEM_ICON_RESOLUTION: CaptureResolution = CaptureResolution::ICON;
 /// Landscape HUD silhouette. Weapons are wide; a square PNG either pads or clips.
 pub const FIREARM_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(256, 112);
+/// Square HUD / catalog charge. The in-world grenade is a sphere.
+pub const GRENADE_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(128, 128);
+/// Authored skill-map world span (`MapExtents` 256). Kept here to avoid a crate cycle.
+const SKILL_MAP_ICON_SPAN: f32 = 256.0;
 
 /// Clothing inspect camera (catalog thumbnail).
 const CLOTHING_EYE: Vec3 = Vec3::new(0.0, 0.75, 2.5);
@@ -184,7 +188,22 @@ impl InventoryItemSubject {
 				view: CaptureView::look_at(CLOTHING_EYE, CLOTHING_LOOK)
 					.perspective(CaptureView::DEFAULT_FOV),
 			}),
-			InventoryItem::Grenade { .. } | InventoryItem::SkillMap { .. } => None,
+			InventoryItem::Grenade { .. } => Some(Self {
+				id: id.clone(),
+				scene: CaptureScene::sphere([0.42, 0.48, 0.32, 1.0]),
+				view: CaptureView::look_at(Vec3::new(1.2, 0.9, 1.2), Vec3::ZERO)
+					.perspective(CaptureView::DEFAULT_FOV),
+			}),
+			InventoryItem::SkillMap { spec, .. } => {
+				let [red, green, blue] = spec.kind.preview_srgb();
+				Some(Self {
+					id: id.clone(),
+					scene: CaptureScene::host(HOST_SKILL_MAP, id.as_str()),
+					view: CaptureView::look_at(Vec3::new(0.0, 0.0, 1.0), Vec3::ZERO)
+						.orthographic_2d(SKILL_MAP_ICON_SPAN)
+						.with_clear(Color::srgb(red, green, blue)),
+				})
+			}
 		}
 	}
 }
@@ -222,7 +241,7 @@ pub fn item_icon_requests(
 				revision,
 			)
 			.with_file_stem(item.name())
-			.with_framing(CaptureFraming::ICON)
+			.with_framing(framing_for(item))
 		})
 		.collect()
 }
@@ -230,7 +249,15 @@ pub fn item_icon_requests(
 fn resolution_for(item: &InventoryItem, mode: CaptureMode) -> CaptureResolution {
 	match (item, mode) {
 		(InventoryItem::Firearm { .. }, CaptureMode::Silhouette) => FIREARM_SILHOUETTE_RESOLUTION,
+		(InventoryItem::Grenade { .. }, CaptureMode::Silhouette) => GRENADE_SILHOUETTE_RESOLUTION,
 		_ => ITEM_ICON_RESOLUTION,
+	}
+}
+
+fn framing_for(item: &InventoryItem) -> CaptureFraming {
+	match item {
+		InventoryItem::SkillMap { .. } => CaptureFraming::Authored,
+		_ => CaptureFraming::ICON,
 	}
 }
 
@@ -351,14 +378,39 @@ mod tests {
 	}
 
 	#[test]
-	fn clothing_is_capturable_grenades_are_not() -> anyhow::Result<()> {
+	fn clothing_grenades_and_skill_maps_are_capturable() -> anyhow::Result<()> {
+		use character_items::{SkillMapKind, SkillMapSpec};
+		use screen_capture::{CaptureMeshKind, CaptureScene};
+
 		let clothing = InventoryItem::clothing(
 			ClothingMesh::Pants,
 			ClothingMaterial::Cloth,
 			ItemColor::Natural,
 		);
 		assert!(InventoryItemSubject::from_item(&clothing).is_some());
-		assert!(InventoryItemSubject::from_item(&InventoryItem::standard_grenade()).is_none());
+
+		let grenade = InventoryItem::standard_grenade();
+		let grenade_subject =
+			InventoryItemSubject::from_item(&grenade).ok_or_else(|| anyhow::anyhow!("grenade"))?;
+		assert!(matches!(
+			grenade_subject.capture_scene(),
+			CaptureScene::Mesh(mesh) if mesh.kind == CaptureMeshKind::Sphere
+		));
+		let grenade_requests =
+			item_icon_requests(&grenade, CaptureLighting::studio(), CaptureRevision::CURRENT);
+		assert_eq!(grenade_requests[1].resolution, GRENADE_SILHOUETTE_RESOLUTION);
+
+		let map = InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1));
+		let map_subject =
+			InventoryItemSubject::from_item(&map).ok_or_else(|| anyhow::anyhow!("skill map"))?;
+		assert!(matches!(
+			map_subject.capture_scene(),
+			CaptureScene::Host { kind, .. } if kind == HOST_SKILL_MAP
+		));
+		assert!(map_subject.preferred_view().two_d);
+		let map_requests =
+			item_icon_requests(&map, CaptureLighting::studio(), CaptureRevision::CURRENT);
+		assert_eq!(map_requests[0].framing, CaptureFraming::Authored);
 		Ok(())
 	}
 

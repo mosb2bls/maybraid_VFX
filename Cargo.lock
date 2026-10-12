@@ -6926,6 +6926,7 @@ dependencies = [
  "noise",
  "player",
  "projectiles",
+ "screen-capture",
  "threat-management-intelligence",
 ]
 

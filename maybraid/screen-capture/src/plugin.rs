@@ -15,9 +15,11 @@ use crate::error::{
 use crate::queue::CaptureQueue;
 use crate::session::{
 	apply_fit_framing, apply_silhouette, despawn_session, scene_ready, spawn_readback,
-	spawn_session, stamp_layers_on_descendants, take_pixels, CaptureHostReady, CapturePhase,
-	CapturePixels, CaptureReadback, CaptureSession, CAPTURE_RENDER_LAYER,
+	spawn_session, stamp_layers_on_descendants, take_pixels, CaptureExtents, CaptureHostReady,
+	CapturePhase, CapturePixels, CaptureReadback, CaptureSession, ExtentSources,
+	CAPTURE_RENDER_LAYER,
 };
+use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
 
 /// Isolated capture schedule. Hosts realize posed subjects before [`Self::Advance`].
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -207,6 +209,9 @@ struct AdvanceQueries<'w, 's> {
 	hosts: Query<'w, 's, (), With<CaptureHostReady>>,
 	standard: Query<'w, 's, &'static MeshMaterial3d<StandardMaterial>>,
 	pixels: Query<'w, 's, (Entity, &'static CaptureReadback, &'static CapturePixels)>,
+	skins: Query<'w, 's, &'static SkinnedMesh>,
+	authored_extents: Query<'w, 's, &'static CaptureExtents>,
+	bindposes: Option<Res<'w, Assets<SkinnedMeshInverseBindposes>>>,
 }
 
 fn advance_sessions(
@@ -295,16 +300,19 @@ fn advance_sessions(
 		) {
 			return;
 		}
-		if !session.framed
-			&& !apply_fit_framing(
-				&mut commands,
-				session,
-				&meshes,
-				&queries.mesh_handles,
-				&queries.children,
-				&queries.globals,
-			) {
-			return;
+		if !session.framed {
+			let sources = ExtentSources {
+				meshes: &meshes,
+				bindposes: queries.bindposes.as_deref(),
+				mesh_3d: &queries.mesh_handles,
+				skins: &queries.skins,
+				authored: &queries.authored_extents,
+				children: &queries.children,
+				globals: &queries.globals,
+			};
+			if !apply_fit_framing(&mut commands, session, &sources) {
+				return;
+			}
 		}
 		session.framed = true;
 		match apply_silhouette(

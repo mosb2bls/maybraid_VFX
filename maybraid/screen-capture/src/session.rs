@@ -5,6 +5,8 @@ use bevy::camera::primitives::MeshAabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, RenderTarget};
 use bevy::math::bounding::Aabb3d;
+use bevy::mesh::skinning::{InfluenceIterator, SkinnedMesh, SkinnedMeshInverseBindposes};
+use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::TextureFormat;
@@ -43,6 +45,13 @@ pub struct CaptureHostRoot {
 /// Application finished realizing a [`CaptureScene::Host`] (meshes + materials).
 #[derive(Component)]
 pub struct CaptureHostReady;
+
+/// Host-authored subject extents in capture-root local space.
+///
+/// Insert on the [`CaptureHostRoot`] before [`CaptureHostReady`]. Wins over
+/// the posed mesh scan for [`CaptureFraming::FitExtents`].
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct CaptureExtents(pub Aabb3d);
 
 /// Silhouette session root. Hosts may strip custom materials under this marker.
 #[derive(Component)]
@@ -187,6 +196,7 @@ fn spawn_subject(
 		CaptureScene::Mesh(mesh) => {
 			let bevy_mesh = match mesh.kind {
 				CaptureMeshKind::Cuboid => Mesh::from(Cuboid::from_length(1.0)),
+				CaptureMeshKind::Sphere => Mesh::from(Sphere::new(0.5)),
 			};
 			let material = StandardMaterial {
 				base_color: mesh.color(),
@@ -230,30 +240,34 @@ fn spawn_camera(
 	layers: RenderLayers,
 ) -> Entity {
 	let (transform, projection) = camera_pose(origin, request.view);
-	commands
-		.spawn((
-			Camera3d::default(),
-			Camera {
-				order: -20,
-				is_active: true,
-				clear_color: ClearColorConfig::Custom(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-				..Default::default()
-			},
-			RenderTarget::Image(target.into()),
-			projection,
-			transform,
-			Msaa::Sample4,
-			layers,
-			CaptureCamera,
-			CaptureRoot,
-			Name::new("capture_camera"),
-		))
-		.id()
+	let camera = Camera {
+		order: -20,
+		is_active: true,
+		clear_color: ClearColorConfig::Custom(request.view.clear),
+		..Default::default()
+	};
+	let extras = (
+		RenderTarget::Image(target.into()),
+		projection,
+		transform,
+		layers,
+		CaptureCamera,
+		CaptureRoot,
+		Name::new("capture_camera"),
+	);
+	if request.view.two_d {
+		commands.spawn((Camera2d, camera, extras)).id()
+	} else {
+		commands.spawn((Camera3d::default(), camera, Msaa::Sample4, extras)).id()
+	}
 }
 
 fn camera_pose(origin: Vec3, view: CaptureView) -> (Transform, Projection) {
-	let transform =
-		Transform::from_translation(origin + view.eye).looking_at(origin + view.look_at, view.up);
+	let transform = if view.two_d {
+		Transform::from_translation(origin + view.eye)
+	} else {
+		Transform::from_translation(origin + view.eye).looking_at(origin + view.look_at, view.up)
+	};
 	let projection = match view.projection {
 		CaptureProjection::Perspective { fov, near, far } => {
 			Projection::Perspective(PerspectiveProjection { fov, near, far, ..Default::default() })
@@ -266,23 +280,41 @@ fn camera_pose(origin: Vec3, view: CaptureView) -> (Transform, Projection) {
 				..OrthographicProjection::default_3d()
 			})
 		}
+		CaptureProjection::Orthographic2d { width, height } => {
+			let mut projection = OrthographicProjection::default_2d();
+			projection.scaling_mode = bevy::camera::ScalingMode::Fixed { width, height };
+			Projection::Orthographic(projection)
+		}
 	};
 	(transform, projection)
+}
+
+/// Read-only access for measuring a posed subject.
+pub(crate) struct ExtentSources<'a, 'w, 's> {
+	pub meshes: &'a Assets<Mesh>,
+	pub bindposes: Option<&'a Assets<SkinnedMeshInverseBindposes>>,
+	pub mesh_3d: &'a Query<'w, 's, &'static Mesh3d>,
+	pub skins: &'a Query<'w, 's, &'static SkinnedMesh>,
+	pub authored: &'a Query<'w, 's, &'static CaptureExtents>,
+	pub children: &'a Query<'w, 's, &'static Children>,
+	pub globals: &'a Query<'w, 's, &'static GlobalTransform>,
 }
 
 pub(crate) fn apply_fit_framing(
 	commands: &mut Commands,
 	session: &mut CaptureSession,
-	meshes: &Assets<Mesh>,
-	mesh_3d: &Query<&Mesh3d>,
-	children: &Query<&Children>,
-	globals: &Query<&GlobalTransform>,
+	sources: &ExtentSources,
 ) -> bool {
 	let CaptureFraming::FitExtents { padding } = session.request.framing else {
 		return true;
 	};
-	let Some(aabb) = subject_local_aabb(session.root, children, mesh_3d, meshes, globals) else {
-		return false;
+	let globals = sources.globals;
+	let aabb = match sources.authored.get(session.root) {
+		Ok(extents) => extents.0,
+		Err(_) => match subject_local_aabb(session.root, sources) {
+			Some(aabb) => aabb,
+			None => return false,
+		},
 	};
 	let aspect =
 		session.request.resolution.width as f32 / session.request.resolution.height.max(1) as f32;
@@ -297,35 +329,36 @@ pub(crate) fn apply_fit_framing(
 	true
 }
 
-fn subject_local_aabb(
-	root: Entity,
-	children: &Query<&Children>,
-	mesh_3d: &Query<&Mesh3d>,
-	meshes: &Assets<Mesh>,
-	globals: &Query<&GlobalTransform>,
-) -> Option<Aabb3d> {
-	let root_tf = globals.get(root).ok()?;
+/// Posed extents in root-local space. Skinned meshes are CPU-skinned so
+/// bone pose and collapsed (zero-scale) bones match what renders.
+fn subject_local_aabb(root: Entity, sources: &ExtentSources) -> Option<Aabb3d> {
+	let root_tf = sources.globals.get(root).ok()?;
 	let inverse = root_tf.affine().inverse();
 	let mut union: Option<Aabb3d> = None;
-	visit_descendants(root, children, &mut |entity| {
-		let Ok(handle) = mesh_3d.get(entity) else {
+	visit_descendants(root, sources.children, &mut |entity| {
+		let Ok(handle) = sources.mesh_3d.get(entity) else {
 			return;
 		};
-		let Some(mesh) = meshes.get(&handle.0) else {
+		let Some(mesh) = sources.meshes.get(&handle.0) else {
 			return;
 		};
-		let Some(local) = mesh.compute_aabb() else {
-			return;
+		let world_aabb = match skinned_world_aabb(entity, mesh, sources) {
+			Some(aabb) => aabb,
+			None => {
+				let Some(local) = mesh.compute_aabb() else {
+					return;
+				};
+				let Ok(world) = sources.globals.get(entity) else {
+					return;
+				};
+				if world.to_scale_rotation_translation().0.max_element() < 1e-3 {
+					return;
+				}
+				let min = Vec3::from(local.min());
+				let max = Vec3::from(local.max());
+				transform_aabb(Aabb3d { min: min.into(), max: max.into() }, world)
+			}
 		};
-		let Ok(world) = globals.get(entity) else {
-			return;
-		};
-		if world.to_scale_rotation_translation().0.max_element() < 1e-3 {
-			return;
-		}
-		let min = Vec3::from(local.min());
-		let max = Vec3::from(local.max());
-		let world_aabb = transform_aabb(Aabb3d { min: min.into(), max: max.into() }, world);
 		let local_aabb = transform_aabb_affine(world_aabb, inverse);
 		union = Some(match union {
 			Some(existing) => union_aabb(existing, local_aabb),
@@ -333,6 +366,60 @@ fn subject_local_aabb(
 		});
 	});
 	union.filter(|aabb| (Vec3::from(aabb.max) - Vec3::from(aabb.min)).max_element() > 1e-4)
+}
+
+/// Linear-blend skin every vertex on the CPU, matching `skinning.wgsl`
+/// (the mesh entity's own transform is ignored for skinned draws).
+fn skinned_world_aabb(entity: Entity, mesh: &Mesh, sources: &ExtentSources) -> Option<Aabb3d> {
+	let skin = sources.skins.get(entity).ok()?;
+	let bindposes = sources.bindposes?.get(&skin.inverse_bindposes)?;
+	let Some(VertexAttributeValues::Float32x3(positions)) =
+		mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+	else {
+		return None;
+	};
+	let influences = InfluenceIterator::new(mesh).ok()?;
+	// (skin matrix, joint collapsed to ~zero scale)
+	let joints: Vec<Option<(Mat4, bool)>> = skin
+		.joints
+		.iter()
+		.zip(bindposes.iter())
+		.map(|(&joint, bindpose)| {
+			sources.globals.get(joint).ok().map(|world| {
+				let collapsed = world.to_scale_rotation_translation().0.max_element() < 1e-3;
+				(world.to_matrix() * *bindpose, collapsed)
+			})
+		})
+		.collect();
+	let mut skinned = vec![Vec3::ZERO; positions.len()];
+	let mut weights = vec![0.0_f32; positions.len()];
+	let mut live = vec![0.0_f32; positions.len()];
+	for influence in influences {
+		let Some(Some((joint, collapsed))) = joints.get(influence.joint_index.0 as usize) else {
+			continue;
+		};
+		let Some(&position) = positions.get(influence.vertex_index) else {
+			continue;
+		};
+		skinned[influence.vertex_index] +=
+			joint.transform_point3(Vec3::from_array(position)) * influence.joint_weight;
+		weights[influence.vertex_index] += influence.joint_weight;
+		if !collapsed {
+			live[influence.vertex_index] += influence.joint_weight;
+		}
+	}
+	let mut min = Vec3::splat(f32::MAX);
+	let mut max = Vec3::splat(f32::MIN);
+	for ((point, weight), live) in skinned.iter().zip(&weights).zip(&live) {
+		// Fully collapsed vertices are degenerate triangles: nothing renders.
+		if *live <= 1e-4 {
+			continue;
+		}
+		let point = *point / *weight;
+		min = min.min(point);
+		max = max.max(point);
+	}
+	(min.cmple(max).all()).then(|| Aabb3d { min: min.into(), max: max.into() })
 }
 
 fn transform_aabb(aabb: Aabb3d, transform: &GlobalTransform) -> Aabb3d {
@@ -599,6 +686,71 @@ mod tests {
 		let silhouette = silhouette_from_standard(&original);
 		assert!(silhouette.unlit);
 		assert_eq!(silhouette.alpha_mode, AlphaMode::Mask(0.5));
+		Ok(())
+	}
+
+	#[test]
+	fn skinned_extents_follow_joints_not_the_mesh_entity() -> anyhow::Result<()> {
+		use bevy::ecs::system::SystemState;
+		use bevy::mesh::PrimitiveTopology;
+
+		let mut world = World::new();
+		let posed = world.spawn(GlobalTransform::from(Transform::from_xyz(5.0, 0.0, 0.0))).id();
+		let collapsed = world
+			.spawn(GlobalTransform::from(
+				Transform::from_xyz(-50.0, 0.0, 0.0).with_scale(Vec3::ZERO),
+			))
+			.id();
+		let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+			.with_inserted_attribute(
+				Mesh::ATTRIBUTE_POSITION,
+				vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [3.0, 0.0, 0.0]],
+			)
+			.with_inserted_attribute(
+				Mesh::ATTRIBUTE_JOINT_INDEX,
+				VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0]]),
+			)
+			.with_inserted_attribute(
+				Mesh::ATTRIBUTE_JOINT_WEIGHT,
+				vec![[1.0_f32, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+			);
+		let mut meshes = Assets::<Mesh>::default();
+		let handle = meshes.add(mesh);
+		let mut bindposes = Assets::<SkinnedMeshInverseBindposes>::default();
+		let inverse =
+			bindposes.add(SkinnedMeshInverseBindposes::from(vec![Mat4::IDENTITY, Mat4::IDENTITY]));
+		let entity = world
+			.spawn((
+				Mesh3d(handle.clone()),
+				SkinnedMesh { inverse_bindposes: inverse, joints: vec![posed, collapsed] },
+				GlobalTransform::from(Transform::from_xyz(100.0, 0.0, 0.0)),
+			))
+			.id();
+
+		let mut state: SystemState<(
+			Query<&Mesh3d>,
+			Query<&SkinnedMesh>,
+			Query<&CaptureExtents>,
+			Query<&Children>,
+			Query<&GlobalTransform>,
+		)> = SystemState::new(&mut world);
+		let (mesh_3d, skins, authored, children, globals) = state.get(&world)?;
+		let sources = ExtentSources {
+			meshes: &meshes,
+			bindposes: Some(&bindposes),
+			mesh_3d: &mesh_3d,
+			skins: &skins,
+			authored: &authored,
+			children: &children,
+			globals: &globals,
+		};
+		let mesh = meshes.get(&handle).ok_or_else(|| anyhow::anyhow!("mesh"))?;
+		let aabb = skinned_world_aabb(entity, mesh, &sources)
+			.ok_or_else(|| anyhow::anyhow!("no skinned aabb"))?;
+		// Posed joint at x = 5; the mesh entity at x = 100 is ignored; the
+		// vertex on the collapsed joint (would pin to x = -50) is dropped.
+		assert!((aabb.min.x - 5.0).abs() < 1e-4, "min {:?}", aabb.min);
+		assert!((aabb.max.x - 6.0).abs() < 1e-4, "max {:?}", aabb.max);
 		Ok(())
 	}
 

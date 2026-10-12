@@ -1,11 +1,8 @@
 //! Right-justified character-creator panel over the playground camera.
 
-use std::collections::HashMap;
-
 use bevy::prelude::*;
-use bevy::ui::widget::ViewportNode;
 use character_creation_menus::{CharacterMenu, MenuEvent};
-use character_items::{Inventory, InventoryItem};
+use character_items::Inventory;
 use character_ui_menu::{AssetThumbnailDisplay, MenuComponent};
 use item_icons::{
 	request_inventory_icons, CaptureClient, ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery,
@@ -19,8 +16,7 @@ use maybraid_character_ui_menu_renderer::{
 };
 use maybraid_menu_controller::MenuController;
 use maybraid_skill_map::{
-	spawn_skill_map_catalog_preview, spawn_skill_map_spin_reveal_hud, SkillMapCatalogPreview,
-	SkillMapMember, SkillMapSpinRevealHud, SkillMapSpinRevealHudView, SkillMapTileAssets,
+	spawn_skill_map_spin_reveal_image, SkillMapSpinRevealHud, SkillMapSpinRevealHudView,
 	SkillMapTileMaterialPlugin,
 };
 use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
@@ -126,14 +122,7 @@ struct CharacterSaveCorner;
 #[derive(Component)]
 struct CharacterBackCorner;
 
-#[derive(Resource, Default)]
-struct SkillMapMenuPreviewCache {
-	entries: HashMap<u64, SkillMapCatalogPreview>,
-	next_slot: u32,
-}
-
 struct CatalogThumbs<'a> {
-	skill_maps: &'a HashMap<u64, SkillMapCatalogPreview>,
 	icons: Option<&'a ItemIconCache>,
 }
 
@@ -149,14 +138,11 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 	}
 
 	fn image_for_key(&mut self, key: u64) -> Option<Handle<Image>> {
-		if let Some(entry) = self.skill_maps.get(&key) {
-			return Some(entry.image.clone());
-		}
 		self.icons.and_then(|cache| cache.shaded_for_key(key))
 	}
 
-	fn viewport_for_key(&mut self, key: u64) -> Option<Entity> {
-		self.skill_maps.get(&key).map(|entry| entry.camera)
+	fn viewport_for_key(&mut self, _key: u64) -> Option<Entity> {
+		None
 	}
 }
 
@@ -182,14 +168,12 @@ impl Plugin for CharacterScreenPlugin {
 			.init_resource::<CharacterUiSyncState>()
 			.init_resource::<OverlaySelectState>()
 			.init_resource::<OverlayUiSyncState>()
-			.init_resource::<SkillMapMenuPreviewCache>()
 			.add_observer(on_overlay_open)
 			.add_observer(on_overlay_close)
 			.add_observer(on_menu_activate)
 			.add_observer(on_menu_focus)
 			.add_observer(on_short_text_change)
 			.add_systems(Update, discover_menu_item_icons.in_set(ItemIconSystems::Discover))
-			.add_systems(Update, ensure_skill_map_menu_previews.before(CharacterHudSystems::Sync))
 			.add_systems(
 				Update,
 				(
@@ -197,7 +181,6 @@ impl Plugin for CharacterScreenPlugin {
 					sync_character_ui,
 					sync_overlay_select,
 					sync_spin_reveal_skill_map,
-					clear_skill_map_menu_previews,
 				)
 					.chain()
 					.in_set(CharacterHudSystems::Sync),
@@ -216,7 +199,6 @@ fn apply_show_character(
 	mut overlay: ResMut<OverlaySelectState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
-	previews: Res<SkillMapMenuPreviewCache>,
 	icons: Option<Res<ItemIconCache>>,
 ) {
 	if !take_menu_show_request(&mut commands, &requests, &existing) {
@@ -239,7 +221,6 @@ fn apply_show_character(
 		Some(save_corner),
 		Some(back_corner),
 		&[],
-		&previews.entries,
 		icons.as_deref(),
 	);
 }
@@ -254,7 +235,6 @@ fn sync_character_ui(
 	viewports: Query<(Entity, Option<&HudMenu>), With<CharacterPanelViewport>>,
 	save_corners: Query<Entity, With<CharacterSaveCorner>>,
 	back_corners: Query<Entity, With<CharacterBackCorner>>,
-	previews: Res<SkillMapMenuPreviewCache>,
 	icons: Option<Res<ItemIconCache>>,
 ) {
 	if screens.is_empty() {
@@ -285,7 +265,6 @@ fn sync_character_ui(
 		save_corner,
 		back_corner,
 		&previous,
-		&previews.entries,
 		icons.as_deref(),
 	);
 }
@@ -364,7 +343,6 @@ fn rebuild_character_ui_panel(
 	save_corner: Option<Entity>,
 	back_corner: Option<Entity>,
 	previous: &[(Entity, Option<HudMenu>)],
-	thumbnails: &HashMap<u64, SkillMapCatalogPreview>,
 	icons: Option<&ItemIconCache>,
 ) {
 	let mut prewarm = Vec::new();
@@ -382,7 +360,6 @@ fn rebuild_character_ui_panel(
 				menu_state,
 				viewport,
 				&mut prewarm,
-				thumbnails,
 				icons,
 			);
 		});
@@ -419,10 +396,9 @@ fn populate_character_ui_panel(
 	menu_state: &CharacterMenuState,
 	hud_menu: Entity,
 	prewarm: &mut Vec<character_ui_menu::ThumbnailRequest>,
-	images: &HashMap<u64, SkillMapCatalogPreview>,
 	icons: Option<&ItemIconCache>,
 ) -> usize {
-	let mut thumbnails = CatalogThumbs { skill_maps: images, icons };
+	let mut thumbnails = CatalogThumbs { icons };
 	let mut context = RenderContext {
 		fonts,
 		thumbnails: &mut thumbnails,
@@ -450,7 +426,6 @@ fn sync_overlay_select(
 	menu_state: Res<CharacterMenuState>,
 	overlay: Res<OverlaySelectState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
-	previews: Res<SkillMapMenuPreviewCache>,
 	icons: Option<Res<ItemIconCache>>,
 ) {
 	let Ok(screen) = screens.single() else {
@@ -501,7 +476,6 @@ fn sync_overlay_select(
 			node,
 			None,
 			menu_state.0.overlay_editable(key),
-			&previews.entries,
 			icons.as_deref(),
 		);
 		return;
@@ -515,7 +489,6 @@ fn sync_overlay_select(
 			node,
 			menu.copied(),
 			menu_state.0.overlay_editable(key),
-			&previews.entries,
 			icons.as_deref(),
 		);
 	}
@@ -528,11 +501,10 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 	node: &character_ui_menu::MenuNode<E>,
 	previous: Option<HudMenu>,
 	interactive: bool,
-	images: &HashMap<u64, SkillMapCatalogPreview>,
 	icons: Option<&ItemIconCache>,
 ) {
 	let mut prewarm = Vec::new();
-	let mut thumbnails = CatalogThumbs { skill_maps: images, icons };
+	let mut thumbnails = CatalogThumbs { icons };
 	commands.entity(viewport).despawn_related::<Children>();
 	let mut item_count = 0;
 	commands.entity(viewport).with_children(|body| {
@@ -556,125 +528,49 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 
 fn discover_menu_item_icons(
 	menu_state: Res<CharacterMenuState>,
+	spin_items: Option<Res<SpinRevealItems>>,
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut subjects: ResMut<ItemCaptureSubjects>,
 	mut client: CaptureClient,
 ) {
-	let Some(inventory) = menu_state.0.inventory.as_ref() else {
-		return;
-	};
-	if !menu_state.is_changed() && discovery.requested_len() > 0 {
-		return;
+	if let Some(inventory) = menu_state.0.inventory.as_ref() {
+		request_inventory_icons(inventory, &mut discovery, &mut subjects, &mut client);
 	}
-	request_inventory_icons(inventory, &mut discovery, &mut subjects, &mut client);
-}
-
-fn ensure_skill_map_menu_previews(
-	mut commands: Commands,
-	mut images: ResMut<Assets<Image>>,
-	tiles: Option<Res<SkillMapTileAssets>>,
-	menu_state: Res<CharacterMenuState>,
-	spin_items: Option<Res<SpinRevealItems>>,
-	mut cache: ResMut<SkillMapMenuPreviewCache>,
-	mut ui_sync: ResMut<CharacterUiSyncState>,
-	mut overlay_sync: ResMut<OverlayUiSyncState>,
-) {
-	let Some(tiles) = tiles else {
-		return;
-	};
-	let mut spawned = false;
-	for spec in skill_map_specs_to_preview(menu_state.0.inventory.as_ref(), spin_items.as_deref()) {
-		let key = spec.catalog_key();
-		if cache.entries.contains_key(&key) {
-			continue;
-		}
-		let slot = cache.next_slot;
-		cache.next_slot += 1;
-		let preview =
-			spawn_skill_map_catalog_preview(&mut commands, images.as_mut(), &tiles, spec, slot);
-		cache.entries.insert(key, preview);
-		spawned = true;
+	if let Some(spin) = spin_items.as_deref() {
+		let bag = Inventory { items: spin.0.clone(), ..Inventory::default() };
+		request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client);
 	}
-	if spawned {
-		ui_sync.menu_dirty = true;
-		overlay_sync.menu_dirty = true;
-	}
-}
-
-fn skill_map_specs_to_preview(
-	inventory: Option<&Inventory>,
-	spin: Option<&SpinRevealItems>,
-) -> Vec<character_items::SkillMapSpec> {
-	let mut specs = Vec::new();
-	if let Some(inventory) = inventory {
-		specs.extend(inventory.items.iter().filter_map(InventoryItem::skill_map_spec));
-	}
-	if let Some(spin) = spin {
-		specs.extend(spin.0.iter().filter_map(InventoryItem::skill_map_spec));
-	}
-	specs
 }
 
 fn sync_spin_reveal_skill_map(
 	mut commands: Commands,
 	spin: Option<Res<SpinRevealCurrent>>,
 	spin_screens: Query<(), With<SpinRevealScreen>>,
-	cache: Res<SkillMapMenuPreviewCache>,
+	icons: Option<Res<ItemIconCache>>,
 	mut hosts: Query<&mut Visibility, With<SkillMapSpinRevealHud>>,
-	mut views: Query<&mut ViewportNode, With<SkillMapSpinRevealHudView>>,
+	mut views: Query<&mut ImageNode, With<SkillMapSpinRevealHudView>>,
 ) {
 	let wanted = (!spin_screens.is_empty())
 		.then_some(spin.as_deref())
 		.flatten()
 		.filter(|spin| spin.revealed)
-		.and_then(|spin| spin.item.skill_map_spec())
-		.and_then(|spec| cache.entries.get(&spec.catalog_key()));
-	let Some(preview) = wanted else {
+		.and_then(|spin| icons.as_ref().and_then(|cache| cache.shaded_for_item(&spin.item)));
+	let Some(image) = wanted else {
 		for mut visibility in &mut hosts {
 			*visibility = Visibility::Hidden;
 		}
 		return;
 	};
 	if hosts.is_empty() {
-		spawn_skill_map_spin_reveal_hud(&mut commands, preview.camera, SPIN_REVEAL_SLOT_SIZE);
+		spawn_skill_map_spin_reveal_image(&mut commands, image, SPIN_REVEAL_SLOT_SIZE);
 		return;
 	}
 	for mut visibility in &mut hosts {
 		*visibility = Visibility::Inherited;
 	}
-	for mut viewport in &mut views {
-		viewport.camera = Some(preview.camera);
+	for mut node in &mut views {
+		node.image = image.clone();
 	}
-}
-
-fn clear_skill_map_menu_previews(
-	screens: Query<(), With<CharacterScreen>>,
-	spin_screens: Query<(), With<SpinRevealScreen>>,
-	mut cache: ResMut<SkillMapMenuPreviewCache>,
-	members: Query<(Entity, &SkillMapMember)>,
-	huds: Query<Entity, With<SkillMapSpinRevealHud>>,
-	mut commands: Commands,
-) {
-	if !screens.is_empty() || !spin_screens.is_empty() {
-		return;
-	}
-	if cache.entries.is_empty() && huds.is_empty() {
-		return;
-	}
-	let hosts: Vec<Entity> = cache.entries.values().map(|entry| entry.host).collect();
-	for (entity, member) in &members {
-		if hosts.contains(&member.session) {
-			commands.entity(entity).try_despawn();
-		}
-	}
-	for host in hosts {
-		commands.entity(host).try_despawn();
-	}
-	for hud in &huds {
-		commands.entity(hud).try_despawn();
-	}
-	cache.entries.clear();
-	cache.next_slot = 0;
 }
 
 fn on_overlay_open(
@@ -798,19 +694,17 @@ mod tests {
 		use character_items::{FirearmMesh, InventoryItem};
 		use item_icons::{CaptureId, ItemIconCache};
 		use maybraid_character_ui_menu_renderer::MenuThumbnailContext;
-		use std::collections::HashMap;
 
 		let item = InventoryItem::firearm(FirearmMesh::Bullpup);
 		let key = item.icon_catalog_key().ok_or_else(|| anyhow::anyhow!("firearm catalog key"))?;
 		let label = item.capture_id_label().ok_or_else(|| anyhow::anyhow!("firearm capture id"))?;
 		let mut cache = ItemIconCache::default();
 		cache.insert_shaded(CaptureId::new(label), bevy::prelude::Handle::default());
-		let skill_maps = HashMap::new();
-		let mut ready = CatalogThumbs { skill_maps: &skill_maps, icons: Some(&cache) };
+		let mut ready = CatalogThumbs { icons: Some(&cache) };
 		if ready.image_for_key(key).is_none() {
 			anyhow::bail!("ready catalog should show the shaded icon");
 		}
-		let mut pending = CatalogThumbs { skill_maps: &skill_maps, icons: None };
+		let mut pending = CatalogThumbs { icons: None };
 		if pending.image_for_key(key).is_some() {
 			anyhow::bail!("pending catalog should keep the placeholder");
 		}

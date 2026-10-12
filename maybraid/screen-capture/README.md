@@ -35,8 +35,20 @@ A [`CaptureSubject`] supplies:
 - a preferred [`CaptureView`] (eye, look-at, projection)
 
 Requests specify mode, resolution, lighting, framing, and an explicit capture
-revision. [`CaptureFraming::FitExtents`] recenters and zooms to the ready
-subject’s mesh AABB; [`CaptureFraming::Authored`] keeps the supplied view.
+revision. [`CaptureFraming::Authored`] keeps the supplied view.
+2D hosts (`CaptureView::two_d`) spawn a `Camera2d` with a fixed-size
+ortho so skill-map tiles can be snapshotted the same way as 3D kits.
+
+[`CaptureFraming::FitExtents`] fits in two stages:
+
+1. **Extents.** A host [`CaptureExtents`] on the capture root wins.
+   Otherwise the ready subject is measured posed: skinned meshes are
+   CPU-skinned through their joints (the mesh entity transform is ignored,
+   as in `skinning.wgsl`), and vertices bound only to zero-scale joints are
+   dropped. The camera keeps the authored look-at height and trucks so the
+   projected box is horizontally centered.
+2. **Pixels.** The scene renders 3× supersampled with a loose margin, then
+   crops to the rendered alpha bounds at the output aspect and downsamples.
 Matching in-flight requests are deduplicated. Completion and failure are
 reported with [`CaptureCompleted`] / [`CaptureFailed`].
 

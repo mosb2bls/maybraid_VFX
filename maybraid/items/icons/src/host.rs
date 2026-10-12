@@ -26,6 +26,7 @@ use std::collections::HashMap;
 
 pub const HOST_FIREARM: &str = "generated-firearm";
 pub const HOST_CLOTHING: &str = "clothing-preview";
+pub const HOST_SKILL_MAP: &str = "skill-map-preview";
 
 #[derive(Resource, Default, Debug)]
 pub struct ItemCaptureSubjects {
@@ -43,7 +44,7 @@ impl ItemCaptureSubjects {
 }
 
 #[derive(Component)]
-pub(crate) struct CaptureHostRealized;
+pub struct CaptureHostRealized;
 
 /// Bind-pose garment with catalog material — same inspect path as the menu preview.
 #[derive(Clone, PartialEq, Component)]

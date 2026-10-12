@@ -39,6 +39,7 @@ pub struct CaptureMesh {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CaptureMeshKind {
 	Cuboid,
+	Sphere,
 }
 
 impl CaptureScene {
@@ -48,6 +49,10 @@ impl CaptureScene {
 
 	pub fn cuboid(color: [f32; 4]) -> Self {
 		Self::Mesh(CaptureMesh { kind: CaptureMeshKind::Cuboid, color })
+	}
+
+	pub fn sphere(color: [f32; 4]) -> Self {
+		Self::Mesh(CaptureMesh { kind: CaptureMeshKind::Sphere, color })
 	}
 
 	pub fn host(kind: impl Into<String>, fragment: impl Into<String>) -> Self {

@@ -4,15 +4,16 @@ Maybraid first-encounter wiring on top of [`screen-capture`](../../screen-captur
 Hosts request both [`CaptureMode::Shaded`] and [`CaptureMode::Silhouette`] the
 first time an inventory item is seen. The crate never mutates the live scene. Isolated captures spawn the same
 posed hosts the inspect preview uses: [`firearm_user::GeneratedFirearm`] for
-kits and a bind-pose clothing preview with catalog materials. Silhouette
+kits, a bind-pose clothing preview with catalog materials, a sphere for the
+charge grenade, and authored skill-map tiles (2D ortho, no live menu camera). Silhouette
 mode strips clothing/face shaders every frame so shader restamp cannot leave
 meshes bare, and capture restamps unlit gray through settle/readback. Icon
-requests use [`CaptureFraming::FitExtents`]: the camera fits the mesh
-AABB loosely, renders 3× supersampled, then crops to the rendered alpha so
-the posed kit is centered and fills the PNG. Mesh AABBs are bind-pose for
-skinned kits, so the pixel crop is what makes the fit exact. Unused stock and
-barrel bones scale to zero. Firearm silhouettes capture landscape so the
-HUD slot can match the gun's aspect.
+requests use [`CaptureFraming::FitExtents`]: the camera fits posed extents
+(skinned meshes are CPU-skinned, so collapsed stock/barrel bones drop out),
+renders 3× supersampled, then crops to the rendered alpha so the kit is
+centered and fills the PNG. Hosts that know better can insert
+[`screen_capture::CaptureExtents`] on the capture root. Firearm silhouettes
+capture landscape so the HUD slot can match the gun's aspect.
 
 Inventory catalogs look up **shaded** handles by
 [`character_items::InventoryItem::icon_catalog_key`]. The skill-map HUD looks
