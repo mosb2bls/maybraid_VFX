@@ -29,6 +29,7 @@ mod player_lifecycle;
 mod player_position;
 mod poi;
 mod render_scale;
+mod spawn_surface;
 mod start;
 mod stash;
 mod ui;
@@ -207,6 +208,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldLayersPlugin)
 			.add_plugins(DiscoveryPlayerPlugin)
 			.add_plugins(WorldIntelligencePlugin)
+			.add_plugins(crate::spawn_surface::SpawnSurfacePlugin)
 			.add_plugins(WeatherPlugin)
 			.add_plugins(SkillMapPlugin)
 			.add_plugins(world_lubikan::WorldLubikanPlugin)

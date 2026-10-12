@@ -1,0 +1,15 @@
+# Origin first spawn with an explicit start (skips the first-life picker).
+# Reproduces the warmup sink at --start-at=0,0: player Y vs composed ground.
+# Do not send `stats vsync`.
+
+{"cmd":"start","xz":[0,0]}
+
+{"cmd":"scenario","name":"origin-first-spawn-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":20}
+{"cmd":"scenario","name":"origin-first-spawn-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"origin-first-spawn","mark":"start"}
+{"cmd":"wait","secs":10}
+{"cmd":"scenario","name":"origin-first-spawn","mark":"end"}
+{"cmd":"quit"}

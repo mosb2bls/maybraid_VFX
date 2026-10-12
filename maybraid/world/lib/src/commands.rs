@@ -492,6 +492,14 @@ mod tests {
 	}
 
 	#[test]
+	fn player_down_is_not_a_playground_command() {
+		assert!(
+			PlaygroundCommand::parse_line("player down").is_err(),
+			"lethal down stays agent-only; do not register it on the production `/` console"
+		);
+	}
+
+	#[test]
 	fn parse_mode_and_set_character() {
 		let cmd = PlaygroundCommand::parse_line("mode character").unwrap();
 		assert!(matches!(cmd, PlaygroundCommand::Mode(Mode::Character)));

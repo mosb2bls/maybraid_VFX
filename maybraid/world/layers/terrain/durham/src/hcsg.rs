@@ -273,6 +273,27 @@ impl DurhamSurface<'_> {
 		Ok(self.height_at(xz)?.unwrap_or_else(|| self.fallback_height_at(xz)))
 	}
 
+	/// Published composed height. Unpublished or [`Busy`] cells are `None`.
+	pub fn composed_height_at(&self, xz: Vec2) -> Option<f32> {
+		match self.height_at(xz) {
+			Ok(Some(elevation)) if elevation.is_finite() => Some(elevation),
+			_ => None,
+		}
+	}
+
+	/// Lift `origin` onto composed ground plus `clearance` when that would bury it.
+	///
+	/// Unpublished or busy cells leave `origin` unchanged so callers can keep a
+	/// generation-time or POI height instead of dropping onto base noise.
+	pub fn lift_origin_above_composed(&self, origin: Vec3, clearance: f32) -> Vec3 {
+		match self.composed_height_at(origin.xz()) {
+			Some(elevation) if origin.y < elevation + clearance => {
+				Vec3::new(origin.x, elevation + clearance, origin.z)
+			}
+			_ => origin,
+		}
+	}
+
 	pub fn water_column_at(&self, xz: Vec2) -> Result<Option<WaterColumn>, lod::hcsg::Busy> {
 		self.storage.try_water_column_at(&self.layout, xz.x, xz.y)
 	}
@@ -376,7 +397,8 @@ mod tests {
 			.map(|OriginalId(id)| id)
 			.collect();
 		cells.sort();
-		let terrain: Vec<Id> = hcsg_hosts::<Terrain>(&mut app).into_iter().map(|(id, _)| id).collect();
+		let terrain: Vec<Id> =
+			hcsg_hosts::<Terrain>(&mut app).into_iter().map(|(id, _)| id).collect();
 		assert_eq!(terrain, cells, "one terrain host per layout cell");
 		let water: Vec<Id> = hcsg_hosts::<Water>(&mut app).into_iter().map(|(id, _)| id).collect();
 		let mut wet = app
@@ -446,6 +468,21 @@ mod tests {
 			base.height_at(outside.x, outside.y)
 		);
 		assert_eq!(surface.water_column_at(inside).map_err(storage_busy)?, None);
+		assert_eq!(surface.composed_height_at(inside), Some(base.height_at(inside.x, inside.y)));
+		assert_eq!(surface.composed_height_at(outside), None);
+		let buried =
+			Vec3::new(inside.x, surface.composed_height_at(inside).unwrap() - 40.0, inside.y);
+		assert_eq!(
+			surface.lift_origin_above_composed(buried, 1.05).y,
+			surface.composed_height_at(inside).unwrap() + 1.05
+		);
+		let already_above =
+			Vec3::new(inside.x, surface.composed_height_at(inside).unwrap() + 3.0, inside.y);
+		assert_eq!(surface.lift_origin_above_composed(already_above, 1.05), already_above);
+		assert_eq!(
+			surface.lift_origin_above_composed(Vec3::new(outside.x, 4.0, outside.y), 1.05),
+			Vec3::new(outside.x, 4.0, outside.y)
+		);
 		Ok(())
 	}
 }

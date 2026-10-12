@@ -7053,6 +7053,7 @@ dependencies = [
  "meandering-intelligence",
  "menu-components",
  "mob-characters",
+ "mob-intelligence",
  "mob-layer-model",
  "mob-scenes",
  "movement-intelligence",
