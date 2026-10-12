@@ -38,10 +38,10 @@ impl VisualStyle {
 	pub fn description(self) -> &'static str {
 		match self {
 			Self::Impressionist => {
-				"Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with artistic blur. Default."
+				"Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with a tighter wash than Watercolor. Default."
 			}
 			Self::Watercolor => {
-				"Wet wash at ~1280×720 (16:9). Same painterly blit as Impressionist, more source detail."
+				"Wet wash at ~1280×720 (16:9). Same painterly blit as Impressionist at full strength, more source detail."
 			}
 			Self::Sharp => "Native physical resolution, untreated. Primarily useful for testing.",
 			Self::Retro => "Nearest-neighbor upscale from ~540×304 (16:9). Performance mode.",
@@ -51,6 +51,15 @@ impl VisualStyle {
 			Self::PrePostModern => {
 				"Misregistered color-print effect at ~1280×720 (16:9). Slight color layer displacement and stable dithering."
 			}
+		}
+	}
+
+	/// Scales the shared painterly kernel. Watercolor is the 1.0 wash;
+	/// Impressionist is 14.5% tighter (5% then another 10%).
+	pub fn wash_strength(self) -> f32 {
+		match self {
+			Self::Impressionist => 0.855,
+			_ => 1.0,
 		}
 	}
 
@@ -108,6 +117,7 @@ impl VisualStyle {
 				window_logical: Vec2::ZERO,
 				image_scale_factor: 1.0,
 				treatment: PresentationTreatment::None,
+				wash_strength: self.wash_strength(),
 			};
 		}
 
@@ -138,7 +148,14 @@ impl VisualStyle {
 			1.0
 		};
 
-		VisualStylePlan { style: self, target_size, window_logical, image_scale_factor, treatment }
+		VisualStylePlan {
+			style: self,
+			target_size,
+			window_logical,
+			image_scale_factor,
+			treatment,
+			wash_strength: self.wash_strength(),
+		}
 	}
 }
 
@@ -159,6 +176,7 @@ pub struct VisualStylePlan {
 	pub window_logical: Vec2,
 	pub image_scale_factor: f32,
 	pub treatment: PresentationTreatment,
+	pub wash_strength: f32,
 }
 
 impl VisualStylePlan {
@@ -234,6 +252,7 @@ mod tests {
 		let expected_width = (394.0_f32 * 1920.0 / 1080.0).round() as u32;
 		assert_eq!(plan.target_size.x, expected_width);
 		assert_eq!(plan.treatment, PresentationTreatment::Impressionist);
+		assert_eq!(plan.wash_strength, 0.855);
 		assert!(plan.requires_offscreen(UVec2::new(1920, 1080)));
 	}
 
@@ -242,7 +261,17 @@ mod tests {
 		let plan = VisualStyle::Watercolor.plan(UVec2::new(1920, 1080), 1.0);
 		assert_eq!(plan.target_size, UVec2::new(1280, 720));
 		assert_eq!(plan.treatment, PresentationTreatment::Impressionist);
+		assert_eq!(plan.wash_strength, 1.0);
 		assert!(plan.requires_offscreen(UVec2::new(1920, 1080)));
+	}
+
+	#[test]
+	fn impressionist_wash_is_tighter_than_watercolor() {
+		assert_eq!(VisualStyle::Impressionist.wash_strength(), 0.855);
+		assert_eq!(VisualStyle::Watercolor.wash_strength(), 1.0);
+		let plan = VisualStyle::Impressionist.plan(UVec2::new(1920, 1080), 1.0);
+		assert_eq!(plan.treatment, PresentationTreatment::Impressionist);
+		assert_eq!(plan.wash_strength, 0.855);
 	}
 
 	#[test]

@@ -16,6 +16,8 @@
 struct TreatmentParams {
     source_size: vec2<f32>,
     target_size: vec2<f32>,
+    wash_strength: f32,
+    _pad: vec3<f32>,
 }
 
 // IMPRESSIONIST: Linear upscale with painterly softening.
@@ -28,8 +30,10 @@ fn impressionist_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let texel_size = 1.0 / treatment_params.source_size;
 
     let center = textureSample(source_texture, source_sampler, uv);
-    // ~2.4 source texels ≈ 5 output pixels at 1280×720 → 2560×1440.
-    let offset = texel_size * 2.4;
+    // Base wash (strength 1.0): ~2.16 source texels, 10% tighter than the
+    // strong 2.4 / 0.28 / 0.16 set. Impressionist passes 0.855 (another 14.5%).
+    let strength = treatment_params.wash_strength;
+    let offset = texel_size * (2.16 * strength);
 
     let n1 = textureSample(source_texture, source_sampler, uv + vec2<f32>(-offset.x, 0.0));
     let n2 = textureSample(source_texture, source_sampler, uv + vec2<f32>(offset.x, 0.0));
@@ -42,21 +46,21 @@ fn impressionist_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let d4 = color_distance(center, n4);
 
     // Higher threshold lets near-colors wash together; silhouettes still drop out.
-    let threshold = 0.28;
+    let threshold = 0.252 * strength;
     let w1 = smoothstep(threshold, 0.0, d1);
     let w2 = smoothstep(threshold, 0.0, d2);
     let w3 = smoothstep(threshold, 0.0, d3);
     let w4 = smoothstep(threshold, 0.0, d4);
 
-    let center_w = 0.5;
+    let center_w = mix(1.0, 0.55, strength);
     let total_weight = center_w + w1 + w2 + w3 + w4;
     let washed = (center * center_w + n1 * w1 + n2 * w2 + n3 * w3 + n4 * w4) / total_weight;
 
     // ALU-only: nudge toward the 5-tap mean so neighboring hues bleed a little.
     let mean5 = (center + n1 + n2 + n3 + n4) * 0.2;
     let luma = dot(washed.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-    let softened = mix(washed.rgb, vec3<f32>(luma), 0.06);
-    let rgb = mix(softened, mean5.rgb, 0.16);
+    let softened = mix(washed.rgb, vec3<f32>(luma), 0.054 * strength);
+    let rgb = mix(softened, mean5.rgb, 0.144 * strength);
     return vec4<f32>(rgb, washed.a);
 }
 

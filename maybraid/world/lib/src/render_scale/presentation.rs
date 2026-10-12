@@ -29,10 +29,26 @@ fn use_presentation_entry(descriptor: &mut RenderPipelineDescriptor, entry: &'st
 }
 
 /// Parameters passed to presentation shaders.
+///
+/// `wash_strength` scales the Impressionist kernel (1.0 = Watercolor / current
+/// wash). `_pad` keeps the uniform 16-byte aligned to match WGSL.
 #[derive(Clone, Copy, Debug, ShaderType)]
 pub struct TreatmentParams {
 	pub source_size: Vec2,
 	pub target_size: Vec2,
+	pub wash_strength: f32,
+	pub _pad: Vec3,
+}
+
+impl TreatmentParams {
+	fn new(source_size: UVec2, target_size: UVec2, wash_strength: f32) -> Self {
+		Self {
+			source_size: source_size.as_vec2(),
+			target_size: target_size.as_vec2(),
+			wash_strength,
+			_pad: Vec3::ZERO,
+		}
+	}
 }
 
 /// Impressionist presentation material: linear upscale with painterly softening.
@@ -65,14 +81,13 @@ impl Material2d for ImpressionistMaterial {
 }
 
 impl ImpressionistMaterial {
-	pub fn new(source: Handle<Image>, source_size: UVec2, target_size: UVec2) -> Self {
-		Self {
-			source,
-			params: TreatmentParams {
-				source_size: source_size.as_vec2(),
-				target_size: target_size.as_vec2(),
-			},
-		}
+	pub fn new(
+		source: Handle<Image>,
+		source_size: UVec2,
+		target_size: UVec2,
+		wash_strength: f32,
+	) -> Self {
+		Self { source, params: TreatmentParams::new(source_size, target_size, wash_strength) }
 	}
 }
 
@@ -107,13 +122,7 @@ impl Material2d for PrePostModernMaterial {
 
 impl PrePostModernMaterial {
 	pub fn new(source: Handle<Image>, source_size: UVec2, target_size: UVec2) -> Self {
-		Self {
-			source,
-			params: TreatmentParams {
-				source_size: source_size.as_vec2(),
-				target_size: target_size.as_vec2(),
-			},
-		}
+		Self { source, params: TreatmentParams::new(source_size, target_size, 1.0) }
 	}
 }
 
@@ -148,13 +157,7 @@ impl Material2d for NearestNeighborMaterial {
 
 impl NearestNeighborMaterial {
 	pub fn new(source: Handle<Image>, source_size: UVec2, target_size: UVec2) -> Self {
-		Self {
-			source,
-			params: TreatmentParams {
-				source_size: source_size.as_vec2(),
-				target_size: target_size.as_vec2(),
-			},
-		}
+		Self { source, params: TreatmentParams::new(source_size, target_size, 1.0) }
 	}
 }
 
@@ -184,13 +187,15 @@ pub fn create_presentation_material(
 	source: Handle<Image>,
 	source_size: UVec2,
 	target_size: UVec2,
+	wash_strength: f32,
 	impressionist: &mut Assets<ImpressionistMaterial>,
 	pre_post_modern: &mut Assets<PrePostModernMaterial>,
 	nearest_neighbor: &mut Assets<NearestNeighborMaterial>,
 ) -> Option<PresentationMaterial> {
 	match treatment {
 		PresentationTreatment::Impressionist => {
-			let material = ImpressionistMaterial::new(source, source_size, target_size);
+			let material =
+				ImpressionistMaterial::new(source, source_size, target_size, wash_strength);
 			Some(PresentationMaterial::Impressionist(impressionist.add(material)))
 		}
 		PresentationTreatment::PrePostModern => {
@@ -231,16 +236,19 @@ mod tests {
 		let mut impressionist = Assets::<ImpressionistMaterial>::default();
 		let mut pre_post_modern = Assets::<PrePostModernMaterial>::default();
 		let mut nearest_neighbor = Assets::<NearestNeighborMaterial>::default();
-		assert!(create_presentation_material(
-			PresentationTreatment::None,
-			Handle::default(),
-			UVec2::new(700, 394),
-			UVec2::new(1920, 1080),
-			&mut impressionist,
-			&mut pre_post_modern,
-			&mut nearest_neighbor,
-		)
-		.is_none());
+		assert!(
+			create_presentation_material(
+				PresentationTreatment::None,
+				Handle::default(),
+				UVec2::new(700, 394),
+				UVec2::new(1920, 1080),
+				1.0,
+				&mut impressionist,
+				&mut pre_post_modern,
+				&mut nearest_neighbor,
+			)
+			.is_none()
+		);
 	}
 
 	#[test]
@@ -254,6 +262,7 @@ mod tests {
 				Handle::default(),
 				UVec2::new(700, 394),
 				UVec2::new(1920, 1080),
+				0.855,
 				&mut impressionist,
 				&mut pre_post_modern,
 				&mut nearest_neighbor,
@@ -266,6 +275,7 @@ mod tests {
 				Handle::default(),
 				UVec2::new(1280, 720),
 				UVec2::new(1920, 1080),
+				1.0,
 				&mut impressionist,
 				&mut pre_post_modern,
 				&mut nearest_neighbor,
@@ -278,6 +288,7 @@ mod tests {
 				Handle::default(),
 				UVec2::new(540, 304),
 				UVec2::new(1920, 1080),
+				1.0,
 				&mut impressionist,
 				&mut pre_post_modern,
 				&mut nearest_neighbor,

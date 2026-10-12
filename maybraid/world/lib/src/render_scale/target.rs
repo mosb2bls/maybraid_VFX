@@ -158,8 +158,10 @@ pub(super) fn sync_render_scale_target(
 	}
 
 	let handle = ensure_target_image(&mut images, &mut applied, target_size, treatment);
+	let wash_strength = effective_style.map(VisualStyle::wash_strength).unwrap_or(1.0);
 	let rebuild_blit = sprites.is_empty()
 		|| applied.last_treatment != Some(treatment)
+		|| applied.last_style != effective_style
 		|| applied.last_size != target_size;
 	if !applied.last_offscreen
 		|| applied.last_size != target_size
@@ -232,6 +234,7 @@ pub(super) fn sync_render_scale_target(
 					physical,
 					window_logical,
 					treatment,
+					wash_strength,
 				);
 			} else if let Ok(mut transform) = blit_transforms.single_mut() {
 				transform.scale = Vec3::new(window_logical.x, window_logical.y, 1.0);
@@ -251,6 +254,7 @@ pub(super) fn sync_render_scale_target(
 				physical,
 				window_logical,
 				treatment,
+				wash_strength,
 			);
 		}
 	}
@@ -334,6 +338,7 @@ fn spawn_present(
 	window_physical: UVec2,
 	window_logical: Vec2,
 	treatment: PresentationTreatment,
+	wash_strength: f32,
 ) {
 	commands.spawn((
 		Name::new("render-scale-present"),
@@ -358,6 +363,7 @@ fn spawn_present(
 		window_physical,
 		window_logical,
 		treatment,
+		wash_strength,
 	);
 }
 
@@ -373,6 +379,7 @@ fn spawn_present_blit(
 	window_physical: UVec2,
 	window_logical: Vec2,
 	treatment: PresentationTreatment,
+	wash_strength: f32,
 ) {
 	let mesh = applied.blit_mesh.clone().unwrap_or_else(|| {
 		let handle = meshes.add(Rectangle::new(1.0, 1.0));
@@ -395,6 +402,7 @@ fn spawn_present_blit(
 		image.clone(),
 		source_size,
 		window_physical,
+		wash_strength,
 		impressionist,
 		pre_post_modern,
 		nearest_neighbor,

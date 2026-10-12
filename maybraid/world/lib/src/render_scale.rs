@@ -2,8 +2,8 @@
 //!
 //! Replaces the legacy render scale system. Styles render at characteristic resolutions
 //! (preserving aspect ratio) and apply effects during presentation:
-//! - **Impressionist** (~700×394): painterly softening, default
-//! - **Watercolor** (~1280×720): same wash as Impressionist, more source detail
+//! - **Impressionist** (~700×394): painterly softening, tighter wash than Watercolor, default
+//! - **Watercolor** (~1280×720): full-strength painterly wash, more source detail
 //! - **Sharp**: native resolution, no treatment
 //! - **Retro** (~540×304): nearest-neighbor, performance
 //! - **Antediluvian** (~400×225): nearest-neighbor, extreme performance
