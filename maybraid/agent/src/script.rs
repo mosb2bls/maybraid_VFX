@@ -92,6 +92,7 @@ mod tests {
 		"remote-start.jsonl",
 		"visual-style-idle.jsonl",
 		"visual-style-idle-sharp.jsonl",
+		"visual-style-idle-offscreen.jsonl",
 		"visual-style-idle-retro.jsonl",
 		"visual-style-idle-antediluvian.jsonl",
 		"visual-style-idle-pre-post-modern.jsonl",

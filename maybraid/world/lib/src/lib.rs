@@ -66,9 +66,10 @@ pub use player_position::{
 };
 pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
 pub use render_scale::{
-	map_render_to_window, map_window_to_render, parse_presentation_treatment_env,
-	parse_render_scale_env, parse_visual_style_env, target_physical_size, RenderScale,
-	RequestRenderScale, RequestVisualStyle, VisualStyle, VisualStyleSetting,
+	map_render_to_window, map_window_to_render, parse_force_offscreen_env,
+	parse_presentation_treatment_env, parse_render_scale_env, parse_visual_style_env,
+	target_physical_size, RenderScale, RequestForceOffscreen, RequestRenderScale,
+	RequestVisualStyle, VisualStyle, VisualStyleSetting, FORCE_OFFSCREEN_ENV,
 	PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV, VISUAL_STYLE_ENV,
 };
 pub use start::{

@@ -1,0 +1,16 @@
+# Stationary Sharp with forced native offscreen (same apparatus, scale 1.0).
+# Isolates present-path overhead against Sharp's direct-window path.
+
+{"cmd":"visual_style","style":"sharp"}
+{"cmd":"console","line":"render offscreen on"}
+{"cmd":"scenario","name":"visual-style-idle-offscreen-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":18}
+{"cmd":"scenario","name":"visual-style-idle-offscreen-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"visual-style-idle-offscreen","mark":"start"}
+{"cmd":"wait","secs":4}
+{"cmd":"console","line":"screenshot profiling/captures/screenshots/visual-style-idle-offscreen.png"}
+{"cmd":"wait","secs":16}
+{"cmd":"scenario","name":"visual-style-idle-offscreen","mark":"end"}
+{"cmd":"quit"}

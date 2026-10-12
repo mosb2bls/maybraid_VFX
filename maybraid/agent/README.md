@@ -105,6 +105,7 @@ and `frame`.
 | `scenario` | script markers |
 | `chunk_loads` | count of new cascade chunks this frame (cheap summary) |
 | `actors` | `hosts` / `bodies` / `brains` census when it changes (at most once per sample period) |
+| `presentation` | offscreen `resize` / `recreate` (`window`, `target`) — must be zero in a measure window |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the

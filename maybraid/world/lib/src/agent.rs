@@ -20,7 +20,7 @@ use world_player::Player as VegetationPlayer;
 
 use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
-use crate::render_scale::{RequestVisualStyle, VisualStyle};
+use crate::render_scale::{PresentationChurn, RequestVisualStyle, VisualStyle};
 use crate::PlayerSpawnXz;
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
@@ -131,6 +131,7 @@ impl Plugin for WorldAgentPlugin {
 				Update,
 				(
 					agent_apply_world_ops,
+					agent_emit_presentation_churn,
 					agent_sample_player,
 					agent_chunk_loads,
 					agent_actor_census,
@@ -364,12 +365,7 @@ fn visual_style_applied_detail(
 	window_scale_factor: f32,
 ) -> String {
 	let plan = style.plan(window_physical, window_scale_factor);
-	format!(
-		"applied {} {}x{}",
-		style.script_id(),
-		plan.target_size.x,
-		plan.target_size.y
-	)
+	format!("applied {} {}x{}", style.script_id(), plan.target_size.x, plan.target_size.y)
 }
 
 fn pad_button(button: AgentButton) -> PadButton {
@@ -533,6 +529,27 @@ fn agent_sample_player(
 			body: AgentEventBody::Player { x: p.x, y: p.y, z: p.z, yaw, r#move },
 		},
 	);
+}
+
+fn agent_emit_presentation_churn(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	mut churn: MessageReader<PresentationChurn>,
+) {
+	for event in churn.read() {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t: time.elapsed_secs(),
+				frame: runtime.frame,
+				body: AgentEventBody::Presentation {
+					action: event.action.as_str().into(),
+					window: [event.window.x, event.window.y],
+					target: [event.target.x, event.target.y],
+				},
+			},
+		);
+	}
 }
 
 fn agent_chunk_loads(

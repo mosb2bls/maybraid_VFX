@@ -25,6 +25,8 @@ pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
 pub const VISUAL_STYLE_ENV: &str = "MAYBRAID_VISUAL_STYLE";
 /// Optional override so a capture can keep a style's resolution without its treatment.
 pub const PRESENTATION_TREATMENT_ENV: &str = "MAYBRAID_PRESENTATION_TREATMENT";
+/// Keep the offscreen blit at the style's target size, including Sharp at native.
+pub const FORCE_OFFSCREEN_ENV: &str = "MAYBRAID_FORCE_OFFSCREEN";
 
 /// Console / env request to set an explicit visual style.
 #[derive(Debug, Clone, Copy)]
@@ -32,16 +34,47 @@ pub struct RequestVisualStyle(pub VisualStyle);
 
 impl Message for RequestVisualStyle {}
 
+/// Console / env request to force the offscreen present path.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct RequestForceOffscreen(pub bool);
+
+/// Offscreen image resize or blit/camera recreate. Agent writes these to events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationChurn {
+	pub action: PresentationAction,
+	pub window: UVec2,
+	pub target: UVec2,
+	pub style: Option<VisualStyle>,
+}
+
+impl Message for PresentationChurn {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentationAction {
+	Resize,
+	Recreate,
+}
+
+impl PresentationAction {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Resize => "resize",
+			Self::Recreate => "recreate",
+		}
+	}
+}
+
 /// Active visual style setting.
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct VisualStyleSetting {
 	requested: Option<VisualStyle>,
 	treatment_override: Option<PresentationTreatment>,
+	force_offscreen: bool,
 }
 
 impl Default for VisualStyleSetting {
 	fn default() -> Self {
-		Self { requested: None, treatment_override: None }
+		Self { requested: None, treatment_override: None, force_offscreen: false }
 	}
 }
 
@@ -52,6 +85,9 @@ impl VisualStyleSetting {
 			requested: parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref()),
 			treatment_override: parse_presentation_treatment_env(
 				std::env::var(PRESENTATION_TREATMENT_ENV).ok().as_deref(),
+			),
+			force_offscreen: parse_force_offscreen_env(
+				std::env::var(FORCE_OFFSCREEN_ENV).ok().as_deref(),
 			),
 		}
 	}
@@ -64,12 +100,20 @@ impl VisualStyleSetting {
 		self.treatment_override
 	}
 
+	pub fn force_offscreen(&self) -> bool {
+		self.force_offscreen
+	}
+
 	pub fn set(&mut self, style: VisualStyle) {
 		self.requested = Some(style);
 	}
 
 	pub fn set_treatment_override(&mut self, treatment: Option<PresentationTreatment>) {
 		self.treatment_override = treatment;
+	}
+
+	pub fn set_force_offscreen(&mut self, force: bool) {
+		self.force_offscreen = force;
 	}
 
 	pub fn clear_to_default(&mut self) {
@@ -85,6 +129,7 @@ impl VisualStyleSetting {
 		if let Some(treatment) = self.treatment_override {
 			plan.treatment = treatment;
 		}
+		plan.force_offscreen = self.force_offscreen;
 		plan
 	}
 }
@@ -110,6 +155,14 @@ pub fn parse_presentation_treatment_env(raw: Option<&str>) -> Option<Presentatio
 			None
 		}
 	}
+}
+
+/// Parse `MAYBRAID_FORCE_OFFSCREEN`. Empty / missing → false.
+pub fn parse_force_offscreen_env(raw: Option<&str>) -> bool {
+	let Some(raw) = raw else {
+		return false;
+	};
+	matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
 }
 
 /// Parse `MAYBRAID_VISUAL_STYLE`. Empty → `None` (default Impressionist).
@@ -281,6 +334,7 @@ pub fn parse_render_scale_env(raw: Option<&str>) -> Option<f32> {
 pub(crate) fn configure(app: &mut App) {
 	app.add_plugins(presentation::PresentationMaterialsPlugin)
 		.add_message::<RequestVisualStyle>()
+		.add_message::<PresentationChurn>()
 		.insert_resource(VisualStyleSetting::from_env())
 		.insert_resource(RenderScale::from_env())
 		.init_resource::<target::AppliedRenderScale>()
@@ -288,8 +342,10 @@ pub(crate) fn configure(app: &mut App) {
 			Update,
 			(
 				apply_visual_style_requests,
+				apply_force_offscreen_requests,
 				apply_render_scale_requests,
 				target::sync_render_scale_target,
+				target::stamp_present_ui_layers,
 			)
 				.chain(),
 		);
@@ -310,6 +366,28 @@ pub(crate) fn apply_visual_style_requests(
 		return;
 	};
 	let line = format!("visual style {}", value.label());
+	if let Some(status) = status.as_mut() {
+		status.0 = line.clone();
+	}
+	info!("{line}");
+}
+
+pub(crate) fn apply_force_offscreen_requests(
+	mut commands: Commands,
+	requests: Query<(Entity, &RequestForceOffscreen)>,
+	mut style: ResMut<VisualStyleSetting>,
+	mut status: Option<ResMut<game_commands::ui::GameCommandStatusText>>,
+) {
+	let mut last = None;
+	for (entity, request) in &requests {
+		style.set_force_offscreen(request.0);
+		last = Some(request.0);
+		commands.entity(entity).despawn();
+	}
+	let Some(value) = last else {
+		return;
+	};
+	let line = format!("force offscreen {value}");
 	if let Some(status) = status.as_mut() {
 		status.0 = line.clone();
 	}
@@ -367,6 +445,29 @@ mod tests {
 	}
 
 	#[test]
+	fn force_offscreen_env_parses_common_flags() -> anyhow::Result<()> {
+		assert!(!parse_force_offscreen_env(None));
+		assert!(!parse_force_offscreen_env(Some("")));
+		assert!(parse_force_offscreen_env(Some("1")));
+		assert!(parse_force_offscreen_env(Some("on")));
+		assert!(parse_force_offscreen_env(Some("TRUE")));
+		Ok(())
+	}
+
+	#[test]
+	fn force_offscreen_keeps_sharp_native_and_requires_blit() -> anyhow::Result<()> {
+		let mut setting = VisualStyleSetting::default();
+		setting.set(VisualStyle::Sharp);
+		setting.set_force_offscreen(true);
+		let window = UVec2::new(1920, 1080);
+		let plan = setting.plan(window, 1.0);
+		assert_eq!(plan.target_size, window);
+		assert_eq!(plan.treatment, PresentationTreatment::None);
+		assert!(plan.requires_offscreen(window));
+		Ok(())
+	}
+
+	#[test]
 	fn treatment_override_keeps_style_resolution() -> anyhow::Result<()> {
 		let mut setting = VisualStyleSetting::default();
 		setting.set(VisualStyle::Impressionist);
@@ -376,7 +477,10 @@ mod tests {
 		assert_eq!(plan.target_size, UVec2::new(700, 394));
 		assert_eq!(plan.treatment, PresentationTreatment::None);
 		assert!(plan.requires_offscreen(window));
-		assert_eq!(parse_presentation_treatment_env(Some("none")), Some(PresentationTreatment::None));
+		assert_eq!(
+			parse_presentation_treatment_env(Some("none")),
+			Some(PresentationTreatment::None)
+		);
 		Ok(())
 	}
 
@@ -391,10 +495,7 @@ mod tests {
 		world
 			.run_system_once(apply_visual_style_requests)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert_eq!(
-			world.resource::<VisualStyleSetting>().requested(),
-			Some(VisualStyle::Retro)
-		);
+		assert_eq!(world.resource::<VisualStyleSetting>().requested(), Some(VisualStyle::Retro));
 		Ok(())
 	}
 

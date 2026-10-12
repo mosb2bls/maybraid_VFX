@@ -14,13 +14,8 @@ pub enum VisualStyle {
 }
 
 impl VisualStyle {
-	pub const ALL: [Self; 5] = [
-		Self::Impressionist,
-		Self::Sharp,
-		Self::Retro,
-		Self::Antediluvian,
-		Self::PrePostModern,
-	];
+	pub const ALL: [Self; 5] =
+		[Self::Impressionist, Self::Sharp, Self::Retro, Self::Antediluvian, Self::PrePostModern];
 
 	pub fn label(self) -> &'static str {
 		match self {
@@ -92,11 +87,7 @@ impl VisualStyle {
 	}
 
 	/// Plan resolution and presentation parameters for this style.
-	pub fn plan(
-		self,
-		window_physical: UVec2,
-		window_scale_factor: f32,
-	) -> VisualStylePlan {
+	pub fn plan(self, window_physical: UVec2, window_scale_factor: f32) -> VisualStylePlan {
 		if window_physical.x == 0 || window_physical.y == 0 {
 			return VisualStylePlan {
 				style: self,
@@ -104,6 +95,7 @@ impl VisualStyle {
 				window_logical: Vec2::ZERO,
 				image_scale_factor: 1.0,
 				treatment: PresentationTreatment::None,
+				force_offscreen: false,
 			};
 		}
 
@@ -140,6 +132,7 @@ impl VisualStyle {
 			window_logical,
 			image_scale_factor,
 			treatment,
+			force_offscreen: false,
 		}
 	}
 }
@@ -161,13 +154,21 @@ pub struct VisualStylePlan {
 	pub window_logical: Vec2,
 	pub image_scale_factor: f32,
 	pub treatment: PresentationTreatment,
+	/// Keep the offscreen blit even when the 3D target matches the window
+	/// (native-resolution A/B against Sharp's direct path).
+	pub force_offscreen: bool,
 }
 
 impl VisualStylePlan {
 	/// Whether this plan requires an offscreen render target and presentation pass.
 	pub fn requires_offscreen(&self, window_physical: UVec2) -> bool {
-		self.target_size != UVec2::ZERO
-			&& (self.treatment != PresentationTreatment::None || self.target_size != window_physical)
+		if self.target_size == UVec2::ZERO {
+			return false;
+		}
+		if self.force_offscreen {
+			return true;
+		}
+		self.treatment != PresentationTreatment::None || self.target_size != window_physical
 	}
 }
 
@@ -225,6 +226,9 @@ mod tests {
 		assert_eq!(plan.target_size, UVec2::new(1920, 1080));
 		assert_eq!(plan.treatment, PresentationTreatment::None);
 		assert!(!plan.requires_offscreen(UVec2::new(1920, 1080)));
+		let mut forced = plan;
+		forced.force_offscreen = true;
+		assert!(forced.requires_offscreen(UVec2::new(1920, 1080)));
 	}
 
 	#[test]

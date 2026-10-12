@@ -118,24 +118,11 @@ impl Material2d for NearestNeighborMaterial {
 	}
 }
 
-impl NearestNeighborMaterial {
-	pub fn new(source: Handle<Image>, source_size: UVec2, target_size: UVec2) -> Self {
-		Self {
-			source,
-			params: TreatmentParams {
-				source_size: source_size.as_vec2(),
-				target_size: target_size.as_vec2(),
-			},
-		}
-	}
-}
-
 /// Handle to the active presentation material, typed by treatment.
 #[derive(Clone, Debug)]
 pub enum PresentationMaterial {
 	Impressionist(Handle<ImpressionistMaterial>),
 	PrePostModern(Handle<PrePostModernMaterial>),
-	NearestNeighbor(Handle<NearestNeighborMaterial>),
 }
 
 pub struct PresentationMaterialsPlugin;
@@ -158,7 +145,7 @@ pub fn create_presentation_material(
 	target_size: UVec2,
 	impressionist: &mut Assets<ImpressionistMaterial>,
 	pre_post_modern: &mut Assets<PrePostModernMaterial>,
-	nearest_neighbor: &mut Assets<NearestNeighborMaterial>,
+	_nearest_neighbor: &mut Assets<NearestNeighborMaterial>,
 ) -> Option<PresentationMaterial> {
 	match treatment {
 		PresentationTreatment::Impressionist => {
@@ -169,11 +156,7 @@ pub fn create_presentation_material(
 			let material = PrePostModernMaterial::new(source, source_size, target_size);
 			Some(PresentationMaterial::PrePostModern(pre_post_modern.add(material)))
 		}
-		PresentationTreatment::NearestNeighbor => {
-			let material = NearestNeighborMaterial::new(source, source_size, target_size);
-			Some(PresentationMaterial::NearestNeighbor(nearest_neighbor.add(material)))
-		}
-		PresentationTreatment::None => None,
+		PresentationTreatment::NearestNeighbor | PresentationTreatment::None => None,
 	}
 }
 
@@ -227,7 +210,7 @@ mod tests {
 			),
 			Some(PresentationMaterial::PrePostModern(_))
 		));
-		assert!(matches!(
+		assert!(
 			create_presentation_material(
 				PresentationTreatment::NearestNeighbor,
 				Handle::default(),
@@ -236,8 +219,9 @@ mod tests {
 				&mut impressionist,
 				&mut pre_post_modern,
 				&mut nearest_neighbor,
-			),
-			Some(PresentationMaterial::NearestNeighbor(_))
-		));
+			)
+			.is_none(),
+			"Retro/Antediluvian use a nearest-sampled sprite, not a custom shader"
+		);
 	}
 }
