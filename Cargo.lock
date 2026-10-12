@@ -7138,6 +7138,7 @@ dependencies = [
  "game-commands",
  "item-icons",
  "maybraid-menu-controller",
+ "maybraid-world",
  "menu-components",
  "serde",
  "serde_json",

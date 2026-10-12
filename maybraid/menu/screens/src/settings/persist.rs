@@ -191,8 +191,8 @@ mod tests {
 		parse_shadows_env, save_machine_settings, write_machine_preference, MachineSettings,
 		ENV_RENDER_SCALE, ENV_SHADOWS,
 	};
-	use crate::settings::catalog::{DeviceClass, RenderScalePref, Shadows};
-	use crate::settings::{InGameRenderScale, InGameSettings, InGameShadowQuality};
+	use crate::settings::catalog::{DeviceClass, Shadows, VisualStylePref};
+	use crate::settings::{InGameRenderScale, InGameSettings, InGameShadowQuality, InGameVisualStyle};
 
 	fn write_fields(root: &SaveRoot, json: &str) {
 		root.ensure_dirs().expect("dirs");
@@ -204,12 +204,12 @@ mod tests {
 	}
 
 	#[test]
-	fn missing_file_uses_modest_off() {
+	fn missing_file_uses_modest_off_impressionist() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
 		let settings = load_machine_settings(&root, DeviceClass::Modest);
 		assert_eq!(settings.shadows, InGameShadowQuality::Off);
-		assert_eq!(settings.render_scale, InGameRenderScale::Auto);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
 		assert!(!settings.mob_hud);
 	}
 
@@ -222,13 +222,13 @@ mod tests {
 			&InGameSettings {
 				shadows: InGameShadowQuality::Low,
 				mob_hud: true,
-				render_scale: InGameRenderScale::Half,
+				visual_style: InGameVisualStyle::Retro,
 			},
 		)
 		.expect("save");
 		let loaded = load_machine_settings(&root, DeviceClass::Modest);
 		assert_eq!(loaded.shadows, InGameShadowQuality::Low);
-		assert_eq!(loaded.render_scale, InGameRenderScale::Half);
+		assert_eq!(loaded.visual_style, InGameVisualStyle::Retro);
 		assert!(!loaded.mob_hud);
 
 		write_fields(&root, r#"{ "version": 1, "fields": { "shadows": "low", "mob_hud": true } }"#);
@@ -256,7 +256,7 @@ mod tests {
 			&InGameSettings {
 				shadows: InGameShadowQuality::Off,
 				mob_hud: false,
-				render_scale: InGameRenderScale::Auto,
+				visual_style: InGameVisualStyle::Impressionist,
 			},
 		)
 		.expect("save");
@@ -295,7 +295,7 @@ mod tests {
 	}
 
 	#[test]
-	fn render_scale_round_trips_and_env_does_not_rewrite() -> anyhow::Result<()> {
+	fn visual_style_round_trips_and_migrates_from_legacy() -> anyhow::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let root = SaveRoot::at(dir.path());
 		save_machine_settings(
@@ -303,27 +303,39 @@ mod tests {
 			&InGameSettings {
 				shadows: InGameShadowQuality::Off,
 				mob_hud: false,
-				render_scale: InGameRenderScale::ThreeQuarter,
+				visual_style: InGameVisualStyle::PrePostModern,
 			},
 		)?;
 		let loaded = load_machine_settings(&root, DeviceClass::Modest);
-		assert_eq!(loaded.render_scale, InGameRenderScale::ThreeQuarter);
+		assert_eq!(loaded.visual_style, InGameVisualStyle::PrePostModern);
 		let before = read_raw(&root);
+		assert!(before.contains("\"pre_post_modern\""));
+
+		let mut stored = MachineSettings(loaded);
+		write_machine_preference::<VisualStylePref>(
+			Some(&mut stored),
+			InGameVisualStyle::Sharp,
+			Some(&root),
+		);
+		assert_eq!(stored.0.visual_style, InGameVisualStyle::Sharp);
+		assert!(read_raw(&root).contains("\"sharp\""));
+
+		// Test migration from legacy render_scale
+		write_fields(
+			&root,
+			r#"{ "version": 1, "fields": { "shadows": "off", "render_scale": "75" } }"#,
+		);
+		let loaded = load_machine_settings(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style, InGameVisualStyle::PrePostModern);
+		Ok(())
+	}
+
+	#[test]
+	fn render_scale_env_parsing_preserved() -> anyhow::Result<()> {
 		assert_eq!(parse_render_scale_env(Some("0.75")), Some(0.75));
 		assert_eq!(parse_render_scale_env(Some("auto")), None);
 		assert_eq!(parse_render_scale_env(Some("0.1")), Some(0.5));
 		assert_eq!(ENV_RENDER_SCALE, "MAYBRAID_RENDER_SCALE");
-		assert_eq!(read_raw(&root), before);
-		assert!(before.contains("\"75\""));
-
-		let mut stored = MachineSettings(loaded);
-		write_machine_preference::<RenderScalePref>(
-			Some(&mut stored),
-			InGameRenderScale::Half,
-			Some(&root),
-		);
-		assert_eq!(stored.0.render_scale, InGameRenderScale::Half);
-		assert!(read_raw(&root).contains("\"50\""));
 		Ok(())
 	}
 }

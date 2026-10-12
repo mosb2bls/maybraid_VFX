@@ -23,7 +23,7 @@ mod pitch;
 mod player_lifecycle;
 mod player_position;
 mod poi;
-mod render_scale;
+pub mod render_scale;
 mod start;
 mod stash;
 mod ui;

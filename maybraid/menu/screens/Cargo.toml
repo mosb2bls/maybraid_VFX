@@ -17,6 +17,7 @@ character-persist = { workspace = true }
 item-icons = { workspace = true }
 game-commands = { workspace = true }
 maybraid-menu-controller = { workspace = true }
+maybraid-world = { workspace = true }
 menu-components = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

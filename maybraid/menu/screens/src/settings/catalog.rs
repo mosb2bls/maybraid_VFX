@@ -2,11 +2,12 @@
 
 use std::collections::BTreeMap;
 
+use bevy::prelude::info;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{InGameRenderScale, InGameSettings, InGameShadowQuality};
+use super::{InGameRenderScale, InGameSettings, InGameShadowQuality, InGameVisualStyle};
 
 /// Host class used to seed catalog defaults.
 ///
@@ -123,7 +124,29 @@ impl Preference for MobHud {
 	}
 }
 
-/// 3D shading scale. Machine-scoped.
+/// Visual style presentation mode. Machine-scoped.
+pub struct VisualStylePref;
+
+impl Preference for VisualStylePref {
+	const KEY: &'static str = "visual_style";
+	const PERSIST: PersistPolicy = PersistPolicy::Machine;
+	type Value = InGameVisualStyle;
+
+	fn get(settings: &InGameSettings) -> Self::Value {
+		settings.visual_style
+	}
+
+	fn set(settings: &mut InGameSettings, value: Self::Value) {
+		settings.visual_style = value;
+	}
+
+	fn device_default(_class: DeviceClass) -> Self::Value {
+		InGameVisualStyle::Impressionist
+	}
+}
+
+/// LEGACY: 3D shading scale. Machine-scoped. Preserved for migration only.
+/// This preference is no longer active; VisualStylePref replaced it.
 pub struct RenderScalePref;
 
 impl Preference for RenderScalePref {
@@ -131,12 +154,13 @@ impl Preference for RenderScalePref {
 	const PERSIST: PersistPolicy = PersistPolicy::Machine;
 	type Value = InGameRenderScale;
 
-	fn get(settings: &InGameSettings) -> Self::Value {
-		settings.render_scale
+	fn get(_settings: &InGameSettings) -> Self::Value {
+		// Not active; exists only for migration.
+		InGameRenderScale::Auto
 	}
 
-	fn set(settings: &mut InGameSettings, value: Self::Value) {
-		settings.render_scale = value;
+	fn set(_settings: &mut InGameSettings, _value: Self::Value) {
+		// Not active; exists only for migration.
 	}
 
 	fn device_default(_class: DeviceClass) -> Self::Value {
@@ -149,7 +173,7 @@ impl InGameSettings {
 		Self {
 			shadows: Shadows::device_default(class),
 			mob_hud: MobHud::device_default(class),
-			render_scale: RenderScalePref::device_default(class),
+			visual_style: VisualStylePref::device_default(class),
 		}
 	}
 
@@ -157,7 +181,7 @@ impl InGameSettings {
 	pub fn persisted_fields(&self) -> BTreeMap<String, Value> {
 		let mut fields = BTreeMap::new();
 		write_machine_field::<Shadows>(&mut fields, self);
-		write_machine_field::<RenderScalePref>(&mut fields, self);
+		write_machine_field::<VisualStylePref>(&mut fields, self);
 		write_machine_field::<MobHud>(&mut fields, self);
 		fields
 	}
@@ -168,8 +192,21 @@ pub(super) fn overlay_machine_fields(
 	fields: &BTreeMap<String, Value>,
 ) {
 	overlay_machine_field::<Shadows>(settings, fields);
-	overlay_machine_field::<RenderScalePref>(settings, fields);
+	overlay_machine_field::<VisualStylePref>(settings, fields);
 	overlay_machine_field::<MobHud>(settings, fields);
+	
+	// Migration: if visual_style is missing but render_scale exists, migrate
+	if !fields.contains_key(VisualStylePref::KEY) && fields.contains_key(RenderScalePref::KEY) {
+		if let Ok(legacy_scale) = serde_json::from_value::<InGameRenderScale>(
+			fields.get(RenderScalePref::KEY).unwrap().clone(),
+		) {
+			settings.visual_style = InGameVisualStyle::from_legacy_render_scale(legacy_scale);
+			info!(
+				"Migrated legacy render_scale {:?} -> visual_style {:?}",
+				legacy_scale, settings.visual_style
+			);
+		}
+	}
 }
 
 fn write_machine_field<P: Preference>(
@@ -202,8 +239,8 @@ fn overlay_machine_field<P: Preference>(
 #[cfg(test)]
 mod tests {
 	use super::{
-		classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, InGameRenderScale,
-		InGameSettings, InGameShadowQuality, MobHud, Preference, RenderScalePref, Shadows,
+		classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, InGameSettings,
+		InGameShadowQuality, InGameVisualStyle, MobHud, Preference, Shadows, VisualStylePref,
 	};
 
 	#[test]
@@ -235,21 +272,24 @@ mod tests {
 		let fields = InGameSettings {
 			shadows: InGameShadowQuality::Low,
 			mob_hud: true,
-			render_scale: InGameRenderScale::Half,
+			visual_style: InGameVisualStyle::Sharp,
 		}
 		.persisted_fields();
 		assert_eq!(fields.get("shadows"), Some(&serde_json::json!("low")));
-		assert_eq!(fields.get("render_scale"), Some(&serde_json::json!("50")));
+		assert_eq!(fields.get("visual_style"), Some(&serde_json::json!("sharp")));
 		assert!(!fields.contains_key("mob_hud"));
 		assert_eq!(fields.len(), 2);
 	}
 
 	#[test]
-	fn render_scale_defaults_to_auto() {
-		assert_eq!(RenderScalePref::device_default(DeviceClass::Modest), InGameRenderScale::Auto);
+	fn visual_style_defaults_to_impressionist() {
 		assert_eq!(
-			InGameSettings::from_device(DeviceClass::Modest).render_scale,
-			InGameRenderScale::Auto
+			VisualStylePref::device_default(DeviceClass::Modest),
+			InGameVisualStyle::Impressionist
+		);
+		assert_eq!(
+			InGameSettings::from_device(DeviceClass::Modest).visual_style,
+			InGameVisualStyle::Impressionist
 		);
 	}
 }
