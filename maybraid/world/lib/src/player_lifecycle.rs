@@ -154,7 +154,12 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 						.after(queue_first_spawn_picker)
 						.after(drive_respawn_picker)
 						.run_if(world_player_respawn_pending),
-					apply_camera_begin_life.after(respawn_world_player),
+					close_orphaned_locked_respawn_map
+						.after(respawn_world_player)
+						.run_if(orphaned_locked_respawn_map),
+					apply_camera_begin_life
+						.after(respawn_world_player)
+						.after(close_orphaned_locked_respawn_map),
 				)
 					.after(PoiSystems::Index)
 					.in_set(PlayerLifeSet::Resolve),
@@ -409,6 +414,26 @@ fn drive_respawn_picker(
 /// ([#1209](https://github.com/ramate-io/maybraid/issues/1209)).
 fn world_player_respawn_pending(state: Res<WorldPlayerRespawnState>) -> bool {
 	state.pending.is_some()
+}
+
+/// A locked picker with no pending respawn is leftover UI, not a spawn.
+fn orphaned_locked_respawn_map(
+	state: Res<WorldPlayerRespawnState>,
+	map: Res<WorldMapView>,
+) -> bool {
+	state.pending.is_none() && map.close_locked
+}
+
+fn close_orphaned_locked_respawn_map(
+	live_player: Query<(), With<VegetationPlayer>>,
+	mut map: ResMut<WorldMapView>,
+) {
+	if live_player.is_empty() {
+		return;
+	}
+	if map.close_locked {
+		map.close();
+	}
 }
 
 /// A mode that keeps the player respawns near a POI. A mode whose policy ends
@@ -1143,6 +1168,29 @@ mod tests {
 			.run_system_once(world_player_respawn_pending)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert!(!pending);
+		Ok(())
+	}
+
+	#[test]
+	fn orphaned_locked_map_closes_when_a_live_player_has_no_pending() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldPlayerRespawnState>();
+		world.insert_resource(WorldMapView {
+			open: true,
+			close_locked: true,
+			..default()
+		});
+		let orphaned = world
+			.run_system_once(orphaned_locked_respawn_map)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(orphaned);
+		world.spawn(VegetationPlayer);
+		world
+			.run_system_once(close_orphaned_locked_respawn_map)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.resource::<WorldMapView>().open);
+		assert!(!world.resource::<WorldMapView>().close_locked);
+		assert!(world.resource::<WorldMapView>().begin_life);
 		Ok(())
 	}
 
