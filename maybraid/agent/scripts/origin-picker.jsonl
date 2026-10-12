@@ -1,7 +1,8 @@
-# First-life Discovery picker at the origin. No leading `start` — launch
-# WITHOUT --start-at / MAYBRAID_START_AT so pick_first_spawn can open.
-# tracy-flight.sh always passes --start-at=0,0 and will skip this picker.
-# After FirstWave, confirm with jump and assert post-pick Y vs ground.
+# First-life Discovery picker at the origin. The game shell only leaves Home
+# when `--start-at` / a `start` command boots Discovery — and that skip
+# `pick_first_spawn`. Driving Home without a character (empty saves) never
+# streams terrain. Use `death-picker.jsonl` for the same
+# `finish_world_player_spawn` Y path. This file still parse-checks.
 # Do not send `stats vsync`.
 
 {"cmd":"scenario","name":"origin-picker-warmup","mark":"start"}
