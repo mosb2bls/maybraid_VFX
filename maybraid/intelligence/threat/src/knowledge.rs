@@ -237,6 +237,28 @@ impl ThreatIntelligenceUser {
 		}
 	}
 
+	fn alert_spotting_range(&self, knowledge: &ThreatKnowledge, spotting: &SpottingUser) -> f32 {
+		let idle = if self.idle_spotting_range > 0.0 {
+			self.idle_spotting_range
+		} else {
+			spotting.directives.iter().map(|directive| directive.range).fold(0.0, f32::max)
+		};
+		if knowledge.wants_alert_perception() {
+			idle.max(self.policy.alert_radius)
+		} else {
+			idle
+		}
+	}
+
+	pub fn alert_spotting_needs_write(
+		&self,
+		knowledge: &ThreatKnowledge,
+		spotting: &SpottingUser,
+	) -> bool {
+		let range = self.alert_spotting_range(knowledge, spotting);
+		self.idle_spotting_range <= 0.0 || spotting.directives.iter().any(|directive| directive.range != range)
+	}
+
 	/// Stretch or restore spotting directives so hinted subjects can be probed.
 	pub fn apply_alert_spotting(
 		&mut self,
@@ -247,13 +269,11 @@ impl ThreatIntelligenceUser {
 			self.idle_spotting_range =
 				spotting.directives.iter().map(|directive| directive.range).fold(0.0, f32::max);
 		}
-		let range = if knowledge.wants_alert_perception() {
-			self.idle_spotting_range.max(self.policy.alert_radius)
-		} else {
-			self.idle_spotting_range
-		};
+		let range = self.alert_spotting_range(knowledge, spotting);
 		for directive in &mut spotting.directives {
-			directive.range = range;
+			if directive.range != range {
+				directive.range = range;
+			}
 		}
 	}
 }

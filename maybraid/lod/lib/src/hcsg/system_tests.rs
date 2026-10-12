@@ -1,8 +1,6 @@
 //! App tests for [`super::GenerationPlugin`] and [`super::PresentationPlugin`],
 //! with the real worker.
 
-use std::time::Duration;
-
 use bevy::ecs::system::SystemParamItem;
 use bevy::math::bounding::{Aabb3d, IntersectsVolume};
 use bevy::math::{DVec3, Vec3};
@@ -19,10 +17,9 @@ use crate::scene::{LodScene, LodSceneLevel};
 
 use super::{
 	GenerationContext, GenerationPlugin, GenerationScheme, HcsgBounds, HcsgBoundsPlugin, HcsgClass,
-	HcsgDemand, HcsgNode, HcsgStorage, PresentationPlugin,
+	HcsgDemand, HcsgNode, HcsgStorage, PresentationPlugin, SettlePresentation,
+	settle_presentation,
 };
-
-const IDLE: Duration = Duration::from_secs(10);
 
 #[derive(Resource, Default)]
 struct Window(Vec<Aabb3d>);
@@ -97,16 +94,8 @@ fn set_window(app: &mut App, regions: Vec<Aabb3d>) {
 	app.world_mut().resource_mut::<Window>().0 = regions;
 }
 
-/// Subscribe (or notice a dropped subscription and resubscribe), let the
-/// worker finish, then reconcile hosts.
 fn settle(app: &mut App) -> anyhow::Result<()> {
-	for _ in 0..2 {
-		app.update();
-		let demand = app.world().resource::<HcsgDemand>().clone();
-		anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-	}
-	app.update();
-	Ok(())
+	settle_presentation(app, SettlePresentation::PLUGIN_TESTS).map_err(Into::into)
 }
 
 fn hosts(app: &mut App) -> Vec<(Id, Version, Entity)> {

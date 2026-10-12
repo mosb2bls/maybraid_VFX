@@ -156,10 +156,13 @@ pub fn mark_capture_hosts_ready(
 	}
 }
 
-/// Strip clothing/face shaders and keep the tree extractable. Shader systems
-/// re-insert custom materials in Update; this runs again before readback.
+/// Strip clothing/face/grenade shaders and keep the tree extractable. Clothing
+/// and face shaders restamp in Update (`MaterialRefApplied` still counts as
+/// painted). Grenades do not, so they get a [`StandardMaterial`] stand-in;
+/// capture restamps unlit gray through settle/readback.
 pub fn prepare_silhouette_hosts(
 	mut commands: Commands,
+	mut standard_materials: Option<ResMut<Assets<StandardMaterial>>>,
 	roots: Query<Entity, With<CaptureSilhouetteRoot>>,
 	children: Query<&Children>,
 	clothing: Query<Entity, With<MeshMaterial3d<ClothingShaderMaterial>>>,
@@ -176,6 +179,11 @@ pub fn prepare_silhouette_hosts(
 			}
 			if grenades.get(entity).is_ok() {
 				commands.entity(entity).try_remove::<MeshMaterial3d<GrenadeMaterial>>();
+				if let Some(materials) = standard_materials.as_mut() {
+					commands.entity(entity).try_insert(MeshMaterial3d(materials.add(
+						StandardMaterial { perceptual_roughness: 0.6, ..Default::default() },
+					)));
+				}
 			}
 		});
 	}
@@ -361,6 +369,29 @@ mod tests {
 		let item = InventoryItem::standard_grenade();
 		assert!(item.capture_id_label().is_some());
 		assert_eq!(HOST_GRENADE, "grenade-preview");
+	}
+
+	#[test]
+	fn silhouette_prep_keeps_the_grenade_mesh_painted() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<Mesh>()
+			.init_asset::<StandardMaterial>()
+			.init_asset::<GrenadeMaterial>()
+			.add_systems(Update, prepare_silhouette_hosts);
+		let grenade = app
+			.world_mut()
+			.resource_mut::<Assets<GrenadeMaterial>>()
+			.add(grenade_material());
+		let mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(Sphere::new(0.5));
+		let root = app.world_mut().spawn(CaptureSilhouetteRoot).id();
+		let child = app
+			.world_mut()
+			.spawn((Mesh3d(mesh), MeshMaterial3d(grenade), ChildOf(root)))
+			.id();
+		app.update();
+		assert!(app.world().get::<MeshMaterial3d<GrenadeMaterial>>(child).is_none());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(child).is_some());
 	}
 
 	#[test]

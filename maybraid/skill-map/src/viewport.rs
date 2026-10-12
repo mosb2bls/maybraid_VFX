@@ -43,6 +43,29 @@ const FIREARM_CARD_FILL: Color = Color::srgba(0.52, 0.52, 0.56, 0.82);
 const FIREARM_CARD_STROKE: Color = Color::srgba(0.78, 0.78, 0.82, 0.9);
 const GRENADE_SILHOUETTE_PX: f32 = 40.0;
 const GRENADE_SILHOUETTE_STROKE: f32 = 2.0;
+
+fn weapon_icon_slot() -> Node {
+	Node {
+		width: Val::Percent(100.0),
+		aspect_ratio: Some(
+			FIREARM_SILHOUETTE_RESOLUTION.width as f32
+				/ FIREARM_SILHOUETTE_RESOLUTION.height as f32,
+		),
+		flex_shrink: 0.0,
+		justify_content: JustifyContent::Center,
+		align_items: AlignItems::Center,
+		overflow: Overflow::clip(),
+		..default()
+	}
+}
+
+fn weapon_slot_display(show: bool) -> Display {
+	if show {
+		Display::Flex
+	} else {
+		Display::None
+	}
+}
 const FIREARM_SILHOUETTE: Color =
 	Color::srgb(0x84 as f32 / 255.0, 0x88 as f32 / 255.0, 0x84 as f32 / 255.0);
 
@@ -453,18 +476,7 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 	parent
 		.spawn((
 			SkillMapFirearmSilhouette,
-			Node {
-				width: Val::Percent(100.0),
-				aspect_ratio: Some(
-					FIREARM_SILHOUETTE_RESOLUTION.width as f32
-						/ FIREARM_SILHOUETTE_RESOLUTION.height as f32,
-				),
-				flex_shrink: 0.0,
-				justify_content: JustifyContent::Center,
-				align_items: AlignItems::Center,
-				overflow: Overflow::clip(),
-				..default()
-			},
+			weapon_icon_slot(),
 			Visibility::Inherited,
 			Pickable::IGNORE,
 		))
@@ -547,87 +559,97 @@ fn spawn_grenade_silhouette(parent: &mut ChildSpawnerCommands) {
 	parent
 		.spawn((
 			SkillMapGrenadeSilhouette,
-			Node {
-				width: Val::Px(GRENADE_SILHOUETTE_PX),
-				height: Val::Px(GRENADE_SILHOUETTE_PX),
-				justify_content: JustifyContent::FlexEnd,
-				align_items: AlignItems::Center,
-				overflow: Overflow::clip(),
-				..default()
+			{
+				let mut slot = weapon_icon_slot();
+				slot.display = Display::None;
+				slot
 			},
 			Visibility::Hidden,
 			Pickable::IGNORE,
 		))
-		.with_children(|orb| {
-			orb.spawn((
-				SkillMapGrenadePlaceholder,
+		.with_children(|slot| {
+			slot.spawn((
 				Node {
-					width: Val::Percent(100.0),
-					height: Val::Percent(100.0),
+					width: Val::Px(GRENADE_SILHOUETTE_PX),
+					height: Val::Px(GRENADE_SILHOUETTE_PX),
 					justify_content: JustifyContent::FlexEnd,
 					align_items: AlignItems::Center,
 					overflow: Overflow::clip(),
-					border: UiRect::all(Val::Px(GRENADE_SILHOUETTE_STROKE)),
-					border_radius: BorderRadius::all(Val::Px(GRENADE_SILHOUETTE_PX)),
 					..default()
 				},
-				BorderColor::all(TEXT_YELLOW),
 				Pickable::IGNORE,
 			))
-			.with_children(|circle| {
-				circle.spawn((
-					SkillMapGrenadeChargeFill,
+			.with_children(|orb| {
+				orb.spawn((
+					SkillMapGrenadePlaceholder,
 					Node {
 						width: Val::Percent(100.0),
 						height: Val::Percent(100.0),
+						justify_content: JustifyContent::FlexEnd,
+						align_items: AlignItems::Center,
+						overflow: Overflow::clip(),
+						border: UiRect::all(Val::Px(GRENADE_SILHOUETTE_STROKE)),
 						border_radius: BorderRadius::all(Val::Px(GRENADE_SILHOUETTE_PX)),
 						..default()
 					},
-					BackgroundColor(TEXT_YELLOW),
+					BorderColor::all(TEXT_YELLOW),
+					Pickable::IGNORE,
+				))
+				.with_children(|circle| {
+					circle.spawn((
+						SkillMapGrenadeChargeFill,
+						Node {
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
+							border_radius: BorderRadius::all(Val::Px(GRENADE_SILHOUETTE_PX)),
+							..default()
+						},
+						BackgroundColor(TEXT_YELLOW),
+						Pickable::IGNORE,
+					));
+				});
+				orb.spawn((
+					SkillMapGrenadeSilhouetteImage,
+					ImageNode { color: FIREARM_SILHOUETTE, ..default() },
+					Node {
+						position_type: PositionType::Absolute,
+						width: Val::Percent(100.0),
+						height: Val::Percent(100.0),
+						..default()
+					},
+					Visibility::Hidden,
 					Pickable::IGNORE,
 				));
-			});
-			orb.spawn((
-				SkillMapGrenadeSilhouetteImage,
-				ImageNode { color: FIREARM_SILHOUETTE, ..default() },
-				Node {
-					position_type: PositionType::Absolute,
-					width: Val::Percent(100.0),
-					height: Val::Percent(100.0),
-					..default()
-				},
-				Visibility::Hidden,
-				Pickable::IGNORE,
-			));
-			orb.spawn((
-				SkillMapGrenadeChargeImage,
-				Node {
-					position_type: PositionType::Absolute,
-					left: Val::Px(0.0),
-					right: Val::Px(0.0),
-					bottom: Val::Px(0.0),
-					width: Val::Percent(100.0),
-					height: Val::Percent(100.0),
-					overflow: Overflow::clip(),
-					..default()
-				},
-				Visibility::Hidden,
-				Pickable::IGNORE,
-			))
-			.with_children(|clip| {
-				clip.spawn((
-					SkillMapGrenadeChargeGlyph,
-					ImageNode { color: TEXT_YELLOW, ..default() },
+				orb.spawn((
+					SkillMapGrenadeChargeImage,
 					Node {
 						position_type: PositionType::Absolute,
 						left: Val::Px(0.0),
+						right: Val::Px(0.0),
 						bottom: Val::Px(0.0),
 						width: Val::Percent(100.0),
-						height: Val::Px(GRENADE_SILHOUETTE_PX),
+						height: Val::Percent(100.0),
+						overflow: Overflow::clip(),
 						..default()
 					},
+					Visibility::Hidden,
 					Pickable::IGNORE,
-				));
+				))
+				.with_children(|clip| {
+					clip.spawn((
+						SkillMapGrenadeChargeGlyph,
+						ImageNode { color: TEXT_YELLOW, ..default() },
+						Node {
+							position_type: PositionType::Absolute,
+							left: Val::Px(0.0),
+							bottom: Val::Px(0.0),
+							width: Val::Percent(100.0),
+							height: Val::Px(GRENADE_SILHOUETTE_PX),
+							..default()
+						},
+						Pickable::IGNORE,
+					));
+				});
 			});
 		});
 }
@@ -689,7 +711,7 @@ pub fn sync_firearm_chrome(
 	>,
 	mut names: Query<(&SkillMapMember, &mut Text), With<SkillMapFirearmName>>,
 	mut guns: Query<
-		&mut Visibility,
+		(&mut Node, &mut Visibility),
 		(
 			With<SkillMapFirearmSilhouette>,
 			Without<SkillMapHud>,
@@ -698,12 +720,14 @@ pub fn sync_firearm_chrome(
 			Without<SkillMapGrenadeSilhouette>,
 			Without<SkillMapGrenadeSilhouetteImage>,
 			Without<SkillMapGrenadeChargeImage>,
+			Without<SkillMapFirearmSilhouettePlaceholder>,
 		),
 	>,
 	mut placeholders: Query<
 		&mut Node,
 		(
 			With<SkillMapFirearmSilhouettePlaceholder>,
+			Without<SkillMapFirearmSilhouette>,
 			Without<SkillMapGrenadePlaceholder>,
 			Without<SkillMapGrenadeChargeFill>,
 			Without<SkillMapGrenadeChargeImage>,
@@ -740,7 +764,8 @@ pub fn sync_firearm_chrome(
 	let silhouette =
 		weapon.and_then(|item| icons.as_ref().and_then(|cache| cache.silhouette_for_item(item)));
 	let gun_icon = if show_orb { None } else { silhouette };
-	for mut visibility in &mut guns {
+	for (mut node, mut visibility) in &mut guns {
+		node.display = weapon_slot_display(!show_orb);
 		*visibility = if show_orb { Visibility::Hidden } else { Visibility::Inherited };
 	}
 	for mut node in &mut placeholders {
@@ -770,7 +795,7 @@ pub fn sync_grenade_chrome(
 	icons: Option<Res<ItemIconCache>>,
 	members: Query<&SkillMapMember, With<SkillMapFirearmHud>>,
 	mut orbs: Query<
-		&mut Visibility,
+		(&mut Node, &mut Visibility),
 		(
 			With<SkillMapGrenadeSilhouette>,
 			Without<SkillMapHud>,
@@ -779,12 +804,15 @@ pub fn sync_grenade_chrome(
 			Without<SkillMapFirearmSilhouetteImage>,
 			Without<SkillMapGrenadeSilhouetteImage>,
 			Without<SkillMapGrenadeChargeImage>,
+			Without<SkillMapGrenadePlaceholder>,
+			Without<SkillMapGrenadeChargeFill>,
 		),
 	>,
 	mut placeholders: Query<
 		&mut Node,
 		(
 			With<SkillMapGrenadePlaceholder>,
+			Without<SkillMapGrenadeSilhouette>,
 			Without<SkillMapFirearmSilhouettePlaceholder>,
 			Without<SkillMapGrenadeChargeFill>,
 			Without<SkillMapGrenadeChargeImage>,
@@ -831,6 +859,7 @@ pub fn sync_grenade_chrome(
 		(
 			With<SkillMapGrenadeChargeFill>,
 			Without<SkillMapViewport>,
+			Without<SkillMapGrenadeSilhouette>,
 			Without<SkillMapGrenadePlaceholder>,
 			Without<SkillMapGrenadeChargeImage>,
 			Without<SkillMapFirearmSilhouettePlaceholder>,
@@ -847,7 +876,8 @@ pub fn sync_grenade_chrome(
 		.then_some(weapon)
 		.flatten()
 		.and_then(|item| icons.as_ref().and_then(|cache| cache.silhouette_for_item(item)));
-	for mut visibility in &mut orbs {
+	for (mut node, mut visibility) in &mut orbs {
+		node.display = weapon_slot_display(show_orb);
 		*visibility = if show_orb { Visibility::Inherited } else { Visibility::Hidden };
 	}
 	for mut node in &mut placeholders {
@@ -1010,6 +1040,19 @@ pub fn tick_debraid(
 mod tests {
 	use super::*;
 	use crate::SkillMapEnabled;
+
+	#[test]
+	fn unused_weapon_slot_leaves_the_layout() {
+		assert_eq!(weapon_slot_display(false), Display::None);
+		assert_eq!(weapon_slot_display(true), Display::Flex);
+		assert_eq!(
+			weapon_icon_slot().aspect_ratio,
+			Some(
+				FIREARM_SILHOUETTE_RESOLUTION.width as f32
+					/ FIREARM_SILHOUETTE_RESOLUTION.height as f32
+			)
+		);
+	}
 
 	#[test]
 	fn chrome_and_track_queries_are_disjoint() {

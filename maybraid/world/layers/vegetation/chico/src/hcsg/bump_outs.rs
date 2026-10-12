@@ -118,7 +118,7 @@ impl<P: CanopyProxy, G: ForestGround> BumpedOut<P, G> {
 			let z = (cell.max.z.min(footprint.max.z) - cell.min.z.max(footprint.min.z)).max(0.0);
 			x * z
 		};
-		cx.original_ids_for::<G::Surface>(cell)
+		G::surface_ids_for(cx, cell)
 			.into_iter()
 			.filter_map(|OriginalId(id)| cx.get_or_generate::<G::Surface>(id))
 			.filter(|surface| {

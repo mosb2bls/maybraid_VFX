@@ -159,26 +159,41 @@ impl<T> NodeStore<T> {
 
 	/// Ids that would be dropped by [`Self::retain_overlapping`], without mutating.
 	pub(super) fn ids_outside(&self, regions: &[Aabb3d]) -> Vec<Id> {
-		let overlaps = |bounds: Aabb3d| match regions {
-			[] => false,
-			[region] => bounds.intersects(region),
-			_ => {
-				let envelope = regions_envelope(regions);
-				bounds.intersects(&envelope)
-					&& regions.iter().any(|region| bounds.intersects(region))
-			}
-		};
 		self.entries
 			.iter()
-			.filter(|(id, entry)| **id != Id::Universal && !overlaps(entry.bounds))
+			.filter(|(id, entry)| **id != Id::Universal && !overlaps_regions(entry.bounds, regions))
 			.map(|(id, _)| *id)
 			.collect()
 	}
 
 	/// Removes entries outside `regions` and bumps the membership revision.
 	pub(super) fn evict_outside(&mut self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
-		let removed = self.ids_outside(regions);
-		self.remove_ids(&removed, revision);
+		let mut removed = Vec::new();
+		let before = self.entries.len();
+		self.entries.retain(|id, entry| {
+			let keep = *id == Id::Universal || overlaps_regions(entry.bounds, regions);
+			if !keep {
+				removed.push(*id);
+			}
+			keep
+		});
+		if removed.is_empty() {
+			return removed;
+		}
+		let bulk = self.spatial.is_some() && removed.len() * 2 > before;
+		if bulk {
+			self.rebuild_index(self.base_scale);
+		} else {
+			if let Some(spatial) = self.spatial.as_mut() {
+				for id in &removed {
+					spatial.remove(*id);
+				}
+			}
+			for id in &removed {
+				self.unindexed.remove(id);
+			}
+		}
+		self.membership_revision = revision;
 		removed
 	}
 
@@ -229,6 +244,17 @@ fn regions_envelope(regions: &[Aabb3d]) -> Aabb3d {
 		envelope = envelope.merge(region);
 	}
 	envelope
+}
+
+fn overlaps_regions(bounds: Aabb3d, regions: &[Aabb3d]) -> bool {
+	match regions {
+		[] => false,
+		[region] => bounds.intersects(region),
+		_ => {
+			let envelope = regions_envelope(regions);
+			bounds.intersects(&envelope) && regions.iter().any(|region| bounds.intersects(region))
+		}
+	}
 }
 
 /// One bucket of hysteresis around a live subscription region.

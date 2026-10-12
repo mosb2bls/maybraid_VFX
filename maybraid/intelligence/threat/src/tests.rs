@@ -493,6 +493,39 @@ fn forget_does_not_run_every_frame_on_unscanned_far() -> anyhow::Result<()> {
 }
 
 #[test]
+fn settled_discover_leaves_knowledge_unchanged() -> anyhow::Result<()> {
+	let mut app = discover_app();
+	let observer = spawn_observer(
+		&mut app,
+		ThreatId(1),
+		ThreatIntelligenceUser::default(),
+		IntelligenceLod::missing(),
+	);
+	app.update();
+	if let Some(mut user) = app.world_mut().get_mut::<ThreatIntelligenceUser>(observer) {
+		user.next_forget_at = 100.0;
+		user.next_scan_at = 100.0;
+	}
+	let before = app
+		.world()
+		.entity(observer)
+		.get_change_ticks::<ThreatKnowledge>()
+		.ok_or_else(|| anyhow::anyhow!("missing knowledge"))?
+		.changed
+		.get();
+	app.update();
+	let after = app
+		.world()
+		.entity(observer)
+		.get_change_ticks::<ThreatKnowledge>()
+		.ok_or_else(|| anyhow::anyhow!("missing knowledge"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled discover rewrote knowledge: {before} -> {after}");
+	Ok(())
+}
+
+#[test]
 fn far_translation_under_quantum_does_not_reindex() -> anyhow::Result<()> {
 	let mut app = discover_app();
 	let subject = spawn_subject(

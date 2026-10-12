@@ -16,7 +16,6 @@ use richmond::{
 };
 use urbanization_layer_model::Urbanization;
 
-use crate::hcsg::generated;
 use crate::key::NameKey;
 
 /// A ground Geneva names: Chico's groves grow on it and Richmond builds on
@@ -104,7 +103,7 @@ impl<W: LanguageGround> hcsg::GenerationScheme for DevelopmentPlaces<W> {
 	}
 
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let (built, bounds) = generated::<Built<W::Built>>(cx, id)?;
+		let (built, bounds) = cx.get_or_generate_stored::<Built<W::Built>>(id)?;
 		Some((Self::of(id, &built.development), bounds))
 	}
 }
