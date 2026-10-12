@@ -425,12 +425,19 @@ def analyze(encoders, gpu_rows, pstate, window_ns, pid):
         r["pass"] = classify_label(r, encoders)
 
     # Frame grouping: prefer Metal frame-number on GPU intervals; fall back
-    # to 16.67ms bins of GPU start time.
+    # to 16.67ms bins of GPU start time. Unique-per-interval frame ids
+    # (n_frames ≈ n_gpu_intervals, p50 << 1 ms) are the #1198 discard case —
+    # treat them as missing and bin instead.
+    numbered = [r["frame"] for r in gpu if r["frame"] is not None]
+    unique_numbered = len(set(numbered))
+    expected_bins = max(int((w1 - w0) / 16_670_000), 1)
+    collapsed = bool(numbered) and unique_numbered > expected_bins * 2
+    use_bins = collapsed or not numbered
     by_frame = defaultdict(list)
     unlabeled_frames = 0
     for r in gpu:
         fr = r["frame"]
-        if fr is None:
+        if use_bins or fr is None:
             fr = int(r["cstart"] // 16_670_000)
             unlabeled_frames += 1
         by_frame[fr].append(r)
@@ -485,6 +492,8 @@ def analyze(encoders, gpu_rows, pstate, window_ns, pid):
         "n_gpu_intervals": len(gpu),
         "n_frames": nframes,
         "unlabeled_frames": unlabeled_frames,
+        "frame_grouping": "vsync-bin" if use_bins else "frame-number",
+        "collapsed_frame_numbers": collapsed,
         "gpu_union_ms": stats(frame_union),
         "gpu_sum_ms": stats(frame_sum),
         "passes": pass_stats,
@@ -625,6 +634,11 @@ def main():
     lines.append(f"# {args.scenario or os.path.basename(stem or 'run')}")
     lines.append("")
     lines.append(window_note)
+    if result.get("collapsed_frame_numbers"):
+        lines.append(
+            "Frame grouping fell back to 16.67 ms bins: Metal `frame-number` was unique per GPU interval "
+            "([#1198](https://github.com/ramate-io/maybraid/issues/1198))."
+        )
     if ev and ev.get("actors"):
         a = ev["actors"]
         lines.append(
