@@ -19,39 +19,45 @@ struct TreatmentParams {
 }
 
 // IMPRESSIONIST: Linear upscale with painterly softening.
-// ~5 samples: center + 4 directional offsets in source texels.
-// Blend similar colors more strongly while preserving major silhouettes.
+// Still 5 samples (center + 4 cardinals). Wider radius + weaker center
+// + a cheap hue pull; no extra taps. Linear filtering already averages
+// four source texels per tap, so the larger offset is mostly free.
 @fragment
 fn impressionist_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv = in.uv;
     let texel_size = 1.0 / treatment_params.source_size;
-    
-    // Sample center and four neighbors
+
     let center = textureSample(source_texture, source_sampler, uv);
-    let offset = texel_size * 0.8;
-    
+    // ~2.4 source texels ≈ 9 output pixels at 700×394 → 2560×1440.
+    let offset = texel_size * 2.4;
+
     let n1 = textureSample(source_texture, source_sampler, uv + vec2<f32>(-offset.x, 0.0));
     let n2 = textureSample(source_texture, source_sampler, uv + vec2<f32>(offset.x, 0.0));
     let n3 = textureSample(source_texture, source_sampler, uv + vec2<f32>(0.0, -offset.y));
     let n4 = textureSample(source_texture, source_sampler, uv + vec2<f32>(0.0, offset.y));
-    
-    // Compute color distances to determine blending weights
+
     let d1 = color_distance(center, n1);
     let d2 = color_distance(center, n2);
     let d3 = color_distance(center, n3);
     let d4 = color_distance(center, n4);
-    
-    // Stronger weight for similar colors, weaker for edges
-    let threshold = 0.15;
+
+    // Higher threshold lets near-colors wash together; silhouettes still drop out.
+    let threshold = 0.28;
     let w1 = smoothstep(threshold, 0.0, d1);
     let w2 = smoothstep(threshold, 0.0, d2);
     let w3 = smoothstep(threshold, 0.0, d3);
     let w4 = smoothstep(threshold, 0.0, d4);
-    
-    let total_weight = 1.0 + w1 + w2 + w3 + w4;
-    
-    let result = (center + n1 * w1 + n2 * w2 + n3 * w3 + n4 * w4) / total_weight;
-    return result;
+
+    let center_w = 0.5;
+    let total_weight = center_w + w1 + w2 + w3 + w4;
+    let washed = (center * center_w + n1 * w1 + n2 * w2 + n3 * w3 + n4 * w4) / total_weight;
+
+    // ALU-only: nudge toward the 5-tap mean so neighboring hues bleed a little.
+    let mean5 = (center + n1 + n2 + n3 + n4) * 0.2;
+    let luma = dot(washed.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let softened = mix(washed.rgb, vec3<f32>(luma), 0.06);
+    let rgb = mix(softened, mean5.rgb, 0.16);
+    return vec4<f32>(rgb, washed.a);
 }
 
 fn color_distance(a: vec4<f32>, b: vec4<f32>) -> f32 {
