@@ -1,6 +1,7 @@
 //! Slim world-playground commands. Forest + terrain extents are baked in.
 
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use world_player::commands::{RequestMeshStats, RequestModeCharacter, RequestModeFree};
 use world_player::{CharacterSpecies, RequestFpsToggle, RequestSetCharacter};
 
@@ -49,6 +50,10 @@ pub enum PlaygroundCommand {
 	/// Debug mob placement (Tracy actor-density flights).
 	#[command(subcommand)]
 	Mobs(Mobs),
+	/// Capture the primary window to a PNG via GPU readback.
+	Screenshot {
+		path: std::path::PathBuf,
+	},
 }
 
 #[derive(Clone, Subcommand)]
@@ -195,6 +200,10 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
 			PlaygroundCommand::Render(render) => render.react(commands, console),
 			PlaygroundCommand::Mobs(mobs) => mobs.react(commands, console),
+			PlaygroundCommand::Screenshot { path } => {
+				commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+				*console = format!("screenshot {}: pending", path.display());
+			}
 		}
 	}
 
@@ -375,5 +384,14 @@ mod tests {
 			set,
 			PlaygroundCommand::SetCharacter { species: CharacterSpecies::Braidman }
 		));
+	}
+
+	#[test]
+	fn parse_screenshot_path() {
+		let cmd = PlaygroundCommand::parse_line("screenshot /tmp/canopy-noon.png").unwrap();
+		let PlaygroundCommand::Screenshot { path } = cmd else {
+			panic!("expected screenshot");
+		};
+		assert_eq!(path, std::path::PathBuf::from("/tmp/canopy-noon.png"));
 	}
 }
