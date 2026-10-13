@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use character_persist::SaveRoot;
 use maybraid_menu_controller::MenuController;
-use maybraid_world::render_scale::VisualStyle;
+use maybraid_world::render_scale::{VisualStyle, VisualStyleAutoReason};
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
@@ -25,8 +25,9 @@ pub use catalog::{
 	classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, PersistPolicy, Preference,
 };
 pub use persist::{
-	apply_seed, apply_shadows_env, load_machine_settings, parse_render_scale_env,
-	parse_shadows_env, save_machine_settings, QualitySeeded, ENV_RENDER_SCALE, ENV_SHADOWS,
+	apply_seed, apply_shadows_env, apply_unsaved_visual_style_default, load_machine_settings,
+	load_machine_settings_ex, parse_render_scale_env, parse_shadows_env, save_machine_settings,
+	LoadedMachineSettings, QualitySeeded, ENV_RENDER_SCALE, ENV_SHADOWS,
 };
 
 /// Queue an in-game settings spawn (despawns any existing menu screen first).
@@ -230,6 +231,18 @@ impl InGameRenderScale {
 	}
 }
 
+/// Whether `visual_style` was an explicit saved choice. First run / legacy auto
+/// stay `false` so the host heuristic can pick Sharp or Native.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VisualStyleSaved(pub bool);
+
+/// First-run auto-pick, when [`VisualStyleSaved`] is false and the game ran the
+/// host heuristic. Cleared when the player steps Visual Style.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VisualStyleAutoPick {
+	pub reason: Option<VisualStyleAutoReason>,
+}
+
 /// Live 3D scale + window sizes for the Settings row. The game fills this.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct RenderScaleReadout {
@@ -238,6 +251,7 @@ pub struct RenderScaleReadout {
 	pub window_physical: UVec2,
 	pub target_physical: UVec2,
 	pub env_override: Option<VisualStyle>,
+	pub auto_reason: Option<VisualStyleAutoReason>,
 }
 
 impl Default for RenderScaleReadout {
@@ -248,6 +262,7 @@ impl Default for RenderScaleReadout {
 			window_physical: UVec2::ZERO,
 			target_physical: UVec2::ZERO,
 			env_override: None,
+			auto_reason: None,
 		}
 	}
 }
@@ -261,10 +276,18 @@ fn format_visual_style_info(readout: RenderScaleReadout) -> String {
 	if target.x == 0 || target.y == 0 {
 		return String::from("Rendered at display size.");
 	}
-	if target == readout.window_physical {
+	let pixels = if target == readout.window_physical {
 		format!("Rendered at {} x {}.", target.x, target.y)
 	} else {
 		format!("Rendered at {} x {}. Upscaled to display.", target.x, target.y)
+	};
+	if readout.env_override.is_some() {
+		return pixels;
+	}
+	if let Some(reason) = readout.auto_reason {
+		format!("{pixels} Auto-picked for this machine ({}).", reason.as_str())
+	} else {
+		pixels
 	}
 }
 
@@ -357,7 +380,7 @@ impl InGameSettingsChoice {
 				"Sun cascade shadows. High is four maps to 150 m. Low is four maps to 60 m. Off disables the sun's shadow maps."
 			}
 			Self::VisualStyle => {
-				"Presentation mode: native (window, default). Sharp is untreated 1080p offscreen (height-fit). Stylized modes are opt-in: impressionist / watercolor (painterly), retro / antediluvian (nearest-neighbor), or pre-post-modern (color-print)."
+				"Presentation mode: native (window) or sharp (1080p offscreen, height-fit). First run auto-picks Sharp on weaker machines. Stylized modes are opt-in: impressionist / watercolor (painterly), retro / antediluvian (nearest-neighbor), or pre-post-modern (color-print)."
 			}
 			Self::MobHud => {
 				"Pins and colored poles on presented mob hosts. Use this to find where groups should stand."
@@ -445,6 +468,8 @@ impl Plugin for InGameSettingsPlugin {
 		app.init_resource::<GameMode>()
 			.init_resource::<InGameSettings>()
 			.init_resource::<RenderScaleReadout>()
+			.init_resource::<VisualStyleSaved>()
+			.init_resource::<VisualStyleAutoPick>()
 			.init_resource::<persist::MachineSettings>()
 			.add_message::<SettingsStep>()
 			.add_plugins(TextMenuPlugin::<InGameSettingsChoice>::default())
@@ -473,6 +498,8 @@ fn apply_in_game_settings_choice(
 	mut steps: MessageReader<SettingsStep>,
 	mut settings: ResMut<InGameSettings>,
 	mut machine: ResMut<persist::MachineSettings>,
+	mut visual_style_saved: ResMut<VisualStyleSaved>,
+	mut auto_pick: ResMut<VisualStyleAutoPick>,
 	save_root: Option<Res<SaveRoot>>,
 	mut commands: Commands,
 ) {
@@ -480,6 +507,7 @@ fn apply_in_game_settings_choice(
 	let choice = choices.read().last().copied();
 	if let Some(step) = step {
 		if apply_settings_step(step, &mut settings, &mut machine, save_root.as_deref()) {
+			mark_visual_style_saved(&mut visual_style_saved, &mut auto_pick);
 			request_show_in_game_settings_at(&mut commands, step.choice);
 			return;
 		}
@@ -498,6 +526,7 @@ fn apply_in_game_settings_choice(
 		}
 		InGameSettingsChoice::VisualStyle => {
 			settings.visual_style = settings.visual_style.cycle();
+			mark_visual_style_saved(&mut visual_style_saved, &mut auto_pick);
 			persist::write_machine_preference::<catalog::VisualStylePref>(
 				Some(&mut machine),
 				settings.visual_style,
@@ -532,6 +561,11 @@ fn apply_settings_step(
 		save_root,
 	);
 	true
+}
+
+fn mark_visual_style_saved(saved: &mut VisualStyleSaved, auto: &mut VisualStyleAutoPick) {
+	saved.0 = true;
+	auto.reason = None;
 }
 
 fn apply_show_in_game_settings(
@@ -670,6 +704,7 @@ mod tests {
 			None,
 		));
 		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+		assert!(machine.visual_style_saved);
 		assert!(apply_settings_step(
 			SettingsStep { choice: InGameSettingsChoice::VisualStyle, delta: -1 },
 			&mut settings,
@@ -718,6 +753,7 @@ mod tests {
 			window_physical: UVec2::new(3024, 1964),
 			target_physical: UVec2::new(1512, 982),
 			env_override: None,
+			auto_reason: None,
 		};
 		assert_eq!(
 			format_visual_style_info(retina),
@@ -729,6 +765,7 @@ mod tests {
 			window_physical: UVec2::new(1280, 720),
 			target_physical: UVec2::new(1280, 720),
 			env_override: None,
+			auto_reason: None,
 		};
 		assert_eq!(format_visual_style_info(native), "Rendered at 1280 x 720.");
 		assert_eq!(
@@ -736,5 +773,32 @@ mod tests {
 			"Rendered at display size."
 		);
 		Ok(())
+	}
+
+	#[test]
+	fn visual_style_info_mentions_auto_pick_unless_env_wins() {
+		use maybraid_world::VisualStyleAutoReason;
+
+		let auto = RenderScaleReadout {
+			style: InGameVisualStyle::Sharp.to_visual_style(),
+			effective_scale: 1080.0 / 1440.0,
+			window_physical: UVec2::new(2560, 1440),
+			target_physical: UVec2::new(1920, 1080),
+			env_override: None,
+			auto_reason: Some(VisualStyleAutoReason::UnifiedMemoryBelow24GiB),
+		};
+		assert_eq!(
+			format_visual_style_info(auto),
+			"Rendered at 1920 x 1080. Upscaled to display. Auto-picked for this machine (unified memory below 24 GB)."
+		);
+
+		let env_wins = RenderScaleReadout {
+			env_override: Some(InGameVisualStyle::Sharp.to_visual_style()),
+			..auto
+		};
+		assert_eq!(
+			format_visual_style_info(env_wins),
+			"Rendered at 1920 x 1080. Upscaled to display."
+		);
 	}
 }

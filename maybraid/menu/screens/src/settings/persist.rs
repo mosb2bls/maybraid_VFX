@@ -11,7 +11,10 @@ use character_persist::{PersistError, SaveRoot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::catalog::{overlay_machine_fields, seed_device_class, DeviceClass, Preference};
+use super::catalog::{
+	overlay_machine_fields, seed_device_class, visual_style_choice_is_saved, DeviceClass,
+	Preference, VisualStylePref,
+};
 use super::{InGameSettings, InGameShadowQuality, InGameVisualStyle};
 
 pub const ENV_SHADOWS: &str = "MAYBRAID_SHADOWS";
@@ -29,11 +32,17 @@ pub struct QualitySeeded;
 
 /// Last Machine projection written or loaded. Env overlays do not live here.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct MachineSettings(pub InGameSettings);
+pub(super) struct MachineSettings {
+	pub settings: InGameSettings,
+	pub visual_style_saved: bool,
+}
 
 impl Default for MachineSettings {
 	fn default() -> Self {
-		Self(InGameSettings::from_device(seed_device_class()))
+		Self {
+			settings: InGameSettings::from_device(seed_device_class()),
+			visual_style_saved: false,
+		}
 	}
 }
 
@@ -106,20 +115,48 @@ pub fn parse_render_scale_env(raw: Option<&str>) -> Option<f32> {
 /// Device defaults, then Machine keys from disk. Env is applied separately so a
 /// capture overlay cannot rewrite the file.
 pub fn load_machine_settings(root: &SaveRoot, class: DeviceClass) -> InGameSettings {
+	load_machine_settings_ex(root, class).settings
+}
+
+/// Load Machine keys and whether [`VisualStylePref`] was an explicit saved choice.
+pub fn load_machine_settings_ex(root: &SaveRoot, class: DeviceClass) -> LoadedMachineSettings {
 	let mut settings = InGameSettings::from_device(class);
-	if let Some(file) = read_settings_file(root) {
-		overlay_machine_fields(&mut settings, &file.fields);
-		migrate_v1_sharp_to_native(&mut settings, file.version);
+	let Some(file) = read_settings_file(root) else {
+		return LoadedMachineSettings { settings, visual_style_saved: false };
+	};
+	overlay_machine_fields(&mut settings, &file.fields);
+	migrate_v1_sharp_to_native(&mut settings, file.version);
+	LoadedMachineSettings {
+		settings,
+		visual_style_saved: visual_style_choice_is_saved(&file.fields),
 	}
-	settings
+}
+
+/// Device defaults plus whether visual style was saved on disk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoadedMachineSettings {
+	pub settings: InGameSettings,
+	pub visual_style_saved: bool,
 }
 
 pub fn save_machine_settings(
 	root: &SaveRoot,
 	settings: &InGameSettings,
 ) -> Result<(), PersistError> {
+	save_machine_fields(root, settings, true)
+}
+
+fn save_machine_fields(
+	root: &SaveRoot,
+	settings: &InGameSettings,
+	persist_visual_style: bool,
+) -> Result<(), PersistError> {
 	root.ensure_dirs()?;
-	let file = SettingsFile { version: SETTINGS_VERSION, fields: settings.persisted_fields() };
+	let mut fields = settings.persisted_fields();
+	if !persist_visual_style {
+		fields.remove(VisualStylePref::KEY);
+	}
+	let file = SettingsFile { version: SETTINGS_VERSION, fields };
 	fs::write(root.settings_path(), serde_json::to_string_pretty(&file)?)?;
 	Ok(())
 }
@@ -137,13 +174,32 @@ pub(super) fn write_machine_preference<P: Preference>(
 	let Some(machine) = machine else {
 		return;
 	};
-	P::set(&mut machine.0, value);
+	P::set(&mut machine.settings, value);
+	if P::KEY == VisualStylePref::KEY {
+		machine.visual_style_saved = true;
+	}
 	let Some(root) = root else {
 		return;
 	};
-	if let Err(error) = save_machine_settings(root, &machine.0) {
+	if let Err(error) = save_machine_fields(root, &machine.settings, machine.visual_style_saved) {
 		warn!("failed to persist machine settings: {error}");
 	}
+}
+
+/// Apply the host heuristic when `visual_style` was never an explicit save.
+///
+/// Returns `None` when [`VisualStyleSaved`] is set so an explicit choice stays.
+pub fn apply_unsaved_visual_style_default(
+	visual_style_saved: bool,
+	settings: &mut InGameSettings,
+	signals: &maybraid_world::VisualStyleSignals,
+) -> Option<maybraid_world::VisualStylePick> {
+	if visual_style_saved {
+		return None;
+	}
+	let pick = maybraid_world::pick_default_visual_style(signals);
+	settings.visual_style = InGameVisualStyle::from_visual_style(pick.style);
+	Some(pick)
 }
 
 /// Load Machine defaults and the live bag. `None` when [`QualitySeeded`] is set.
@@ -151,17 +207,20 @@ pub fn apply_seed(
 	already_seeded: bool,
 	root: Option<&SaveRoot>,
 	shadows_env: Option<&str>,
-) -> Option<(InGameSettings, InGameSettings)> {
+) -> Option<(InGameSettings, InGameSettings, bool)> {
 	if already_seeded {
 		return None;
 	}
 	let class = seed_device_class();
-	let machine = root
-		.map(|root| load_machine_settings(root, class))
-		.unwrap_or_else(|| InGameSettings::from_device(class));
-	let mut live = machine;
+	let loaded = root.map(|root| load_machine_settings_ex(root, class)).unwrap_or_else(|| {
+		LoadedMachineSettings {
+			settings: InGameSettings::from_device(class),
+			visual_style_saved: false,
+		}
+	});
+	let mut live = loaded.settings;
 	apply_shadows_env(&mut live, shadows_env);
-	Some((machine, live))
+	Some((loaded.settings, live, loaded.visual_style_saved))
 }
 
 pub(super) fn seed_in_game_settings(
@@ -172,13 +231,16 @@ pub(super) fn seed_in_game_settings(
 	save_root: Option<Res<SaveRoot>>,
 ) {
 	let env = std::env::var(ENV_SHADOWS).ok();
-	let Some((loaded, live)) = apply_seed(seeded.is_some(), save_root.as_deref(), env.as_deref())
+	let Some((loaded, live, visual_style_saved)) =
+		apply_seed(seeded.is_some(), save_root.as_deref(), env.as_deref())
 	else {
 		return;
 	};
-	*machine = MachineSettings(loaded);
+	*machine = MachineSettings { settings: loaded, visual_style_saved };
 	*settings = live;
 	commands.insert_resource(QualitySeeded);
+	commands.insert_resource(super::VisualStyleSaved(visual_style_saved));
+	commands.insert_resource(super::VisualStyleAutoPick::default());
 }
 
 pub(super) fn persist_machine_settings_on_exit(
@@ -192,7 +254,9 @@ pub(super) fn persist_machine_settings_on_exit(
 	let Some(root) = save_root else {
 		return;
 	};
-	if let Err(error) = save_machine_settings(root.as_ref(), &machine.0) {
+	if let Err(error) =
+		save_machine_fields(root.as_ref(), &machine.settings, machine.visual_style_saved)
+	{
 		warn!("failed to persist machine settings on exit: {error}");
 	}
 }
@@ -202,9 +266,10 @@ mod tests {
 	use character_persist::SaveRoot;
 
 	use super::{
-		apply_seed, apply_shadows_env, load_machine_settings, parse_render_scale_env,
-		parse_shadows_env, save_machine_settings, write_machine_preference, MachineSettings,
-		ENV_RENDER_SCALE, ENV_SHADOWS,
+		apply_seed, apply_shadows_env, apply_unsaved_visual_style_default, load_machine_settings,
+		load_machine_settings_ex, parse_render_scale_env, parse_shadows_env, save_machine_fields,
+		save_machine_settings, write_machine_preference, MachineSettings, ENV_RENDER_SCALE,
+		ENV_SHADOWS,
 	};
 	use crate::settings::catalog::{DeviceClass, Shadows, VisualStylePref};
 	use crate::settings::{InGameSettings, InGameShadowQuality, InGameVisualStyle};
@@ -291,22 +356,27 @@ mod tests {
 	fn user_cycle_persists_and_later_seed_does_not_reset() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
-		let (machine, live) = apply_seed(false, Some(&root), None).expect("seed");
+		let (machine, live, visual_style_saved) =
+			apply_seed(false, Some(&root), None).expect("seed");
 		assert_eq!(live.shadows, InGameShadowQuality::Off);
 		assert_eq!(machine.shadows, InGameShadowQuality::Off);
+		assert!(!visual_style_saved);
 
-		let mut stored = MachineSettings(machine);
+		let mut stored = MachineSettings { settings: machine, visual_style_saved };
 		write_machine_preference::<Shadows>(
 			Some(&mut stored),
 			InGameShadowQuality::Low,
 			Some(&root),
 		);
-		assert_eq!(stored.0.shadows, InGameShadowQuality::Low);
+		assert_eq!(stored.settings.shadows, InGameShadowQuality::Low);
+		assert!(!stored.visual_style_saved);
 		assert!(read_raw(&root).contains("\"low\""));
+		assert!(!read_raw(&root).contains("\"visual_style\""));
 
 		assert!(apply_seed(true, Some(&root), None).is_none());
-		let (_, live) = apply_seed(false, Some(&root), None).expect("reload");
+		let (_, live, still_unsaved) = apply_seed(false, Some(&root), None).expect("reload");
 		assert_eq!(live.shadows, InGameShadowQuality::Low);
+		assert!(!still_unsaved);
 	}
 
 	#[test]
@@ -326,13 +396,14 @@ mod tests {
 		let before = read_raw(&root);
 		assert!(before.contains("\"pre_post_modern\""));
 
-		let mut stored = MachineSettings(loaded);
+		let mut stored = MachineSettings { settings: loaded, visual_style_saved: true };
 		write_machine_preference::<VisualStylePref>(
 			Some(&mut stored),
 			InGameVisualStyle::Native,
 			Some(&root),
 		);
-		assert_eq!(stored.0.visual_style, InGameVisualStyle::Native);
+		assert_eq!(stored.settings.visual_style, InGameVisualStyle::Native);
+		assert!(stored.visual_style_saved);
 		assert!(read_raw(&root).contains("\"native\""));
 		assert!(read_raw(&root).contains("\"version\": 2"));
 
@@ -341,7 +412,7 @@ mod tests {
 			InGameVisualStyle::Sharp,
 			Some(&root),
 		);
-		assert_eq!(stored.0.visual_style, InGameVisualStyle::Sharp);
+		assert_eq!(stored.settings.visual_style, InGameVisualStyle::Sharp);
 		assert!(read_raw(&root).contains("\"sharp\""));
 
 		// Test migration from legacy render_scale
@@ -394,5 +465,91 @@ mod tests {
 		assert_eq!(parse_render_scale_env(Some("0.1")), Some(0.5));
 		assert_eq!(ENV_RENDER_SCALE, "MAYBRAID_RENDER_SCALE");
 		Ok(())
+	}
+
+	#[test]
+	fn missing_file_and_legacy_auto_leave_visual_style_unsaved() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert!(!loaded.visual_style_saved);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
+
+		write_fields(
+			&root,
+			r#"{ "version": 1, "fields": { "shadows": "off", "render_scale": "auto" } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert!(!loaded.visual_style_saved);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
+	}
+
+	#[test]
+	fn explicit_visual_style_or_legacy_scale_is_saved() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		write_fields(
+			&root,
+			r#"{ "version": 2, "fields": { "shadows": "off", "visual_style": "impressionist" } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert!(loaded.visual_style_saved);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Impressionist);
+
+		write_fields(
+			&root,
+			r#"{ "version": 1, "fields": { "shadows": "off", "render_scale": "75" } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert!(loaded.visual_style_saved);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::PrePostModern);
+	}
+
+	#[test]
+	fn unsaved_visual_style_is_omitted_until_the_player_picks() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		save_machine_fields(
+			&root,
+			&InGameSettings {
+				shadows: InGameShadowQuality::Off,
+				mob_hud: false,
+				visual_style: InGameVisualStyle::Sharp,
+			},
+			false,
+		)
+		.expect("save");
+		assert!(!read_raw(&root).contains("\"visual_style\""));
+		assert!(!load_machine_settings_ex(&root, DeviceClass::Modest).visual_style_saved);
+	}
+
+	#[test]
+	fn auto_pick_applies_only_when_unsaved() {
+		use bevy::prelude::UVec2;
+		use maybraid_world::{AdapterKind, VisualStyle, VisualStyleAutoReason, VisualStyleSignals};
+
+		let mut settings = InGameSettings {
+			shadows: InGameShadowQuality::Off,
+			mob_hud: false,
+			visual_style: InGameVisualStyle::Native,
+		};
+		let mut signals = VisualStyleSignals {
+			adapter_kind: AdapterKind::IntegratedGpu,
+			name: "Intel Iris Xe Graphics".into(),
+			window: UVec2::new(2560, 1440),
+			cpu_cores: Some(8),
+			memory_bytes: Some(16 * 1024 * 1024 * 1024),
+			..VisualStyleSignals::default()
+		};
+		let pick =
+			apply_unsaved_visual_style_default(false, &mut settings, &signals).expect("pick");
+		assert_eq!(pick.style, VisualStyle::Sharp);
+		assert_eq!(pick.reason, VisualStyleAutoReason::UnifiedMemoryBelow24GiB);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+
+		settings.visual_style = InGameVisualStyle::Impressionist;
+		signals.device_tier = Some(maybraid_world::DeviceTier::Low);
+		assert!(apply_unsaved_visual_style_default(true, &mut settings, &signals).is_none());
+		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
 	}
 }
