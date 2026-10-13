@@ -135,26 +135,29 @@ impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
 			Err(Busy) => return,
 		};
 		let mut read_all = true;
-		for id in published.ids {
-			let Ok(entry) = storage.try_entry::<T>(id) else {
-				read_all = false;
-				break;
-			};
+		let entries = match storage.try_entries::<T>(&published.ids) {
+			Ok(entries) => entries,
+			Err(Busy) => return,
+		};
+		if entries.len() < published.ids.len() {
+			read_all = false;
+		}
+		for (id, entry) in published.ids.iter().zip(entries) {
 			self.cursor += 1;
 			let Some(entry) = entry else {
 				continue;
 			};
-			if let Some(host) = self.hosts.get_mut(&id).filter(|host| host.version == entry.version)
+			if let Some(host) = self.hosts.get_mut(id).filter(|host| host.version == entry.version)
 			{
 				host.session = self.session;
 				continue;
 			}
-			if let Some(stale) = self.hosts.remove(&id) {
+			if let Some(stale) = self.hosts.remove(id) {
 				retire_host(commands, stale.entity);
 			}
 			let (bounds, version) = (entry.bounds, entry.version);
-			let entity = spawn_host(commands, id, entry, self.focus);
-			self.hosts.insert(id, Host { entity, bounds, version, session: self.session });
+			let entity = spawn_host(commands, *id, entry, self.focus);
+			self.hosts.insert(*id, Host { entity, bounds, version, session: self.session });
 			self.retired_against = None;
 		}
 		if read_all && published.done && self.sweep_pending {
