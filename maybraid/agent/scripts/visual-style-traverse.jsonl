@@ -1,4 +1,4 @@
-# Streaming route used to compare Sharp / Impressionist / Antediluvian.
+# Streaming route used to compare Native / Sharp / Impressionist / Antediluvian.
 # Override the style with MAYBRAID_VISUAL_STYLE or a leading visual_style.
 
 {"cmd":"visual_style","style":"impressionist"}

@@ -1,0 +1,14 @@
+# Stationary Native (direct window, no offscreen) at origin.
+
+{"cmd":"visual_style","style":"native"}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":18}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"visual-style-idle","mark":"start"}
+{"cmd":"wait","secs":4}
+{"cmd":"console","line":"screenshot profiling/captures/screenshots/visual-style-idle-native.png"}
+{"cmd":"wait","secs":16}
+{"cmd":"scenario","name":"visual-style-idle","mark":"end"}
+{"cmd":"quit"}

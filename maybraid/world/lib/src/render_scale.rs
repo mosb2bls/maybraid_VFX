@@ -2,7 +2,10 @@
 //!
 //! Replaces the legacy render scale system. Styles render at characteristic resolutions
 //! (preserving aspect ratio) and apply effects during presentation:
-//! - **Sharp**: native resolution, no treatment, default
+//! - **Native**: native resolution, no treatment, drawn direct to the window.
+//!   Default on stronger machines (and when no host signal says otherwise).
+//! - **Sharp** (~1920×1080): untreated 1080p offscreen, linear present, height-fit.
+//!   First-run default on weaker machines; see [`device_tier`].
 //! - **Impressionist** (~700×394): painterly softening, tighter wash than Watercolor
 //! - **Watercolor** (~1280×720): full-strength painterly wash, more source detail
 //! - **Retro** (~540×304): nearest-neighbor, performance
@@ -11,6 +14,7 @@
 //!
 //! UI stays on the window-sized present camera. HUD, menus, and text remain at native resolution.
 
+pub mod device_tier;
 mod presentation;
 mod target;
 pub mod visual_style;
@@ -19,14 +23,20 @@ pub use presentation::PresentationMaterialsPlugin;
 
 use bevy::prelude::*;
 
+pub use device_tier::{
+	host_memory_bytes, parse_device_tier_env, parse_meminfo_total_bytes, pick_default_visual_style,
+	window_above_1080p, AdapterKind, DeviceTier, VisualStyleAutoReason, VisualStylePick,
+	VisualStyleSignals, DEVICE_TIER_ENV, UNIFIED_MEMORY_NATIVE_BYTES,
+};
 pub use target::{map_render_to_window, map_window_to_render};
 pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
 
-/// `MAYBRAID_VISUAL_STYLE=retro` (or `sharp` by default) at process start.
+/// `MAYBRAID_VISUAL_STYLE=retro` (or `native` by default) at process start.
+/// Wins over the first-run host heuristic and any saved preference.
 pub const VISUAL_STYLE_ENV: &str = "MAYBRAID_VISUAL_STYLE";
 /// Optional override so a capture can keep a style's resolution without its treatment.
 pub const PRESENTATION_TREATMENT_ENV: &str = "MAYBRAID_PRESENTATION_TREATMENT";
-/// Keep the offscreen blit at the style's target size, including Sharp at native.
+/// Keep the offscreen blit at the style's target size, including Native at window size.
 pub const FORCE_OFFSCREEN_ENV: &str = "MAYBRAID_FORCE_OFFSCREEN";
 
 /// Console / env request to set an explicit visual style.
@@ -80,7 +90,7 @@ impl Default for VisualStyleSetting {
 }
 
 impl VisualStyleSetting {
-	/// Read [`VISUAL_STYLE_ENV`]. Empty → default [`VisualStyle::Sharp`].
+	/// Read [`VISUAL_STYLE_ENV`]. Empty → default [`VisualStyle::Native`].
 	pub fn from_env() -> Self {
 		Self {
 			requested: parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref()),
@@ -130,7 +140,7 @@ impl VisualStyleSetting {
 		if let Some(treatment) = self.treatment_override {
 			plan.treatment = treatment;
 		}
-		plan.force_offscreen = self.force_offscreen;
+		plan.force_offscreen = plan.force_offscreen || self.force_offscreen;
 		plan
 	}
 }
@@ -166,7 +176,7 @@ pub fn parse_force_offscreen_env(raw: Option<&str>) -> bool {
 	matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
 }
 
-/// Parse `MAYBRAID_VISUAL_STYLE`. Empty → `None` (default Sharp).
+/// Parse `MAYBRAID_VISUAL_STYLE`. Empty → `None` (default Native).
 pub fn parse_visual_style_env(raw: Option<&str>) -> Option<VisualStyle> {
 	let Some(raw) = raw else {
 		return None;
@@ -179,7 +189,7 @@ pub fn parse_visual_style_env(raw: Option<&str>) -> Option<VisualStyle> {
 		Some(style) => Some(style),
 		None => {
 			eprintln!(
-				"[{VISUAL_STYLE_ENV}] unknown {raw:?} (use impressionist, watercolor, sharp, retro, antediluvian, or pre_post_modern)"
+				"[{VISUAL_STYLE_ENV}] unknown {raw:?} (use native, sharp, impressionist, watercolor, retro, antediluvian, or pre_post_modern)"
 			);
 			None
 		}
@@ -428,6 +438,7 @@ mod tests {
 	fn visual_style_parses_script_ids() -> anyhow::Result<()> {
 		assert_eq!(parse_visual_style_env(None), None);
 		assert_eq!(parse_visual_style_env(Some("")), None);
+		assert_eq!(parse_visual_style_env(Some("native")), Some(VisualStyle::Native));
 		assert_eq!(parse_visual_style_env(Some("impressionist")), Some(VisualStyle::Impressionist));
 		assert_eq!(parse_visual_style_env(Some("watercolor")), Some(VisualStyle::Watercolor));
 		assert_eq!(parse_visual_style_env(Some("sharp")), Some(VisualStyle::Sharp));
@@ -442,9 +453,9 @@ mod tests {
 	}
 
 	#[test]
-	fn visual_style_setting_defaults_to_sharp() -> anyhow::Result<()> {
+	fn visual_style_setting_defaults_to_native() -> anyhow::Result<()> {
 		let setting = VisualStyleSetting::default();
-		assert_eq!(setting.effective(), VisualStyle::Sharp);
+		assert_eq!(setting.effective(), VisualStyle::Native);
 		Ok(())
 	}
 
@@ -459,14 +470,27 @@ mod tests {
 	}
 
 	#[test]
-	fn force_offscreen_keeps_sharp_native_and_requires_blit() -> anyhow::Result<()> {
+	fn force_offscreen_keeps_native_and_requires_blit() -> anyhow::Result<()> {
 		let mut setting = VisualStyleSetting::default();
-		setting.set(VisualStyle::Sharp);
+		setting.set(VisualStyle::Native);
 		setting.set_force_offscreen(true);
 		let window = UVec2::new(1920, 1080);
 		let plan = setting.plan(window, 1.0);
 		assert_eq!(plan.target_size, window);
 		assert_eq!(plan.treatment, PresentationTreatment::None);
+		assert!(plan.requires_offscreen(window));
+		Ok(())
+	}
+
+	#[test]
+	fn sharp_plan_stays_offscreen_without_the_force_flag() -> anyhow::Result<()> {
+		let mut setting = VisualStyleSetting::default();
+		setting.set(VisualStyle::Sharp);
+		let window = UVec2::new(1920, 1080);
+		let plan = setting.plan(window, 1.0);
+		assert_eq!(plan.target_size, window);
+		assert_eq!(plan.treatment, PresentationTreatment::None);
+		assert!(plan.force_offscreen);
 		assert!(plan.requires_offscreen(window));
 		Ok(())
 	}

@@ -1,6 +1,7 @@
 //! Offscreen 3D target + window blit with visual style treatments.
-//! Despawned entirely for Sharp (native resolution, no treatment) unless
+//! Despawned entirely for Native (window resolution, no treatment) unless
 //! [`super::VisualStyleSetting::force_offscreen`] keeps the apparatus.
+//! Sharp always keeps the apparatus at its 1080p (height-fit) target.
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -13,8 +14,8 @@ use bevy::window::PrimaryWindow;
 use player_camera::FollowCamera;
 
 use super::presentation::{
-	ImpressionistMaterial, NearestNeighborMaterial, PrePostModernMaterial, PresentationMaterial,
-	create_presentation_material,
+	create_presentation_material, ImpressionistMaterial, NearestNeighborMaterial,
+	PrePostModernMaterial, PresentationMaterial,
 };
 use super::visual_style::{PresentationTreatment, VisualStyle};
 use super::{PresentationAction, PresentationChurn, RenderScale, VisualStyleSetting};
@@ -703,12 +704,13 @@ mod tests {
 	}
 
 	#[test]
-	fn visual_styles_resize_and_sharp_is_direct() -> anyhow::Result<()> {
+	fn visual_styles_resize_and_native_is_direct() -> anyhow::Result<()> {
 		let mut app = boot_target_app();
 		for (style, size, present) in [
 			(VisualStyle::Impressionist, UVec2::new(700, 394), true),
 			(VisualStyle::Watercolor, UVec2::new(1280, 720), true),
-			(VisualStyle::Sharp, UVec2::new(1280, 720), false),
+			(VisualStyle::Native, UVec2::new(1280, 720), false),
+			(VisualStyle::Sharp, UVec2::new(1280, 720), true),
 			(VisualStyle::Retro, UVec2::new(540, 304), true),
 			(VisualStyle::Antediluvian, UVec2::new(400, 225), true),
 			(VisualStyle::PrePostModern, UVec2::new(1280, 720), true),
@@ -718,6 +720,21 @@ mod tests {
 			assert_eq!(source_target_size(&mut app), Some(size), "{style:?}");
 			assert_eq!(present_count(&mut app) > 0, present, "{style:?} present");
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn sharp_renders_1080p_offscreen_on_a_larger_window() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		set_window(&mut app, UVec2::new(2560, 1440));
+		app.world_mut().resource_mut::<VisualStyleSetting>().set(VisualStyle::Sharp);
+		app.update();
+		assert_eq!(source_target_size(&mut app), Some(UVec2::new(1920, 1080)));
+		assert_eq!(present_count(&mut app), 1);
+		assert!(blit_is_sprite(&mut app));
+		take_churn(&mut app);
+		app.update();
+		assert!(take_churn(&mut app).is_empty(), "unchanged Sharp presentation is a no-op");
 		Ok(())
 	}
 
@@ -782,11 +799,11 @@ mod tests {
 	}
 
 	#[test]
-	fn force_offscreen_sharp_keeps_the_present_camera() -> anyhow::Result<()> {
+	fn force_offscreen_native_keeps_the_present_camera() -> anyhow::Result<()> {
 		let mut app = boot_target_app();
 		{
 			let mut style = app.world_mut().resource_mut::<VisualStyleSetting>();
-			style.set(VisualStyle::Sharp);
+			style.set(VisualStyle::Native);
 			style.set_force_offscreen(true);
 		}
 		app.update();
