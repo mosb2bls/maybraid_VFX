@@ -24,13 +24,15 @@ pub use presentation::PresentationMaterialsPlugin;
 use bevy::prelude::*;
 
 pub use device_tier::{
-	parse_device_tier_env, pick_default_visual_style, window_above_1080p, AdapterKind, DeviceTier,
-	VisualStyleAutoReason, VisualStylePick, VisualStyleSignals, DEVICE_TIER_ENV,
+	host_memory_bytes, parse_device_tier_env, parse_meminfo_total_bytes, pick_default_visual_style,
+	window_above_1080p, AdapterKind, DeviceTier, VisualStyleAutoReason, VisualStylePick,
+	VisualStyleSignals, DEVICE_TIER_ENV, UNIFIED_MEMORY_NATIVE_BYTES,
 };
 pub use target::{map_render_to_window, map_window_to_render};
 pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
 
 /// `MAYBRAID_VISUAL_STYLE=retro` (or `native` by default) at process start.
+/// Wins over the first-run host heuristic and any saved preference.
 pub const VISUAL_STYLE_ENV: &str = "MAYBRAID_VISUAL_STYLE";
 /// Optional override so a capture can keep a style's resolution without its treatment.
 pub const PRESENTATION_TREATMENT_ENV: &str = "MAYBRAID_PRESENTATION_TREATMENT";

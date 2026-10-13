@@ -9,21 +9,27 @@
 //!
 //! 1. [`DEVICE_TIER_ENV`] `low` → Sharp, `high` → Native.
 //! 2. Software / CPU adapters (`lavapipe`, `llvmpipe`, SwiftShader, …) → Sharp.
-//! 3. Apple M-series **base / Air-class** (no Pro / Max / Ultra) → Sharp.
+//! 3. Integrated / unified-memory GPUs (including Apple Silicon) with **total
+//!    system RAM below 24 GiB** → Sharp. 24 GiB or more does not force Native;
+//!    other signals still apply.
+//! 4. Apple M-series **base / Air-class** (no Pro / Max / Ultra) → Sharp.
 //!    Apple M-series **Pro / Max / Ultra** → Native.
-//! 4. Discrete GPUs → Native.
-//! 5. Integrated / virtual / unknown GPUs **above 1080p** → Sharp.
-//! 6. Those same weaker GPUs with few CPU cores (≤4) or ≤8 GiB RAM → Sharp.
-//! 7. Otherwise Native.
+//! 5. Discrete GPUs → Native (dedicated VRAM; system RAM is not a class signal).
+//! 6. Integrated / virtual / unknown GPUs **above 1080p** → Sharp.
+//! 7. Those same weaker GPUs with few CPU cores (≤4) → Sharp.
+//! 8. Otherwise Native.
 //!
 //! # Limits
 //!
 //! - Adapter names vary by backend and driver. A new Apple chip that is not
 //!   `M` + digits, or a discrete GPU reported as integrated, will misclassify.
 //! - Base M-series in a MacBook Pro (same GPU name as Air) is treated as weak.
+//! - Unified-memory class uses **total system RAM**, not GPU VRAM. Firmware can
+//!   reserve a slice, so a marketed 24 GB machine may report slightly less and
+//!   pick Sharp.
 //! - We do not measure thermals, battery, or available VRAM.
 //! - Window size is the primary framebuffer at pick time; later resize is ignored.
-//! - CPU / memory are optional and ignored when the adapter is already strong.
+//! - CPU cores are optional and ignored when the adapter is already strong.
 
 use bevy::prelude::*;
 
@@ -34,7 +40,8 @@ pub const DEVICE_TIER_ENV: &str = "MAYBRAID_DEVICE_TIER";
 
 const ABOVE_1080P_PIXELS: u32 = 1920 * 1080;
 const LOW_CPU_CORES: u32 = 4;
-const LOW_MEMORY_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+/// Integrated / unified-memory hosts below this total system RAM default to Sharp.
+pub const UNIFIED_MEMORY_NATIVE_BYTES: u64 = 24 * 1024 * 1024 * 1024;
 
 /// Forced host tier from [`DEVICE_TIER_ENV`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,6 +79,19 @@ impl Default for AdapterKind {
 	}
 }
 
+impl AdapterKind {
+	/// Map wgpu / Bevy `DeviceType` debug names (`DiscreteGpu`, `IntegratedGpu`, …).
+	pub fn from_wgpu_device_type_name(name: &str) -> Self {
+		match name {
+			"DiscreteGpu" => Self::DiscreteGpu,
+			"IntegratedGpu" => Self::IntegratedGpu,
+			"VirtualGpu" => Self::VirtualGpu,
+			"Cpu" => Self::Cpu,
+			_ => Self::Other,
+		}
+	}
+}
+
 /// Why a first-run style was chosen. Copy so the settings readout can store it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VisualStyleAutoReason {
@@ -81,6 +101,7 @@ pub enum VisualStyleAutoReason {
 	AppleBase,
 	ApplePro,
 	DiscreteGpu,
+	UnifiedMemoryBelow24GiB,
 	IntegratedAbove1080p,
 	LowCpuOrMemory,
 	DefaultNative,
@@ -95,8 +116,9 @@ impl VisualStyleAutoReason {
 			Self::AppleBase => "Apple M-series base/Air",
 			Self::ApplePro => "Apple M-series Pro/Max/Ultra",
 			Self::DiscreteGpu => "discrete GPU",
+			Self::UnifiedMemoryBelow24GiB => "unified memory below 24 GB",
 			Self::IntegratedAbove1080p => "integrated GPU above 1080p",
-			Self::LowCpuOrMemory => "low CPU or memory",
+			Self::LowCpuOrMemory => "low CPU cores",
 			Self::DefaultNative => "default Native",
 		}
 	}
@@ -149,6 +171,10 @@ pub fn pick_default_visual_style(signals: &VisualStyleSignals) -> VisualStylePic
 		return pick(VisualStyle::Sharp, VisualStyleAutoReason::SoftwareRenderer);
 	}
 
+	if is_unified_memory_host(signals) && below_unified_memory_native(signals) {
+		return pick(VisualStyle::Sharp, VisualStyleAutoReason::UnifiedMemoryBelow24GiB);
+	}
+
 	if is_apple_m_series(&signals.name) {
 		return if apple_m_is_pro_class(&signals.name) {
 			pick(VisualStyle::Native, VisualStyleAutoReason::ApplePro)
@@ -165,7 +191,7 @@ pub fn pick_default_visual_style(signals: &VisualStyleSignals) -> VisualStylePic
 		return pick(VisualStyle::Sharp, VisualStyleAutoReason::IntegratedAbove1080p);
 	}
 
-	if is_weaker_adapter(signals.adapter_kind) && is_low_cpu_or_memory(signals) {
+	if is_weaker_adapter(signals.adapter_kind) && is_low_cpu(signals) {
 		return pick(VisualStyle::Sharp, VisualStyleAutoReason::LowCpuOrMemory);
 	}
 
@@ -186,10 +212,57 @@ fn is_weaker_adapter(kind: AdapterKind) -> bool {
 	)
 }
 
-fn is_low_cpu_or_memory(signals: &VisualStyleSignals) -> bool {
-	let low_cpu = signals.cpu_cores.is_some_and(|cores| cores > 0 && cores <= LOW_CPU_CORES);
-	let low_mem = signals.memory_bytes.is_some_and(|bytes| bytes > 0 && bytes <= LOW_MEMORY_BYTES);
-	low_cpu || low_mem
+fn is_unified_memory_host(signals: &VisualStyleSignals) -> bool {
+	is_apple_m_series(&signals.name) || is_weaker_adapter(signals.adapter_kind)
+}
+
+fn below_unified_memory_native(signals: &VisualStyleSignals) -> bool {
+	signals
+		.memory_bytes
+		.is_some_and(|bytes| bytes > 0 && bytes < UNIFIED_MEMORY_NATIVE_BYTES)
+}
+
+fn is_low_cpu(signals: &VisualStyleSignals) -> bool {
+	signals.cpu_cores.is_some_and(|cores| cores > 0 && cores <= LOW_CPU_CORES)
+}
+
+/// Total system RAM in bytes from a cheap OS query, when one succeeds.
+///
+/// Linux reads `/proc/meminfo` `MemTotal`. macOS runs `sysctl -n hw.memsize`.
+pub fn host_memory_bytes() -> Option<u64> {
+	#[cfg(target_os = "linux")]
+	{
+		return parse_meminfo_total_bytes(&std::fs::read_to_string("/proc/meminfo").ok()?);
+	}
+	#[cfg(target_os = "macos")]
+	{
+		return sysctl_hw_memsize();
+	}
+	#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+	{
+		None
+	}
+}
+
+/// Parse Linux `/proc/meminfo` `MemTotal` into bytes.
+pub fn parse_meminfo_total_bytes(meminfo: &str) -> Option<u64> {
+	for line in meminfo.lines() {
+		let Some(rest) = line.trim().strip_prefix("MemTotal:") else {
+			continue;
+		};
+		let kib: u64 = rest.split_whitespace().next()?.parse().ok()?;
+		return Some(kib.saturating_mul(1024));
+	}
+	None
+}
+
+#[cfg(target_os = "macos")]
+fn sysctl_hw_memsize() -> Option<u64> {
+	let output = std::process::Command::new("sysctl").args(["-n", "hw.memsize"]).output().ok()?;
+	if !output.status.success() {
+		return None;
+	}
+	String::from_utf8(output.stdout).ok()?.trim().parse().ok()
 }
 
 fn is_software_renderer(signals: &VisualStyleSignals) -> bool {
@@ -242,7 +315,7 @@ mod tests {
 			name: name.into(),
 			window,
 			cpu_cores: Some(8),
-			memory_bytes: Some(16 * 1024 * 1024 * 1024),
+			memory_bytes: Some(32 * 1024 * 1024 * 1024),
 			..VisualStyleSignals::default()
 		}
 	}
@@ -348,11 +421,46 @@ mod tests {
 	}
 
 	#[test]
-	fn integrated_1080p_with_8gib_is_sharp() {
-		let mut s =
-			signals(AdapterKind::IntegratedGpu, "Intel UHD Graphics", UVec2::new(1920, 1080));
-		s.memory_bytes = Some(LOW_MEMORY_BYTES);
-		pick_eq(&s, VisualStyle::Sharp, VisualStyleAutoReason::LowCpuOrMemory);
+	fn unified_memory_16_24_32_gib_boundaries() {
+		let window_1080 = UVec2::new(1920, 1080);
+		let mut intel = signals(AdapterKind::IntegratedGpu, "Intel UHD Graphics", window_1080);
+		intel.memory_bytes = Some(16 * 1024 * 1024 * 1024);
+		pick_eq(&intel, VisualStyle::Sharp, VisualStyleAutoReason::UnifiedMemoryBelow24GiB);
+
+		intel.memory_bytes = Some(UNIFIED_MEMORY_NATIVE_BYTES);
+		pick_eq(&intel, VisualStyle::Native, VisualStyleAutoReason::DefaultNative);
+
+		intel.memory_bytes = Some(32 * 1024 * 1024 * 1024);
+		pick_eq(&intel, VisualStyle::Native, VisualStyleAutoReason::DefaultNative);
+
+		let mut apple_pro =
+			signals(AdapterKind::IntegratedGpu, "Apple M1 Pro", UVec2::new(3456, 2234));
+		apple_pro.memory_bytes = Some(16 * 1024 * 1024 * 1024);
+		pick_eq(&apple_pro, VisualStyle::Sharp, VisualStyleAutoReason::UnifiedMemoryBelow24GiB);
+
+		apple_pro.memory_bytes = Some(UNIFIED_MEMORY_NATIVE_BYTES);
+		pick_eq(&apple_pro, VisualStyle::Native, VisualStyleAutoReason::ApplePro);
+
+		apple_pro.memory_bytes = Some(32 * 1024 * 1024 * 1024);
+		pick_eq(&apple_pro, VisualStyle::Native, VisualStyleAutoReason::ApplePro);
+
+		let mut apple_base =
+			signals(AdapterKind::IntegratedGpu, "Apple M2", UVec2::new(2560, 1664));
+		apple_base.memory_bytes = Some(32 * 1024 * 1024 * 1024);
+		pick_eq(&apple_base, VisualStyle::Sharp, VisualStyleAutoReason::AppleBase);
+
+		let mut discrete =
+			signals(AdapterKind::DiscreteGpu, "NVIDIA GeForce RTX 4070", UVec2::new(3840, 2160));
+		discrete.memory_bytes = Some(16 * 1024 * 1024 * 1024);
+		pick_eq(&discrete, VisualStyle::Native, VisualStyleAutoReason::DiscreteGpu);
+	}
+
+	#[test]
+	fn parse_meminfo_total_bytes_reads_memtotal() {
+		let meminfo = "MemTotal:       16777216 kB\nMemFree:         1024 kB\n";
+		assert_eq!(parse_meminfo_total_bytes(meminfo), Some(16 * 1024 * 1024 * 1024));
+		assert_eq!(parse_meminfo_total_bytes("MemFree: 1 kB\n"), None);
+		assert_eq!(parse_meminfo_total_bytes(""), None);
 	}
 
 	#[test]
@@ -375,6 +483,22 @@ mod tests {
 	}
 
 	#[test]
+	fn wgpu_device_type_names_map() {
+		assert_eq!(
+			AdapterKind::from_wgpu_device_type_name("DiscreteGpu"),
+			AdapterKind::DiscreteGpu
+		);
+		assert_eq!(
+			AdapterKind::from_wgpu_device_type_name("IntegratedGpu"),
+			AdapterKind::IntegratedGpu
+		);
+		assert_eq!(AdapterKind::from_wgpu_device_type_name("VirtualGpu"), AdapterKind::VirtualGpu);
+		assert_eq!(AdapterKind::from_wgpu_device_type_name("Cpu"), AdapterKind::Cpu);
+		assert_eq!(AdapterKind::from_wgpu_device_type_name("Other"), AdapterKind::Other);
+		assert_eq!(AdapterKind::from_wgpu_device_type_name(""), AdapterKind::Other);
+	}
+
+	#[test]
 	fn reasons_are_nonempty() {
 		for reason in [
 			VisualStyleAutoReason::DeviceTierLow,
@@ -383,6 +507,7 @@ mod tests {
 			VisualStyleAutoReason::AppleBase,
 			VisualStyleAutoReason::ApplePro,
 			VisualStyleAutoReason::DiscreteGpu,
+			VisualStyleAutoReason::UnifiedMemoryBelow24GiB,
 			VisualStyleAutoReason::IntegratedAbove1080p,
 			VisualStyleAutoReason::LowCpuOrMemory,
 			VisualStyleAutoReason::DefaultNative,
