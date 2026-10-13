@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use character_inventory_user::InventoryUser;
 use character_ragdoll::CharacterRagdollSystems;
 use damage::{DamageSystems, DespawnAfter, Downed};
-use durham::DurhamSurface;
+use durham::{DurhamSurface, TerrainCellLayout, WorldBaseTerrain};
 use firearm_user::FirearmUser;
 use firearms::WeaponTrigger;
 use grenade_user::GrenadeUser;
@@ -22,10 +22,11 @@ use poi_intelligence::{
 use spotting_intelligence::SpotSubject;
 use threat_intelligence::{Affiliations, ThreatSubject};
 use world_player::{
-	player_position_above_surface, player_spawn_point_at, spawn_player_body, surface_or_hold_at,
-	AwaitingTerrainSurface, CharacterLocomotion, CharacterSpecies, ModePlayerPolicies, MoveWish,
-	OffTerrainAnchor, Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet, PlayerSpawnXz,
-	RequestSetCharacter, RequestSetCharacterAppearance, RespawnOrigin,
+	holding_elevation, player_position_above_surface, player_spawn_point_at, spawn_player_body,
+	surface_or_hold_at, AwaitingTerrainSurface, CharacterLocomotion, CharacterSpecies,
+	ModePlayerPolicies, MoveWish, OffTerrainAnchor, Player as VegetationPlayer, PlayerLifeEnded,
+	PlayerLifeSet, PlayerSpawnXz, RequestSetCharacter, RequestSetCharacterAppearance,
+	RespawnOrigin,
 };
 
 use layer_stack::ActiveGenerationMode;
@@ -33,7 +34,10 @@ use layer_stack::ActiveGenerationMode;
 use crate::control::strip_world_player_motor;
 use crate::map_view::WorldMapView;
 use crate::weapon::WorldPlayerAppearanceRequested;
-use crate::{FirstWave, HcsgDemand, LodJobCounter, WorldGameplayEnabled, WorldPlayerLoadout};
+use crate::{
+	FirstWave, HcsgDemand, LodJobCounter, PlayerPositionWaypoints, WorldGameplayEnabled,
+	WorldPlayerLoadout,
+};
 
 const MAP_OPEN_SECS: f32 = 0.18;
 const STICK_REST: f32 = 0.28;
@@ -286,6 +290,9 @@ fn queue_first_spawn_picker(
 	wave: Option<Res<FirstWave>>,
 	demand: Option<Res<HcsgDemand>>,
 	jobs: Option<Res<LodJobCounter>>,
+	waypoints: Option<Res<PlayerPositionWaypoints>>,
+	layout: Option<Res<TerrainCellLayout>>,
+	base: Option<Res<WorldBaseTerrain>>,
 	mut state: ResMut<WorldPlayerRespawnState>,
 	mut commands: Commands,
 	players: Query<
@@ -304,6 +311,10 @@ fn queue_first_spawn_picker(
 		return;
 	}
 	if spawn.0.is_some() {
+		state.first_spawn_offered = true;
+		return;
+	}
+	if character_has_resume_trail(waypoints.as_deref(), layout.as_deref(), base.as_deref()) {
 		state.first_spawn_offered = true;
 		return;
 	}
@@ -330,6 +341,20 @@ fn queue_first_spawn_picker(
 		picker_nearby_scratch: Vec::new(),
 	});
 	retire_startup_player(&mut commands, player, firearm, inventory, &mut triggers);
+}
+
+fn character_has_resume_trail(
+	waypoints: Option<&PlayerPositionWaypoints>,
+	layout: Option<&TerrainCellLayout>,
+	base: Option<&WorldBaseTerrain>,
+) -> bool {
+	let (Some(waypoints), Some(layout), Some(base)) = (waypoints, layout, base) else {
+		return false;
+	};
+	let center = layout.region_center_xz().xz();
+	let default_spawn =
+		player_spawn_point_at(center, holding_elevation(&base.0, center.x, center.y));
+	waypoints.has_resume_trail(default_spawn)
 }
 
 fn retire_startup_player(
@@ -1639,6 +1664,27 @@ mod tests {
 	fn first_spawn_picker_skips_an_explicit_start_at() -> anyhow::Result<()> {
 		let mut world = first_spawn_world(true, Some(Vec2::new(-1500.0, -600.0)));
 		let player = world.spawn((VegetationPlayer, Transform::from_xyz(12.0, 4.0, -8.0))).id();
+		world
+			.run_system_once(queue_first_spawn_picker)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.entities().contains(player));
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
+		assert!(world.resource::<WorldPlayerRespawnState>().first_spawn_offered);
+		Ok(())
+	}
+
+	#[test]
+	fn first_spawn_picker_skips_a_character_with_a_saved_trail() -> anyhow::Result<()> {
+		let mut world = first_spawn_world(true, None);
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(PlayerPositionWaypoints {
+			positions: vec![Vec3::new(2178.3, 36.6, 1383.6)],
+			..default()
+		});
+		let player = world.spawn((VegetationPlayer, Transform::from_xyz(-49.7, 78.3, 50.0))).id();
 		world
 			.run_system_once(queue_first_spawn_picker)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

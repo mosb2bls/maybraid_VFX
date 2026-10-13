@@ -33,7 +33,16 @@ pub struct PlayerPositionWaypoints {
 	pub positions: Vec<Vec3>,
 	/// True after a character's file is read. The leftover body from the
 	/// previous character must not be written back onto this trail.
-	just_loaded: bool,
+	pub(crate) just_loaded: bool,
+}
+
+impl PlayerPositionWaypoints {
+	/// True when the file has a sample that is not the layout-center spawn.
+	/// Those characters resume; they must not get a first-life picker.
+	pub fn has_resume_trail(&self, default_spawn: Vec3) -> bool {
+		resume_for_new_character(default_spawn, &self.positions)
+			.is_some_and(|at| at.distance(default_spawn) > SAME_PLACE_M)
+	}
 }
 
 #[derive(Serialize, Deserialize)]
@@ -511,6 +520,24 @@ mod tests {
 			resume_translation(leftover, default_spawn, &[default_spawn, next], true),
 			Some(next)
 		);
+	}
+
+	#[test]
+	fn a_saved_trail_is_a_resume_trail() {
+		let default_spawn = Vec3::new(0.0, 176.4, 0.0);
+		let trail = PlayerPositionWaypoints {
+			positions: vec![Vec3::new(695.6, 73.0, 959.5)],
+			just_loaded: true,
+			..default()
+		};
+		assert!(trail.has_resume_trail(default_spawn));
+		let only_default = PlayerPositionWaypoints {
+			positions: vec![default_spawn],
+			just_loaded: true,
+			..default()
+		};
+		assert!(!only_default.has_resume_trail(default_spawn));
+		assert!(!PlayerPositionWaypoints::default().has_resume_trail(default_spawn));
 	}
 
 	#[test]
