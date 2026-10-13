@@ -72,7 +72,9 @@ High cull
   do **not** schedule [`MobMemberNeeded`](src/roster.rs)
 
 Death
-  `Downed` → replacement clock + `DespawnAfter`
+  `Downed` → replacement clock + `DespawnAfter` (even if the roster
+  pointer is stale; a missed timer would leave a 0-HP plant that
+  ignores further hits)
   writeback clears the pointer
   after delay, [`MobMemberNeeded`](src/roster.rs) at the host (full HP)
   replacement bodies are unparented and have no stub; leaving High

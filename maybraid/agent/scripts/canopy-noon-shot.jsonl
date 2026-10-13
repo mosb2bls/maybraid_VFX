@@ -1,0 +1,17 @@
+# Still noon look for an in-engine canopy-shadow screenshot. Warmup covers
+# stream-in; the shot is taken after a slight upward look so tree wells read.
+# The PNG path is an argument to `screenshot`; override it when invoking.
+
+{"cmd":"start","xz":[0,0]}
+{"cmd":"scenario","name":"canopy-noon-shot-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":20}
+{"cmd":"hold","look":[0,0.28],"secs":2}
+{"cmd":"scenario","name":"canopy-noon-shot-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"canopy-noon-shot","mark":"start"}
+{"cmd":"wait","secs":3}
+{"cmd":"console","line":"screenshot /tmp/maybraid-canopy-noon-shot.png"}
+{"cmd":"wait","secs":4}
+{"cmd":"scenario","name":"canopy-noon-shot","mark":"end"}
+{"cmd":"quit"}

@@ -4525,14 +4525,16 @@ fn spawn_building_preview<T>(
 	T: BuildingComponents + Clone + Send + Sync + 'static,
 {
 	use building_components::{
-		append_flattened_component_scenes, scene_children, spawn_building_components,
+		append_flattened_component_scenes, scene_children, spawn_building_components_for,
 		ComponentsOnly,
 	};
 	use lod::scene::LodScene;
 	if building.structural_lod().is_some() {
-		let host = ComponentsOnly(building.clone());
+		let host = ComponentsOnly::posed(building.clone(), transform);
 		let bounds = host.scene_bounds();
-		for entity in spawn_building_components(commands, building, transform, bounds) {
+		for entity in
+			spawn_building_components_for(commands, building, transform, bounds, Some(lod_ref))
+		{
 			commands.entity(entity).insert(PreviewRoot);
 		}
 	} else {

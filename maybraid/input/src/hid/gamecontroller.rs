@@ -27,8 +27,12 @@ use objc2_game_controller::{
 	GCInputButtonOptions, GCInputButtonShare, GCSystemGestureState, GCXboxGamepad,
 };
 
-use super::value_changed;
 use crate::rumble::PadRumbleSystems;
+
+fn value_changed(previous: Option<f32>, value: f32) -> bool {
+	const EPS: f32 = 1e-4;
+	previous.is_none_or(|old| (old - value).abs() > EPS)
+}
 
 pub struct GameControllerPlugin;
 
@@ -560,5 +564,28 @@ fn haptic_pattern(
 			err
 		})
 		.ok()
+	}
+}
+
+#[cfg(test)]
+mod value_changed_tests {
+	use super::value_changed;
+
+	#[test]
+	fn first_sample_always_emits() -> anyhow::Result<()> {
+		assert!(value_changed(None, 0.0));
+		Ok(())
+	}
+
+	#[test]
+	fn tiny_noise_is_ignored() -> anyhow::Result<()> {
+		assert!(!value_changed(Some(0.5), 0.5 + 1e-5));
+		Ok(())
+	}
+
+	#[test]
+	fn stick_deflection_emits() -> anyhow::Result<()> {
+		assert!(value_changed(Some(0.0), 0.2));
+		Ok(())
 	}
 }

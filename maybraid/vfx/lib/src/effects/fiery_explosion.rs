@@ -1,7 +1,7 @@
 //! Canonical shared realization: flash, fireball, smoke, sparks.
 
 use crate::composition::{
-	DEFAULT_SCALE_MIN, EffectDefinition, EffectLayer, MeshPart, ParticlePart, ScaleBounds,
+	EffectDefinition, EffectLayer, MeshPart, ParticlePart, ScaleBounds, DEFAULT_SCALE_MIN,
 };
 use crate::layers::{flash, smoke};
 use crate::names::FIERY_EXPLOSION;

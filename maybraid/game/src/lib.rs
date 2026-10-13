@@ -9,24 +9,26 @@ pub use flow::{GameFlow, HomeRoute, PauseMenuRoute, PlaySession, WorldPause};
 pub use paths::assets_root;
 
 use crate::shell::{
-	apply_pause_character_look, apply_shell_look, attach_preview_camera, despawn_loading_backdrop,
-	detach_preview_camera, enter_characters, enter_home, enter_loading_world, enter_world,
-	enter_world_menu, exit_world_menu, restore_stashed_world_camera, spawn_loading_backdrop,
-	stamp_preview_render_layers, ShellRoute,
+	ShellRoute, apply_pause_character_look, apply_shell_look, attach_preview_camera,
+	despawn_loading_backdrop, detach_preview_camera, enter_characters, enter_home,
+	enter_loading_world, enter_world, enter_world_menu, exit_world_menu,
+	restore_stashed_world_camera, spawn_loading_backdrop, stamp_preview_render_layers,
 };
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use maybraid_input::MenuNavPad;
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
-	reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
-	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
-	TerrainStreaming, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlayerLoadout, WorldPlugin,
-	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
+	Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
+	TerrainStreaming, VISUAL_STYLE_ENV, VisualStyle, VisualStyleSetting, WorldGameplayEnabled,
+	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, parse_visual_style_env,
+	reset_first_spawn_offer, resume_discovery_from_saved_waypoints,
 };
 use menu_components::{
-	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-	TextMenuSystems, MENU_CLEAR,
+	ActiveOverlayKey, MENU_CLEAR, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
+	TextMenuSystems, consume_screen_back,
 };
 use menu_playground::{
 	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterLeavePrompt,
@@ -34,10 +36,11 @@ use menu_playground::{
 	CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
 };
 use menu_screens::{
-	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
-	request_show_in_game_settings, CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice,
-	HomeScreenPlugin, InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
-	InGameShadowQuality, LoadingScreenPlugin, LoadingScreenSystems, MenuScreen, SpinRevealScreen,
+	CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice, HomeScreenPlugin,
+	InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
+	InGameSettingsSystems, InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin,
+	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen, cancel_pending_create,
+	request_show_gallery, request_show_home, request_show_in_game, request_show_in_game_settings,
 };
 
 pub struct GamePlugin;
@@ -110,6 +113,8 @@ impl Plugin for GamePlugin {
 					)
 						.chain(),
 					sync_world_shadows,
+					sync_world_render_scale,
+					sync_render_scale_readout,
 				),
 			)
 			.add_systems(PreUpdate, sync_inventory_edit_follow.run_if(in_state(WorldPause::Menu)))
@@ -131,6 +136,10 @@ impl Plugin for GamePlugin {
 					persist_changed_player_inventory,
 					sync_world_mob_hud,
 					sync_world_shadows,
+					(sync_world_render_scale, sync_render_scale_readout)
+						.chain()
+						.after(InGameSettingsSystems::ApplyChoice)
+						.before(InGameSettingsSystems::Show),
 					pause_menu_back
 						.after(TextMenuSystems::Navigate)
 						.run_if(in_state(WorldPause::Menu)),
@@ -175,10 +184,12 @@ fn clear_play_session(
 	mut session: ResMut<PlaySession>,
 	mut mode: ResMut<GameMode>,
 	mut ready: ResMut<WorldSurfaceReady>,
+	mut ended: MessageWriter<WorldPlaySessionEnded>,
 ) {
 	ready.0 = false;
 	*session = PlaySession::None;
 	mode.label = String::from(PlaySession::Discovery.label());
+	ended.write(WorldPlaySessionEnded);
 }
 
 fn load_active_player_loadout(
@@ -344,6 +355,67 @@ fn sync_world_shadows(settings: Res<InGameSettings>, mut quality: ResMut<ShadowQ
 	}
 }
 
+fn sync_world_render_scale(
+	settings: Res<InGameSettings>,
+	mut visual_style: ResMut<VisualStyleSetting>,
+) {
+	let env = parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref());
+	if env.is_some() || settings.is_changed() || visual_style.requested().is_none() {
+		apply_settings_to_visual_style(&mut visual_style, settings.visual_style, env);
+	}
+}
+
+fn apply_settings_to_visual_style(
+	style: &mut VisualStyleSetting,
+	preference: InGameVisualStyle,
+	env: Option<VisualStyle>,
+) {
+	let wanted = env.unwrap_or_else(|| preference.to_visual_style());
+	if style.requested() == Some(wanted) {
+		return;
+	}
+	style.set(wanted);
+}
+
+fn sync_render_scale_readout(
+	style: Res<VisualStyleSetting>,
+	windows: Query<&Window, With<PrimaryWindow>>,
+	mut readout: ResMut<RenderScaleReadout>,
+) {
+	let env = parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref());
+	let (physical, factor) = match windows.single() {
+		Ok(window) => {
+			(UVec2::new(window.physical_width(), window.physical_height()), window.scale_factor())
+		}
+		Err(_) => (UVec2::ZERO, 1.0),
+	};
+	let next = visual_style_readout(&style, physical, factor, env);
+	if *readout != next {
+		*readout = next;
+	}
+}
+
+fn visual_style_readout(
+	style: &VisualStyleSetting,
+	window_physical: UVec2,
+	window_scale_factor: f32,
+	env_override: Option<VisualStyle>,
+) -> RenderScaleReadout {
+	let plan = style.plan(window_physical, window_scale_factor);
+	let effective_scale = if window_physical.y == 0 {
+		1.0
+	} else {
+		plan.target_size.y as f32 / window_physical.y as f32
+	};
+	RenderScaleReadout {
+		style: plan.style,
+		effective_scale,
+		window_physical,
+		target_physical: plan.target_size,
+		env_override,
+	}
+}
+
 fn home_settings_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
@@ -458,15 +530,22 @@ mod tests {
 	use menu_playground::ActiveCharacter;
 
 	use crate::{
-		assets_root, clear_play_session, load_active_player_loadout,
-		persist_changed_player_inventory, read_player_loadout, route_home_choice,
-		sync_world_loadout_from_editor, sync_world_shadows, GameFlow, PlaySession,
+		GameFlow, PlaySession, apply_settings_to_visual_style, assets_root, clear_play_session,
+		load_active_player_loadout, persist_changed_player_inventory, read_player_loadout,
+		route_home_choice, sync_world_loadout_from_editor, sync_world_shadows,
+		visual_style_readout,
 	};
-	use maybraid_world::{ShadowQuality, WorldPlayerLoadout, WorldSurfaceReady};
+	use maybraid_world::{
+		ShadowQuality, VisualStyle, VisualStyleSetting, WorldPlaySessionEnded, WorldPlayerLoadout,
+		WorldSurfaceReady,
+	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
 	};
-	use menu_screens::{GameMode, HomeMenuChoice, InGameSettings, InGameShadowQuality};
+	use menu_screens::{
+		GameMode, HomeMenuChoice, InGameSettings, InGameShadowQuality, InGameVisualStyle,
+		RenderScaleReadout,
+	};
 
 	#[test]
 	fn crate_assets_contain_barlow() {
@@ -518,6 +597,7 @@ mod tests {
 	#[test]
 	fn leave_drops_the_session() -> anyhow::Result<()> {
 		let mut world = World::new();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
 		world.insert_resource(PlaySession::Discovery);
 		world.insert_resource(GameMode::new("Elsewhere"));
 		world.insert_resource(WorldSurfaceReady(true));
@@ -527,6 +607,8 @@ mod tests {
 		assert_eq!(*world.resource::<PlaySession>(), PlaySession::None);
 		assert_eq!(world.resource::<GameMode>().label, "Discovery");
 		assert!(!world.resource::<WorldSurfaceReady>().0);
+		let ended = world.resource_mut::<Messages<WorldPlaySessionEnded>>().drain().count();
+		assert_eq!(ended, 1, "leave should emit WorldPlaySessionEnded for Lubikan teardown");
 		Ok(())
 	}
 
@@ -644,12 +726,55 @@ mod tests {
 	#[test]
 	fn pause_settings_copy_onto_the_sky_sun() -> anyhow::Result<()> {
 		let mut world = World::new();
-		world.insert_resource(InGameSettings { mob_hud: false, shadows: InGameShadowQuality::Low });
+		world.insert_resource(InGameSettings {
+			mob_hud: false,
+			shadows: InGameShadowQuality::Low,
+			visual_style: InGameVisualStyle::Impressionist,
+		});
 		world.insert_resource(ShadowQuality::High);
 		world
 			.run_system_once(sync_world_shadows)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(*world.resource::<ShadowQuality>(), ShadowQuality::Low);
+		Ok(())
+	}
+
+	#[test]
+	fn settings_visual_style_applies_until_env_wins() -> anyhow::Result<()> {
+		let mut style = VisualStyleSetting::default();
+		apply_settings_to_visual_style(&mut style, InGameVisualStyle::PrePostModern, None);
+		assert_eq!(style.requested(), Some(VisualStyle::PrePostModern));
+		apply_settings_to_visual_style(&mut style, InGameVisualStyle::Impressionist, None);
+		assert_eq!(style.requested(), Some(VisualStyle::Impressionist));
+		apply_settings_to_visual_style(
+			&mut style,
+			InGameVisualStyle::Retro,
+			Some(VisualStyle::Sharp),
+		);
+		assert_eq!(style.requested(), Some(VisualStyle::Sharp));
+		Ok(())
+	}
+
+	#[test]
+	fn visual_style_readout_reports_resolution_and_env() -> anyhow::Result<()> {
+		let mut style = VisualStyleSetting::default();
+		style.set(VisualStyle::Impressionist);
+		let readout = visual_style_readout(
+			&style,
+			UVec2::new(1920, 1080),
+			1.0,
+			Some(VisualStyle::Impressionist),
+		);
+		assert_eq!(
+			readout,
+			RenderScaleReadout {
+				style: VisualStyle::Impressionist,
+				effective_scale: 394.0 / 1080.0,
+				window_physical: UVec2::new(1920, 1080),
+				target_physical: UVec2::new(700, 394),
+				env_override: Some(VisualStyle::Impressionist),
+			}
+		);
 		Ok(())
 	}
 }

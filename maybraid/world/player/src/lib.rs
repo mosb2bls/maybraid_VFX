@@ -23,8 +23,8 @@ pub use durham::{TerrainCoverage, WorldBaseTerrain, WORLD_FINE_HALF_EXTENT_CELLS
 pub use game_commands::command::PendingStartupCommand;
 pub use player::{
 	holding_elevation, player_position_above_surface, player_spawn_point_at, spawn_player_body,
-	AwaitingTerrainSurface, CharacterCameraFollowEnabled, CharacterLocomotion, Jumping, MoveWish,
-	MovementAction, OffTerrainAnchor, PadMovementEnabled, Player, PlayerCapsule,
+	surface_or_hold_at, AwaitingTerrainSurface, CharacterCameraFollowEnabled, CharacterLocomotion,
+	Jumping, MoveWish, MovementAction, OffTerrainAnchor, PadMovementEnabled, Player, PlayerCapsule,
 	PlayerControlSystems, PlayerPhysicsEnabled, PlayerPlugin, PlayerSpawnXz, PlaygroundMode,
 	VegetationPlayerMotor,
 };

@@ -5,7 +5,10 @@ use bevy::prelude::Resource;
 use lod::gen::{Id, OriginalId};
 use lod::hcsg::{self, GenerationContext};
 use procedural_common::SeededHash;
-use urbanization_cells::{SelectedUrbanization, UrbanDevelopmentKind, UrbanizationExtent};
+use urbanization_cells::{
+	select_cell, select_cell_as, SelectedUrbanization, UrbanDevelopmentKind, UrbanizationExtent,
+	UrbanizationSelection,
+};
 use urbanization_developments::{cell_salt, PadPlan, SiteGround};
 
 use crate::cell::{cell_selected, DevelopmentExtent};
@@ -182,6 +185,24 @@ pub struct DevelopmentSite {
 	pub authored: Option<AuthoredDevelopment>,
 }
 
+/// Urbanization leaf ids for `region` from a session selection, without
+/// materializing [`SelectedUrbanization`] in storage.
+fn urbanization_leaf_ids(region: Aabb3d, selection: &UrbanizationSelection) -> Vec<OriginalId> {
+	UrbanizationExtent::cells_overlapping(region)
+		.into_iter()
+		.flat_map(|extent| {
+			let selected = match selection.kind {
+				Some(kind) => select_cell_as(extent, selection.noise, kind),
+				None => select_cell(extent, selection.noise),
+			};
+			selected.leaves.into_iter().filter(|leaf| {
+				leaf.kind != UrbanDevelopmentKind::Empty && overlaps_xz(region, leaf.bounds)
+			})
+		})
+		.map(|leaf| OriginalId(leaf.id()))
+		.collect()
+}
+
 impl DevelopmentSite {
 	pub fn is_filled(&self) -> bool {
 		self.kind != DevelopmentKind::Empty
@@ -213,21 +234,8 @@ impl hcsg::GenerationScheme for DevelopmentSite {
 				ids.extend(DevelopmentExtent::original_ids_overlapping(region));
 			}
 			DevelopmentSites::Urbanization => {
-				for extent in UrbanizationExtent::cells_overlapping(region) {
-					let Some(selected) = cx.get_or_generate::<SelectedUrbanization>(extent.id())
-					else {
-						continue;
-					};
-					ids.extend(
-						selected
-							.leaves
-							.iter()
-							.filter(|leaf| {
-								leaf.kind != UrbanDevelopmentKind::Empty
-									&& overlaps_xz(region, leaf.bounds)
-							})
-							.map(|leaf| OriginalId(leaf.id())),
-					);
+				if let Some(selection) = cx.get::<UrbanizationSelection>(Id::Universal) {
+					ids.extend(urbanization_leaf_ids(region, selection.as_ref()));
 				}
 			}
 		}
@@ -396,5 +404,115 @@ mod tests {
 			.ok_or_else(|| anyhow::anyhow!("lattice site"))?;
 		anyhow::ensure!(procedural.kind == DevelopmentKind::Empty, "overlapped site stays empty");
 		Ok(())
+	}
+
+	mod scheme_perf_tests {
+		use super::*;
+		use bevy::math::Vec3;
+		use lod::hcsg::{universal_bounds, GenerationContext};
+		use procedural_common::NoiseParams;
+		use std::time::Instant;
+		use urbanization_cells::{
+			UrbanizationKind, UrbanizationSelection, DEVELOPMENT_GENERATE_RADIUS_M,
+		};
+
+		fn urbanization_config() -> DevelopmentConfig {
+			DevelopmentConfig {
+				sites: DevelopmentSites::Urbanization,
+				..DevelopmentConfig::default()
+			}
+		}
+
+		fn seed_urbanization(storage: &HcsgStorage) {
+			storage.seed(urbanization_config(), universal_bounds());
+			storage.seed(
+				UrbanizationSelection {
+					noise: NoiseParams::from_scalar(1337.0, 0.0005, 1.0, 1),
+					kind: Some(UrbanizationKind::Frontier),
+				},
+				universal_bounds(),
+			);
+		}
+
+		fn discovery_region() -> Aabb3d {
+			UrbanizationExtent::xz_radius_aabb(Vec3::ZERO, DEVELOPMENT_GENERATE_RADIUS_M)
+		}
+
+		/// Discovery path that materialized every overlapping selection in storage.
+		fn naive_urbanization_site_ids(
+			cx: &mut GenerationContext,
+			region: Aabb3d,
+		) -> Vec<OriginalId> {
+			let authored = cx.get::<AuthoredDevelopments>(Id::Universal).unwrap_or_default();
+			let mut ids: Vec<OriginalId> =
+				authored.overlapping(region).map(|authored| OriginalId(authored.id())).collect();
+			for extent in UrbanizationExtent::cells_overlapping(region) {
+				let Some(selected) = cx.get_or_generate::<SelectedUrbanization>(extent.id()) else {
+					continue;
+				};
+				ids.extend(
+					selected
+						.leaves
+						.iter()
+						.filter(|leaf| {
+							leaf.kind != UrbanDevelopmentKind::Empty
+								&& overlaps_xz(region, leaf.bounds)
+						})
+						.map(|leaf| OriginalId(leaf.id())),
+				);
+			}
+			ids.sort_unstable_by_key(|OriginalId(id)| *id);
+			ids.dedup();
+			ids
+		}
+
+		#[test]
+		fn urbanization_site_discovery_matches_materialized_selections() -> anyhow::Result<()> {
+			let storage = HcsgStorage::default();
+			seed_urbanization(&storage);
+			let region = discovery_region();
+			let mut naive_cx = GenerationContext::new(&storage);
+			let mut grouped_cx = GenerationContext::new(&storage);
+			let naive = naive_urbanization_site_ids(&mut naive_cx, region);
+			let grouped = grouped_cx.original_ids_for::<DevelopmentSite>(region);
+			assert_eq!(naive, grouped);
+			assert!(!grouped.is_empty());
+			Ok(())
+		}
+
+		/// `cargo test -p richmond urbanization_site_discovery_microbench --release -- --ignored --nocapture`
+		#[test]
+		#[ignore = "microbench"]
+		fn urbanization_site_discovery_microbench() {
+			let region = discovery_region();
+			let runs = 40;
+
+			let bench = |materialize: bool| -> std::time::Duration {
+				let start = Instant::now();
+				for _ in 0..runs {
+					let storage = HcsgStorage::default();
+					seed_urbanization(&storage);
+					let mut cx = GenerationContext::new(&storage);
+					if materialize {
+						naive_urbanization_site_ids(&mut cx, region);
+					} else {
+						cx.original_ids_for::<DevelopmentSite>(region);
+					}
+				}
+				start.elapsed()
+			};
+
+			let materialize = bench(true);
+			let local = bench(false);
+			let materialize_ms = materialize.as_secs_f64() * 1000.0 / runs as f64;
+			let local_ms = local.as_secs_f64() * 1000.0 / runs as f64;
+			eprintln!(
+				"urbanization_site_discovery_microbench ({} m generate ring, Frontier): \
+				 materialize={materialize_ms:.2} ms/discover local={local_ms:.2} ms/discover ({:.2}x)",
+				DEVELOPMENT_GENERATE_RADIUS_M,
+				materialize_ms / local_ms.max(1e-9)
+			);
+			assert!(local < materialize, "local selection should beat storage materialization");
+		}
 	}
 }

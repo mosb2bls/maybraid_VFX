@@ -2,7 +2,7 @@
 //!
 //! - [`StickMaterial`] — edge-accent PBR (from `playgrounds/objects/assets/shaders/edge_material.wgsl`).
 //! - [`LeafMaterial`] — object-space leafy breakup + vertex sway + split light.
-//!   Noisy rim `discard` at every distance. Interior holes near/mid only.
+//!   Noisy rim `discard` + interior holes near/mid only, in ball-radii.
 //!   Fake canopy occlusion. Opaque.
 //! - [`FrondMaterial`] — palette + tip-weighted sway + double-sided PBR. Opaque;
 //!   no cheese / `discard` (authored frond kit silhouette).

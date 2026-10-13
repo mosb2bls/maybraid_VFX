@@ -80,13 +80,7 @@ pub fn refocus_camera_on_elevation(
 /// Composed height at the layout's center once its cell is published;
 /// otherwise the holding altitude.
 pub fn surface_or_hold(surface: &DurhamSurface) -> f32 {
-	let center = surface.layout().region_center_xz();
-	match surface.height_at(center.xz()) {
-		Ok(Some(elevation)) => elevation,
-		Ok(None) | Err(lod::hcsg::Busy) => {
-			crate::player::holding_elevation(surface.base(), center.x, center.z)
-		}
-	}
+	crate::player::surface_or_hold_at(surface, surface.layout().region_center_xz().xz())
 }
 
 fn camera_look_at(layout: &TerrainCellLayout, elevation: f32) -> Vec3 {

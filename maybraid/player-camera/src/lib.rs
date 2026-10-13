@@ -9,7 +9,9 @@ use maybraid_character_controller::CharacterControlSystems;
 use player::{PlayerPlugin, PlayerPoseSystems, PlayerSystems};
 use std::f32::consts::FRAC_PI_2;
 
-pub use follow::{map_pose, sync_camera_fov, sync_first_person_head_visibility};
+pub use follow::{
+	apply_camera_shake, map_pose, sync_camera_fov, sync_first_person_head_visibility, CameraShake,
+};
 pub use look::{CameraController, CameraLookSuppressed, CameraPov, CameraPovLocked};
 
 /// Camera schedule. Item crates add aim writers to [`PlayerCameraSystems::Aim`].
@@ -124,7 +126,11 @@ impl Plugin for PlayerCameraPlugin {
 			)
 			.add_systems(
 				Update,
-				(follow::sync_camera_fov, follow::sync_first_person_head_visibility)
+				(
+					follow::sync_camera_fov,
+					follow::sync_first_person_head_visibility,
+					follow::apply_camera_shake,
+				)
 					.in_set(PlayerCameraSystems::Apply),
 			)
 			.add_systems(Update, release_modifiers_on_focus_change);
@@ -161,6 +167,7 @@ pub fn spawn_follow_camera(commands: &mut Commands) -> Entity {
 				..default()
 			}),
 			CameraController { yaw, pitch, ..default() },
+			CameraShake::default(),
 		))
 		.id()
 }
@@ -205,6 +212,7 @@ mod tests {
 					.abs() < 1e-5
 			);
 		}
+		assert!(world.get::<CameraShake>(camera).is_some());
 	}
 
 	#[test]
