@@ -49,6 +49,11 @@ started. `VirtualPadPlugin` then polls Apple’s GameController framework into
 Bevy `Gamepad`. Xbox pads on macOS are claimed by that driver; IOKit (gilrs)
 can connect them without delivering reports. Linux and Windows keep gilrs.
 
+Apple GameController and Core Haptics objects are main-thread-only. The
+`hid/gamecontroller.rs` backend stores them in thread-local storage and marks
+its poll / rumble / init systems with Bevy `NonSendMarker` so the multithreaded
+executor keeps them on the main thread.
+
 ## Rumble
 
 Gameplay writes [`PadRumble`](src/rumble.rs); the plugin copies it onto every
