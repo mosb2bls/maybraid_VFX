@@ -142,13 +142,12 @@ impl GenerationContext {
     pub fn get_or_generate_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<Arc<T>>;
     /// Like `get_or_generate_in`, but `None` if any origin doesn't build.
     pub fn get_or_generate_all_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Option<Vec<Arc<T>>>;
-    pub fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id>;
 }
 ```
 
 `get_or_generate` looks the value up, and if it is missing, builds it (recursively resolving that value's dependencies) and publishes it before returning. The context tracks which `(TypeId, Id)` pairs it is currently generating, and treats a repeat as a cycle (`None`).
 
-Region pulls read origins only, never whatever happens to be stored in the region, so a value doesn't depend on which of its neighbors the worker built first.
+Region pulls read origins only, never whatever happens to be stored in the region, so a value doesn't depend on which of its neighbors the worker built first. [`GenerationContext`] does not expose spatial store queries; schemes discover through `original_ids_for` and dependencies through `get` / `get_or_generate`.
 
 The worker builds its context with a staleness check (`GenerationContext::with_stale`). Once the subscription is cancelled, the context generates nothing more and drops whatever it just built instead of publishing it. The final check happens under the store's write lock (`HcsgStorage::publish_unless`), so a value finished just as its session ends either lands before that session's stores are cleared or is dropped.
 

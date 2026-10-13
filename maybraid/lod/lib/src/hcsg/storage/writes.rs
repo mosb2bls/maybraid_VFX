@@ -50,7 +50,17 @@ impl HcsgStorage {
 		self.publish(Id::Universal, Arc::new(value), bounds)
 	}
 
+	#[cfg(not(any(test, feature = "test-support")))]
+	pub(crate) fn remove<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
+		self.remove_impl::<T>(id)
+	}
+
+	#[cfg(any(test, feature = "test-support"))]
 	pub fn remove<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
+		self.remove_impl::<T>(id)
+	}
+
+	fn remove_impl<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
 		let stamp = self.stamp();
 		let store = self.store::<T>()?;
 		let removed = write(&store.nodes).remove(id, stamp).map(|entry| entry.value);
@@ -58,10 +68,19 @@ impl HcsgStorage {
 	}
 
 	/// Drops every value of `T`.
+	#[cfg(not(any(test, feature = "test-support")))]
+	pub(crate) fn clear<T: HcsgValue>(&self) {
+		self.clear_impl::<T>()
+	}
+
+	#[cfg(any(test, feature = "test-support"))]
 	pub fn clear<T: HcsgValue>(&self) {
+		self.clear_impl::<T>()
+	}
+
+	fn clear_impl<T: HcsgValue>(&self) {
 		let stamp = self.stamp();
-		let store = read(&self.0.stores).get(&TypeId::of::<T>()).cloned();
-		if let Some(store) = store {
+		if let Some(store) = read(&self.0.stores).get(&TypeId::of::<T>()).cloned() {
 			store.reset(stamp);
 		}
 		forget_evictions_of(self, TypeId::of::<T>());
