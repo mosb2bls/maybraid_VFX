@@ -2,10 +2,12 @@
 
 mod flow;
 mod load;
+mod panic_log;
 mod paths;
 mod shell;
 
 pub use flow::{GameFlow, HomeRoute, PauseMenuRoute, PlaySession, WorldPause};
+pub use panic_log::{install_panic_log_hook, log_dir, panic_log_path, ENV_LOGS};
 pub use paths::assets_root;
 
 use crate::shell::{

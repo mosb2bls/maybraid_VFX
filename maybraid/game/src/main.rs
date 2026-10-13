@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use character_persist::SaveRoot;
 use clap::Parser;
-use maybraid::{assets_root, GamePlugin};
+use maybraid::{assets_root, install_panic_log_hook, GamePlugin};
 use maybraid_agent::AgentArgs;
 use maybraid_input::PadHidPlugins;
 use maybraid_world::{
@@ -19,6 +19,7 @@ struct GameArgs {
 }
 
 fn main() {
+	install_panic_log_hook();
 	let args = GameArgs::parse();
 	let start_at = match args.start_at {
 		Some(raw) => Some(parse_start_at(&raw)),
