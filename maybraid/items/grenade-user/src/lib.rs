@@ -12,7 +12,10 @@ use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 
 pub use feel::{blast_presence, blast_rumble, rumble_presence};
 pub use hold::{spawn_held_grenade, HeldGrenade, HoldingGrenade};
-pub use throw::{GrenadePhase, GrenadeThrow, GrenadeUser, GrenadeUserSettings};
+pub use throw::{
+	landing_range, landing_time, launch_velocity, throw_aim, GrenadePhase, GrenadeThrow,
+	GrenadeUser, GrenadeUserSettings, STANDING_RELEASE_HEIGHT, THROW_GRAVITY,
+};
 
 /// Held-side 1:1 target of [`GrenadeUser`].
 #[derive(Component, Debug)]

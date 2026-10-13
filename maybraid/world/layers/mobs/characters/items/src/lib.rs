@@ -37,7 +37,7 @@ pub use firearm_material::{BoltMaterial, FirearmMaterial};
 pub use firearm_roll::{
 	generate_firearm_stats, realize_firearm_stats, Dist, FirearmBuff, FirearmPriors,
 };
-pub use grenade::{GrenadeMesh, GrenadeRecharge, GrenadeSpec, GrenadeStats};
+pub use grenade::{GrenadeMesh, GrenadeRecharge, GrenadeSpec, GrenadeStats, STANDARD_LAUNCH_SPEED};
 pub use grenade_roll::{
 	effect_scale_for_blast, generate_grenade_stats, realize_grenade_stats, BLAST_DAMAGE_MAX,
 	BLAST_DAMAGE_MIN, BLAST_RADIUS_MAX, BLAST_RADIUS_MIN, FIERY_EXPLOSION_METERS,
