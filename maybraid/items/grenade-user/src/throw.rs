@@ -452,8 +452,8 @@ mod tests {
 	fn launch_is_a_brisk_lob() {
 		let stats = GrenadeStats::standard();
 		let velocity = launch_velocity(Vec3::Z, &stats, Vec3::ZERO);
-		assert!(stats.launch_speed > 28.0 && stats.launch_speed < 32.0);
-		assert!(velocity.length() > 28.0 && velocity.length() < 32.0);
+		assert!(stats.launch_speed > 14.0 && stats.launch_speed < 16.0);
+		assert!(velocity.length() > 14.0 && velocity.length() < 16.0);
 		assert!(velocity.y > velocity.z * 0.18);
 	}
 
@@ -464,12 +464,12 @@ mod tests {
 	}
 
 	#[test]
-	fn standing_third_person_lob_clears_thirty_meters() {
+	fn standing_third_person_lob_clears_fifteen_meters() {
 		let stats = GrenadeStats::standard();
 		let velocity = standing_third_person_velocity(&stats);
 		let range = landing_range(STANDING_RELEASE_HEIGHT, velocity, THROW_GRAVITY);
 		let airtime = landing_time(STANDING_RELEASE_HEIGHT, velocity.y, THROW_GRAVITY);
-		assert!(range > 30.0, "standing third-person lob should land past 30 m, got {range:.1} m");
+		assert!(range > 15.0, "standing third-person lob should land past 15 m, got {range:.1} m");
 		assert!(
 			airtime < stats.fuse,
 			"fuse {:.1}s must outlast the {airtime:.2}s lob so it lands before detonation",

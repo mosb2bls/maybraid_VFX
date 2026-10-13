@@ -39,9 +39,9 @@ impl GrenadeSpec {
 }
 
 /// Authored throw speed in m/s. Catalog "Throw" and live launch both use this.
-/// A standing third-person lob at this speed lands past 30 m under Avian gravity
+/// A standing third-person lob at this speed lands past 15 m under Avian gravity
 /// (9.81 m/s², unit gravity scale on the thrown body).
-pub const STANDARD_LAUNCH_SPEED: f32 = 30.0;
+pub const STANDARD_LAUNCH_SPEED: f32 = 15.0;
 
 /// Fuse, recharge, and launch numbers. Seconds, not process-time deadlines.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -236,7 +236,7 @@ mod tests {
 	fn standard_throw_is_street_scale() {
 		let stats = GrenadeStats::standard();
 		assert!((stats.launch_speed - STANDARD_LAUNCH_SPEED).abs() < 1e-4);
-		assert!(stats.launch_speed > 28.0);
+		assert!(stats.launch_speed > 14.0);
 	}
 
 	#[test]
