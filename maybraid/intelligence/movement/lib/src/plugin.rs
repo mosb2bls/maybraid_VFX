@@ -386,14 +386,18 @@ mod tests {
 				MoveWish(Vec3::ZERO),
 			))
 			.id();
-		anyhow::ensure!(world.run_system_once(drive_movement::<MovementStep, MovementAbility>).is_ok());
+		anyhow::ensure!(world
+			.run_system_once(drive_movement::<MovementStep, MovementAbility>)
+			.is_ok());
 		let before = world
 			.entity(entity)
 			.get_change_ticks::<MoveWish>()
 			.ok_or_else(|| anyhow::anyhow!("missing wish"))?
 			.changed
 			.get();
-		anyhow::ensure!(world.run_system_once(drive_movement::<MovementStep, MovementAbility>).is_ok());
+		anyhow::ensure!(world
+			.run_system_once(drive_movement::<MovementStep, MovementAbility>)
+			.is_ok());
 		let after = world
 			.entity(entity)
 			.get_change_ticks::<MoveWish>()

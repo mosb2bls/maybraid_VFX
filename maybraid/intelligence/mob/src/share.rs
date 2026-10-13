@@ -308,13 +308,7 @@ pub(crate) fn share_mob_threats(
 			let Ok((_, _, _, _, knowledge)) = recipients.get(plant) else {
 				continue;
 			};
-			if !board.would_adopt_first_hand_threats(
-				knowledge,
-				host,
-				roster,
-				&registry,
-				&members,
-			) {
+			if !board.would_adopt_first_hand_threats(knowledge, host, roster, &registry, &members) {
 				continue;
 			}
 			board.adopt_first_hand_threats(knowledge, host, roster, &registry, &members);

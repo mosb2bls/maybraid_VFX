@@ -75,11 +75,7 @@ fn perf_eviction_sweep_evict_only() {
 		assert!(removed.len() > ENTRIES * 9 / 10);
 		for id in removed {
 			let bounds = id.origin_cell_bounds().unwrap_or(cell(0.0));
-			store.put(
-				id,
-				StoredEntry { value: 0, bounds, version: Version(1) },
-				round as u64 + 2,
-			);
+			store.put(id, StoredEntry { value: 0, bounds, version: Version(1) }, round as u64 + 2);
 		}
 	}
 	let elapsed = started.elapsed();

@@ -595,6 +595,7 @@ mod tests {
 			target: victim,
 			source: Some(player),
 			amount: 10.0,
+			applied: 10.0,
 			remaining: 90.0,
 			point: Vec3::ZERO,
 		});

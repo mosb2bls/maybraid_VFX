@@ -40,8 +40,8 @@ pub use settings::{
 	parse_shadows_env, request_show_in_game_settings, save_machine_settings, seed_device_class,
 	DeviceClass, DeviceType, HostProbe, InGameRenderScale, InGameSettings, InGameSettingsChoice,
 	InGameSettingsPlugin, InGameSettingsScreen, InGameSettingsSystems, InGameShadowQuality,
-	PersistPolicy, Preference, QualitySeeded, RenderScaleReadout, RequestShowInGameSettings,
-	ENV_RENDER_SCALE, ENV_SHADOWS,
+	InGameVisualStyle, PersistPolicy, Preference, QualitySeeded, RenderScaleReadout,
+	RequestShowInGameSettings, ENV_RENDER_SCALE, ENV_SHADOWS,
 };
 pub use show::{despawn_menu_screens, take_menu_show_request};
 pub use spin_reveal::{

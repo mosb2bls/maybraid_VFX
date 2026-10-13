@@ -22,8 +22,8 @@ use durham::terrain::{
 use lod::gen::{Id, OriginalId};
 use lod::hcsg::universal_bounds;
 use lod::hcsg::{
-	self, register_session_seed, Busy, GenerationContext, GenerationPlugin, HcsgClass,
-	HcsgRegions, HcsgStorage, HcsgSystems, ViewerHcsgBounds,
+	self, register_session_seed, Busy, GenerationContext, GenerationPlugin, HcsgClass, HcsgRegions,
+	HcsgStorage, HcsgSystems, ViewerHcsgBounds,
 };
 use lod::LodViewer;
 use richmond::DEVELOPMENT_CELL_SIZE;
@@ -292,8 +292,8 @@ mod tests {
 		TerrainMeshLodBand, TerrainStampConfigs, WaterMeshAssets, WatershedConfigs,
 	};
 	use lod::hcsg::{
-		Gated, HcsgBoundsPlugin, HcsgGate, HcsgRestartRequest, SettlePresentation,
-		settle_presentation,
+		settle_presentation, Gated, HcsgBoundsPlugin, HcsgGate, HcsgRestartRequest,
+		SettlePresentation,
 	};
 	use lod::lod_ref::LodNodePose;
 	use richmond::{

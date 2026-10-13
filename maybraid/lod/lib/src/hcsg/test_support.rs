@@ -31,11 +31,8 @@ pub struct SettlePresentation {
 
 impl SettlePresentation {
 	/// Lod `hcsg` plugin tests: two idle passes and one reconcile frame.
-	pub const PLUGIN_TESTS: Self = Self {
-		idle_timeout: Duration::from_secs(10),
-		idle_rounds: 2,
-		reconcile_frames: 1,
-	};
+	pub const PLUGIN_TESTS: Self =
+		Self { idle_timeout: Duration::from_secs(10), idle_rounds: 2, reconcile_frames: 1 };
 
 	/// Layer integration tests that fulfill LOD scenes (Richmond, Chico, …).
 	pub fn layer_integration(idle_timeout: Duration) -> Self {
@@ -55,10 +52,7 @@ impl SettlePresentation {
 
 /// Subscribe (or notice a dropped subscription and resubscribe), let the worker
 /// finish, then run enough frames for hosts to reconcile.
-pub fn settle_presentation(
-	app: &mut App,
-	opts: SettlePresentation,
-) -> Result<(), SettleTimedOut> {
+pub fn settle_presentation(app: &mut App, opts: SettlePresentation) -> Result<(), SettleTimedOut> {
 	for _ in 0..opts.idle_rounds {
 		app.update();
 		let demand = app.world().resource::<HcsgDemand>().clone();

@@ -213,6 +213,7 @@ fn damage_is_just_another_first_hand_bit() -> anyhow::Result<()> {
 		target: first,
 		source: Some(attacker),
 		amount: 10.0,
+		applied: 10.0,
 		remaining: 90.0,
 		point: Vec3::ZERO,
 	});

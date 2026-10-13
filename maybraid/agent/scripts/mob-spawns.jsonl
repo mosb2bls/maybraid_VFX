@@ -1,0 +1,17 @@
+# Placed Pleb hosts at the origin. `actors` records min/max body Y vs
+# composed ground so a buried roster is visible without debug chrome.
+# Do not send `stats vsync`.
+
+{"cmd":"start","xz":[0,0]}
+
+{"cmd":"scenario","name":"mob-spawns-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":12}
+{"cmd":"console","line":"mobs spawn pleb 4 --at 0,0 --spacing 24 --seed 1"}
+{"cmd":"wait","secs":16}
+{"cmd":"scenario","name":"mob-spawns-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"mob-spawns","mark":"start"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"mob-spawns","mark":"end"}
+{"cmd":"quit"}

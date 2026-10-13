@@ -41,8 +41,9 @@ fn main() {
 			.set(WindowPlugin {
 				primary_window: Some(Window {
 					title: "Maybraid".into(),
-					resolution: (1280, 720).into(),
+					resolution: window_resolution().into(),
 					present_mode: default_window_present_mode(),
+					mode: window_mode(),
 					..default()
 				}),
 				..default()
@@ -52,6 +53,47 @@ fn main() {
 	)
 	.add_plugins(GamePlugin)
 	.run();
+}
+
+const ENV_RESOLUTION: &str = "MAYBRAID_RESOLUTION";
+const ENV_FULLSCREEN: &str = "MAYBRAID_FULLSCREEN";
+
+fn window_resolution() -> (u32, u32) {
+	parse_resolution_env(std::env::var(ENV_RESOLUTION).ok().as_deref()).unwrap_or((1280, 720))
+}
+
+fn window_mode() -> bevy::window::WindowMode {
+	if env_flag_on(std::env::var(ENV_FULLSCREEN).ok().as_deref()) {
+		bevy::window::WindowMode::BorderlessFullscreen(bevy::window::MonitorSelection::Current)
+	} else {
+		bevy::window::WindowMode::Windowed
+	}
+}
+
+fn env_flag_on(raw: Option<&str>) -> bool {
+	matches!(
+		raw.map(str::trim).unwrap_or_default().to_ascii_lowercase().as_str(),
+		"1" | "true" | "yes" | "on"
+	)
+}
+
+fn parse_resolution_env(raw: Option<&str>) -> Option<(u32, u32)> {
+	let raw = raw?.trim();
+	if raw.is_empty() {
+		return None;
+	}
+	let lowered = raw.to_ascii_lowercase();
+	let Some((width, height)) = lowered.split_once('x') else {
+		eprintln!("[{ENV_RESOLUTION}] unknown {raw:?} (use WIDTHxHEIGHT)");
+		return None;
+	};
+	match (width.trim().parse::<u32>(), height.trim().parse::<u32>()) {
+		(Ok(width), Ok(height)) if width > 0 && height > 0 => Some((width, height)),
+		_ => {
+			eprintln!("[{ENV_RESOLUTION}] unknown {raw:?} (use WIDTHxHEIGHT)");
+			None
+		}
+	}
 }
 
 fn parse_start_at(raw: &str) -> bevy::math::Vec2 {
@@ -76,6 +118,25 @@ mod tests {
 	fn start_at_equals_form_accepts_negatives() {
 		let args = GameArgs::try_parse_from(["maybraid", "--start-at=-1500,-600"]).unwrap();
 		assert_eq!(args.start_at.as_deref(), Some("-1500,-600"));
+	}
+
+	#[test]
+	fn resolution_env_accepts_1080p() {
+		assert_eq!(parse_resolution_env(Some("1920x1080")), Some((1920, 1080)));
+		assert_eq!(parse_resolution_env(Some("1920X1080")), Some((1920, 1080)));
+		assert_eq!(parse_resolution_env(Some("")), None);
+		assert_eq!(parse_resolution_env(None), None);
+		assert_eq!(ENV_RESOLUTION, "MAYBRAID_RESOLUTION");
+	}
+
+	#[test]
+	fn fullscreen_env_accepts_common_flags() {
+		assert!(env_flag_on(Some("1")));
+		assert!(env_flag_on(Some("true")));
+		assert!(env_flag_on(Some("YES")));
+		assert!(!env_flag_on(Some("0")));
+		assert!(!env_flag_on(None));
+		assert_eq!(ENV_FULLSCREEN, "MAYBRAID_FULLSCREEN");
 	}
 
 	#[test]

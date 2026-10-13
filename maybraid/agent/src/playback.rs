@@ -203,6 +203,10 @@ fn start_command(
 			});
 			false
 		}
+		command @ AgentCommand::VisualStyle { .. } => {
+			effects.push(TickEffect::Instant { id, command });
+			true
+		}
 		command => {
 			effects.push(TickEffect::Instant { id, command });
 			effects.push(TickEffect::Finished { id, cmd: label });
@@ -402,6 +406,23 @@ mod tests {
 			.effects
 			.iter()
 			.any(|effect| matches!(effect, TickEffect::Finished { id: 1, .. })));
+		Ok(())
+	}
+
+	#[test]
+	fn visual_style_is_receipt_then_instant() -> anyhow::Result<()> {
+		let mut playback = Playback::from_commands([AgentCommand::VisualStyle {
+			style: "retro".into(),
+		}]);
+		let tick = playback.tick(0.016, &TickView::default());
+		assert_eq!(started(&tick.effects), vec![0]);
+		assert!(tick.effects.iter().any(|effect| matches!(
+			effect,
+			TickEffect::Instant { id: 0, command: AgentCommand::VisualStyle { style } }
+				if style == "retro"
+		)));
+		assert!(!tick.effects.iter().any(|effect| matches!(effect, TickEffect::Finished { .. })));
+		assert!(tick.idle);
 		Ok(())
 	}
 

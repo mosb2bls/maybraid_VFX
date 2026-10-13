@@ -1,0 +1,15 @@
+# Noon stand in a canopy-heavy origin view. Warmup covers stream-in and High
+# fulfill; the measure window is a still look slightly up so tree wells read
+# if sun shadows are on. Do not send `stats vsync` when MAYBRAID_VSYNC=off.
+
+{"cmd":"start","xz":[0,0]}
+{"cmd":"scenario","name":"canopy-noon-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":20}
+{"cmd":"hold","look":[0,0.22],"secs":2}
+{"cmd":"scenario","name":"canopy-noon-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"canopy-noon","mark":"start"}
+{"cmd":"wait","secs":25}
+{"cmd":"scenario","name":"canopy-noon","mark":"end"}
+{"cmd":"quit"}

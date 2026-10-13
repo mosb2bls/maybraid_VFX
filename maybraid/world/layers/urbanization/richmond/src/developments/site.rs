@@ -413,11 +413,14 @@ mod tests {
 		use procedural_common::NoiseParams;
 		use std::time::Instant;
 		use urbanization_cells::{
-			DEVELOPMENT_GENERATE_RADIUS_M, UrbanizationKind, UrbanizationSelection,
+			UrbanizationKind, UrbanizationSelection, DEVELOPMENT_GENERATE_RADIUS_M,
 		};
 
 		fn urbanization_config() -> DevelopmentConfig {
-			DevelopmentConfig { sites: DevelopmentSites::Urbanization, ..DevelopmentConfig::default() }
+			DevelopmentConfig {
+				sites: DevelopmentSites::Urbanization,
+				..DevelopmentConfig::default()
+			}
 		}
 
 		fn seed_urbanization(storage: &HcsgStorage) {

@@ -12,18 +12,24 @@
 mod agent;
 mod camera;
 pub mod commands;
-mod control;
+pub mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
 mod item_icons;
 mod map_view;
+pub mod world_lubikan;
+
+#[cfg(feature = "debug-commands")]
+pub mod world_debug;
+
 mod mob_spawn;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
 mod poi;
-mod render_scale;
+pub mod render_scale;
+mod spawn_surface;
 mod start;
 mod stash;
 mod ui;
@@ -35,10 +41,15 @@ mod world_layers;
 pub use world_furnished::WorldFurnished;
 
 pub use agent::AgentDrive;
+#[cfg(feature = "debug-commands")]
+pub use commands::{
+	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
+	RequestSpawnNpc, RequestTakeDamage, RequestTeleport,
+};
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
-	InventoryEditCameraFollow, WorldGameplayEnabled, WorldSceneryVisible, WorldSurfaceReady,
-	WorldSurfaceSet,
+	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
+	WorldSurfaceReady, WorldSurfaceSet,
 };
 pub use durham::Durham;
 #[cfg(any(test, feature = "test-support"))]
@@ -66,8 +77,11 @@ pub use player_position::{
 };
 pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
 pub use render_scale::{
-	map_render_to_window, map_window_to_render, parse_render_scale_env, target_physical_size,
-	RenderScale, RequestRenderScale, RENDER_SCALE_ENV,
+	map_render_to_window, map_window_to_render, parse_force_offscreen_env,
+	parse_presentation_treatment_env, parse_render_scale_env, parse_visual_style_env,
+	target_physical_size, RenderScale, RequestForceOffscreen, RequestRenderScale,
+	RequestVisualStyle, VisualStyle, VisualStyleSetting, FORCE_OFFSCREEN_ENV,
+	PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV, VISUAL_STYLE_ENV,
 };
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
@@ -128,10 +142,11 @@ const WORLD_BULLSEYE_OUTER_M: f32 = 2_000.0;
 const WORLD_LATTICE_EXCLUDE_M: f32 = 2_000.0;
 const WORLD_LATTICE_OUTER_M: f32 = 8_000.0;
 const WORLD_COMBAT_HUD: CombatHudPlugin = CombatHudPlugin {
-	health_bars: false,
 	hit_markers: true,
 	directional_damage: true,
 	player_vitals: true,
+	lubikan_charge: true,
+	lubikan_point_feedback: true,
 	score: true,
 };
 const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbes(false);
@@ -196,8 +211,10 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldLayersPlugin)
 			.add_plugins(DiscoveryPlayerPlugin)
 			.add_plugins(WorldIntelligencePlugin)
+			.add_plugins(crate::spawn_surface::SpawnSurfacePlugin)
 			.add_plugins(WeatherPlugin)
 			.add_plugins(SkillMapPlugin)
+			.add_plugins(world_lubikan::WorldLubikanPlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
 			.add_plugins(WorldMapViewPlugin)
@@ -208,6 +225,7 @@ impl Plugin for WorldPlugin {
 			.insert_resource(PadMovementEnabled(false))
 			.insert_resource(VegetationPlayerMotor(false))
 			.insert_resource(CharacterCameraFollowEnabled(false))
+			.add_message::<control::WorldPlaySessionEnded>()
 			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
@@ -301,6 +319,8 @@ impl Plugin for WorldPlugin {
 		if app.world().contains_resource::<AgentDrive>() {
 			app.add_plugins(agent::WorldAgentPlugin);
 		}
+		#[cfg(feature = "debug-commands")]
+		app.add_plugins(world_debug::WorldDebugPlugin);
 		if self.debug_chrome {
 			app.add_systems(Startup, ui::spawn_mob_debug_hud).add_systems(
 				Update,
@@ -350,10 +370,11 @@ mod tests {
 
 	#[test]
 	fn world_only_enables_combat_feedback_without_health_bars() {
-		assert!(!WORLD_COMBAT_HUD.health_bars);
 		assert!(WORLD_COMBAT_HUD.hit_markers);
 		assert!(WORLD_COMBAT_HUD.directional_damage);
 		assert!(WORLD_COMBAT_HUD.player_vitals);
+		assert!(WORLD_COMBAT_HUD.lubikan_charge);
+		assert!(WORLD_COMBAT_HUD.lubikan_point_feedback);
 	}
 
 	#[test]

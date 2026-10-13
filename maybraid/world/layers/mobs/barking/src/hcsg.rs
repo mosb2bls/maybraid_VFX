@@ -280,7 +280,7 @@ mod tests {
 		TerrainMeshLodBand, TerrainStampConfigs, WaterMeshAssets, WaterPresentationPlugin,
 		WatershedConfigs,
 	};
-	use lod::hcsg::{HcsgNode, HcsgRestartRequest, SettlePresentation, settle_presentation};
+	use lod::hcsg::{settle_presentation, HcsgNode, HcsgRestartRequest, SettlePresentation};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 	use mob_scenes::{MobKind, MobScene};

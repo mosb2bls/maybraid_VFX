@@ -1,6 +1,7 @@
 //! Slim world-playground commands. Forest + terrain extents are baked in.
 
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use world_player::commands::{RequestMeshStats, RequestModeCharacter, RequestModeFree};
 use world_player::{CharacterSpecies, RequestFpsToggle, RequestSetCharacter};
 
@@ -15,7 +16,10 @@ use maybraid_sky::{
 use mob_scenes::MobKind;
 
 use crate::mob_spawn::RequestSpawnMobs;
-use crate::{RequestRenderScale, RequestVsyncToggle};
+use crate::{RequestForceOffscreen, RequestRenderScale, RequestVsyncToggle};
+
+#[cfg(feature = "debug-commands")]
+use std::path::PathBuf;
 
 pub const PLAYGROUND_CLI_NAME: &str = "maybraid-world";
 pub type Script = CommandScript<PlaygroundCommand>;
@@ -49,6 +53,21 @@ pub enum PlaygroundCommand {
 	/// Debug mob placement (Tracy actor-density flights).
 	#[command(subcommand)]
 	Mobs(Mobs),
+	/// Capture the primary window to a PNG via GPU readback.
+	Screenshot {
+		path: std::path::PathBuf,
+	},
+	/// Debug commands for testing (debug builds only).
+	#[cfg(feature = "debug-commands")]
+	#[command(subcommand)]
+	Debug(DebugCommand),
+	/// Auto-capture screenshots via script (debug builds only).
+	#[cfg(feature = "debug-commands")]
+	AutoCapture {
+		/// Path to script file with wait/debug/screenshot/exit commands
+		#[arg(long)]
+		script: PathBuf,
+	},
 }
 
 #[derive(Clone, Subcommand)]
@@ -154,6 +173,19 @@ pub enum Sky {
 pub enum Render {
 	/// Shade the 3D world at `factor ×` window physical size (`0.5`–`1.0`).
 	Scale { factor: f32 },
+	/// Keep the offscreen blit even at native resolution (`MAYBRAID_FORCE_OFFSCREEN`).
+	Offscreen {
+		#[arg(value_parser = parse_on_off, action = clap::ArgAction::Set)]
+		enabled: bool,
+	},
+}
+
+fn parse_on_off(raw: &str) -> Result<bool, String> {
+	match raw.trim().to_ascii_lowercase().as_str() {
+		"1" | "true" | "on" | "yes" => Ok(true),
+		"0" | "false" | "off" | "no" => Ok(false),
+		other => Err(format!("expected on/off, got {other:?}")),
+	}
 }
 
 #[derive(Clone, Subcommand)]
@@ -165,6 +197,35 @@ pub enum Stats {
 	Fps,
 	/// Toggle vsync (`AutoVsync` ↔ `Immediate`). Also `F8` / `MAYBRAID_VSYNC=off`.
 	Vsync,
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Clone, Subcommand)]
+#[command(rename_all = "kebab-case")]
+pub enum DebugCommand {
+	/// Grant Lubikan charge points (goes through LubikanChargeRequest).
+	GrantPoints { amount: f32 },
+	/// Apply damage to the player.
+	TakeDamage { amount: f32 },
+	/// Spawn an NPC at player position.
+	SpawnNpc,
+	/// Activate the equipped Lubikan (writes LubikanActivationRequest).
+	Activate,
+	/// Toggle peaceful mode (disables hostile AI damage to player).
+	Peaceful,
+	/// Force third-person camera view (close map).
+	Camera {
+		#[arg(value_enum)]
+		mode: CameraMode,
+	},
+	/// Teleport the player to the specified XYZ world position.
+	Teleport { x: f32, y: f32, z: f32 },
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+pub enum CameraMode {
+	ThirdPerson,
 }
 
 impl PlaygroundCommand {
@@ -195,6 +256,16 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
 			PlaygroundCommand::Render(render) => render.react(commands, console),
 			PlaygroundCommand::Mobs(mobs) => mobs.react(commands, console),
+			PlaygroundCommand::Screenshot { path } => {
+				commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+				*console = format!("screenshot {}: pending", path.display());
+			}
+			#[cfg(feature = "debug-commands")]
+			PlaygroundCommand::Debug(debug) => debug.react(commands, console),
+			#[cfg(feature = "debug-commands")]
+			PlaygroundCommand::AutoCapture { script: _ } => {
+				*console = "Auto-capture removed: use Bevy Screenshot API instead".to_string();
+			}
 		}
 	}
 
@@ -252,6 +323,11 @@ impl Render {
 				commands.spawn(RequestRenderScale(factor));
 				*console = format!("render scale {factor:.3}: pending");
 			}
+			Self::Offscreen { enabled } => {
+				commands.spawn(RequestForceOffscreen(enabled));
+				*console =
+					format!("render offscreen {}: pending", if enabled { "on" } else { "off" });
+			}
 		}
 	}
 }
@@ -295,6 +371,78 @@ pub(crate) fn apply_sky_commands(
 	}
 }
 
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestGrantPoints {
+	pub amount: f32,
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestTakeDamage {
+	pub amount: f32,
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestSpawnNpc;
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestActivate;
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestPeaceful;
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestCamera {
+	pub mode: CameraMode,
+}
+
+#[cfg(feature = "debug-commands")]
+#[derive(Component, Clone, Copy, Debug)]
+pub struct RequestTeleport {
+	pub position: Vec3,
+}
+
+#[cfg(feature = "debug-commands")]
+impl DebugCommand {
+	fn react(self, commands: &mut Commands, console: &mut String) {
+		match self {
+			DebugCommand::GrantPoints { amount } => {
+				commands.spawn(RequestGrantPoints { amount });
+				*console = format!("debug grant-points {amount}: pending");
+			}
+			DebugCommand::TakeDamage { amount } => {
+				commands.spawn(RequestTakeDamage { amount });
+				*console = format!("debug take-damage {amount}: pending");
+			}
+			DebugCommand::SpawnNpc => {
+				commands.spawn(RequestSpawnNpc);
+				*console = "debug spawn-npc: pending".into();
+			}
+			DebugCommand::Activate => {
+				commands.spawn(RequestActivate);
+				*console = "debug activate: pending".into();
+			}
+			DebugCommand::Peaceful => {
+				commands.spawn(RequestPeaceful);
+				*console = "debug peaceful: pending".into();
+			}
+			DebugCommand::Camera { mode } => {
+				commands.spawn(RequestCamera { mode });
+				*console = format!("debug camera {:?}: pending", mode);
+			}
+			DebugCommand::Teleport { x, y, z } => {
+				commands.spawn(RequestTeleport { position: Vec3::new(x, y, z) });
+				*console = format!("debug teleport ({}, {}, {}): pending", x, y, z);
+			}
+		}
+	}
+}
+
 impl GameCommand for PlaygroundCommand {
 	const CLI_NAME: &'static str = PLAYGROUND_CLI_NAME;
 
@@ -333,6 +481,17 @@ mod tests {
 	}
 
 	#[test]
+	fn parse_render_offscreen() -> anyhow::Result<()> {
+		let on = PlaygroundCommand::parse_line("render offscreen on")
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		assert!(matches!(on, PlaygroundCommand::Render(Render::Offscreen { enabled: true })));
+		let off = PlaygroundCommand::parse_line("render offscreen off")
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		assert!(matches!(off, PlaygroundCommand::Render(Render::Offscreen { enabled: false })));
+		Ok(())
+	}
+
+	#[test]
 	fn parse_sky_presets() {
 		let noon = PlaygroundCommand::parse_line("sky noon").unwrap();
 		assert!(matches!(noon, PlaygroundCommand::Sky(Sky::Noon)));
@@ -367,6 +526,14 @@ mod tests {
 	}
 
 	#[test]
+	fn player_down_is_not_a_playground_command() {
+		assert!(
+			PlaygroundCommand::parse_line("player down").is_err(),
+			"lethal down stays agent-only; do not register it on the production `/` console"
+		);
+	}
+
+	#[test]
 	fn parse_mode_and_set_character() {
 		let cmd = PlaygroundCommand::parse_line("mode character").unwrap();
 		assert!(matches!(cmd, PlaygroundCommand::Mode(Mode::Character)));
@@ -375,5 +542,14 @@ mod tests {
 			set,
 			PlaygroundCommand::SetCharacter { species: CharacterSpecies::Braidman }
 		));
+	}
+
+	#[test]
+	fn parse_screenshot_path() {
+		let cmd = PlaygroundCommand::parse_line("screenshot /tmp/canopy-noon.png").unwrap();
+		let PlaygroundCommand::Screenshot { path } = cmd else {
+			panic!("expected screenshot");
+		};
+		assert_eq!(path, std::path::PathBuf::from("/tmp/canopy-noon.png"));
 	}
 }

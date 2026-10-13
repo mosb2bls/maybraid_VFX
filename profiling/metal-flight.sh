@@ -146,21 +146,46 @@ if [[ "$xc_status" -ne 0 || ! -d "$trace" ]]; then
 fi
 
 # The exported tables are 10s–100s of MB; parse them and delete them.
-/usr/bin/xctrace export --input "$trace" --toc >"${base}-toc.xml"
+# TOC export has hung on this machine; time it out so the zip still lands.
+export_timeout="${MAYBRAID_XCTRACE_EXPORT_TIMEOUT:-90}"
+xctrace_export() {
+	local out="$1"
+	shift
+	python3 - "$export_timeout" "$out" "$@" <<'PY'
+import subprocess, sys
+timeout, out, *cmd = sys.argv[1:]
+try:
+	with open(out, "w") as fh:
+		subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT, timeout=float(timeout), check=False)
+except subprocess.TimeoutExpired:
+	print(f"xctrace export timed out after {timeout}s: {out}", file=sys.stderr)
+	sys.exit(2)
+PY
+}
+set +e
+xctrace_export "${base}-toc.xml" /usr/bin/xctrace export --input "$trace" --toc
+toc_status=$?
 for table in metal-application-encoders-list metal-gpu-intervals gpu-performance-state-intervals; do
-	/usr/bin/xctrace export --input "$trace" \
-		--xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$table\"]" \
-		>"${base}-${table}.xml"
+	xctrace_export "${base}-${table}.xml" /usr/bin/xctrace export --input "$trace" \
+		--xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$table\"]"
 done
 python3 "$root/profiling/metal-passes.py" \
 	--stem "$base" \
 	--events "$events" \
 	--scenario "$scenario" >/dev/null
+parse_status=$?
+set -e
 rm -f "${base}"-metal-*.xml "${base}-gpu-performance-state-intervals.xml"
 
-# Upload form for Traces releases (a .trace is a directory bundle).
+# Upload form for Traces releases (a .trace is a directory bundle). Always zip,
+# even when TOC export hung — the bundle is the source of truth.
 ditto -c -k --keepParent "$trace" "${trace}.zip"
 
-echo "wrote ${base}-summary.md"
-echo "wrote ${base}-passes.csv"
-ls -lh "${trace}.zip" "${base}-summary.md"
+if [[ -f "${base}-summary.md" ]]; then
+	echo "wrote ${base}-summary.md"
+	echo "wrote ${base}-passes.csv"
+fi
+if [[ "$toc_status" -ne 0 || "$parse_status" -ne 0 ]]; then
+	echo "export/parse incomplete (toc=$toc_status parse=$parse_status); zip kept" >&2
+fi
+ls -lh "${trace}.zip" "${base}-summary.md" 2>/dev/null || true

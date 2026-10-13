@@ -337,10 +337,10 @@ mod tests {
 
 	#[test]
 	fn settled_flat_ground_does_not_rewrite_transform() -> anyhow::Result<()> {
-		use bevy::ecs::system::RunSystemOnce;
 		use crate::markers::ApplyTerrainPitch;
 		use crate::pitch::{CharacterHeading, TerrainPitch};
 		use crate::rig::RigSkeletonKind;
+		use bevy::ecs::system::RunSystemOnce;
 
 		let mut world = World::new();
 		world.init_resource::<Time>();
@@ -367,7 +367,10 @@ mod tests {
 			change_tick::<TerrainPitch>(&world, visual)?,
 			change_tick::<CharacterHeading>(&world, visual)?,
 		);
-		anyhow::ensure!(before == after, "settled pitch rewrote components: {before:?} -> {after:?}");
+		anyhow::ensure!(
+			before == after,
+			"settled pitch rewrote components: {before:?} -> {after:?}"
+		);
 		Ok(())
 	}
 }

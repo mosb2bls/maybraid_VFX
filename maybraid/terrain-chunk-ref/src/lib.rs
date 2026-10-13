@@ -207,19 +207,11 @@ type TerrainChunkRefQueryItem<'a, T> = (
 /// when [`HandleMap::generation`] ticks (see [`fulfill_terrain_chunk_refs`]).
 type TerrainChunkRefFreshFilter<T> = Or<(
 	Changed<TerrainChunkRef<T>>,
-	(
-		Without<TerrainChunkRefResolved>,
-		Without<TerrainChunkRefEmpty>,
-		Without<TerrainChunkRefSeen>,
-	),
+	(Without<TerrainChunkRefResolved>, Without<TerrainChunkRefEmpty>, Without<TerrainChunkRefSeen>),
 	(With<TerrainChunkRefResolved>, Without<Mesh3d>),
 )>;
-type TerrainChunkRefSeenWaiterFilter = (
-	With<TerrainChunkRefSeen>,
-	Without<TerrainChunkRefResolved>,
-	Without<TerrainChunkRefEmpty>,
-);
-
+type TerrainChunkRefSeenWaiterFilter =
+	(With<TerrainChunkRefSeen>, Without<TerrainChunkRefResolved>, Without<TerrainChunkRefEmpty>);
 
 /// Heal a wiped overlay pose. CpuShot verts are local to the chunk minimum.
 pub fn sync_terrain_chunk_ref_poses<T>(mut query: Query<(&TerrainChunkRef<T>, &mut Transform)>)
@@ -343,7 +335,9 @@ where
 		*applied += 1;
 		return true;
 	}
-	commands.entity(entity).insert(TerrainChunkRefSeen { generation, key: key.clone() });
+	commands
+		.entity(entity)
+		.insert(TerrainChunkRefSeen { generation, key: key.clone() });
 	if !cache.build_on_miss || *remaining == 0 {
 		return true;
 	}

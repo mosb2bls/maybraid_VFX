@@ -16,9 +16,9 @@ use crate::scene::{LodHostBounds, LodSceneHost, LodViewer};
 use crate::scene::{LodScene, LodSceneLevel};
 
 use super::{
-	GenerationContext, GenerationPlugin, GenerationScheme, HcsgBounds, HcsgBoundsPlugin, HcsgClass,
-	HcsgDemand, HcsgNode, HcsgStorage, PresentationPlugin, SettlePresentation,
-	settle_presentation,
+	settle_presentation, GenerationContext, GenerationPlugin, GenerationScheme, HcsgBounds,
+	HcsgBoundsPlugin, HcsgClass, HcsgDemand, HcsgNode, HcsgStorage, PresentationPlugin,
+	SettlePresentation,
 };
 
 #[derive(Resource, Default)]

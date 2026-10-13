@@ -161,9 +161,7 @@ impl<'a> GenerationContext<'a> {
 		footprint: impl Fn(&T) -> Aabb3d,
 	) -> Vec<Arc<T>> {
 		let mut cells = self.get_or_generate_in::<T>(region);
-		cells.sort_by(|a, b| {
-			aabb3_span_x(footprint(a)).total_cmp(&aabb3_span_x(footprint(b)))
-		});
+		cells.sort_by(|a, b| aabb3_span_x(footprint(a)).total_cmp(&aabb3_span_x(footprint(b))));
 		cells
 	}
 

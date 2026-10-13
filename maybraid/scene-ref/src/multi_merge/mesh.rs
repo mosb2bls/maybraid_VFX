@@ -57,6 +57,7 @@ pub(crate) fn bake_source_instances(
 ///
 /// Attributes not shared by every source mesh are dropped so [`Mesh::merge`] stays
 /// vertex-count consistent. Materials are ignored.
+#[cfg(test)]
 pub(crate) fn merge_world_asset_meshes(
 	source: &WorldAsset,
 	part_transform: Transform,
