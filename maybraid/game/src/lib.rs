@@ -749,9 +749,9 @@ mod tests {
 		apply_settings_to_visual_style(
 			&mut style,
 			InGameVisualStyle::Retro,
-			Some(VisualStyle::Sharp),
+			Some(VisualStyle::Native),
 		);
-		assert_eq!(style.requested(), Some(VisualStyle::Sharp));
+		assert_eq!(style.requested(), Some(VisualStyle::Native));
 		Ok(())
 	}
 

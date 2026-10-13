@@ -141,7 +141,7 @@ impl Preference for VisualStylePref {
 	}
 
 	fn device_default(_class: DeviceClass) -> Self::Value {
-		InGameVisualStyle::Sharp
+		InGameVisualStyle::Native
 	}
 }
 
@@ -272,24 +272,24 @@ mod tests {
 		let fields = InGameSettings {
 			shadows: InGameShadowQuality::Low,
 			mob_hud: true,
-			visual_style: InGameVisualStyle::Sharp,
+			visual_style: InGameVisualStyle::Native,
 		}
 		.persisted_fields();
 		assert_eq!(fields.get("shadows"), Some(&serde_json::json!("low")));
-		assert_eq!(fields.get("visual_style"), Some(&serde_json::json!("sharp")));
+		assert_eq!(fields.get("visual_style"), Some(&serde_json::json!("native")));
 		assert!(!fields.contains_key("mob_hud"));
 		assert_eq!(fields.len(), 2);
 	}
 
 	#[test]
-	fn visual_style_defaults_to_sharp() {
+	fn visual_style_defaults_to_native() {
 		assert_eq!(
 			VisualStylePref::device_default(DeviceClass::Modest),
-			InGameVisualStyle::Sharp
+			InGameVisualStyle::Native
 		);
 		assert_eq!(
 			InGameSettings::from_device(DeviceClass::Modest).visual_style,
-			InGameVisualStyle::Sharp
+			InGameVisualStyle::Native
 		);
 	}
 }

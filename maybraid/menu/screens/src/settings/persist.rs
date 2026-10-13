@@ -12,11 +12,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::catalog::{overlay_machine_fields, seed_device_class, DeviceClass, Preference};
-use super::{InGameSettings, InGameShadowQuality};
+use super::{InGameSettings, InGameShadowQuality, InGameVisualStyle};
 
 pub const ENV_SHADOWS: &str = "MAYBRAID_SHADOWS";
 pub const ENV_RENDER_SCALE: &str = "MAYBRAID_RENDER_SCALE";
-const SETTINGS_VERSION: u32 = 1;
+const SETTINGS_VERSION: u32 = 2;
+/// Files written before Native/Sharp split. Missing `version` is treated as this.
+const LEGACY_SETTINGS_VERSION: u32 = 1;
+/// `visual_style: "sharp"` means Native below this version, 1080p Sharp at or above it.
+const VISUAL_STYLE_NATIVE_SPLIT_VERSION: u32 = 2;
 
 /// Apply-once marker so a later adapter-info frame cannot re-seed over a loaded
 /// or user-set value.
@@ -35,14 +39,22 @@ impl Default for MachineSettings {
 
 #[derive(Serialize, Deserialize, Default)]
 struct SettingsFile {
-	#[serde(default = "settings_version")]
+	#[serde(default = "legacy_settings_version")]
 	version: u32,
 	#[serde(default)]
 	fields: BTreeMap<String, Value>,
 }
 
-fn settings_version() -> u32 {
-	SETTINGS_VERSION
+fn legacy_settings_version() -> u32 {
+	LEGACY_SETTINGS_VERSION
+}
+
+/// Version-1 `sharp` was today's direct-window path. Remap it to Native so
+/// existing players keep that look; version 2+ `sharp` is the new 1080p mode.
+fn migrate_v1_sharp_to_native(settings: &mut InGameSettings, version: u32) {
+	if version < VISUAL_STYLE_NATIVE_SPLIT_VERSION && settings.visual_style == InGameVisualStyle::Sharp {
+		settings.visual_style = InGameVisualStyle::Native;
+	}
 }
 
 pub fn parse_shadows_env(raw: &str) -> Option<InGameShadowQuality> {
@@ -95,6 +107,7 @@ pub fn load_machine_settings(root: &SaveRoot, class: DeviceClass) -> InGameSetti
 	let mut settings = InGameSettings::from_device(class);
 	if let Some(file) = read_settings_file(root) {
 		overlay_machine_fields(&mut settings, &file.fields);
+		migrate_v1_sharp_to_native(&mut settings, file.version);
 	}
 	settings
 }
@@ -204,12 +217,12 @@ mod tests {
 	}
 
 	#[test]
-	fn missing_file_uses_modest_off_sharp() {
+	fn missing_file_uses_modest_off_native() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
 		let settings = load_machine_settings(&root, DeviceClass::Modest);
 		assert_eq!(settings.shadows, InGameShadowQuality::Off);
-		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Native);
 		assert!(!settings.mob_hud);
 	}
 
@@ -314,6 +327,15 @@ mod tests {
 		let mut stored = MachineSettings(loaded);
 		write_machine_preference::<VisualStylePref>(
 			Some(&mut stored),
+			InGameVisualStyle::Native,
+			Some(&root),
+		);
+		assert_eq!(stored.0.visual_style, InGameVisualStyle::Native);
+		assert!(read_raw(&root).contains("\"native\""));
+		assert!(read_raw(&root).contains("\"version\": 2"));
+
+		write_machine_preference::<VisualStylePref>(
+			Some(&mut stored),
 			InGameVisualStyle::Sharp,
 			Some(&root),
 		);
@@ -328,6 +350,39 @@ mod tests {
 		let loaded = load_machine_settings(&root, DeviceClass::Modest);
 		assert_eq!(loaded.visual_style, InGameVisualStyle::PrePostModern);
 		Ok(())
+	}
+
+	#[test]
+	fn version_1_sharp_migrates_to_native() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		write_fields(
+			&root,
+			r#"{ "version": 1, "fields": { "shadows": "off", "visual_style": "sharp" } }"#,
+		);
+		let loaded = load_machine_settings(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style, InGameVisualStyle::Native);
+	}
+
+	#[test]
+	fn unversioned_sharp_migrates_to_native() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		write_fields(&root, r#"{ "fields": { "shadows": "off", "visual_style": "sharp" } }"#);
+		let loaded = load_machine_settings(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style, InGameVisualStyle::Native);
+	}
+
+	#[test]
+	fn version_2_sharp_stays_sharp() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		write_fields(
+			&root,
+			r#"{ "version": 2, "fields": { "shadows": "off", "visual_style": "sharp" } }"#,
+		);
+		let loaded = load_machine_settings(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style, InGameVisualStyle::Sharp);
 	}
 
 	#[test]

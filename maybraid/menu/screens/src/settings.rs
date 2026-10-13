@@ -69,10 +69,16 @@ impl InGameShadowQuality {
 }
 
 /// Visual style presentation mode. Machine-scoped.
+///
+/// Persist values are lowercase (`native`, `sharp`, …). Settings files at
+/// version 1 stored today's direct-window path as `sharp`; load remaps that
+/// string to [`Self::Native`] so existing players keep the same look. Version 2
+/// writes `native` / `sharp` with the new meanings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InGameVisualStyle {
 	#[default]
+	Native,
 	Sharp,
 	Impressionist,
 	Watercolor,
@@ -83,7 +89,8 @@ pub enum InGameVisualStyle {
 }
 
 impl InGameVisualStyle {
-	pub const ALL: [Self; 6] = [
+	pub const ALL: [Self; 7] = [
+		Self::Native,
 		Self::Sharp,
 		Self::Impressionist,
 		Self::Watercolor,
@@ -104,6 +111,7 @@ impl InGameVisualStyle {
 
 	pub fn label(self) -> &'static str {
 		match self {
+			Self::Native => "Native",
 			Self::Impressionist => "Impressionist",
 			Self::Watercolor => "Watercolor",
 			Self::Sharp => "Sharp",
@@ -115,6 +123,7 @@ impl InGameVisualStyle {
 
 	pub fn to_visual_style(self) -> VisualStyle {
 		match self {
+			Self::Native => VisualStyle::Native,
 			Self::Impressionist => VisualStyle::Impressionist,
 			Self::Watercolor => VisualStyle::Watercolor,
 			Self::Sharp => VisualStyle::Sharp,
@@ -126,6 +135,7 @@ impl InGameVisualStyle {
 
 	pub fn from_visual_style(style: VisualStyle) -> Self {
 		match style {
+			VisualStyle::Native => Self::Native,
 			VisualStyle::Impressionist => Self::Impressionist,
 			VisualStyle::Watercolor => Self::Watercolor,
 			VisualStyle::Sharp => Self::Sharp,
@@ -142,7 +152,7 @@ impl InGameVisualStyle {
 	/// Migrate a legacy InGameRenderScale value to InGameVisualStyle.
 	pub fn from_legacy_render_scale(scale: InGameRenderScale) -> Self {
 		match scale {
-			InGameRenderScale::Auto | InGameRenderScale::Native => Self::Sharp,
+			InGameRenderScale::Auto | InGameRenderScale::Native => Self::Native,
 			InGameRenderScale::Half => Self::Impressionist,
 			InGameRenderScale::ThreeQuarter => Self::PrePostModern,
 		}
@@ -233,7 +243,7 @@ pub struct RenderScaleReadout {
 impl Default for RenderScaleReadout {
 	fn default() -> Self {
 		Self {
-			style: VisualStyle::Sharp,
+			style: VisualStyle::Native,
 			effective_scale: 1.0,
 			window_physical: UVec2::ZERO,
 			target_physical: UVec2::ZERO,
@@ -343,7 +353,7 @@ impl InGameSettingsChoice {
 				"Sun cascade shadows. High is four maps to 150 m. Low is four maps to 60 m. Off disables the sun's shadow maps."
 			}
 			Self::VisualStyle => {
-				"Presentation mode: sharp (native, default). Stylized modes are opt-in: impressionist / watercolor (painterly), retro / antediluvian (nearest-neighbor), or pre-post-modern (color-print)."
+				"Presentation mode: native (window, default). Sharp is untreated 1080p offscreen (height-fit). Stylized modes are opt-in: impressionist / watercolor (painterly), retro / antediluvian (nearest-neighbor), or pre-post-modern (color-print)."
 			}
 			Self::MobHud => {
 				"Pins and colored poles on presented mob hosts. Use this to find where groups should stand."
@@ -641,7 +651,7 @@ mod tests {
 		let mut settings = InGameSettings {
 			mob_hud: false,
 			shadows: InGameShadowQuality::Off,
-			visual_style: InGameVisualStyle::Sharp,
+			visual_style: InGameVisualStyle::Native,
 		};
 		let mut machine = persist::MachineSettings::default();
 		assert!(apply_settings_step(
@@ -650,14 +660,14 @@ mod tests {
 			&mut machine,
 			None,
 		));
-		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
 		assert!(apply_settings_step(
 			SettingsStep { choice: InGameSettingsChoice::VisualStyle, delta: -1 },
 			&mut settings,
 			&mut machine,
 			None,
 		));
-		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Native);
 		assert!(!apply_settings_step(
 			SettingsStep { choice: InGameSettingsChoice::Shadows, delta: 1 },
 			&mut settings,
@@ -667,16 +677,17 @@ mod tests {
 	}
 
 	#[test]
-	fn visual_style_starts_sharp_and_cycles() -> anyhow::Result<()> {
-		assert_eq!(InGameSettings::default().visual_style, InGameVisualStyle::Sharp);
+	fn visual_style_starts_native_and_cycles() -> anyhow::Result<()> {
+		assert_eq!(InGameSettings::default().visual_style, InGameVisualStyle::Native);
+		assert_eq!(InGameVisualStyle::Native.cycle(), InGameVisualStyle::Sharp);
 		assert_eq!(InGameVisualStyle::Sharp.cycle(), InGameVisualStyle::Impressionist);
 		assert_eq!(InGameVisualStyle::Impressionist.cycle(), InGameVisualStyle::Watercolor);
 		assert_eq!(InGameVisualStyle::Watercolor.cycle(), InGameVisualStyle::Retro);
 		assert_eq!(InGameVisualStyle::Retro.cycle(), InGameVisualStyle::Antediluvian);
 		assert_eq!(InGameVisualStyle::Antediluvian.cycle(), InGameVisualStyle::PrePostModern);
-		assert_eq!(InGameVisualStyle::PrePostModern.cycle(), InGameVisualStyle::Sharp);
-		assert_eq!(InGameVisualStyle::Sharp.step(-1), InGameVisualStyle::PrePostModern);
-		assert_eq!(InGameVisualStyle::PrePostModern.step(1), InGameVisualStyle::Sharp);
+		assert_eq!(InGameVisualStyle::PrePostModern.cycle(), InGameVisualStyle::Native);
+		assert_eq!(InGameVisualStyle::Native.step(-1), InGameVisualStyle::PrePostModern);
+		assert_eq!(InGameVisualStyle::PrePostModern.step(1), InGameVisualStyle::Native);
 		Ok(())
 	}
 
@@ -686,7 +697,7 @@ mod tests {
 		assert_eq!(InGameVisualStyle::Impressionist.subtext(), "Impressionist");
 		assert_eq!(
 			InGameSettings::default().state_label(InGameSettingsChoice::VisualStyle),
-			"Sharp"
+			"Native"
 		);
 	}
 
@@ -704,7 +715,7 @@ mod tests {
 			"Rendered at 1512 x 982. Upscaled to display."
 		);
 		let native = RenderScaleReadout {
-			style: InGameVisualStyle::Sharp.to_visual_style(),
+			style: InGameVisualStyle::Native.to_visual_style(),
 			effective_scale: 1.0,
 			window_physical: UVec2::new(1280, 720),
 			target_physical: UVec2::new(1280, 720),
