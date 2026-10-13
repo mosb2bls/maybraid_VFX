@@ -141,7 +141,7 @@ impl Preference for VisualStylePref {
 	}
 
 	fn device_default(_class: DeviceClass) -> Self::Value {
-		InGameVisualStyle::Impressionist
+		InGameVisualStyle::Sharp
 	}
 }
 
@@ -282,14 +282,14 @@ mod tests {
 	}
 
 	#[test]
-	fn visual_style_defaults_to_impressionist() {
+	fn visual_style_defaults_to_sharp() {
 		assert_eq!(
 			VisualStylePref::device_default(DeviceClass::Modest),
-			InGameVisualStyle::Impressionist
+			InGameVisualStyle::Sharp
 		);
 		assert_eq!(
 			InGameSettings::from_device(DeviceClass::Modest).visual_style,
-			InGameVisualStyle::Impressionist
+			InGameVisualStyle::Sharp
 		);
 	}
 }

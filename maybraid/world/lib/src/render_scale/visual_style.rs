@@ -6,9 +6,9 @@ use bevy::prelude::*;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum VisualStyle {
 	#[default]
+	Sharp,
 	Impressionist,
 	Watercolor,
-	Sharp,
 	Retro,
 	Antediluvian,
 	PrePostModern,
@@ -16,9 +16,9 @@ pub enum VisualStyle {
 
 impl VisualStyle {
 	pub const ALL: [Self; 6] = [
+		Self::Sharp,
 		Self::Impressionist,
 		Self::Watercolor,
-		Self::Sharp,
 		Self::Retro,
 		Self::Antediluvian,
 		Self::PrePostModern,
@@ -38,12 +38,14 @@ impl VisualStyle {
 	pub fn description(self) -> &'static str {
 		match self {
 			Self::Impressionist => {
-				"Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with a tighter wash than Watercolor. Default."
+				"Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with a tighter wash than Watercolor. Opt-in."
 			}
 			Self::Watercolor => {
-				"Wet wash at ~1280×720 (16:9). Same painterly blit as Impressionist at full strength, more source detail."
+				"Wet wash at ~1280×720 (16:9). Same painterly blit as Impressionist at full strength, more source detail. Opt-in."
 			}
-			Self::Sharp => "Native physical resolution, untreated. Primarily useful for testing.",
+			Self::Sharp => {
+				"Native physical resolution, untreated. Default until a stylized mode is chosen."
+			}
 			Self::Retro => "Nearest-neighbor upscale from ~540×304 (16:9). Performance mode.",
 			Self::Antediluvian => {
 				"Nearest-neighbor upscale from ~400×225 (16:9). Extreme performance mode."
@@ -102,8 +104,8 @@ impl VisualStyle {
 	/// Migrate a legacy InGameRenderScale value to a VisualStyle.
 	pub fn from_legacy_render_scale(scale: LegacyRenderScale) -> Self {
 		match scale {
-			LegacyRenderScale::Auto | LegacyRenderScale::Half => Self::Impressionist,
-			LegacyRenderScale::Native => Self::Sharp,
+			LegacyRenderScale::Auto | LegacyRenderScale::Native => Self::Sharp,
+			LegacyRenderScale::Half => Self::Impressionist,
 			LegacyRenderScale::ThreeQuarter => Self::PrePostModern,
 		}
 	}
@@ -322,7 +324,7 @@ mod tests {
 	fn legacy_migration_matches_spec() {
 		assert_eq!(
 			VisualStyle::from_legacy_render_scale(LegacyRenderScale::Auto),
-			VisualStyle::Impressionist
+			VisualStyle::Sharp
 		);
 		assert_eq!(
 			VisualStyle::from_legacy_render_scale(LegacyRenderScale::Native),

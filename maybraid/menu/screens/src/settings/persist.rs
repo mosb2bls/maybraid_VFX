@@ -204,12 +204,12 @@ mod tests {
 	}
 
 	#[test]
-	fn missing_file_uses_modest_off_impressionist() {
+	fn missing_file_uses_modest_off_sharp() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
 		let settings = load_machine_settings(&root, DeviceClass::Modest);
 		assert_eq!(settings.shadows, InGameShadowQuality::Off);
-		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
 		assert!(!settings.mob_hud);
 	}
 

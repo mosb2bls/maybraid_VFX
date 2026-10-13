@@ -2,9 +2,9 @@
 //!
 //! Replaces the legacy render scale system. Styles render at characteristic resolutions
 //! (preserving aspect ratio) and apply effects during presentation:
-//! - **Impressionist** (~700×394): painterly softening, tighter wash than Watercolor, default
+//! - **Sharp**: native resolution, no treatment, default
+//! - **Impressionist** (~700×394): painterly softening, tighter wash than Watercolor
 //! - **Watercolor** (~1280×720): full-strength painterly wash, more source detail
-//! - **Sharp**: native resolution, no treatment
 //! - **Retro** (~540×304): nearest-neighbor, performance
 //! - **Antediluvian** (~400×225): nearest-neighbor, extreme performance
 //! - **Pre-post-modern** (~1280×720): misregistered color-print effect
@@ -22,7 +22,7 @@ use bevy::prelude::*;
 pub use target::{map_render_to_window, map_window_to_render};
 pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
 
-/// `MAYBRAID_VISUAL_STYLE=retro` (or `impressionist` by default) at process start.
+/// `MAYBRAID_VISUAL_STYLE=retro` (or `sharp` by default) at process start.
 pub const VISUAL_STYLE_ENV: &str = "MAYBRAID_VISUAL_STYLE";
 /// Optional override so a capture can keep a style's resolution without its treatment.
 pub const PRESENTATION_TREATMENT_ENV: &str = "MAYBRAID_PRESENTATION_TREATMENT";
@@ -80,7 +80,7 @@ impl Default for VisualStyleSetting {
 }
 
 impl VisualStyleSetting {
-	/// Read [`VISUAL_STYLE_ENV`]. Empty → default [`VisualStyle::Impressionist`].
+	/// Read [`VISUAL_STYLE_ENV`]. Empty → default [`VisualStyle::Sharp`].
 	pub fn from_env() -> Self {
 		Self {
 			requested: parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref()),
@@ -122,7 +122,7 @@ impl VisualStyleSetting {
 	}
 
 	pub fn effective(&self) -> VisualStyle {
-		self.requested.unwrap_or(VisualStyle::Impressionist)
+		self.requested.unwrap_or_default()
 	}
 
 	pub fn plan(&self, window_physical: UVec2, window_scale_factor: f32) -> VisualStylePlan {
@@ -166,7 +166,7 @@ pub fn parse_force_offscreen_env(raw: Option<&str>) -> bool {
 	matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
 }
 
-/// Parse `MAYBRAID_VISUAL_STYLE`. Empty → `None` (default Impressionist).
+/// Parse `MAYBRAID_VISUAL_STYLE`. Empty → `None` (default Sharp).
 pub fn parse_visual_style_env(raw: Option<&str>) -> Option<VisualStyle> {
 	let Some(raw) = raw else {
 		return None;
@@ -442,9 +442,9 @@ mod tests {
 	}
 
 	#[test]
-	fn visual_style_setting_defaults_to_impressionist() -> anyhow::Result<()> {
+	fn visual_style_setting_defaults_to_sharp() -> anyhow::Result<()> {
 		let setting = VisualStyleSetting::default();
-		assert_eq!(setting.effective(), VisualStyle::Impressionist);
+		assert_eq!(setting.effective(), VisualStyle::Sharp);
 		Ok(())
 	}
 

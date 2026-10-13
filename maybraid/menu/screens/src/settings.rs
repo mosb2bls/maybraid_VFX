@@ -73,9 +73,9 @@ impl InGameShadowQuality {
 #[serde(rename_all = "lowercase")]
 pub enum InGameVisualStyle {
 	#[default]
+	Sharp,
 	Impressionist,
 	Watercolor,
-	Sharp,
 	Retro,
 	Antediluvian,
 	#[serde(rename = "pre_post_modern")]
@@ -84,9 +84,9 @@ pub enum InGameVisualStyle {
 
 impl InGameVisualStyle {
 	pub const ALL: [Self; 6] = [
+		Self::Sharp,
 		Self::Impressionist,
 		Self::Watercolor,
-		Self::Sharp,
 		Self::Retro,
 		Self::Antediluvian,
 		Self::PrePostModern,
@@ -142,8 +142,8 @@ impl InGameVisualStyle {
 	/// Migrate a legacy InGameRenderScale value to InGameVisualStyle.
 	pub fn from_legacy_render_scale(scale: InGameRenderScale) -> Self {
 		match scale {
-			InGameRenderScale::Auto | InGameRenderScale::Half => Self::Impressionist,
-			InGameRenderScale::Native => Self::Sharp,
+			InGameRenderScale::Auto | InGameRenderScale::Native => Self::Sharp,
+			InGameRenderScale::Half => Self::Impressionist,
 			InGameRenderScale::ThreeQuarter => Self::PrePostModern,
 		}
 	}
@@ -233,7 +233,7 @@ pub struct RenderScaleReadout {
 impl Default for RenderScaleReadout {
 	fn default() -> Self {
 		Self {
-			style: VisualStyle::Impressionist,
+			style: VisualStyle::Sharp,
 			effective_scale: 1.0,
 			window_physical: UVec2::ZERO,
 			target_physical: UVec2::ZERO,
@@ -343,7 +343,7 @@ impl InGameSettingsChoice {
 				"Sun cascade shadows. High is four maps to 150 m. Low is four maps to 60 m. Off disables the sun's shadow maps."
 			}
 			Self::VisualStyle => {
-				"Presentation mode: impressionist (painterly, default), watercolor (720p wash), sharp (native, testing), retro / antediluvian (nearest-neighbor, performance), or pre-post-modern (color-print effect)."
+				"Presentation mode: sharp (native, default). Stylized modes are opt-in: impressionist / watercolor (painterly), retro / antediluvian (nearest-neighbor), or pre-post-modern (color-print)."
 			}
 			Self::MobHud => {
 				"Pins and colored poles on presented mob hosts. Use this to find where groups should stand."
@@ -641,7 +641,7 @@ mod tests {
 		let mut settings = InGameSettings {
 			mob_hud: false,
 			shadows: InGameShadowQuality::Off,
-			visual_style: InGameVisualStyle::Impressionist,
+			visual_style: InGameVisualStyle::Sharp,
 		};
 		let mut machine = persist::MachineSettings::default();
 		assert!(apply_settings_step(
@@ -650,14 +650,14 @@ mod tests {
 			&mut machine,
 			None,
 		));
-		assert_eq!(settings.visual_style, InGameVisualStyle::Watercolor);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
 		assert!(apply_settings_step(
 			SettingsStep { choice: InGameSettingsChoice::VisualStyle, delta: -1 },
 			&mut settings,
 			&mut machine,
 			None,
 		));
-		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
 		assert!(!apply_settings_step(
 			SettingsStep { choice: InGameSettingsChoice::Shadows, delta: 1 },
 			&mut settings,
@@ -667,16 +667,16 @@ mod tests {
 	}
 
 	#[test]
-	fn visual_style_starts_impressionist_and_cycles() -> anyhow::Result<()> {
-		assert_eq!(InGameSettings::default().visual_style, InGameVisualStyle::Impressionist);
+	fn visual_style_starts_sharp_and_cycles() -> anyhow::Result<()> {
+		assert_eq!(InGameSettings::default().visual_style, InGameVisualStyle::Sharp);
+		assert_eq!(InGameVisualStyle::Sharp.cycle(), InGameVisualStyle::Impressionist);
 		assert_eq!(InGameVisualStyle::Impressionist.cycle(), InGameVisualStyle::Watercolor);
-		assert_eq!(InGameVisualStyle::Watercolor.cycle(), InGameVisualStyle::Sharp);
-		assert_eq!(InGameVisualStyle::Sharp.cycle(), InGameVisualStyle::Retro);
+		assert_eq!(InGameVisualStyle::Watercolor.cycle(), InGameVisualStyle::Retro);
 		assert_eq!(InGameVisualStyle::Retro.cycle(), InGameVisualStyle::Antediluvian);
 		assert_eq!(InGameVisualStyle::Antediluvian.cycle(), InGameVisualStyle::PrePostModern);
-		assert_eq!(InGameVisualStyle::PrePostModern.cycle(), InGameVisualStyle::Impressionist);
-		assert_eq!(InGameVisualStyle::Impressionist.step(-1), InGameVisualStyle::PrePostModern);
-		assert_eq!(InGameVisualStyle::PrePostModern.step(1), InGameVisualStyle::Impressionist);
+		assert_eq!(InGameVisualStyle::PrePostModern.cycle(), InGameVisualStyle::Sharp);
+		assert_eq!(InGameVisualStyle::Sharp.step(-1), InGameVisualStyle::PrePostModern);
+		assert_eq!(InGameVisualStyle::PrePostModern.step(1), InGameVisualStyle::Sharp);
 		Ok(())
 	}
 
@@ -686,7 +686,7 @@ mod tests {
 		assert_eq!(InGameVisualStyle::Impressionist.subtext(), "Impressionist");
 		assert_eq!(
 			InGameSettings::default().state_label(InGameSettingsChoice::VisualStyle),
-			"Impressionist"
+			"Sharp"
 		);
 	}
 
