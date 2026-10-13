@@ -123,7 +123,7 @@ pub fn spawn_thrown_grenade(
 				LinearVelocity(velocity),
 				AngularVelocity(tumble),
 				// Unit gravity, no linear damping / max-speed cap: catalog launch_speed
-				// is the live throw. A 15 m/s standing lob lands past 15 m.
+				// is the live throw. A 22 m/s median lob lands around 30 m.
 				GravityScale(1.0),
 				Restitution {
 					coefficient: stats.restitution,

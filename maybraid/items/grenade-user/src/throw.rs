@@ -452,8 +452,8 @@ mod tests {
 	fn launch_is_a_brisk_lob() {
 		let stats = GrenadeStats::standard();
 		let velocity = launch_velocity(Vec3::Z, &stats, Vec3::ZERO);
-		assert!(stats.launch_speed > 14.0 && stats.launch_speed < 16.0);
-		assert!(velocity.length() > 14.0 && velocity.length() < 16.0);
+		assert!(stats.launch_speed > 21.0 && stats.launch_speed < 23.0);
+		assert!(velocity.length() > 21.0 && velocity.length() < 23.0);
 		assert!(velocity.y > velocity.z * 0.18);
 	}
 
@@ -464,12 +464,15 @@ mod tests {
 	}
 
 	#[test]
-	fn standing_third_person_lob_clears_fifteen_meters() {
+	fn standing_third_person_lob_lands_around_thirty_meters() {
 		let stats = GrenadeStats::standard();
 		let velocity = standing_third_person_velocity(&stats);
 		let range = landing_range(STANDING_RELEASE_HEIGHT, velocity, THROW_GRAVITY);
 		let airtime = landing_time(STANDING_RELEASE_HEIGHT, velocity.y, THROW_GRAVITY);
-		assert!(range > 15.0, "standing third-person lob should land past 15 m, got {range:.1} m");
+		assert!(
+			range > 28.0 && range < 32.0,
+			"median 22 m/s standing lob should land around 30 m, got {range:.1} m"
+		);
 		assert!(
 			airtime < stats.fuse,
 			"fuse {:.1}s must outlast the {airtime:.2}s lob so it lands before detonation",
@@ -495,6 +498,39 @@ mod tests {
 		assert!(
 			extra > base * 1.4,
 			"launch_speed modifiers must stack on the base lob ({base:.1} m → {extra:.1} m)"
+		);
+	}
+
+	#[test]
+	fn rolled_launch_band_still_lands_inside_fuse() {
+		let mut floor = GrenadeStats::standard();
+		floor.launch_speed = 15.0;
+		let mut ceiling = GrenadeStats::standard();
+		ceiling.launch_speed = 30.0;
+		for stats in [floor, ceiling] {
+			let velocity = standing_third_person_velocity(&stats);
+			let airtime = landing_time(STANDING_RELEASE_HEIGHT, velocity.y, THROW_GRAVITY);
+			assert!(
+				airtime < stats.fuse,
+				"{} m/s lob airtime {airtime:.2}s must stay inside fuse {:.1}s",
+				stats.launch_speed,
+				stats.fuse
+			);
+		}
+		let floor_range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&floor),
+			THROW_GRAVITY,
+		);
+		let ceiling_range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&ceiling),
+			THROW_GRAVITY,
+		);
+		assert!(floor_range > 15.0, "15 m/s floor should still land past 15 m, got {floor_range:.1} m");
+		assert!(
+			ceiling_range > 50.0,
+			"30 m/s ceiling should land past 50 m, got {ceiling_range:.1} m"
 		);
 	}
 
