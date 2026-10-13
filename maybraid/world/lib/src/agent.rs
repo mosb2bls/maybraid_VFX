@@ -242,9 +242,11 @@ fn agent_sync_ready(
 	}
 	let elapsed = time.elapsed_secs();
 	let surface_ready = gameplay.0 && surface.0;
-	// LoadingWorld turns streaming on with gameplay still off. Do not treat
-	// that as a menu shell or scripts start pressing Jump on the load screen.
-	let menu_shell_ready = !gameplay.0 && !streaming.enabled && elapsed >= MENU_READY_SECS;
+	// Home / Characters keep streaming off. WorldGameplayEnabled defaults on,
+	// so do not also require gameplay off — a leaked true blocked Home-first
+	// scripts for the full ready timeout. LoadingWorld turns streaming on
+	// with gameplay still off; that must not count as a menu.
+	let menu_shell_ready = !streaming.enabled && elapsed >= MENU_READY_SECS;
 	let timed_out = elapsed >= runtime.ready_timeout;
 	if !surface_ready && !menu_shell_ready && !timed_out {
 		return;
@@ -825,6 +827,21 @@ mod tests {
 			.run_system_once(agent_sync_ready)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert!(!world.resource::<AgentRuntime>().ready);
+		Ok(())
+	}
+
+	#[test]
+	fn menu_shell_is_ready_even_when_gameplay_leaked_on() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(false));
+		world.insert_resource(advance_time(MENU_READY_SECS));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<AgentRuntime>().ready);
 		Ok(())
 	}
 }

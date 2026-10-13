@@ -24,10 +24,13 @@ maybraid --start-at=0,0 \
 plugin is not added.
 
 Playback starts when Discovery surface is ready, when the Home / Characters
-shell has been up for two seconds (gameplay and terrain streaming both off),
-or when the 90 s ready timeout fires. A leading `start` / `--start-at` still
-boots Discovery and skips the first-life picker. Home-first scripts (leave +
-pick another character) must omit both so the shell stays on Home.
+shell has been up for two seconds (terrain streaming off), or when the 90 s
+ready timeout fires. A leaked `WorldGameplayEnabled` default must not block
+Home-first scripts. A leading `start` / `--start-at` still boots Discovery and
+skips the first-life picker. Home-first scripts (leave + pick another
+character) must omit both so the shell stays on Home. Use
+`MAYBRAID_NO_START_AT=1` with [`profiling/tracy-flight.sh`](../../profiling/tracy-flight.sh)
+so the flight wrapper does not latch `PlayerSpawnXz`.
 
 `{"cmd":"console","line":"player down"}` is handled only by the agent plugin
 (a lethal self-`Hit`). It is **not** a Playground `/` command and is not
