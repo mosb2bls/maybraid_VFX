@@ -5,7 +5,6 @@ use std::sync::Arc;
 use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec2;
 use durham::{Durham, Terrain};
-use lod::gen::OriginalId;
 use lod::hcsg::{self, GenerationContext};
 use procedural_common::Bounds2;
 use terrain_layer_model::OnTerrain;
@@ -94,18 +93,9 @@ pub struct GroundCells<G: RichmondGround> {
 
 impl<G: RichmondGround> GroundCells<G> {
 	pub fn generate(cx: &mut GenerationContext, site: Aabb3d) -> Self {
-		let mut cells: Vec<Arc<G::Cell>> = cx
-			.original_ids_for::<G::Cell>(site)
-			.into_iter()
-			.filter_map(|OriginalId(id)| cx.get_or_generate::<G::Cell>(id))
-			.collect();
-		cells.sort_by(|a, b| span_x(a.bounds()).total_cmp(&span_x(b.bounds())));
+		let cells = cx.get_or_generate_in_finest_first::<G::Cell>(site, |cell| cell.bounds());
 		Self { cells }
 	}
-}
-
-fn span_x(bounds: Aabb3d) -> f32 {
-	bounds.max.x - bounds.min.x
 }
 
 /// Pads are checked over their realized support, flatten plus ease.

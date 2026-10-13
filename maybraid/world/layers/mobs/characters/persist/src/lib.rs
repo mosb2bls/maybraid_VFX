@@ -176,6 +176,7 @@ impl SaveRoot {
 	}
 }
 
+#[cfg(target_os = "macos")]
 const APP_DATA_DIR: &str = "io.ramate.maybraid";
 
 fn packaged_install() -> bool {

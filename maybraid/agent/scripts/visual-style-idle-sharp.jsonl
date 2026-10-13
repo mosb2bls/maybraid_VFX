@@ -1,0 +1,14 @@
+# Stationary Sharp (native, direct window) at origin.
+
+{"cmd":"visual_style","style":"sharp"}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":18}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"visual-style-idle","mark":"start"}
+{"cmd":"wait","secs":4}
+{"cmd":"console","line":"screenshot profiling/captures/screenshots/visual-style-idle-sharp.png"}
+{"cmd":"wait","secs":16}
+{"cmd":"scenario","name":"visual-style-idle","mark":"end"}
+{"cmd":"quit"}

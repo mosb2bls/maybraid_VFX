@@ -1,7 +1,7 @@
 //! Create-a-character flow: starter garments and firearms, then the body editor.
 
 use bevy::prelude::*;
-use character_items::{random_starter_loadout, InventoryItem, ItemRng};
+use character_items::{InventoryItem, ItemRng};
 use character_persist::CharacterId;
 
 use crate::spin_reveal::{
@@ -67,7 +67,8 @@ fn start_create_character(
 		commands.entity(entity).despawn();
 	}
 	commands.insert_resource(PendingCreate(id));
-	let items = random_starter_loadout(&mut ItemRng::from_entropy());
+	let mut rng = ItemRng::from_entropy();
+	let items = rng.random_starter_loadout();
 	request_show_spin_reveal(&mut commands, items);
 }
 

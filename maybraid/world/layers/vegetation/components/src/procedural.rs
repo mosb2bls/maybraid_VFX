@@ -10,6 +10,7 @@ use bevy::mesh::{SphereKind, SphereMeshBuilder};
 use bevy::prelude::*;
 
 use crate::lod_host::inherit_not_shadow_caster_on_meshes;
+use crate::shadow_proxy::CanopyShadowProxyPlugin;
 
 /// Half-extent of stick kit on \(X/Z\) (\(X = Z \in [-\texttt{STICK\_KIT\_HALF}, \texttt{STICK\_KIT\_HALF}]\)).
 pub const STICK_KIT_HALF: f32 = 0.2;
@@ -25,6 +26,9 @@ impl Plugin for VegetationProceduralPlugin {
 	fn build(&self, app: &mut App) {
 		// Level updates are owned by lod refresh (region → level → sync). This plugin
 		// only registers procedural assets.
+		if !app.is_plugin_added::<CanopyShadowProxyPlugin>() {
+			app.add_plugins(CanopyShadowProxyPlugin);
+		}
 		app.add_systems(Startup, init_procedural_assets)
 			.add_systems(PostUpdate, inherit_not_shadow_caster_on_meshes);
 	}
@@ -41,10 +45,12 @@ pub struct VegetationProceduralAssets {
 static ASSETS: OnceLock<VegetationProceduralAssets> = OnceLock::new();
 
 impl VegetationProceduralAssets {
+	pub fn try_get() -> Option<&'static VegetationProceduralAssets> {
+		ASSETS.get()
+	}
+
 	pub fn get() -> &'static VegetationProceduralAssets {
-		ASSETS
-			.get()
-			.expect("VegetationProceduralPlugin must run before vegetation scenes")
+		Self::try_get().expect("VegetationProceduralPlugin must run before vegetation scenes")
 	}
 
 	pub fn stick_cylinder() -> Handle<Mesh> {

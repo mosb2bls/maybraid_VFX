@@ -102,7 +102,10 @@ pub fn apply_terrain_pitch<P>(
 {
 	let dt = time.delta_secs();
 	for (entity, mut visual, global, mut pitch, mut heading) in &mut visuals {
-		let yaw_facing = heading.resolve(&visual);
+		let yaw_facing = heading.facing(&visual);
+		if heading.0 != yaw_facing {
+			heading.0 = yaw_facing;
+		}
 		let ray_facing = pitch.sample_facing(yaw_facing);
 		let right = Vec3::new(yaw_facing.z, 0.0, -yaw_facing.x);
 
@@ -166,10 +169,16 @@ pub fn apply_terrain_pitch<P>(
 			None
 		};
 		if let Some((target_pitch, target_roll, _)) = targets {
-			pitch.pitch = TerrainPitch::follow_target(pitch.pitch, target_pitch, dt, TILT_RATE);
-			pitch.roll = TerrainPitch::follow_target(pitch.roll, target_roll, dt, TILT_RATE);
+			let next_pitch = TerrainPitch::follow_target(pitch.pitch, target_pitch, dt, TILT_RATE);
+			let next_roll = TerrainPitch::follow_target(pitch.roll, target_roll, dt, TILT_RATE);
+			if pitch.pitch != next_pitch {
+				pitch.pitch = next_pitch;
+			}
+			if pitch.roll != next_roll {
+				pitch.roll = next_roll;
+			}
 		}
-		pitch.probe = TerrainPitchProbe {
+		let next_probe = TerrainPitchProbe {
 			origin: Vec3::new(origin.x, center_h, origin.z),
 			front,
 			hind,
@@ -178,13 +187,24 @@ pub fn apply_terrain_pitch<P>(
 			visual_facing: yaw_facing,
 			sample_facing: ray_facing,
 		};
-		visual.rotation = pitch.facing_with_support_tilt(yaw_facing, ray_facing);
+		if pitch.probe != next_probe {
+			pitch.probe = next_probe;
+		}
+		let next_rotation = pitch.facing_with_support_tilt(yaw_facing, ray_facing);
+		if visual.rotation != next_rotation {
+			visual.rotation = next_rotation;
+		}
 		if offset_local_y {
 			if let Some((_, _, target_support)) = targets {
-				pitch.support =
+				let next_support =
 					TerrainPitch::follow_target(pitch.support, target_support, dt, SUPPORT_RATE);
+				if pitch.support != next_support {
+					pitch.support = next_support;
+				}
 			}
-			visual.translation.y = pitch.support;
+			if visual.translation.y != pitch.support {
+				visual.translation.y = pitch.support;
+			}
 		}
 	}
 }
@@ -250,6 +270,7 @@ fn draw_probe(gizmos: &mut Gizmos, at: Vec3, hit: bool, hit_color: Color) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use ground::GroundHit;
 
 	#[test]
 	fn probe_clearance_starts_above_a_max_tilt_uphill_sample() {
@@ -273,5 +294,83 @@ mod tests {
 		assert_eq!(probe_origin(visual, Some(parent), true), parent);
 		assert_eq!(probe_origin(visual, Some(parent), false), visual);
 		assert_eq!(probe_origin(visual, None, true), visual);
+	}
+
+	struct FlatProbe;
+
+	impl ElevationProbe for FlatProbe {
+		fn hit_down(
+			&mut self,
+			origin: Vec3,
+			_max_distance: f32,
+			_exclude: &[Entity],
+		) -> Option<GroundHit> {
+			Some(GroundHit {
+				point: Vec3::new(origin.x, 0.0, origin.z),
+				normal: Vec3::Y,
+				entity: Entity::PLACEHOLDER,
+			})
+		}
+	}
+
+	fn apply_flat_pitch(
+		time: Res<Time>,
+		visuals: Query<
+			(Entity, &mut Transform, &GlobalTransform, &mut TerrainPitch, &mut CharacterHeading),
+			With<ApplyTerrainPitch>,
+		>,
+		child_of: Query<&ChildOf>,
+		parents: Query<&GlobalTransform, Without<ApplyTerrainPitch>>,
+		suspended: Query<(), With<SuspendTerrainPitch>>,
+	) {
+		apply_terrain_pitch(time, FlatProbe, visuals, child_of, parents, suspended);
+	}
+
+	fn change_tick<T: Component>(world: &World, entity: Entity) -> anyhow::Result<u32> {
+		Ok(world
+			.entity(entity)
+			.get_change_ticks::<T>()
+			.ok_or_else(|| anyhow::anyhow!("missing {entity}"))?
+			.changed
+			.get())
+	}
+
+	#[test]
+	fn settled_flat_ground_does_not_rewrite_transform() -> anyhow::Result<()> {
+		use crate::markers::ApplyTerrainPitch;
+		use crate::pitch::{CharacterHeading, TerrainPitch};
+		use crate::rig::RigSkeletonKind;
+		use bevy::ecs::system::RunSystemOnce;
+
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		let visual = world
+			.spawn((
+				ApplyTerrainPitch,
+				Transform::IDENTITY,
+				GlobalTransform::IDENTITY,
+				TerrainPitch::new(RigSkeletonKind::Humanoid, 0.22, 0.18),
+				CharacterHeading::from_rotation(Quat::IDENTITY),
+			))
+			.id();
+
+		anyhow::ensure!(world.run_system_once(apply_flat_pitch).is_ok());
+		anyhow::ensure!(world.run_system_once(apply_flat_pitch).is_ok());
+		let before = (
+			change_tick::<Transform>(&world, visual)?,
+			change_tick::<TerrainPitch>(&world, visual)?,
+			change_tick::<CharacterHeading>(&world, visual)?,
+		);
+		anyhow::ensure!(world.run_system_once(apply_flat_pitch).is_ok());
+		let after = (
+			change_tick::<Transform>(&world, visual)?,
+			change_tick::<TerrainPitch>(&world, visual)?,
+			change_tick::<CharacterHeading>(&world, visual)?,
+		);
+		anyhow::ensure!(
+			before == after,
+			"settled pitch rewrote components: {before:?} -> {after:?}"
+		);
+		Ok(())
 	}
 }

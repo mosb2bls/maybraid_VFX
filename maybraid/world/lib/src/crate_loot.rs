@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use character_items::{random_starter_firearms, Inventory, ItemRng};
+use character_items::{Inventory, ItemRng};
 use furniture_assemblies::{FurnitureKitPart, PartKind};
 use lod::gen::Id;
 use lod::hcsg::HcsgNode;
@@ -163,7 +163,7 @@ fn roll_crate_bag(finish_seed: u64) -> Inventory {
 	}
 	let mut rng = ItemRng::from_seed(finish_seed);
 	let mut bag = Inventory {
-		items: random_starter_firearms(&mut rng, 1),
+		items: rng.random_starter_firearms(1),
 		clothing: Vec::new(),
 		weapons: Vec::new(),
 		skills: Vec::new(),

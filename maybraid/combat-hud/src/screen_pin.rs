@@ -1,6 +1,7 @@
 //! World-to-screen projection for HUD pins that clamp to the viewport edge.
 
 use bevy::prelude::*;
+use bevy::ui::{ComputedNode, UiGlobalTransform};
 
 /// Projects world positions to screen space and clamps off-screen pins to the viewport edge.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -58,11 +59,35 @@ impl ScreenPin {
 		}
 		Some((screen, on_screen))
 	}
+
+	/// Maps a logical viewport point from `from` into `to` (scale + origin).
+	///
+	/// Used when the gameplay camera's render target is not the UI camera's
+	/// window — [PR #1187](https://github.com/ramate-io/maybraid/pull/1187)
+	/// offscreen 3D pass vs window present camera.
+	pub fn map_between_viewports(point: Vec2, from: Rect, to: Rect) -> Vec2 {
+		let from_size = from.size();
+		if from_size.x.abs() < 1e-6 || from_size.y.abs() < 1e-6 {
+			return point;
+		}
+		let t = (point - from.min) / from_size;
+		to.min + t * to.size()
+	}
+
+	/// [`UiGlobalTransform`] is the node **center** in **physical** pixels.
+	/// [`Node::left`] / [`Node::top`] want the **top-left** in **logical** pixels.
+	pub fn ui_logical_top_left(transform: &UiGlobalTransform, computed: &ComputedNode) -> Vec2 {
+		let scale = computed.inverse_scale_factor();
+		let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+		let center = transform.affine().translation;
+		(center - computed.size() * 0.5) * scale
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use bevy::math::Affine2;
 
 	#[test]
 	fn clamp_hits_the_near_edge() {
@@ -86,5 +111,33 @@ mod tests {
 		);
 		assert!((clamped.x - 120.0).abs() < 1e-3);
 		assert!((clamped.y - 110.0).abs() < 1e-3);
+	}
+
+	#[test]
+	fn map_between_viewports_scales_half_res_3d_into_the_window() {
+		let render = Rect::from_corners(Vec2::ZERO, Vec2::new(640.0, 360.0));
+		let window = Rect::from_corners(Vec2::ZERO, Vec2::new(1280.0, 720.0));
+		let mapped = ScreenPin::map_between_viewports(Vec2::new(320.0, 180.0), render, window);
+		assert!((mapped - Vec2::new(640.0, 360.0)).length() < 1e-3);
+		assert_eq!(
+			ScreenPin::map_between_viewports(Vec2::new(100.0, 40.0), window, window),
+			Vec2::new(100.0, 40.0)
+		);
+	}
+
+	#[test]
+	fn ui_logical_top_left_converts_hidpi_physical_center() {
+		let computed =
+			ComputedNode { size: Vec2::new(2.0, 2.0), inverse_scale_factor: 0.5, ..default() };
+		let transform = UiGlobalTransform::from(Affine2::from_translation(Vec2::new(96.0, 1200.0)));
+		let logical = ScreenPin::ui_logical_top_left(&transform, &computed);
+		assert!(
+			(logical - Vec2::new(47.5, 599.5)).length() < 1e-3,
+			"{logical:?} should be logical top-left, not physical center"
+		);
+		assert!(
+			logical.y < 720.0,
+			"Retina physical Y must not be used as Node::top on a 720-logical window"
+		);
 	}
 }

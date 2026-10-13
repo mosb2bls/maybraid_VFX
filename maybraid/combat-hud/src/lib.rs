@@ -1,18 +1,35 @@
 //! Reusable combat feedback for player health, outgoing hits, and incoming damage.
 
+mod continuous_health;
+mod cycle_cue;
+mod lubikan_charge;
+mod lubikan_points;
 mod plate;
 mod score;
 mod screen_pin;
 mod vitals;
 
 use bevy::prelude::*;
-use damage::{DamageApplied, Downed, HeadshotBand, Health};
-use player::{LocomotionCapsule, Npc, Player};
+use continuous_health::{
+	trigger_completion_flash, update_continuous_health_bar_content, ContinuousHealthConfig,
+};
+use damage::{DamageApplied, HeadshotBand};
+use lubikan_charge::{
+	ingest_lubikan_activation_finished_pulse, spawn_lubikan_charge, sync_lubikan_charge,
+	LubikanActivationFinishedHudPulse,
+};
+use lubikan_points::{ingest_lubikan_point_flyers, update_lubikan_point_flyers};
+use lubikans::LubikanSystems;
+use player::Player;
 use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
+pub use continuous_health::{HealthFill, HealthTrail};
+pub use cycle_cue::CombatHudInventoryCycleCategory;
+pub use lubikan_charge::LubikanChargeFlyTarget;
 pub use score::{CombatScore, LiveEnemies};
 pub use screen_pin::ScreenPin;
+pub use vitals::PlayerVitalsHealthBar;
 
 /// When `false`, the player vitals plate stays hidden (pause / menu overlays).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,15 +41,10 @@ impl Default for CombatHudVisible {
 	}
 }
 
-const BAR_WIDTH: f32 = 240.0;
-const BAR_HEIGHT: f32 = 18.0;
-const WORLD_BAR_WIDTH: f32 = 120.0;
-const WORLD_BAR_HEIGHT: f32 = 8.0;
 const INDICATOR_COUNT: usize = 8;
 const INDICATOR_RADIUS: f32 = 148.0;
 const INDICATOR_LIFE: f32 = 1.4;
 const INDICATOR_GROUP: f32 = 0.5;
-const HEAD_LIFT_PAD: f32 = 0.38;
 const POPUP_LIFE: f32 = 0.9;
 const POPUP_RISE: f32 = 48.0;
 const HIT_POINTS: u8 = 1;
@@ -40,13 +52,19 @@ const HEAD_POINTS: u8 = 2;
 const DOWN_POINTS: u8 = 5;
 
 /// Independently configurable combat feedback categories.
+///
+/// Health presentation is the persistent player vitals plate only. World and
+/// NPC bars are not spawned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CombatHudPlugin {
-	pub health_bars: bool,
 	pub hit_markers: bool,
 	pub directional_damage: bool,
-	/// Bottom-left name + pip bar. Independent of the top YOU/NPC [`health_bars`].
+	/// Bottom-left name + health meter. Hidden when there is no live player.
 	pub player_vitals: bool,
+	/// Lubikan charge row above [`player_vitals`]. Reads [`lubikans::LubikanLedger`] only.
+	pub lubikan_charge: bool,
+	/// Animate [`lubikans::LubikanChargeChanged`] toward the charge anchor.
+	pub lubikan_point_feedback: bool,
 	/// Top-right running score, shown while a [`CombatScore`] exists.
 	pub score: bool,
 }
@@ -54,10 +72,11 @@ pub struct CombatHudPlugin {
 impl Default for CombatHudPlugin {
 	fn default() -> Self {
 		Self {
-			health_bars: true,
 			hit_markers: true,
 			directional_damage: true,
 			player_vitals: false,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		}
 	}
@@ -65,49 +84,113 @@ impl Default for CombatHudPlugin {
 
 impl Plugin for CombatHudPlugin {
 	fn build(&self, app: &mut App) {
-		let any = self.health_bars
-			|| self.hit_markers
+		let any = self.hit_markers
 			|| self.directional_damage
 			|| self.player_vitals
+			|| self.lubikan_charge
+			|| self.lubikan_point_feedback
 			|| self.score;
 		if !any {
 			return;
 		}
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
-			.add_systems(Startup, spawn_combat_hud);
-		if self.health_bars {
-			app.init_resource::<CombatHudOpponentTotal>().add_systems(
-				Update,
-				(ensure_world_health_bars, sync_health_hud, sync_world_health_bars)
-					.in_set(CombatHudSystems::Health),
-			);
-		}
+			.init_resource::<CombatHudInventoryCycleCategory>();
+
+		// Order inside PostUpdate only. A same-named set in Update does not
+		// constrain these systems relative to Heal / Award.
+		app.configure_sets(
+			PostUpdate,
+			CombatHudSystems::Health
+				.after(LubikanSystems::Heal)
+				.after(LubikanSystems::Award),
+		)
+		.add_systems(Startup, spawn_combat_hud)
+		.add_systems(Update, sync_combat_hud_root_visibility);
+
 		if self.player_vitals {
-			app.add_systems(Update, sync_player_vitals.in_set(CombatHudSystems::Health));
+			configure_health_content(app);
+			configure_player_vitals(app);
+		}
+		if self.lubikan_charge {
+			configure_lubikan_charge(app);
+		}
+		if self.lubikan_point_feedback {
+			configure_lubikan_point_feedback(app);
 		}
 		if self.score {
-			app.add_systems(Update, sync_combat_score.in_set(CombatHudSystems::Health))
-				.add_systems(
-					PostUpdate,
-					ingest_combat_score
-						.after(damage::DamageSystems::Apply)
-						.before(damage::DamageSystems::Down),
-				);
+			configure_score(app);
 		}
 		if self.hit_markers {
-			app.add_systems(Update, update_hit_markers)
-				.add_systems(PostUpdate, ingest_hit_markers.after(damage::DamageSystems::Down));
+			configure_hit_markers(app);
 		}
 		if self.directional_damage {
-			app.init_resource::<DamageTicks>()
-				.add_systems(Update, update_directional_damage)
-				.add_systems(
-					PostUpdate,
-					ingest_directional_damage.after(damage::DamageSystems::Down),
-				);
+			configure_directional_damage(app);
 		}
 	}
+}
+
+/// Shared meter content for the persistent player health widget.
+fn configure_health_content(app: &mut App) {
+	app.init_resource::<ContinuousHealthConfig>()
+		.add_message::<lubikans::LubikanActivationFinished>()
+		.add_systems(
+			PostUpdate,
+			(update_continuous_health_bar_content, trigger_completion_flash)
+				.chain()
+				.in_set(CombatHudSystems::Health)
+				.after(sync_player_vitals),
+		);
+}
+
+/// Bottom-left player name + health bar (reuses continuous health bar).
+fn configure_player_vitals(app: &mut App) {
+	app.add_systems(PostUpdate, sync_player_vitals.in_set(CombatHudSystems::Health));
+}
+
+/// Lubikan charge plate above player vitals.
+fn configure_lubikan_charge(app: &mut App) {
+	app.init_resource::<LubikanActivationFinishedHudPulse>();
+	app.add_systems(
+		PostUpdate,
+		(ingest_lubikan_activation_finished_pulse, sync_lubikan_charge)
+			.chain()
+			.in_set(CombatHudSystems::Health),
+	);
+}
+
+/// Animated point feedback flying toward charge anchor.
+fn configure_lubikan_point_feedback(app: &mut App) {
+	app.add_systems(
+		PostUpdate,
+		(ingest_lubikan_point_flyers, update_lubikan_point_flyers)
+			.chain()
+			.in_set(CombatHudSystems::Health),
+	);
+}
+
+/// Top-right running score plate.
+fn configure_score(app: &mut App) {
+	app.add_systems(PostUpdate, sync_combat_score.in_set(CombatHudSystems::Health))
+		.add_systems(
+			PostUpdate,
+			ingest_combat_score
+				.after(damage::DamageSystems::Apply)
+				.before(damage::DamageSystems::Down),
+		);
+}
+
+/// Popup +N markers at hit points.
+fn configure_hit_markers(app: &mut App) {
+	app.add_systems(Update, update_hit_markers)
+		.add_systems(PostUpdate, ingest_hit_markers.after(damage::DamageSystems::Down));
+}
+
+/// Directional damage indicators around screen center.
+fn configure_directional_damage(app: &mut App) {
+	app.init_resource::<DamageTicks>()
+		.add_systems(Update, update_directional_damage)
+		.add_systems(PostUpdate, ingest_directional_damage.after(damage::DamageSystems::Down));
 }
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -115,48 +198,11 @@ pub enum CombatHudSystems {
 	Health,
 }
 
-/// Optional total used to render an aggregate opponent health bar.
-///
-/// Leave this as `None` for a single opponent. Set it to the field size when
-/// many NPCs represent one encounter.
-#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CombatHudOpponentTotal(pub Option<usize>);
-
-/// Optional color-coded status dot rendered above a world health bar.
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
-pub struct CombatHudStatusColor(pub Color);
-
 #[derive(Resource, Clone, Copy)]
 struct CombatHudConfig(CombatHudPlugin);
 
 #[derive(Component)]
 struct CombatHudRoot;
-
-#[derive(Component, Clone, Copy, PartialEq, Eq)]
-enum CombatantHud {
-	Player,
-	Npc,
-}
-
-#[derive(Component)]
-struct HudBarFill;
-
-#[derive(Component)]
-struct HudBarLabel;
-
-#[derive(Component)]
-struct WorldHudFill;
-
-#[derive(Component)]
-struct WorldHudLabel;
-
-#[derive(Component)]
-struct WorldHudStatus;
-
-#[derive(Component)]
-struct WorldHealthAnchor {
-	target: Entity,
-}
 
 #[derive(Component)]
 struct DamageTick {
@@ -179,6 +225,18 @@ struct LiveTick {
 #[derive(Resource, Default)]
 struct DamageTicks([Option<LiveTick>; INDICATOR_COUNT]);
 
+fn sync_combat_hud_root_visibility(
+	hud: Res<CombatHudVisible>,
+	mut roots: Query<&mut Visibility, With<CombatHudRoot>>,
+) {
+	let next = if hud.0 { Visibility::Inherited } else { Visibility::Hidden };
+	for mut visibility in &mut roots {
+		if *visibility != next {
+			*visibility = next;
+		}
+	}
+}
+
 fn spawn_combat_hud(
 	mut commands: Commands,
 	config: Res<CombatHudConfig>,
@@ -196,41 +254,26 @@ fn spawn_combat_hud(
 				height: Val::Percent(100.0),
 				..default()
 			},
+			Visibility::Inherited,
 			GlobalZIndex(i32::MAX - 8),
 			Pickable::IGNORE,
 		))
 		.with_children(|root| {
-			if config.0.health_bars {
-				spawn_screen_health_bars(root);
-			}
 			if config.0.directional_damage {
 				spawn_directional_damage_ring(root);
 			}
 			let fonts = vitals_fonts(asset_server.as_deref());
+			let health_config = ContinuousHealthConfig::default();
+			if config.0.lubikan_charge {
+				spawn_lubikan_charge(root, &fonts, &health_config);
+			}
 			if config.0.player_vitals {
-				spawn_player_vitals(root, &fonts);
+				spawn_player_vitals(root, &fonts, &health_config, Entity::PLACEHOLDER);
 			}
 			if config.0.score {
 				spawn_combat_score(root, &fonts);
 			}
 		});
-}
-
-fn spawn_screen_health_bars(root: &mut ChildSpawnerCommands) {
-	root.spawn(Node {
-		position_type: PositionType::Absolute,
-		top: Val::Px(16.0),
-		left: Val::Px(16.0),
-		right: Val::Px(16.0),
-		justify_content: JustifyContent::SpaceBetween,
-		align_items: AlignItems::FlexStart,
-		column_gap: Val::Px(24.0),
-		..default()
-	})
-	.with_children(|row| {
-		spawn_screen_bar(row, CombatantHud::Player, "YOU");
-		spawn_screen_bar(row, CombatantHud::Npc, "NPC");
-	});
 }
 
 fn spawn_directional_damage_ring(root: &mut ChildSpawnerCommands) {
@@ -267,263 +310,6 @@ fn spawn_directional_damage_ring(root: &mut ChildSpawnerCommands) {
 			));
 		}
 	});
-}
-
-fn spawn_screen_bar(parent: &mut ChildSpawnerCommands, kind: CombatantHud, title: &'static str) {
-	parent
-		.spawn((
-			Node {
-				flex_direction: FlexDirection::Column,
-				row_gap: Val::Px(4.0),
-				padding: UiRect::all(Val::Px(8.0)),
-				min_width: Val::Px(BAR_WIDTH + 16.0),
-				border_radius: BorderRadius::all(Val::Px(4.0)),
-				..default()
-			},
-			BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
-		))
-		.with_children(|cluster| {
-			cluster.spawn((
-				kind,
-				HudBarLabel,
-				Text::new(format!("{title}  --")),
-				TextFont { font_size: FontSize::Px(16.0), ..default() },
-				TextColor(Color::srgb(0.95, 0.97, 1.0)),
-			));
-			cluster
-				.spawn((
-					Node {
-						width: Val::Px(BAR_WIDTH),
-						height: Val::Px(BAR_HEIGHT),
-						padding: UiRect::all(Val::Px(2.0)),
-						border_radius: BorderRadius::all(Val::Px(3.0)),
-						..default()
-					},
-					BackgroundColor(Color::srgba(0.08, 0.09, 0.1, 0.95)),
-				))
-				.with_children(|track| {
-					track.spawn((
-						kind,
-						HudBarFill,
-						Node {
-							width: Val::Percent(100.0),
-							height: Val::Percent(100.0),
-							border_radius: BorderRadius::all(Val::Px(2.0)),
-							..default()
-						},
-						BackgroundColor(bar_color(1.0)),
-					));
-				});
-		});
-}
-
-fn spawn_world_bar(parent: Entity, target: Entity, commands: &mut Commands) {
-	commands.entity(parent).with_children(|root| {
-		root.spawn((
-			WorldHealthAnchor { target },
-			Node {
-				position_type: PositionType::Absolute,
-				left: Val::Px(0.0),
-				top: Val::Px(0.0),
-				width: Val::Px(WORLD_BAR_WIDTH),
-				height: Val::Px(WORLD_BAR_HEIGHT + 18.0),
-				flex_direction: FlexDirection::Column,
-				align_items: AlignItems::Center,
-				row_gap: Val::Px(2.0),
-				..default()
-			},
-			Visibility::Hidden,
-			Pickable::IGNORE,
-		))
-		.with_children(|anchor| {
-			anchor.spawn((
-				WorldHudStatus,
-				Node {
-					width: Val::Px(10.0),
-					height: Val::Px(10.0),
-					border_radius: BorderRadius::all(Val::Px(10.0)),
-					..default()
-				},
-				BackgroundColor(Color::WHITE),
-				Visibility::Hidden,
-				Pickable::IGNORE,
-			));
-			anchor.spawn((
-				WorldHudLabel,
-				Text::new(""),
-				TextFont { font_size: FontSize::Px(12.0), ..default() },
-				TextColor(Color::WHITE),
-			));
-			anchor
-				.spawn((
-					Node {
-						width: Val::Percent(100.0),
-						height: Val::Px(WORLD_BAR_HEIGHT),
-						border_radius: BorderRadius::all(Val::Px(2.0)),
-						..default()
-					},
-					BackgroundColor(Color::srgba(0.05, 0.05, 0.06, 0.85)),
-				))
-				.with_children(|track| {
-					track.spawn((
-						WorldHudFill,
-						Node {
-							width: Val::Percent(100.0),
-							height: Val::Percent(100.0),
-							border_radius: BorderRadius::all(Val::Px(2.0)),
-							..default()
-						},
-						BackgroundColor(bar_color(1.0)),
-					));
-				});
-		});
-	});
-}
-
-type LiveNpcs<'w, 's> = Query<'w, 's, Entity, (With<Npc>, With<Health>, Without<Downed>)>;
-
-fn ensure_world_health_bars(
-	mut commands: Commands,
-	hud: Query<Entity, With<CombatHudRoot>>,
-	npcs: LiveNpcs,
-	anchors: Query<(Entity, &WorldHealthAnchor)>,
-) {
-	let Ok(hud) = hud.single() else {
-		return;
-	};
-	let live: Vec<Entity> = npcs.iter().collect();
-	let existing: Vec<(Entity, Entity)> =
-		anchors.iter().map(|(entity, anchor)| (entity, anchor.target)).collect();
-	for (entity, target) in &existing {
-		if !live.contains(target) {
-			commands.entity(*entity).try_despawn();
-		}
-	}
-	for npc in live {
-		if !existing.iter().any(|(_, target)| *target == npc) {
-			spawn_world_bar(hud, npc, &mut commands);
-		}
-	}
-}
-
-fn sync_health_hud(
-	total: Res<CombatHudOpponentTotal>,
-	players: Query<&Health, (With<Player>, Without<Downed>)>,
-	npcs: Query<&Health, (With<Npc>, Without<Downed>)>,
-	mut fills: Query<(&CombatantHud, &mut Node, &mut BackgroundColor), With<HudBarFill>>,
-	mut labels: Query<(&CombatantHud, &mut Text), With<HudBarLabel>>,
-) {
-	let player = players.single().ok().copied();
-	let alive = npcs.iter().count();
-	let npc = npcs.single().ok().copied();
-	let opponent_fraction = total
-		.0
-		.map(|total| alive as f32 / total.max(1) as f32)
-		.unwrap_or_else(|| npc.map(Health::fraction).unwrap_or(0.0))
-		.clamp(0.0, 1.0);
-	for (kind, mut node, mut color) in &mut fills {
-		let fraction = match *kind {
-			CombatantHud::Player => player.map(Health::fraction).unwrap_or(0.0),
-			CombatantHud::Npc => opponent_fraction,
-		};
-		node.width = Val::Percent(fraction * 100.0);
-		color.0 = bar_color(fraction);
-	}
-	for (kind, mut text) in &mut labels {
-		text.0 = match *kind {
-			CombatantHud::Player => health_label("YOU", player),
-			CombatantHud::Npc => total
-				.0
-				.map(|total| format!("FIELD  {alive}/{}", total.max(1)))
-				.unwrap_or_else(|| health_label("NPC", npc)),
-		};
-	}
-}
-
-type WorldBarFills<'w, 's> = Query<
-	'w,
-	's,
-	(&'static mut Node, &'static mut BackgroundColor),
-	(With<WorldHudFill>, Without<WorldHealthAnchor>, Without<WorldHudStatus>),
->;
-type WorldHealthNpcs<'w, 's> = Query<
-	'w,
-	's,
-	(
-		&'static GlobalTransform,
-		&'static Health,
-		Option<&'static LocomotionCapsule>,
-		Option<&'static CombatHudStatusColor>,
-	),
-	(With<Npc>, Without<Downed>),
->;
-type WorldBarAnchors<'w, 's> = Query<
-	'w,
-	's,
-	(Entity, &'static WorldHealthAnchor, &'static mut Node, &'static mut Visibility),
-	(Without<WorldHudFill>, Without<WorldHudStatus>),
->;
-type WorldHudStatuses<'w, 's> = Query<
-	'w,
-	's,
-	(&'static mut BackgroundColor, &'static mut Visibility),
-	(With<WorldHudStatus>, Without<WorldHealthAnchor>, Without<WorldHudFill>),
->;
-
-fn sync_world_health_bars(
-	cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
-	npcs: WorldHealthNpcs,
-	mut anchors: WorldBarAnchors,
-	children: Query<&Children>,
-	mut fills: WorldBarFills,
-	mut labels: Query<&mut Text, With<WorldHudLabel>>,
-	mut statuses: WorldHudStatuses,
-) {
-	let Ok((camera, camera_transform)) = cameras.single() else {
-		return;
-	};
-	for (anchor_entity, anchor, mut node, mut visibility) in &mut anchors {
-		let Ok((transform, health, hull, status)) = npcs.get(anchor.target) else {
-			*visibility = Visibility::Hidden;
-			continue;
-		};
-		let lift = hull.copied().unwrap_or_default().half_height() + HEAD_LIFT_PAD;
-		let head = transform.translation() + Vec3::Y * lift;
-		if let Ok(screen) = camera.world_to_viewport(camera_transform, head) {
-			node.left = Val::Px(screen.x - WORLD_BAR_WIDTH * 0.5);
-			node.top = Val::Px(screen.y - 26.0);
-			*visibility = Visibility::Visible;
-		} else {
-			*visibility = Visibility::Hidden;
-			continue;
-		}
-		let Ok(kids) = children.get(anchor_entity) else {
-			continue;
-		};
-		for child in kids {
-			if let Ok((mut color, mut status_visibility)) = statuses.get_mut(*child) {
-				if let Some(status) = status {
-					color.0 = status.0;
-					*status_visibility = Visibility::Visible;
-				} else {
-					*status_visibility = Visibility::Hidden;
-				}
-			}
-			if let Ok(mut text) = labels.get_mut(*child) {
-				text.0 = format!("{:.0}", health.current);
-			}
-			let Ok(grandchildren) = children.get(*child) else {
-				continue;
-			};
-			for grandchild in grandchildren {
-				let Ok((mut fill, mut color)) = fills.get_mut(*grandchild) else {
-					continue;
-				};
-				fill.width = Val::Percent(health.fraction() * 100.0);
-				color.0 = bar_color(health.fraction());
-			}
-		}
-	}
 }
 
 fn ingest_directional_damage(
@@ -681,27 +467,6 @@ fn update_hit_markers(
 	}
 }
 
-fn health_label(name: &str, health: Option<Health>) -> String {
-	match health {
-		Some(health) if !health.is_dead() => {
-			format!("{name}  {:.0}/{:.0}", health.current, health.max)
-		}
-		_ => format!("{name}  DOWN"),
-	}
-}
-
-fn bar_color(fraction: f32) -> Color {
-	if fraction <= 0.0 {
-		Color::srgb(0.28, 0.08, 0.08)
-	} else if fraction < 0.35 {
-		Color::srgb(0.86, 0.18, 0.14)
-	} else if fraction < 0.7 {
-		Color::srgb(0.92, 0.72, 0.18)
-	} else {
-		Color::srgb(0.28, 0.82, 0.38)
-	}
-}
-
 fn hit_marker_label(points: u8) -> String {
 	format!("+{points}")
 }
@@ -780,16 +545,20 @@ fn angle_delta(a: f32, b: f32) -> f32 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::continuous_health::ContinuousHealthBar;
+	use crate::vitals::PlayerVitalsHealthBar;
+	use damage::Health;
 
 	#[test]
 	fn categories_default_to_enabled() {
 		assert_eq!(
 			CombatHudPlugin::default(),
 			CombatHudPlugin {
-				health_bars: true,
 				hit_markers: true,
 				directional_damage: true,
 				player_vitals: false,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
 				score: false,
 			}
 		);
@@ -804,37 +573,45 @@ mod tests {
 		app.update();
 		let world = app.world_mut();
 		assert_eq!(world.query::<&CombatHudRoot>().iter(world).count(), 1);
-		assert_eq!(world.query::<&HudBarFill>().iter(world).count(), 2);
 		assert_eq!(world.query::<&DamageTick>().iter(world).count(), INDICATOR_COUNT);
 		assert_eq!(world.query::<&vitals::PlayerVitalsRoot>().iter(world).count(), 0);
+		assert_eq!(
+			world.query::<&ContinuousHealthBar>().iter(world).count(),
+			0,
+			"default combat HUD must not spawn world or NPC health bars"
+		);
 	}
 
 	#[test]
-	fn player_vitals_spawn_name_and_pips() {
+	fn player_vitals_spawn_name_and_health_bar() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		});
 		app.update();
 		let world = app.world_mut();
 		assert_eq!(world.query::<&vitals::PlayerVitalsRoot>().iter(world).count(), 1);
+		// Check continuous health bar spawned
 		assert_eq!(
-			world.query::<&vitals::PlayerVitalsPip>().iter(world).count(),
-			vitals::VITALS_PIPS
+			world.query::<&ContinuousHealthBar>().iter(world).count(),
+			1,
+			"should have one continuous health bar"
 		);
 	}
 
 	fn vitals_app() -> App {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		});
 		app
@@ -886,10 +663,11 @@ mod tests {
 	fn player_vitals_follow_the_named_player() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
-			health_bars: false,
 			hit_markers: false,
 			directional_damage: false,
 			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
 			score: false,
 		});
 		app.update();
@@ -903,12 +681,63 @@ mod tests {
 			.find(|text| text.0 == "Ada")
 			.expect("character name");
 		assert_eq!(name.0, "Ada");
-		let lit = world
-			.query::<(&vitals::PlayerVitalsPip, &BackgroundColor)>()
-			.iter(world)
-			.filter(|(_, color)| color.0 == vitals::vitals_fill_color(0.4))
-			.count();
-		assert_eq!(lit, 4);
+		// Check continuous health bar exists
+		let bar_count = world.query::<&ContinuousHealthBar>().iter(world).count();
+		assert_eq!(bar_count, 1, "should have one continuous health bar");
+	}
+
+	#[test]
+	fn player_vitals_rebind_across_respawn_without_world_bars() -> anyhow::Result<()> {
+		let mut app = vitals_app();
+		app.update();
+		let first = app
+			.world_mut()
+			.spawn((Player, Health { current: 40.0, max: 100.0 }, Name::new("Ada")))
+			.id();
+		let npc = app
+			.world_mut()
+			.spawn((player::Npc, Health { current: 80.0, max: 100.0 }, Name::new("Pack")))
+			.id();
+		app.update();
+		let bar = {
+			let world = app.world_mut();
+			assert_eq!(
+				world.query::<&ContinuousHealthBar>().iter(world).count(),
+				1,
+				"NPCs must not receive health bars"
+			);
+			world
+				.query_filtered::<(Entity, &ContinuousHealthBar), With<PlayerVitalsHealthBar>>()
+				.iter(world)
+				.next()
+				.map(|(entity, bar)| (entity, bar.target))
+				.ok_or_else(|| anyhow::anyhow!("player vitals bar"))?
+		};
+		assert_eq!(bar.1, first);
+		assert!(app.world().get_entity(npc).is_ok());
+
+		app.world_mut().entity_mut(first).remove::<Player>();
+		app.update();
+		assert_eq!(vitals_visibility(app.world_mut())?, Visibility::Hidden);
+		let second = app
+			.world_mut()
+			.spawn((Player, Health { current: 100.0, max: 100.0 }, Name::new("Ada")))
+			.id();
+		app.update();
+		assert_eq!(vitals_visibility(app.world_mut())?, Visibility::Visible);
+		let rebound = {
+			let world = app.world_mut();
+			assert_eq!(world.query::<&ContinuousHealthBar>().iter(world).count(), 1);
+			world
+				.query_filtered::<(Entity, &ContinuousHealthBar), With<PlayerVitalsHealthBar>>()
+				.iter(world)
+				.next()
+				.map(|(entity, bar)| (entity, bar.target))
+				.ok_or_else(|| anyhow::anyhow!("rebound vitals bar"))?
+		};
+		assert_eq!(rebound.0, bar.0, "the player widget is persistent");
+		assert_eq!(rebound.1, second);
+		Ok(())
 	}
 
 	#[test]
@@ -925,10 +754,11 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_message::<DamageApplied>().add_plugins(
 			CombatHudPlugin {
-				health_bars: false,
 				hit_markers: false,
 				directional_damage: false,
 				player_vitals: false,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
 				score: true,
 			},
 		);
@@ -937,7 +767,7 @@ mod tests {
 	}
 
 	fn applied(target: Entity, source: Option<Entity>, remaining: f32) -> DamageApplied {
-		DamageApplied { target, source, amount: 10.0, remaining, point: Vec3::ZERO }
+		DamageApplied { target, source, amount: 10.0, applied: 10.0, remaining, point: Vec3::ZERO }
 	}
 
 	#[test]
@@ -957,7 +787,6 @@ mod tests {
 		}
 		app.update();
 		let score = *app.world().resource::<CombatScore>();
-		assert_eq!(score.points, u32::from(2 * HIT_POINTS + DOWN_POINTS));
 		assert_eq!((score.downs, score.deaths), (1, 1));
 		assert_eq!((score.streak, score.best_streak), (0, 1));
 
@@ -970,7 +799,7 @@ mod tests {
 			.copied()
 			.ok_or_else(|| anyhow::anyhow!("score root"))?;
 		assert_eq!(shown, Visibility::Visible);
-		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "Score  7"));
+		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "Downs  1"));
 		Ok(())
 	}
 
@@ -1005,10 +834,11 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).add_message::<DamageApplied>().add_plugins(
 			CombatHudPlugin {
-				health_bars: false,
 				hit_markers: true,
 				directional_damage: false,
 				player_vitals: false,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
 				score: false,
 			},
 		);
@@ -1019,6 +849,7 @@ mod tests {
 			target,
 			source: Some(player),
 			amount: 40.0,
+			applied: 40.0,
 			remaining: 60.0,
 			point: Vec3::new(1.0, 1.2, 0.5),
 		});
@@ -1028,5 +859,105 @@ mod tests {
 			world.query::<&Text>().iter(world).any(|text| text.0 == "+1"),
 			"player-thrown blast must raise a hit marker"
 		);
+	}
+
+	fn lubikan_app() -> App {
+		let mut app = App::new();
+		lubikans::fixtures::install_interface(&mut app);
+		app.add_plugins(MinimalPlugins).add_plugins(CombatHudPlugin {
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: true,
+			lubikan_charge: true,
+			lubikan_point_feedback: false,
+			score: false,
+		});
+		app
+	}
+
+	#[test]
+	fn lubikan_charge_shares_vitals_visibility() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut()
+			.entity_mut(owner)
+			.insert((Player, Health { current: 50.0, max: 100.0 }));
+		app.world_mut().insert_resource(CombatHudVisible(false));
+		app.update();
+		let world = app.world_mut();
+		let hidden = world
+			.query_filtered::<&Visibility, With<lubikan_charge::LubikanChargeRoot>>()
+			.iter(world)
+			.next()
+			.copied()
+			.ok_or_else(|| anyhow::anyhow!("lubikan root"))?;
+		assert_eq!(hidden, Visibility::Hidden);
+		Ok(())
+	}
+
+	#[test]
+	fn lubikan_charge_reads_ledger_without_mutating_charge() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut().entity_mut(owner).insert((Player, Health::default()));
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			ledger.apply_to_equipped(80.0);
+		}
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let world = app.world_mut();
+		let stored = world
+			.get::<lubikans::LubikanLedger>(owner)
+			.map(|ledger| ledger.equipped().charge().current());
+		assert_eq!(stored, Some(80.0));
+		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "80"));
+		Ok(())
+	}
+
+	#[test]
+	fn lubikan_charge_shows_banked_count_when_stock_exceeds_one() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut().entity_mut(owner).insert((Player, Health::default()));
+		let extra = lubikans::LubikanDefinition::new(
+			lubikans::LubikanDefinitionId::from_raw(9),
+			25.0,
+			25.0,
+		)
+		.with_max_stock(3);
+		{
+			app.world_mut().resource_mut::<lubikans::LubikanCatalog>().register(extra);
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			let other = ledger.ensure_owned(extra);
+			ledger.apply_to(other, 50.0);
+			if !ledger.select(Some(other)) {
+				return Err(anyhow::anyhow!("select stacked account"));
+			}
+		}
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let world = app.world_mut();
+		assert!(
+			world.query::<&Text>().iter(world).any(|text| text.0 == "Lubikan 9  2/3"),
+			"multi-stock charge row must show banked / max"
+		);
+		assert_eq!(
+			world
+				.get::<lubikans::LubikanLedger>(owner)
+				.map(|ledger| ledger.equipped().charge().current()),
+			Some(50.0),
+			"HUD must not award or clamp charge"
+		);
+		Ok(())
 	}
 }

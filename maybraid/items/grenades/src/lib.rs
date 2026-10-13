@@ -1,6 +1,7 @@
 //! Thrown grenade body, fuse, blast hits, and detonation message.
 
 mod material;
+mod sound;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -10,6 +11,10 @@ use lod_avian::PhysicsInteractionLayer;
 use std::f32::consts::PI;
 
 pub use material::{grenade_material, GrenadeMaterial, GrenadeMaterialPlugin};
+pub use sound::{
+	GrenadeSounds, BOUNCE_SPATIAL_RADIUS, CHARGE_IMPACT, CHARGE_RUMBLE, CHARGE_THROW,
+	IMPACT_SPATIAL_RADIUS, RUMBLE_SPATIAL_RADIUS, THROW_SPATIAL_RADIUS,
+};
 
 /// Palette-free explosion knobs copied onto the thrown body.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -65,12 +70,20 @@ pub fn grenade_mesh() -> Mesh {
 	Sphere::new(0.5).mesh().ico(3).expect("grenade sphere")
 }
 
+/// Late-drop shape: most of the peak holds until the outer third, then zero at `radius`.
+pub const BLAST_FALLOFF_K: f32 = 3.0;
+
 /// Full damage at the origin, zero at `radius`.
 pub fn blast_amount(damage: f32, radius: f32, distance: f32) -> f32 {
 	if damage <= 0.0 || radius <= 1e-4 || distance > radius {
 		return 0.0;
 	}
-	damage * (1.0 - distance / radius).clamp(0.0, 1.0)
+	let t = (distance / radius).clamp(0.0, 1.0);
+	let denom = 1.0 - (-BLAST_FALLOFF_K).exp();
+	if denom <= 1e-6 {
+		return damage * (1.0 - t);
+	}
+	damage * (1.0 - (-BLAST_FALLOFF_K * (1.0 - t)).exp()) / denom
 }
 
 pub fn spawn_thrown_grenade(
@@ -89,37 +102,43 @@ pub fn spawn_thrown_grenade(
 	let volume = (4.0 / 3.0) * PI * radius * radius * radius;
 	let density = (stats.mass / volume.max(1e-6)).max(0.05);
 	let tumble = velocity.cross(Vec3::Y).normalize_or(Vec3::X) * 10.0;
-	let body = commands
+	commands
 		.spawn((
-			Name::new("thrown-grenade"),
-			Transform {
-				translation: origin,
-				rotation: Quat::from_rotation_arc(Vec3::Y, velocity.normalize_or(Vec3::Y)),
-				scale: Vec3::splat(radius * 2.0),
-			},
-			Visibility::default(),
-			Mesh3d(meshes.add(grenade_mesh())),
-			MeshMaterial3d(materials.add(grenade_material())),
-			RigidBody::Dynamic,
-			MassPropertiesBundle::from_shape(&collider, density),
-			collider,
-			grenade_layers(),
-			LinearVelocity(velocity),
-			AngularVelocity(tumble),
-			GravityScale(1.0),
+			(
+				Name::new("thrown-grenade"),
+				Transform {
+					translation: origin,
+					rotation: Quat::from_rotation_arc(Vec3::Y, velocity.normalize_or(Vec3::Y)),
+					scale: Vec3::splat(radius * 2.0),
+				},
+				Visibility::default(),
+				Mesh3d(meshes.add(grenade_mesh())),
+				MeshMaterial3d(materials.add(grenade_material())),
+				RigidBody::Dynamic,
+				MassPropertiesBundle::from_shape(&collider, density),
+				collider,
+				grenade_layers(),
+			),
+			(
+				LinearVelocity(velocity),
+				AngularVelocity(tumble),
+				GravityScale(1.0),
+				Restitution {
+					coefficient: stats.restitution,
+					combine_rule: CoefficientCombine::Average,
+				},
+				Friction {
+					dynamic_coefficient: stats.friction,
+					static_coefficient: stats.friction,
+					combine_rule: CoefficientCombine::Average,
+				},
+				ThrownGrenade { spec, stats, effect, source, detonated: false },
+				GrenadeFuse { remaining: stats.fuse },
+				CollidingEntities::default(),
+				sound::GrenadeBounceClock { next_at: 0.0, touching: Vec::new() },
+			),
 		))
-		.id();
-	commands.entity(body).insert((
-		Restitution { coefficient: stats.restitution, combine_rule: CoefficientCombine::Average },
-		Friction {
-			dynamic_coefficient: stats.friction,
-			static_coefficient: stats.friction,
-			combine_rule: CoefficientCombine::Average,
-		},
-		ThrownGrenade { spec, stats, effect, source, detonated: false },
-		GrenadeFuse { remaining: stats.fuse },
-	));
-	body
+		.id()
 }
 
 pub fn tick_grenade_fuses(
@@ -150,10 +169,9 @@ pub fn tick_grenade_fuses(
 }
 
 /// Animated colliders only; terrain is [`PhysicsInteractionLayer::Fixed`].
-fn blast_overlap_filter(source: Entity) -> SpatialQueryFilter {
-	PhysicsInteractionLayer::Animated
-		.query_filter()
-		.with_excluded_entities([source])
+/// The thrower stays in the overlap so a short fuse can injure them.
+fn blast_overlap_filter() -> SpatialQueryFilter {
+	PhysicsInteractionLayer::Animated.query_filter()
 }
 
 /// Extension point for wall occlusion before falloff. Always clear until LOS is wired.
@@ -193,9 +211,6 @@ fn collect_blast_hits(
 	let mut damaged = Vec::new();
 	let mut out = Vec::new();
 	for &collider in candidates {
-		if collider == blast.source {
-			continue;
-		}
 		let parent = parents.get(collider).ok().map(|child| child.parent());
 		let target = damage::Health::entity_or_parent(
 			collider,
@@ -203,7 +218,7 @@ fn collect_blast_hits(
 			health.contains(collider),
 			parent.is_some_and(|parent| health.contains(parent)),
 		);
-		if target == blast.source || !health.contains(target) || damaged.contains(&target) {
+		if !health.contains(target) || damaged.contains(&target) {
 			continue;
 		}
 		let Some(point) = blast_target_point(target, collider, transforms) else {
@@ -217,7 +232,13 @@ fn collect_blast_hits(
 			continue;
 		}
 		damaged.push(target);
-		out.push(Hit { target, source: Some(blast.source), amount, point });
+		out.push(Hit {
+			target,
+			source: Some(blast.source),
+			amount,
+			point,
+			allow_self: target == blast.source,
+		});
 	}
 	out
 }
@@ -233,7 +254,7 @@ pub fn apply_grenade_blasts(
 	mut hits: MessageWriter<Hit>,
 ) {
 	for blast in detonations.read() {
-		let filter = blast_overlap_filter(blast.source);
+		let filter = blast_overlap_filter();
 		let candidates = spatial.shape_intersections(
 			&Collider::sphere(blast.radius),
 			blast.position,
@@ -261,6 +282,7 @@ impl Plugin for GrenadesPlugin {
 		if !app.is_plugin_added::<GrenadeMaterialPlugin>() {
 			app.add_plugins(GrenadeMaterialPlugin);
 		}
+		sound::configure_grenade_audio(app);
 		app.add_message::<GrenadeDetonated>().add_message::<Hit>().add_systems(
 			Update,
 			(tick_grenade_fuses, apply_grenade_blasts.after(tick_grenade_fuses)),
@@ -333,7 +355,7 @@ mod tests {
 				      transforms: Query<(Entity, &Transform, Option<&GlobalTransform>)>,
 				      health: Query<(), With<Health>>,
 				      parents: Query<&ChildOf>| {
-					let filter = blast_overlap_filter(blast.source);
+					let filter = blast_overlap_filter();
 					collect_blast_hits(
 						&blast,
 						&candidates,
@@ -392,28 +414,29 @@ mod tests {
 	#[test]
 	fn blast_falls_off_to_the_rim() {
 		assert!((blast_amount(80.0, 8.0, 0.0) - 80.0).abs() < 1e-4);
-		assert!((blast_amount(80.0, 8.0, 4.0) - 40.0).abs() < 1e-4);
+		let mid = blast_amount(80.0, 8.0, 4.0);
+		assert!(mid > 60.0, "inner half should keep most of the peak, got {mid}");
+		assert!(mid < 80.0);
+		let outer = blast_amount(80.0, 8.0, 6.4);
+		assert!(outer > 30.0, "outer third should still chunk, got {outer}");
+		assert!(outer < mid);
 		assert_eq!(blast_amount(80.0, 8.0, 8.1), 0.0);
 	}
 
 	#[test]
-	fn collect_blast_hits_respects_radius_and_source() {
+	fn collect_blast_hits_respects_radius_and_includes_the_thrower() {
 		let mut app = blast_test_app();
 		let in_range = spawn_damageable(&mut app, Vec3::new(2.0, 0.0, 0.0));
-		let out_of_range = spawn_damageable(&mut app, Vec3::new(10.0, 0.0, 0.0));
+		let out_of_range = spawn_damageable(&mut app, Vec3::new(20.0, 0.0, 0.0));
 		let thrower = spawn_damageable(&mut app, Vec3::new(0.5, 0.0, 0.0));
 		app.update();
 		let mut blast = standard_blast();
 		blast.source = thrower;
-		let hits = collect_hits(
-			app.world_mut(),
-			blast,
-			vec![in_range, out_of_range, thrower],
-		);
-		assert_eq!(hits.len(), 1);
-		assert_eq!(hits[0].target, in_range);
-		assert_eq!(hits[0].source, Some(thrower));
-		assert!(hits[0].amount > 0.0);
+		let hits = collect_hits(app.world_mut(), blast, vec![in_range, out_of_range, thrower]);
+		assert_eq!(hits.len(), 2);
+		assert!(hits.iter().any(|hit| hit.target == in_range && !hit.allow_self));
+		assert!(hits.iter().any(|hit| hit.target == thrower && hit.allow_self));
+		assert!(hits.iter().all(|hit| hit.source == Some(thrower) && hit.amount > 0.0));
 	}
 
 	#[test]
@@ -436,7 +459,7 @@ mod tests {
 	fn blast_skips_out_of_radius_targets() {
 		let mut app = blast_test_app();
 		let thrower = app.world_mut().spawn_empty().id();
-		spawn_damageable(&mut app, Vec3::new(10.0, 0.0, 0.0));
+		spawn_damageable(&mut app, Vec3::new(20.0, 0.0, 0.0));
 		let mut blast = standard_blast();
 		blast.source = thrower;
 		run_blast_system(&mut app, blast);
@@ -444,12 +467,17 @@ mod tests {
 	}
 
 	#[test]
-	fn blast_does_not_hit_the_thrower() {
+	fn blast_hits_the_thrower() {
 		let mut app = blast_test_app();
 		let thrower = spawn_damageable(&mut app, Vec3::new(0.5, 0.0, 0.0));
 		let mut blast = standard_blast();
 		blast.source = thrower;
 		run_blast_system(&mut app, blast);
-		assert_eq!(app.world_mut().resource_mut::<Messages<Hit>>().drain().count(), 0);
+		let hits: Vec<Hit> = app.world_mut().resource_mut::<Messages<Hit>>().drain().collect();
+		assert_eq!(hits.len(), 1);
+		assert_eq!(hits[0].target, thrower);
+		assert_eq!(hits[0].source, Some(thrower));
+		assert!(hits[0].allow_self);
+		assert!(hits[0].amount > 0.0);
 	}
 }
