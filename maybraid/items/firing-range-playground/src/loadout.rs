@@ -1,8 +1,8 @@
 //! Roll a generated clothing + firearm identity for a firing-range combatant.
 
 use character_items::{
-	random_starter_clothing, realize_firearm_stats, CharacterSheet, FirearmMesh, FirearmSpec,
-	FirearmStats, Inventory, InventoryItem, ItemRng, STARTER_CLOTHING_COUNT,
+	realize_firearm_stats, CharacterSheet, FirearmMesh, FirearmSpec, FirearmStats, Inventory,
+	InventoryItem, ItemRng, STARTER_CLOTHING_COUNT,
 };
 use characters::species::braidman::BraidmanConfig;
 use firearm_user::kit_from_spec;
@@ -19,7 +19,7 @@ pub(crate) struct CombatantLoadout {
 }
 
 pub(crate) fn roll_combatant(rng: &mut ItemRng) -> CombatantLoadout {
-	let mut items = random_starter_clothing(rng, STARTER_CLOTHING_COUNT);
+	let mut items = rng.random_starter_clothing(STARTER_CLOTHING_COUNT);
 	let body = *rng.choose(FirearmMesh::VALUES).unwrap_or(&FirearmMesh::Bullpup);
 	let spec = FirearmSpec::roll(rng, body);
 	let stats = realize_firearm_stats(rng, &spec);

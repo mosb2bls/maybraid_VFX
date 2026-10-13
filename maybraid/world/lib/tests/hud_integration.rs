@@ -10,12 +10,12 @@ use world_player::Player as WorldPlayer;
 #[test]
 fn test_player_vitals_update_on_damage() {
 	let mut app = App::new();
-	
+
 	// Minimal plugins for the test
 	app.add_plugins(bevy::MinimalPlugins);
 	app.add_message::<damage::DamageApplied>();
 	app.add_message::<lubikans::LubikanActivationFinished>();
-	
+
 	// Add the CombatHudPlugin with player_vitals enabled
 	app.add_plugins(CombatHudPlugin {
 		hit_markers: false,
@@ -25,30 +25,33 @@ fn test_player_vitals_update_on_damage() {
 		lubikan_point_feedback: false,
 		score: false,
 	});
-	
+
 	// Spawn the HUD
 	app.update();
-	
+
 	// Spawn a player entity with both markers (simulating what the world does)
-	let player = app.world_mut().spawn((
-		Name::new("TestPlayer"),
-		WorldPlayer,
-		MaybraidPlayer,
-		Health { current: 100.0, max: 100.0 },
-		Transform::default(),
-	)).id();
-	
+	let player = app
+		.world_mut()
+		.spawn((
+			Name::new("TestPlayer"),
+			WorldPlayer,
+			MaybraidPlayer,
+			Health { current: 100.0, max: 100.0 },
+			Transform::default(),
+		))
+		.id();
+
 	// Run a few frames to let the HUD initialize
 	for _ in 0..3 {
 		app.update();
 	}
-	
+
 	// Damage the player to 40%
 	{
 		let mut health = app.world_mut().get_mut::<Health>(player).unwrap();
 		health.current = 40.0;
 	}
-	
+
 	// Write a DamageApplied event to trigger HUD updates
 	app.world_mut().write_message(damage::DamageApplied {
 		target: player,
@@ -58,17 +61,17 @@ fn test_player_vitals_update_on_damage() {
 		remaining: 40.0,
 		point: Vec3::ZERO,
 	});
-	
+
 	// Run frames to let HUD respond
 	for _ in 0..5 {
 		app.update();
 	}
-	
+
 	// Verify the vitals HUD spawned with fill component tracking player health
 	let mut query = app.world_mut().query_filtered::<&Node, With<HealthFill>>();
 	let fill_node = query.iter(app.world()).next().expect("Vitals should spawn HealthFill node");
 	assert!(matches!(fill_node.width, Val::Percent(_)), "Fill should use percent width");
-	
+
 	// Note: Actual width value depends on lerp/animation timing which is hard to test deterministically.
 	// The key validation is that the vitals HUD spawns and uses the player's health component.
 }

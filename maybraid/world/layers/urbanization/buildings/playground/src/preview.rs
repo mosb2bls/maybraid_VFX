@@ -4532,13 +4532,9 @@ fn spawn_building_preview<T>(
 	if building.structural_lod().is_some() {
 		let host = ComponentsOnly::posed(building.clone(), transform);
 		let bounds = host.scene_bounds();
-		for entity in spawn_building_components_for(
-			commands,
-			building,
-			transform,
-			bounds,
-			Some(lod_ref),
-		) {
+		for entity in
+			spawn_building_components_for(commands, building, transform, bounds, Some(lod_ref))
+		{
 			commands.entity(entity).insert(PreviewRoot);
 		}
 	} else {

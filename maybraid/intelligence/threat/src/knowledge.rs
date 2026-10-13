@@ -256,7 +256,8 @@ impl ThreatIntelligenceUser {
 		spotting: &SpottingUser,
 	) -> bool {
 		let range = self.alert_spotting_range(knowledge, spotting);
-		self.idle_spotting_range <= 0.0 || spotting.directives.iter().any(|directive| directive.range != range)
+		self.idle_spotting_range <= 0.0
+			|| spotting.directives.iter().any(|directive| directive.range != range)
 	}
 
 	/// Stretch or restore spotting directives so hinted subjects can be probed.

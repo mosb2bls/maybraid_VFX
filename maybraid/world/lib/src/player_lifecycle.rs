@@ -1178,11 +1178,7 @@ mod tests {
 	fn orphaned_locked_map_closes_when_a_live_player_has_no_pending() -> anyhow::Result<()> {
 		let mut world = World::new();
 		world.init_resource::<WorldPlayerRespawnState>();
-		world.insert_resource(WorldMapView {
-			open: true,
-			close_locked: true,
-			..default()
-		});
+		world.insert_resource(WorldMapView { open: true, close_locked: true, ..default() });
 		let orphaned = world
 			.run_system_once(orphaned_locked_respawn_map)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

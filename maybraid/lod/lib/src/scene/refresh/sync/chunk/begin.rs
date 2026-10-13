@@ -875,8 +875,7 @@ mod tests {
 		const SCAN_LIMIT: usize = 192;
 		const SCANS: usize = 2_000;
 
-		let hosts: Vec<(u64, u64)> =
-			(0..HOST_COUNT).map(|i| (i as u64, i as u64)).collect();
+		let hosts: Vec<(u64, u64)> = (0..HOST_COUNT).map(|i| (i as u64, i as u64)).collect();
 		let start = 0usize;
 
 		let full_start = std::time::Instant::now();

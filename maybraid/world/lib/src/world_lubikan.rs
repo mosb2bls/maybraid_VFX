@@ -3,17 +3,20 @@
 use bevy::prelude::*;
 use game_commands::command::TextEntryFocus;
 use lubikans::{
-	LubikanActivationRequest, LubikanHealingEnabled, LubikanOwner,
-	LubikanOwnerLifetime, LubikanOwnerLifetimeKind, LubikansPlugin, LubikanSystems,
+	LubikanActivationRequest, LubikanHealingEnabled, LubikanOwner, LubikanOwnerLifetime,
+	LubikanOwnerLifetimeKind, LubikanSystems, LubikansPlugin,
 };
 use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use player::{
-	CharacterController, CharacterStance, LocomotionCapsule, MotorTraction, RestLocomotionCapsule, StanceKind,
+	CharacterController, CharacterStance, LocomotionCapsule, MotorTraction, RestLocomotionCapsule,
+	StanceKind,
 };
 use world_player::{Player, PlayerPhysicsEnabled};
 
-use crate::control::{WorldGameplayEnabled, WorldPlaySessionEnded, apply_world_player_motor, strip_world_player_motor};
+use crate::control::{
+	apply_world_player_motor, strip_world_player_motor, WorldGameplayEnabled, WorldPlaySessionEnded,
+};
 use crate::map_view::WorldMapView;
 
 /// Adapter plugin connecting world player lifecycle, input, and session to Lubikan systems.
@@ -44,7 +47,7 @@ pub struct WorldLubikanPlugin;
 impl Plugin for WorldLubikanPlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins((LubikansPlugin, LubikanDamagePlugin));
-		
+
 		app.add_systems(
 			PreUpdate,
 			(
@@ -54,7 +57,7 @@ impl Plugin for WorldLubikanPlugin {
 				forward_world_session_end.before(LubikanSystems::Owner),
 			),
 		);
-		
+
 		app.add_systems(
 			Update,
 			(
@@ -124,11 +127,7 @@ fn forward_world_session_end(
 	if ended.read().next().is_none() {
 		return;
 	}
-	lives.write(LubikanOwnerLifetime::new(
-		None,
-		None,
-		LubikanOwnerLifetimeKind::RestartSession,
-	));
+	lives.write(LubikanOwnerLifetime::new(None, None, LubikanOwnerLifetimeKind::RestartSession));
 }
 
 /// Sync Lubikan healing enabled state with world gameplay enabled (pause gates healing).
@@ -217,7 +216,7 @@ mod tests {
 		assert!(!world.resource::<LubikanHealingEnabled>().0);
 		Ok(())
 	}
-	
+
 	#[test]
 	fn session_end_emits_lifetime() -> anyhow::Result<()> {
 		let mut world = World::new();
@@ -228,9 +227,7 @@ mod tests {
 			.run_system_once(forward_world_session_end)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let count = world
-			.run_system_once(|mut lives: MessageReader<LubikanOwnerLifetime>| {
-				lives.read().count()
-			})
+			.run_system_once(|mut lives: MessageReader<LubikanOwnerLifetime>| lives.read().count())
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(count, 1);
 		Ok(())

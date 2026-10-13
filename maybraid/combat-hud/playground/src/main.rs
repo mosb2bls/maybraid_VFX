@@ -81,7 +81,10 @@ fn import_primary_window(label: &str) -> Result<(), String> {
 		.output()
 		.map_err(|e| e.to_string())?;
 	if !wid_bytes.status.success() {
-		return Err(format!("xdotool search failed: {}", String::from_utf8_lossy(&wid_bytes.stderr)));
+		return Err(format!(
+			"xdotool search failed: {}",
+			String::from_utf8_lossy(&wid_bytes.stderr)
+		));
 	}
 	let wid_text = String::from_utf8_lossy(&wid_bytes.stdout);
 	let wid = wid_text.lines().next().unwrap_or("").trim();
@@ -125,31 +128,15 @@ fn capture_steps() -> Vec<StateStep> {
 			kind: StateKind::PartialCharge,
 			dwell_secs: 0.35,
 		},
-		StateStep {
-			label: "02-ready",
-			kind: StateKind::Ready,
-			dwell_secs: 0.35,
-		},
-		StateStep {
-			label: "03-activating",
-			kind: StateKind::Activating,
-			dwell_secs: 0.35,
-		},
-		StateStep {
-			label: "04-self-healing",
-			kind: StateKind::SelfHealing,
-			dwell_secs: 1.0,
-		},
+		StateStep { label: "02-ready", kind: StateKind::Ready, dwell_secs: 0.35 },
+		StateStep { label: "03-activating", kind: StateKind::Activating, dwell_secs: 0.35 },
+		StateStep { label: "04-self-healing", kind: StateKind::SelfHealing, dwell_secs: 1.0 },
 		StateStep {
 			label: "05-point-midflight",
 			kind: StateKind::PointMidflight,
 			dwell_secs: 0.32,
 		},
-		StateStep {
-			label: "06-paused-hidden",
-			kind: StateKind::PausedHidden,
-			dwell_secs: 0.35,
-		},
+		StateStep { label: "06-paused-hidden", kind: StateKind::PausedHidden, dwell_secs: 0.35 },
 	]
 }
 
@@ -158,18 +145,19 @@ fn main() {
 	let assets_path = assets_root();
 	let mut app = App::new();
 	app.insert_resource(cli)
-		.add_plugins(DefaultPlugins.set(AssetPlugin {
-			file_path: assets_path.to_string_lossy().into(),
-			..default()
-		}).set(WindowPlugin {
-			primary_window: Some(Window {
-				title: WINDOW_TITLE.into(),
-				resolution: (CAPTURE_WIDTH, CAPTURE_HEIGHT).into(),
-				resizable: false,
-				..default()
-			}),
-			..default()
-		}))
+		.add_plugins(
+			DefaultPlugins
+				.set(AssetPlugin { file_path: assets_path.to_string_lossy().into(), ..default() })
+				.set(WindowPlugin {
+					primary_window: Some(Window {
+						title: WINDOW_TITLE.into(),
+						resolution: (CAPTURE_WIDTH, CAPTURE_HEIGHT).into(),
+						resizable: false,
+						..default()
+					}),
+					..default()
+				}),
+		)
 		// Continuous updates under xvfb (desktop_app stalls without input events).
 		.insert_resource(WinitSettings::game())
 		.insert_resource(ClearColor(Color::srgb(0.05, 0.06, 0.08)))
@@ -190,10 +178,9 @@ fn main() {
 	install_gameplay(&mut app);
 	let owner = spawn_self_owner(app.world_mut());
 	// No `Name`: vitals show the default character label ("Player"), not a debug title.
-	app.world_mut().entity_mut(owner).insert((
-		Player,
-		Health { current: 68.0, max: 100.0 },
-	));
+	app.world_mut()
+		.entity_mut(owner)
+		.insert((Player, Health { current: 68.0, max: 100.0 }));
 	app.world_mut().spawn((
 		Camera3d::default(),
 		Transform::from_xyz(0.0, 6.0, 14.0).looking_at(Vec3::ZERO, Vec3::Y),
@@ -360,11 +347,7 @@ fn drive_capture_states(
 			.map(|ledger| ledger.equipped().charge().current())
 			.unwrap_or(-1.0);
 		let snapshot = plan.ledger_snapshot.unwrap_or(0.0);
-		info!(
-			"paused snapshot ledger_charge={:.0} expected={:.0}",
-			ledger_charge,
-			snapshot
-		);
+		info!("paused snapshot ledger_charge={:.0} expected={:.0}", ledger_charge, snapshot);
 	}
 	plan.captured_this_step = true;
 	plan.dwell = 0.0;

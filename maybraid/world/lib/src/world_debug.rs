@@ -10,7 +10,10 @@ use lubikans::{LubikanActivationRequest, LubikanChargeReason, LubikanChargeReque
 use player::Npc;
 use world_player::Player as WorldPlayer;
 
-use crate::commands::{RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful, RequestSpawnNpc, RequestTakeDamage, RequestTeleport, CameraMode};
+use crate::commands::{
+	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
+	RequestSpawnNpc, RequestTakeDamage, RequestTeleport,
+};
 use crate::map_view::WorldMapView;
 
 /// Debug command plugin (behind debug-commands feature).
@@ -23,7 +26,7 @@ pub struct WorldDebugPlugin;
 impl Plugin for WorldDebugPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<DebugPeacefulMode>();
-		
+
 		app.add_systems(
 			Update,
 			(
@@ -37,7 +40,7 @@ impl Plugin for WorldDebugPlugin {
 				apply_debug_teleport,
 			),
 		);
-		
+
 		app.add_systems(
 			PreUpdate,
 			suppress_npc_hits_in_peaceful.before(damage::DamageSystems::Apply),
@@ -123,17 +126,21 @@ fn suppress_npc_hits_in_peaceful(
 	if !peaceful.0 {
 		return;
 	}
-	
+
 	let Ok(player) = players.single() else {
 		return;
 	};
-	
+
 	let mut hits_vec: Vec<Hit> = hits.read().copied().collect();
 	hits_vec.retain(|hit| {
 		if hit.target == player && hit.source.is_some() {
 			*suppressed_count += 1;
-			log::info!("[PEACEFUL] Suppressed NPC hit #{}: {:.1} damage from {:?}", 
-				*suppressed_count, hit.amount, hit.source);
+			log::info!(
+				"[PEACEFUL] Suppressed NPC hit #{}: {:.1} damage from {:?}",
+				*suppressed_count,
+				hit.amount,
+				hit.source
+			);
 			false
 		} else {
 			true
@@ -178,7 +185,10 @@ fn apply_debug_camera(
 
 fn apply_debug_teleport(
 	requests: Query<(Entity, &RequestTeleport)>,
-	mut players: Query<(&mut Transform, &mut LinearVelocity), (With<player::Player>, With<WorldPlayer>)>,
+	mut players: Query<
+		(&mut Transform, &mut LinearVelocity),
+		(With<player::Player>, With<WorldPlayer>),
+	>,
 	mut commands: Commands,
 ) {
 	for (entity, request) in &requests {
@@ -197,14 +207,17 @@ fn log_player_lifecycle(
 	existing: Query<Entity, With<WorldPlayer>>,
 ) {
 	// Logging disabled (auto-capture removed)
-	
+
 	let frame_count = frame.elapsed().as_secs_f32() * 60.0;
 	if frame_count >= 100.0 && frame_count <= 180.0 {
 		for entity in &added {
 			eprintln!("[LIFECYCLE] frame~{:.0} Added<WorldPlayer>: {:?}", frame_count, entity);
 		}
 		for entity in removed.read() {
-			eprintln!("[LIFECYCLE] frame~{:.0} RemovedComponents<WorldPlayer>: {:?}", frame_count, entity);
+			eprintln!(
+				"[LIFECYCLE] frame~{:.0} RemovedComponents<WorldPlayer>: {:?}",
+				frame_count, entity
+			);
 		}
 		if existing.is_empty() {
 			eprintln!("[LIFECYCLE] frame~{:.0} No WorldPlayer entities exist!", frame_count);

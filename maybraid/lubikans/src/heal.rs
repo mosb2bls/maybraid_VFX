@@ -244,18 +244,11 @@ pub(crate) fn configure(app: &mut App) {
 		.init_resource::<DamageHistoryPolicy>()
 		.configure_sets(
 			PostUpdate,
-			LubikanSystems::Heal
-				.after(DamageSystems::History)
-				.after(LubikanSystems::Award),
+			LubikanSystems::Heal.after(DamageSystems::History).after(LubikanSystems::Award),
 		)
 		.add_systems(
 			PostUpdate,
-			(
-				accept_self_sessions,
-				latch_self_heal_damage,
-				cancel_self_heal,
-				tick_self_heal,
-			)
+			(accept_self_sessions, latch_self_heal_damage, cancel_self_heal, tick_self_heal)
 				.chain()
 				.in_set(LubikanSystems::Heal),
 		);

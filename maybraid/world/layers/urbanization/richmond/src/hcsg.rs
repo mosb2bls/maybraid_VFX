@@ -120,9 +120,7 @@ mod tests {
 		TerrainStampConfigs, WaterMeshAssets, WaterPresentationPlugin, WatershedConfigs,
 	};
 	use lod::gen::{Id, OriginalId};
-	use lod::hcsg::{
-		hcsg_hosts, settle_presentation, HcsgRestartRequest, SettlePresentation,
-	};
+	use lod::hcsg::{hcsg_hosts, settle_presentation, HcsgRestartRequest, SettlePresentation};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 	use terrain_layer_model::OnTerrain;
@@ -242,8 +240,10 @@ mod tests {
 			.map(|OriginalId(id)| id)
 			.collect();
 		cells.sort();
-		let padded: Vec<Id> =
-			hcsg_hosts::<PaddedTerrain<Ground>>(&mut app).into_iter().map(|(id, _)| id).collect();
+		let padded: Vec<Id> = hcsg_hosts::<PaddedTerrain<Ground>>(&mut app)
+			.into_iter()
+			.map(|(id, _)| id)
+			.collect();
 		assert_eq!(padded, cells, "one padded host per ground cell, padded or not");
 		assert!(hcsg_hosts::<Terrain>(&mut app).is_empty(), "raw ground is never presented");
 		assert_eq!(count::<TerrainColliderMeshSource>(&mut app), cells.len());

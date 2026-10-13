@@ -236,10 +236,7 @@ pub(crate) fn spawn_meter_amount(
 		Text::new(initial),
 		TextFont { font_size: FontSize::Px(12.0), ..default() },
 		TextColor(Color::WHITE),
-		Node {
-			min_width: Val::Px(28.0),
-			..default()
-		},
+		Node { min_width: Val::Px(28.0), ..default() },
 		Pickable::IGNORE,
 	));
 }
@@ -377,12 +374,43 @@ pub fn update_continuous_health_bar_content(
 	heal_channels: Query<&lubikans::LubikanSelfHealChannel>,
 	mut bars: Query<(Entity, &ContinuousHealthBar, &mut HealthAnimState)>,
 	children: Query<&Children>,
-	mut fills: Query<(&mut Node, &mut BackgroundColor), (With<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>)>,
-	mut trails: Query<&mut Node, (With<HealthTrail>, Without<HealthFill>, Without<HealPreview>, Without<CapMarker>)>,
-	mut previews: Query<(&mut Node, &mut Visibility), (With<HealPreview>, Without<HealthFill>, Without<HealthTrail>, Without<CapMarker>)>,
-	mut markers: Query<(&mut Node, &mut Visibility), (With<CapMarker>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>)>,
-	mut flashes: Query<&mut BackgroundColor, (With<CompletionFlash>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>)>,
-	mut labels: Query<&mut Text, (With<HealthLabel>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>, Without<CompletionFlash>)>,
+	mut fills: Query<
+		(&mut Node, &mut BackgroundColor),
+		(With<HealthFill>, Without<HealthTrail>, Without<HealPreview>, Without<CapMarker>),
+	>,
+	mut trails: Query<
+		&mut Node,
+		(With<HealthTrail>, Without<HealthFill>, Without<HealPreview>, Without<CapMarker>),
+	>,
+	mut previews: Query<
+		(&mut Node, &mut Visibility),
+		(With<HealPreview>, Without<HealthFill>, Without<HealthTrail>, Without<CapMarker>),
+	>,
+	mut markers: Query<
+		(&mut Node, &mut Visibility),
+		(With<CapMarker>, Without<HealthFill>, Without<HealthTrail>, Without<HealPreview>),
+	>,
+	mut flashes: Query<
+		&mut BackgroundColor,
+		(
+			With<CompletionFlash>,
+			Without<HealthFill>,
+			Without<HealthTrail>,
+			Without<HealPreview>,
+			Without<CapMarker>,
+		),
+	>,
+	mut labels: Query<
+		&mut Text,
+		(
+			With<HealthLabel>,
+			Without<HealthFill>,
+			Without<HealthTrail>,
+			Without<HealPreview>,
+			Without<CapMarker>,
+			Without<CompletionFlash>,
+		),
+	>,
 ) {
 	if !hud_visible.0 {
 		return;
@@ -437,14 +465,20 @@ pub fn update_continuous_health_bar_content(
 						set_percent_width(&mut trail_node, anim_state.trail_fraction * 100.0);
 					}
 
-					if let Ok((mut preview_node, mut preview_visibility)) = previews.get_mut(*element) {
+					if let Ok((mut preview_node, mut preview_visibility)) =
+						previews.get_mut(*element)
+					{
 						if is_healing {
 							if let Some(channel) = heal_channel {
 								let heal_amount = channel.remaining / health.max;
-								let heal_end =
-									(anim_state.current_fraction + heal_amount).min(channel.cap_fraction);
-								let preview_width = (heal_end - anim_state.current_fraction).max(0.0);
-								set_percent_left(&mut preview_node, anim_state.current_fraction * 100.0);
+								let heal_end = (anim_state.current_fraction + heal_amount)
+									.min(channel.cap_fraction);
+								let preview_width =
+									(heal_end - anim_state.current_fraction).max(0.0);
+								set_percent_left(
+									&mut preview_node,
+									anim_state.current_fraction * 100.0,
+								);
 								set_percent_width(&mut preview_node, preview_width * 100.0);
 								set_visibility(&mut preview_visibility, Visibility::Visible);
 							}
@@ -453,7 +487,8 @@ pub fn update_continuous_health_bar_content(
 						}
 					}
 
-					if let Ok((mut marker_node, mut marker_visibility)) = markers.get_mut(*element) {
+					if let Ok((mut marker_node, mut marker_visibility)) = markers.get_mut(*element)
+					{
 						if let Some(channel) = heal_channel {
 							if channel.damaged && channel.cap_fraction < 1.0 {
 								set_px_left(
@@ -473,12 +508,15 @@ pub fn update_continuous_health_bar_content(
 
 					if let Ok(mut flash_color) = flashes.get_mut(*element) {
 						let alpha = if anim_state.flash_timer > 0.0 {
-							(anim_state.flash_timer / config.completion_flash_duration).clamp(0.0, 1.0)
-								* 0.8
+							(anim_state.flash_timer / config.completion_flash_duration)
+								.clamp(0.0, 1.0) * 0.8
 						} else {
 							0.0
 						};
-						set_color(&mut flash_color, config.completion_flash_color.with_alpha(alpha));
+						set_color(
+							&mut flash_color,
+							config.completion_flash_color.with_alpha(alpha),
+						);
 					}
 				}
 			}
@@ -534,30 +572,31 @@ mod tests {
 	#[test]
 	fn fill_and_trail_interpolate_smoothly() {
 		let mut app = test_app();
-		let target = app.world_mut().spawn((
-			Health { current: 100.0, max: 100.0 },
-			GlobalTransform::default(),
-		)).id();
-		
+		let target = app
+			.world_mut()
+			.spawn((Health { current: 100.0, max: 100.0 }, GlobalTransform::default()))
+			.id();
+
 		let config = ContinuousHealthConfig::default();
 		let root = app.world_mut().spawn_empty().id();
 		spawn_continuous_health_bar(root, target, &mut app.world_mut().commands(), &config);
 		app.update();
-		
-		let mut anim_state = app.world_mut()
+
+		let mut anim_state = app
+			.world_mut()
 			.query_filtered::<&mut HealthAnimState, With<ContinuousHealthBar>>()
 			.iter_mut(app.world_mut())
 			.next()
 			.expect("anim state")
 			.clone();
-		
+
 		assert!((anim_state.current_fraction - 1.0).abs() < 0.01, "starts at full health");
 		assert!((anim_state.trail_fraction - 1.0).abs() < 0.01, "trail starts at full");
-		
+
 		// Simulate damage
 		anim_state.target_fraction = 0.5;
 		anim_state.current_fraction = 0.5;
-		
+
 		// Trail should lag behind
 		assert!(anim_state.trail_fraction > anim_state.current_fraction, "trail lags when damaged");
 	}
@@ -565,29 +604,32 @@ mod tests {
 	#[test]
 	fn ceiling_marker_placement_at_70_percent() {
 		let mut app = test_app();
-		let target = app.world_mut().spawn((
-			Health { current: 50.0, max: 100.0 },
-			GlobalTransform::default(),
-			lubikans::LubikanSelfHealChannel {
-				active: true,
-				remaining: 20.0,
-				rate: 5.0,
-				account: lubikans::LubikanAccountId::SELF,
-				session: lubikans::LubikanActivationSessionId::mint(),
-				damaged: true,
-				cap_fraction: 0.7,
-			},
-		)).id();
-		
+		let target = app
+			.world_mut()
+			.spawn((
+				Health { current: 50.0, max: 100.0 },
+				GlobalTransform::default(),
+				lubikans::LubikanSelfHealChannel {
+					active: true,
+					remaining: 20.0,
+					rate: 5.0,
+					account: lubikans::LubikanAccountId::SELF,
+					session: lubikans::LubikanActivationSessionId::mint(),
+					damaged: true,
+					cap_fraction: 0.7,
+				},
+			))
+			.id();
+
 		let config = ContinuousHealthConfig::default();
 		let root = app.world_mut().spawn_empty().id();
 		spawn_continuous_health_bar(root, target, &mut app.world_mut().commands(), &config);
 		app.update();
-		
+
 		// Marker should be visible and at 70%
-		let marker_left = 0.7 * (config.bar_width - config.frame_thickness * 2.0) 
-			- config.cap_marker_width * 0.5;
-		
+		let marker_left =
+			0.7 * (config.bar_width - config.frame_thickness * 2.0) - config.cap_marker_width * 0.5;
+
 		// The marker should be positioned correctly (we'd verify this in the update system)
 		assert!(marker_left > 0.0, "marker positioned within bar");
 	}
@@ -595,52 +637,55 @@ mod tests {
 	#[test]
 	fn heal_preview_clamping() {
 		let mut app = test_app();
-		
+
 		// Create a target with 50% health, healing to 80% but capped at 70%
-		let target = app.world_mut().spawn((
-			Health { current: 50.0, max: 100.0 },
-			GlobalTransform::default(),
-			lubikans::LubikanSelfHealChannel {
-				active: true,
-				remaining: 30.0, // Would heal to 80%
-				rate: 5.0,
-				account: lubikans::LubikanAccountId::SELF,
-				session: lubikans::LubikanActivationSessionId::mint(),
-				damaged: true,
-				cap_fraction: 0.7, // But capped at 70%
-			},
-		)).id();
-		
+		let target = app
+			.world_mut()
+			.spawn((
+				Health { current: 50.0, max: 100.0 },
+				GlobalTransform::default(),
+				lubikans::LubikanSelfHealChannel {
+					active: true,
+					remaining: 30.0, // Would heal to 80%
+					rate: 5.0,
+					account: lubikans::LubikanAccountId::SELF,
+					session: lubikans::LubikanActivationSessionId::mint(),
+					damaged: true,
+					cap_fraction: 0.7, // But capped at 70%
+				},
+			))
+			.id();
+
 		let config = ContinuousHealthConfig::default();
 		let root = app.world_mut().spawn_empty().id();
 		spawn_continuous_health_bar(root, target, &mut app.world_mut().commands(), &config);
 		app.update();
-		
+
 		// Preview should only show healing up to 70%, not 80%
 		let channel = app.world().get::<lubikans::LubikanSelfHealChannel>(target).unwrap();
 		let current_fraction = 0.5;
 		let heal_amount = channel.remaining / 100.0; // 0.3
 		let heal_end = (current_fraction + heal_amount).min(channel.cap_fraction);
-		
+
 		assert!((heal_end - 0.7).abs() < 0.01, "heal preview clamped to cap: {}", heal_end);
 	}
 
 	#[test]
 	fn completion_flash_triggered_by_event() {
 		let mut app = test_app();
-		
-		let target = app.world_mut().spawn((
-			Health { current: 70.0, max: 100.0 },
-			GlobalTransform::default(),
-		)).id();
-		
+
+		let target = app
+			.world_mut()
+			.spawn((Health { current: 70.0, max: 100.0 }, GlobalTransform::default()))
+			.id();
+
 		let config = ContinuousHealthConfig::default();
 		let root = app.world_mut().spawn_empty().id();
 		spawn_continuous_health_bar(root, target, &mut app.world_mut().commands(), &config);
-		
+
 		app.add_systems(Update, trigger_completion_flash);
 		app.update();
-		
+
 		// Send completion event
 		app.world_mut().write_message(lubikans::LubikanActivationFinished {
 			owner: target,
@@ -649,16 +694,17 @@ mod tests {
 			id: lubikans::LubikanActivationSessionId::mint(),
 			outcome: lubikans::LubikanActivationOutcome::Completed,
 		});
-		
+
 		app.update();
-		
+
 		// Flash timer should be set
-		let anim_state = app.world_mut()
+		let anim_state = app
+			.world_mut()
 			.query_filtered::<&HealthAnimState, With<ContinuousHealthBar>>()
 			.iter(app.world_mut())
 			.next()
 			.expect("anim state");
-		
+
 		assert!(anim_state.flash_timer > 0.0, "flash timer triggered by event");
 	}
 
@@ -699,12 +745,12 @@ mod tests {
 	#[test]
 	fn health_fill_colors_match_thresholds() {
 		let config = ContinuousHealthConfig::default();
-		
+
 		let high = health_fill_color(&config, 0.8);
 		let mid = health_fill_color(&config, 0.5);
 		let low = health_fill_color(&config, 0.2);
 		let dead = health_fill_color(&config, 0.0);
-		
+
 		assert_ne!(high, mid, "different colors for different ranges");
 		assert_ne!(mid, low, "different colors for different ranges");
 		assert_ne!(low, dead, "different colors for different ranges");
@@ -713,19 +759,19 @@ mod tests {
 	#[test]
 	fn bar_spawns_all_required_elements() {
 		let mut app = test_app();
-		
-		let target = app.world_mut().spawn((
-			Health { current: 100.0, max: 100.0 },
-			GlobalTransform::default(),
-		)).id();
-		
+
+		let target = app
+			.world_mut()
+			.spawn((Health { current: 100.0, max: 100.0 }, GlobalTransform::default()))
+			.id();
+
 		let config = ContinuousHealthConfig::default();
 		let root = app.world_mut().spawn_empty().id();
 		spawn_continuous_health_bar(root, target, &mut app.world_mut().commands(), &config);
 		app.update();
-		
+
 		let world = app.world_mut();
-		
+
 		// Verify all components exist
 		assert_eq!(world.query::<&ContinuousHealthBar>().iter(world).count(), 1, "bar spawned");
 		assert_eq!(world.query::<&HealthFill>().iter(world).count(), 1, "fill spawned");
@@ -736,4 +782,3 @@ mod tests {
 		assert_eq!(world.query::<&HealthLabel>().iter(world).count(), 1, "label spawned");
 	}
 }
-

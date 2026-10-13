@@ -53,4 +53,3 @@ pub(crate) fn configure_backend(app: &mut App) {
 		let _ = app;
 	}
 }
-

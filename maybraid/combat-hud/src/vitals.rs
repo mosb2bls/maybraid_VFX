@@ -132,8 +132,8 @@ mod tests {
 
 	#[test]
 	fn downed_player_hides_the_vitals_plate() {
-		use crate::CombatHudVisible;
 		use crate::CombatHudPlugin;
+		use crate::CombatHudVisible;
 
 		let mut app = App::new();
 		app.add_plugins(bevy::MinimalPlugins);
@@ -147,10 +147,8 @@ mod tests {
 		});
 		app.world_mut().insert_resource(CombatHudVisible(true));
 		app.update();
-		let player = app
-			.world_mut()
-			.spawn((Player, Health::from_max(100.0), Name::new("Ada")))
-			.id();
+		let player =
+			app.world_mut().spawn((Player, Health::from_max(100.0), Name::new("Ada"))).id();
 		app.update();
 		{
 			let visibility = app
@@ -162,9 +160,11 @@ mod tests {
 				.expect("plate");
 			assert_eq!(visibility, Visibility::Visible);
 		}
-		app.world_mut()
-			.entity_mut(player)
-			.insert(Downed { source: None, point: Vec3::ZERO, at: 0.0 });
+		app.world_mut().entity_mut(player).insert(Downed {
+			source: None,
+			point: Vec3::ZERO,
+			at: 0.0,
+		});
 		app.update();
 		let visibility = app
 			.world_mut()
@@ -181,7 +181,7 @@ mod tests {
 		// Test that spawned health bar has correct layout and target
 		use crate::CombatHudPlugin;
 		use bevy::app::App;
-		
+
 		let mut app = App::new();
 		app.add_plugins(bevy::MinimalPlugins);
 		app.add_plugins(CombatHudPlugin {
@@ -192,19 +192,20 @@ mod tests {
 			lubikan_point_feedback: false,
 			score: false,
 		});
-		
+
 		// Spawn player
-		let player = app.world_mut().spawn((
-			Player,
-			Health::from_max(100.0),
-			Name::new("TestPlayer"),
-		)).id();
-		
+		let player = app
+			.world_mut()
+			.spawn((Player, Health::from_max(100.0), Name::new("TestPlayer")))
+			.id();
+
 		// Run one update to spawn HUD
 		app.update();
-		
+
 		// Find the UI child health bar
-		let mut query = app.world_mut().query_filtered::<&ContinuousHealthBar, With<ContinuousHealthBar>>();
+		let mut query = app
+			.world_mut()
+			.query_filtered::<&ContinuousHealthBar, With<ContinuousHealthBar>>();
 		let bars: Vec<_> = query.iter(app.world()).collect();
 
 		assert_eq!(bars.len(), 1, "should have one player health bar");

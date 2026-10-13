@@ -438,7 +438,12 @@ fn quantize_map_axis(value: f32) -> i32 {
 	(value / MAP_PIN_QUANT_M).round() as i32
 }
 
-type MapCameraQuery<'w, 's> = Query<'w, 's, (&'static Camera, &'static GlobalTransform), (With<Camera3d>, With<FollowCamera>)>;
+type MapCameraQuery<'w, 's> = Query<
+	'w,
+	's,
+	(&'static Camera, &'static GlobalTransform),
+	(With<Camera3d>, With<FollowCamera>),
+>;
 
 fn prepare_map_presentation(
 	map: Res<WorldMapView>,

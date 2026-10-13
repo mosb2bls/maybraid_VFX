@@ -227,9 +227,6 @@ mod tests {
 		super::request_show_home(&mut commands);
 		world.flush();
 		assert_eq!(world.query::<&super::RequestShowHome>().iter(&world).count(), 1);
-		assert_eq!(
-			world.query::<&item_icons::RequestPruneItemIconCache>().iter(&world).count(),
-			1
-		);
+		assert_eq!(world.query::<&item_icons::RequestPruneItemIconCache>().iter(&world).count(), 1);
 	}
 }

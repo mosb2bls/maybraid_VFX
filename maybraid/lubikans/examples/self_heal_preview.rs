@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
+use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
 use damage::Health;
 use lubikans::{
 	LubikanActivationFinished, LubikanActivationOutcome, LubikanActivationRequest, LubikanLedger,

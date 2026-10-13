@@ -93,8 +93,7 @@ pub struct GroundCells<G: RichmondGround> {
 
 impl<G: RichmondGround> GroundCells<G> {
 	pub fn generate(cx: &mut GenerationContext, site: Aabb3d) -> Self {
-		let cells =
-			cx.get_or_generate_in_finest_first::<G::Cell>(site, |cell| cell.bounds());
+		let cells = cx.get_or_generate_in_finest_first::<G::Cell>(site, |cell| cell.bounds());
 		Self { cells }
 	}
 }

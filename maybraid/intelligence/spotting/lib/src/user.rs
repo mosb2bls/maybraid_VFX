@@ -103,8 +103,15 @@ impl SpottingUser {
 			.set(SpottingHintSource::EXPLICIT, priority);
 	}
 
-	pub fn has_hint_from(&self, subject: Entity, source: SpottingHintSource, priority: i32) -> bool {
-		self.hints.get(&subject).is_some_and(|hint| hint.priority_for(source) == Some(priority))
+	pub fn has_hint_from(
+		&self,
+		subject: Entity,
+		source: SpottingHintSource,
+		priority: i32,
+	) -> bool {
+		self.hints
+			.get(&subject)
+			.is_some_and(|hint| hint.priority_for(source) == Some(priority))
 	}
 
 	pub fn hint_from(&mut self, subject: Entity, source: SpottingHintSource, priority: i32) {

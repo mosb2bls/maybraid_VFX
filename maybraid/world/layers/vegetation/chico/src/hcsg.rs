@@ -398,8 +398,8 @@ mod tests {
 	};
 	use lod::gen::Version;
 	use lod::hcsg::{
-		GenerationScheme, HcsgClass, HcsgNode, HcsgRestartRequest, SettlePresentation,
-		ViewerHcsgBounds, settle_presentation,
+		settle_presentation, GenerationScheme, HcsgClass, HcsgNode, HcsgRestartRequest,
+		SettlePresentation, ViewerHcsgBounds,
 	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;

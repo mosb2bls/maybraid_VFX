@@ -2,8 +2,8 @@
 
 use bevy::prelude::Component;
 use character_items::{
-	random_starter_clothing, realize_firearm_stats, FirearmMesh, FirearmSpec, FirearmStats,
-	Inventory, InventoryItem, ItemRng, STARTER_CLOTHING_COUNT,
+	realize_firearm_stats, FirearmMesh, FirearmSpec, FirearmStats, Inventory, InventoryItem,
+	ItemRng, STARTER_CLOTHING_COUNT,
 };
 
 use crate::number::{index, seed, FromMobNumber};
@@ -47,7 +47,7 @@ impl CharacterInventory {
 			}
 			Self::Empty => 0,
 		};
-		let mut items = random_starter_clothing(&mut rng, clothing_count);
+		let mut items = rng.random_starter_clothing(clothing_count);
 		if let Some(weapon) = self.weapon(num, &mut rng) {
 			items.push(weapon);
 		}

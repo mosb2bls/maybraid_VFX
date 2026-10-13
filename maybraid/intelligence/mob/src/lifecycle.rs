@@ -110,12 +110,14 @@ fn roster_needs_writeback(
 	host: Entity,
 	live: &[(Entity, Entity, u16, Vec3, Option<Health>)],
 ) -> bool {
-	roster.iter().any(|(slot, member)| match live_snapshot(live, host, slot, member.entity) {
-		Some((pose, health)) => {
-			member.pose != pose || health.is_some_and(|health| member.health != health)
-		}
-		None => member.entity.is_some(),
-	})
+	roster
+		.iter()
+		.any(|(slot, member)| match live_snapshot(live, host, slot, member.entity) {
+			Some((pose, health)) => {
+				member.pose != pose || health.is_some_and(|health| member.health != health)
+			}
+			None => member.entity.is_some(),
+		})
 }
 
 fn live_snapshot(

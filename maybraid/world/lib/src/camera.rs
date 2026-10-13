@@ -26,8 +26,18 @@ const WORLD_CAMERA_FAR: f32 = 8_000.0;
 const WORLD_CAMERA_NEAR: f32 = 0.1;
 const WORLD_FREE_CAMERA_SPEED: f32 = 40.0;
 
-type PlayerFollowQuery<'w, 's> = Query<'w, 's, (Entity, &'static Transform), (With<Player>, With<CameraFollow>, Without<Camera3d>)>;
-type CameraFollowQuery<'w, 's> = Query<'w, 's, (&'static mut Transform, &'static CameraController, &'static FollowCamera), (With<Camera3d>, Without<Player>)>;
+type PlayerFollowQuery<'w, 's> = Query<
+	'w,
+	's,
+	(Entity, &'static Transform),
+	(With<Player>, With<CameraFollow>, Without<Camera3d>),
+>;
+type CameraFollowQuery<'w, 's> = Query<
+	'w,
+	's,
+	(&'static mut Transform, &'static CameraController, &'static FollowCamera),
+	(With<Camera3d>, Without<Player>),
+>;
 
 #[derive(Component)]
 struct WorldFreeCamera {
