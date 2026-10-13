@@ -937,4 +937,45 @@ mod tests {
 		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "80"));
 		Ok(())
 	}
+
+	#[test]
+	fn lubikan_charge_shows_banked_count_when_stock_exceeds_one() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut().entity_mut(owner).insert((Player, Health::default()));
+		let extra = lubikans::LubikanDefinition::new(
+			lubikans::LubikanDefinitionId::from_raw(9),
+			25.0,
+			25.0,
+		)
+		.with_max_stock(3);
+		{
+			app.world_mut().resource_mut::<lubikans::LubikanCatalog>().register(extra);
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			let other = ledger.ensure_owned(extra);
+			ledger.apply_to(other, 50.0);
+			if !ledger.select(Some(other)) {
+				return Err(anyhow::anyhow!("select stacked account"));
+			}
+		}
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let world = app.world_mut();
+		assert!(
+			world.query::<&Text>().iter(world).any(|text| text.0 == "Lubikan 9  2/3"),
+			"multi-stock charge row must show banked / max"
+		);
+		assert_eq!(
+			world
+				.get::<lubikans::LubikanLedger>(owner)
+				.map(|ledger| ledger.equipped().charge().current()),
+			Some(50.0),
+			"HUD must not award or clamp charge"
+		);
+		Ok(())
+	}
 }

@@ -74,7 +74,7 @@ impl LubikanAccount {
 		let id = LubikanAccountId::unique(definition.id);
 		Self {
 			id,
-			charge: LubikanCharge::empty(definition.capacity),
+			charge: LubikanCharge::empty(definition.charge_capacity()),
 			activation: LubikanActivation::idle(id),
 		}
 	}
@@ -82,7 +82,7 @@ impl LubikanAccount {
 	pub fn with_id(id: LubikanAccountId, definition: LubikanDefinition) -> Self {
 		Self {
 			id,
-			charge: LubikanCharge::empty(definition.capacity),
+			charge: LubikanCharge::empty(definition.charge_capacity()),
 			activation: LubikanActivation::idle(id),
 		}
 	}
@@ -192,7 +192,7 @@ impl LubikanLedger {
 	pub fn ensure_owned(&mut self, definition: LubikanDefinition) -> LubikanAccountId {
 		let id = LubikanAccountId::unique(definition.id);
 		if let Some(existing) = self.account_mut(id) {
-			existing.charge.set_capacity(definition.capacity);
+			existing.charge.set_capacity(definition.charge_capacity());
 			id
 		} else {
 			self.accounts.push(LubikanAccount::with_id(id, definition));

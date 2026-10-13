@@ -16,6 +16,7 @@ const MAX_FLYERS: usize = 24;
 const EDGE_MARGIN: f32 = 28.0;
 const GAIN: Color = Color::srgb(0.45, 0.95, 0.72);
 const LOSS: Color = Color::srgb(0.95, 0.38, 0.32);
+const MAX_GAIN: Color = Color::srgb(0.78, 0.72, 0.42);
 
 #[derive(Component)]
 pub(crate) struct LubikanPointFlyer {
@@ -62,7 +63,10 @@ pub(crate) fn ingest_lubikan_point_flyers(
 	let live = flyers.iter().count();
 	let mut budget = MAX_FLYERS.saturating_sub(live);
 	for change in changes.read() {
-		if change.recipient != player || !change.amount.is_finite() || change.amount == 0.0 {
+		if change.recipient != player
+			|| !change.points_earned.is_finite()
+			|| change.points_earned == 0.0
+		{
 			continue;
 		}
 		if budget == 0 {
@@ -70,12 +74,13 @@ pub(crate) fn ingest_lubikan_point_flyers(
 		}
 		budget -= 1;
 		let start = project_origin(camera, camera_transform, ui_viewport, change.origin);
+		let at_cap = change.discarded_at_stock_cap();
 		spawn_flyer(
 			&mut commands,
 			hud,
 			change.lubikan,
-			change.amount,
-			change.reason,
+			point_label(change.points_earned, change.reason, at_cap),
+			flyer_color(change.points_earned, at_cap),
 			start,
 			time.elapsed_secs(),
 		);
@@ -147,13 +152,11 @@ fn spawn_flyer(
 	commands: &mut Commands,
 	hud: Entity,
 	credited: LubikanAccountId,
-	amount: f32,
-	reason: LubikanChargeReason,
+	label: String,
+	color: Color,
 	start: Vec2,
 	born: f32,
 ) {
-	let label = point_label_with_reason(amount, reason);
-	let color = if amount > 0.0 { GAIN } else { LOSS };
 	commands.entity(hud).with_children(|root| {
 		root.spawn((
 			Name::new("lubikan-point-flyer"),
@@ -232,9 +235,24 @@ pub(crate) fn stack_offset(index: usize) -> Vec2 {
 	Vec2::new(0.0, -((index as f32 + 1.0) * SLOT_H))
 }
 
-pub(crate) fn point_label_with_reason(amount: f32, reason: LubikanChargeReason) -> String {
+pub(crate) fn point_label(amount: f32, reason: LubikanChargeReason, at_stock_cap: bool) -> String {
 	let signed = if amount > 0.0 { format!("+{:.0}", amount) } else { format!("{:.0}", amount) };
-	format!("{signed} {label}", label = reason.label())
+	let base = format!("{signed} {label}", label = reason.label());
+	if at_stock_cap && amount > 0.0 {
+		format!("{base} MAX")
+	} else {
+		base
+	}
+}
+
+pub(crate) fn flyer_color(amount: f32, at_stock_cap: bool) -> Color {
+	if at_stock_cap && amount > 0.0 {
+		MAX_GAIN
+	} else if amount > 0.0 {
+		GAIN
+	} else {
+		LOSS
+	}
 }
 
 #[cfg(test)]
@@ -245,8 +263,10 @@ mod tests {
 
 	#[test]
 	fn signed_labels_distinguish_gains_and_penalties() {
-		assert_eq!(point_label_with_reason(3.0, LubikanChargeReason::COMBAT_HIT), "+3 hit");
-		assert_eq!(point_label_with_reason(-2.0, LubikanChargeReason::ADJUSTMENT), "-2 adjustment");
+		assert_eq!(point_label(3.0, LubikanChargeReason::COMBAT_HIT, false), "+3 hit");
+		assert_eq!(point_label(-2.0, LubikanChargeReason::ADJUSTMENT, false), "-2 adjustment");
+		assert_eq!(point_label(3.0, LubikanChargeReason::COMBAT_HIT, true), "+3 hit MAX");
+		assert_eq!(flyer_color(3.0, true), MAX_GAIN);
 	}
 
 	#[test]
@@ -333,6 +353,20 @@ mod tests {
 			LubikanChargeReason::COMBAT_HIT,
 			origin,
 		));
+		Ok(())
+	}
+
+	fn emit_capped_hit(app: &mut App, owner: Entity, origin: Option<Vec3>) -> Result<()> {
+		let account = app
+			.world()
+			.get::<lubikans::LubikanLedger>(owner)
+			.ok_or_else(|| anyhow!("ledger"))?
+			.equipped()
+			.id();
+		app.world_mut().write_message(
+			LubikanChargeChanged::new(owner, account, 0.0, LubikanChargeReason::COMBAT_HIT, origin)
+				.with_points_earned(3.0),
+		);
 		Ok(())
 	}
 
@@ -423,6 +457,26 @@ mod tests {
 			app.world_mut().query::<&LubikanPointFlyer>().iter(app.world()).count(),
 			1,
 			"present Camera2d must not starve Camera3d::single projection"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn flyers_still_spawn_when_charge_is_already_full() -> Result<()> {
+		let (mut app, owner) = flyer_app();
+		app.update();
+		set_dock_physical(app.world_mut(), Vec2::new(80.0, 600.0), 1.0)?;
+		emit_capped_hit(&mut app, owner, Some(Vec3::new(1.0, 1.0, -4.0)))?;
+		app.update();
+		let world = app.world_mut();
+		assert_eq!(
+			world.query::<&LubikanPointFlyer>().iter(world).count(),
+			1,
+			"capped awards must still raise a flyer"
+		);
+		assert!(
+			world.query::<&Text>().iter(world).any(|text| text.0 == "+3 hit MAX"),
+			"full-state cue must keep the earned-point label"
 		);
 		Ok(())
 	}

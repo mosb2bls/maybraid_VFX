@@ -86,19 +86,35 @@ impl LubikanAccountId {
 }
 
 /// Catalog row: identity plus configurable charge limits.
+///
+/// [`Self::max_stock`] is how many activations this definition can bank.
+/// Awarded charge is clamped to [`Self::stock_capacity`] (`max_stock` ×
+/// [`Self::activation_cost`]); overflow is discarded, not stored.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LubikanDefinition {
 	pub id: LubikanDefinitionId,
 	pub capacity: f32,
 	pub activation_cost: f32,
+	/// Banked-activation cap. Defaults to `1`; sanitized to at least `1`.
+	pub max_stock: u32,
 }
 
 impl LubikanDefinition {
 	pub fn new(id: LubikanDefinitionId, capacity: f32, activation_cost: f32) -> Self {
+		Self::with_stock(id, capacity, activation_cost, 1)
+	}
+
+	pub fn with_stock(
+		id: LubikanDefinitionId,
+		capacity: f32,
+		activation_cost: f32,
+		max_stock: u32,
+	) -> Self {
 		Self {
 			id,
 			capacity: sanitize_capacity(capacity),
 			activation_cost: sanitize_cost(activation_cost),
+			max_stock: sanitize_stock(max_stock),
 		}
 	}
 
@@ -106,8 +122,31 @@ impl LubikanDefinition {
 		Self::new(LubikanDefinitionId::SELF, capacity, activation_cost)
 	}
 
+	pub fn with_max_stock(self, max_stock: u32) -> Self {
+		Self { max_stock: sanitize_stock(max_stock), ..self }
+	}
+
 	pub fn is_self(self) -> bool {
 		self.id.is_self()
+	}
+
+	/// Charge ceiling for awards: `max_stock × activation_cost`.
+	///
+	/// A zero cost falls back to [`Self::capacity`] so cost-less fixtures keep
+	/// a usable bucket.
+	pub fn stock_capacity(self) -> f32 {
+		let from_stock = sanitize_stock(self.max_stock) as f32 * self.activation_cost;
+		if from_stock > 0.0 {
+			from_stock
+		} else {
+			self.capacity
+		}
+	}
+
+	/// Account bucket size: large enough to hold the stock cap without shrinking
+	/// an explicit [`Self::capacity`].
+	pub fn charge_capacity(self) -> f32 {
+		self.capacity.max(self.stock_capacity())
 	}
 }
 
@@ -125,6 +164,10 @@ pub(crate) fn sanitize_cost(cost: f32) -> f32 {
 	} else {
 		0.0
 	}
+}
+
+pub(crate) fn sanitize_stock(stock: u32) -> u32 {
+	stock.max(1)
 }
 
 #[cfg(test)]
@@ -155,5 +198,19 @@ mod tests {
 		let definition = LubikanDefinition::new(LubikanDefinitionId::from_raw(3), f32::NAN, -4.0);
 		assert_eq!(definition.capacity, 0.0);
 		assert_eq!(definition.activation_cost, 0.0);
+		assert_eq!(definition.max_stock, 1);
+	}
+
+	#[test]
+	fn definition_defaults_max_stock_to_one_and_derives_stock_cap() {
+		let definition = LubikanDefinition::new(LubikanDefinitionId::from_raw(3), 10.0, 4.0);
+		assert_eq!(definition.max_stock, 1);
+		assert_eq!(definition.stock_capacity(), 4.0);
+		assert_eq!(definition.charge_capacity(), 10.0);
+		let stacked = definition.with_max_stock(3);
+		assert_eq!(stacked.max_stock, 3);
+		assert_eq!(stacked.stock_capacity(), 12.0);
+		assert_eq!(stacked.charge_capacity(), 12.0);
+		assert_eq!(definition.with_max_stock(0).max_stock, 1);
 	}
 }
