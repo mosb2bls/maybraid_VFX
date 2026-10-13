@@ -362,7 +362,7 @@ Each frame:
 4. **Sweep.** Once a new session's subscription is read through to `done`, retire every host that session did not publish. A new session leaves no value behind, so this is the only time presentation retires by what was published.
 5. **Retire.** Retire any host whose entry bounds intersect none of the regions, along with its owned scene subtree. Within a session, retirement depends only on bounds, never on what discovery returned. Hosts are only rechecked when the regions change or new hosts were spawned.
 
-Retiring marks the host `RetiredHost`. The runtime despawns retired hosts in `Last`, so commands other systems queue for the host through `PostUpdate` still land.
+Retiring marks the host `RetiredHost` and hides it (`Visibility::Hidden`) so leftover trees do not extract while they wait. The runtime recursive-despawns a budgeted prefix in `Last` — [`LodChunkFulfillBudget::retired_host_despawns_per_frame`] (the cull-root cap, at least one) and [`LodChunkFulfillBudget::retired_host_time_per_frame`] (the exclusive drain clock) — so commands other systems queue for the host through `PostUpdate` still land, and Leave cannot retire a whole cascade on one frame.
 
 Notes:
 - When the subscription is replaced, existing hosts stay. Ids the new subscription publishes that are already in `hosts` are skipped.
