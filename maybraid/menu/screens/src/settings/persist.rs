@@ -52,7 +52,9 @@ fn legacy_settings_version() -> u32 {
 /// Version-1 `sharp` was today's direct-window path. Remap it to Native so
 /// existing players keep that look; version 2+ `sharp` is the new 1080p mode.
 fn migrate_v1_sharp_to_native(settings: &mut InGameSettings, version: u32) {
-	if version < VISUAL_STYLE_NATIVE_SPLIT_VERSION && settings.visual_style == InGameVisualStyle::Sharp {
+	if version < VISUAL_STYLE_NATIVE_SPLIT_VERSION
+		&& settings.visual_style == InGameVisualStyle::Sharp
+	{
 		settings.visual_style = InGameVisualStyle::Native;
 	}
 }

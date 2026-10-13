@@ -9,10 +9,10 @@ pub use flow::{GameFlow, HomeRoute, PauseMenuRoute, PlaySession, WorldPause};
 pub use paths::assets_root;
 
 use crate::shell::{
-	ShellRoute, apply_pause_character_look, apply_shell_look, attach_preview_camera,
-	despawn_loading_backdrop, detach_preview_camera, enter_characters, enter_home,
-	enter_loading_world, enter_world, enter_world_menu, exit_world_menu,
-	restore_stashed_world_camera, spawn_loading_backdrop, stamp_preview_render_layers,
+	apply_pause_character_look, apply_shell_look, attach_preview_camera, despawn_loading_backdrop,
+	detach_preview_camera, enter_characters, enter_home, enter_loading_world, enter_world,
+	enter_world_menu, exit_world_menu, restore_stashed_world_camera, spawn_loading_backdrop,
+	stamp_preview_render_layers, ShellRoute,
 };
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -20,15 +20,15 @@ use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use maybraid_input::MenuNavPad;
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
-	Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
-	TerrainStreaming, VISUAL_STYLE_ENV, VisualStyle, VisualStyleSetting, WorldGameplayEnabled,
-	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
-	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, parse_visual_style_env,
-	reset_first_spawn_offer, resume_discovery_from_saved_waypoints,
+	parse_visual_style_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
+	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
+	TerrainStreaming, VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMobHudEnabled,
+	WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady,
+	WorldSurfaceSet, VISUAL_STYLE_ENV,
 };
 use menu_components::{
-	ActiveOverlayKey, MENU_CLEAR, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-	TextMenuSystems, consume_screen_back,
+	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
+	TextMenuSystems, MENU_CLEAR,
 };
 use menu_playground::{
 	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterLeavePrompt,
@@ -36,11 +36,11 @@ use menu_playground::{
 	CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
 };
 use menu_screens::{
-	CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice, HomeScreenPlugin,
-	InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
+	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
+	request_show_in_game_settings, CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice,
+	HomeScreenPlugin, InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
 	InGameSettingsSystems, InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin,
-	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen, cancel_pending_create,
-	request_show_gallery, request_show_home, request_show_in_game, request_show_in_game_settings,
+	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen,
 };
 
 pub struct GamePlugin;
@@ -530,10 +530,10 @@ mod tests {
 	use menu_playground::ActiveCharacter;
 
 	use crate::{
-		GameFlow, PlaySession, apply_settings_to_visual_style, assets_root, clear_play_session,
+		apply_settings_to_visual_style, assets_root, clear_play_session,
 		load_active_player_loadout, persist_changed_player_inventory, read_player_loadout,
 		route_home_choice, sync_world_loadout_from_editor, sync_world_shadows,
-		visual_style_readout,
+		visual_style_readout, GameFlow, PlaySession,
 	};
 	use maybraid_world::{
 		ShadowQuality, VisualStyle, VisualStyleSetting, WorldPlaySessionEnded, WorldPlayerLoadout,

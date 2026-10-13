@@ -194,7 +194,7 @@ pub(super) fn overlay_machine_fields(
 	overlay_machine_field::<Shadows>(settings, fields);
 	overlay_machine_field::<VisualStylePref>(settings, fields);
 	overlay_machine_field::<MobHud>(settings, fields);
-	
+
 	// Migration: if visual_style is missing but render_scale exists, migrate
 	if !fields.contains_key(VisualStylePref::KEY) && fields.contains_key(RenderScalePref::KEY) {
 		if let Ok(legacy_scale) = serde_json::from_value::<InGameRenderScale>(
@@ -283,10 +283,7 @@ mod tests {
 
 	#[test]
 	fn visual_style_defaults_to_native() {
-		assert_eq!(
-			VisualStylePref::device_default(DeviceClass::Modest),
-			InGameVisualStyle::Native
-		);
+		assert_eq!(VisualStylePref::device_default(DeviceClass::Modest), InGameVisualStyle::Native);
 		assert_eq!(
 			InGameSettings::from_device(DeviceClass::Modest).visual_style,
 			InGameVisualStyle::Native

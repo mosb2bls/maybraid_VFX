@@ -14,8 +14,8 @@ use bevy::window::PrimaryWindow;
 use player_camera::FollowCamera;
 
 use super::presentation::{
-	ImpressionistMaterial, NearestNeighborMaterial, PrePostModernMaterial, PresentationMaterial,
-	create_presentation_material,
+	create_presentation_material, ImpressionistMaterial, NearestNeighborMaterial,
+	PrePostModernMaterial, PresentationMaterial,
 };
 use super::visual_style::{PresentationTreatment, VisualStyle};
 use super::{PresentationAction, PresentationChurn, RenderScale, VisualStyleSetting};
