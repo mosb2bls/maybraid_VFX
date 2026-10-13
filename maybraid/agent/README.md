@@ -46,6 +46,7 @@ with `"cmd"`.
 | `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
+| `visual_style` | `style` (`impressionist`, `watercolor`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) | instant; `started` is receipt, `finished` includes resolved `WIDTHxHEIGHT` |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
 | `quit` | | request process exit |
 
@@ -95,6 +96,8 @@ published outside the repo (Traces releases) state the version they target.
 |---|---|
 | 1 | `hold`, `press`, `wait`, `goto` (+ `look`), `teleport`, `console`, `scenario`, `quit` |
 | 2 | `start` — script-chosen spawn point |
+| 3 | `visual_style` — set presentation mode (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) |
+| 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
 
 ## Events
 
@@ -111,6 +114,7 @@ and `frame`.
 | `chunk_loads` | count of new cascade chunks this frame (cheap summary) |
 | `actors` | `hosts` / `bodies` / `brains` plus `min_y` / `max_y` / `ground_at_min_y` when the census or Y band changes |
 | `picker` | locked spawn picker opened or closed (`open`) |
+| `presentation` | offscreen `resize` / `recreate` (`window`, `target`) — must be zero in a measure window |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the

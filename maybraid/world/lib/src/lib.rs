@@ -28,7 +28,7 @@ mod pitch;
 mod player_lifecycle;
 mod player_position;
 mod poi;
-mod render_scale;
+pub mod render_scale;
 mod spawn_surface;
 mod start;
 mod stash;
@@ -41,12 +41,12 @@ mod world_layers;
 pub use world_furnished::WorldFurnished;
 
 pub use agent::AgentDrive;
-pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 #[cfg(feature = "debug-commands")]
 pub use commands::{
 	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
 	RequestSpawnNpc, RequestTakeDamage, RequestTeleport,
 };
+pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
 	WorldSurfaceReady, WorldSurfaceSet,
@@ -77,8 +77,11 @@ pub use player_position::{
 };
 pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
 pub use render_scale::{
-	map_render_to_window, map_window_to_render, parse_render_scale_env, target_physical_size,
-	RenderScale, RequestRenderScale, RENDER_SCALE_ENV,
+	map_render_to_window, map_window_to_render, parse_force_offscreen_env,
+	parse_presentation_treatment_env, parse_render_scale_env, parse_visual_style_env,
+	target_physical_size, RenderScale, RequestForceOffscreen, RequestRenderScale,
+	RequestVisualStyle, VisualStyle, VisualStyleSetting, FORCE_OFFSCREEN_ENV,
+	PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV, VISUAL_STYLE_ENV,
 };
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
@@ -332,11 +335,9 @@ impl Plugin for WorldPlugin {
 	}
 }
 
-
 fn spawn_default_braidman(mut commands: Commands) {
 	commands.spawn(RequestSetCharacter { species: CharacterSpecies::Braidman });
 }
-
 
 #[cfg(test)]
 mod tests {

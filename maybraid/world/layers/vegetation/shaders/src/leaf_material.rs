@@ -19,6 +19,7 @@ use bevy::{
 	},
 	shader::ShaderRef,
 };
+use vegetation_components::CanopyShadowMode;
 
 /// Registers embedded **`leaf_material.wgsl`** and [`MaterialPlugin`] for [`LeafMaterial`].
 pub struct LeafMaterialPlugin;
@@ -34,7 +35,11 @@ impl Plugin for LeafMaterialPlugin {
 fn disable_leaf_shadow_casters(
 	mut commands: Commands,
 	query: Query<Entity, (With<MeshMaterial3d<LeafMaterial>>, Without<NotShadowCaster>)>,
+	mode: Option<Res<CanopyShadowMode>>,
 ) {
+	if mode.is_some_and(|mode| mode.canopy_casts()) {
+		return;
+	}
 	for entity in &query {
 		commands.entity(entity).insert(NotShadowCaster);
 	}

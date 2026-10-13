@@ -1,6 +1,7 @@
 //! Slim world-playground commands. Forest + terrain extents are baked in.
 
 use bevy::prelude::*;
+use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use world_player::commands::{RequestMeshStats, RequestModeCharacter, RequestModeFree};
 use world_player::{CharacterSpecies, RequestFpsToggle, RequestSetCharacter};
 
@@ -15,7 +16,7 @@ use maybraid_sky::{
 use mob_scenes::MobKind;
 
 use crate::mob_spawn::RequestSpawnMobs;
-use crate::{RequestRenderScale, RequestVsyncToggle};
+use crate::{RequestForceOffscreen, RequestRenderScale, RequestVsyncToggle};
 
 #[cfg(feature = "debug-commands")]
 use std::path::PathBuf;
@@ -52,6 +53,10 @@ pub enum PlaygroundCommand {
 	/// Debug mob placement (Tracy actor-density flights).
 	#[command(subcommand)]
 	Mobs(Mobs),
+	/// Capture the primary window to a PNG via GPU readback.
+	Screenshot {
+		path: std::path::PathBuf,
+	},
 	/// Debug commands for testing (debug builds only).
 	#[cfg(feature = "debug-commands")]
 	#[command(subcommand)]
@@ -168,6 +173,19 @@ pub enum Sky {
 pub enum Render {
 	/// Shade the 3D world at `factor ×` window physical size (`0.5`–`1.0`).
 	Scale { factor: f32 },
+	/// Keep the offscreen blit even at native resolution (`MAYBRAID_FORCE_OFFSCREEN`).
+	Offscreen {
+		#[arg(value_parser = parse_on_off, action = clap::ArgAction::Set)]
+		enabled: bool,
+	},
+}
+
+fn parse_on_off(raw: &str) -> Result<bool, String> {
+	match raw.trim().to_ascii_lowercase().as_str() {
+		"1" | "true" | "on" | "yes" => Ok(true),
+		"0" | "false" | "off" | "no" => Ok(false),
+		other => Err(format!("expected on/off, got {other:?}")),
+	}
 }
 
 #[derive(Clone, Subcommand)]
@@ -201,11 +219,7 @@ pub enum DebugCommand {
 		mode: CameraMode,
 	},
 	/// Teleport the player to the specified XYZ world position.
-	Teleport {
-		x: f32,
-		y: f32,
-		z: f32,
-	},
+	Teleport { x: f32, y: f32, z: f32 },
 }
 
 #[cfg(feature = "debug-commands")]
@@ -242,6 +256,10 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Sky(sky) => sky.react(commands, console),
 			PlaygroundCommand::Render(render) => render.react(commands, console),
 			PlaygroundCommand::Mobs(mobs) => mobs.react(commands, console),
+			PlaygroundCommand::Screenshot { path } => {
+				commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+				*console = format!("screenshot {}: pending", path.display());
+			}
 			#[cfg(feature = "debug-commands")]
 			PlaygroundCommand::Debug(debug) => debug.react(commands, console),
 			#[cfg(feature = "debug-commands")]
@@ -304,6 +322,11 @@ impl Render {
 				let factor = crate::render_scale::RenderScale::clamp(factor);
 				commands.spawn(RequestRenderScale(factor));
 				*console = format!("render scale {factor:.3}: pending");
+			}
+			Self::Offscreen { enabled } => {
+				commands.spawn(RequestForceOffscreen(enabled));
+				*console =
+					format!("render offscreen {}: pending", if enabled { "on" } else { "off" });
 			}
 		}
 	}
@@ -400,24 +423,24 @@ impl DebugCommand {
 				commands.spawn(RequestSpawnNpc);
 				*console = "debug spawn-npc: pending".into();
 			}
-		DebugCommand::Activate => {
-			commands.spawn(RequestActivate);
-			*console = "debug activate: pending".into();
-		}
-		DebugCommand::Peaceful => {
-			commands.spawn(RequestPeaceful);
-			*console = "debug peaceful: pending".into();
-		}
-		DebugCommand::Camera { mode } => {
-			commands.spawn(RequestCamera { mode });
-			*console = format!("debug camera {:?}: pending", mode);
-		}
-		DebugCommand::Teleport { x, y, z } => {
-			commands.spawn(RequestTeleport { position: Vec3::new(x, y, z) });
-			*console = format!("debug teleport ({}, {}, {}): pending", x, y, z);
+			DebugCommand::Activate => {
+				commands.spawn(RequestActivate);
+				*console = "debug activate: pending".into();
+			}
+			DebugCommand::Peaceful => {
+				commands.spawn(RequestPeaceful);
+				*console = "debug peaceful: pending".into();
+			}
+			DebugCommand::Camera { mode } => {
+				commands.spawn(RequestCamera { mode });
+				*console = format!("debug camera {:?}: pending", mode);
+			}
+			DebugCommand::Teleport { x, y, z } => {
+				commands.spawn(RequestTeleport { position: Vec3::new(x, y, z) });
+				*console = format!("debug teleport ({}, {}, {}): pending", x, y, z);
+			}
 		}
 	}
-}
 }
 
 impl GameCommand for PlaygroundCommand {
@@ -454,6 +477,17 @@ mod tests {
 			}
 			_ => anyhow::bail!("expected render scale 0.75"),
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn parse_render_offscreen() -> anyhow::Result<()> {
+		let on = PlaygroundCommand::parse_line("render offscreen on")
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		assert!(matches!(on, PlaygroundCommand::Render(Render::Offscreen { enabled: true })));
+		let off = PlaygroundCommand::parse_line("render offscreen off")
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		assert!(matches!(off, PlaygroundCommand::Render(Render::Offscreen { enabled: false })));
 		Ok(())
 	}
 
@@ -508,5 +542,14 @@ mod tests {
 			set,
 			PlaygroundCommand::SetCharacter { species: CharacterSpecies::Braidman }
 		));
+	}
+
+	#[test]
+	fn parse_screenshot_path() {
+		let cmd = PlaygroundCommand::parse_line("screenshot /tmp/canopy-noon.png").unwrap();
+		let PlaygroundCommand::Screenshot { path } = cmd else {
+			panic!("expected screenshot");
+		};
+		assert_eq!(path, std::path::PathBuf::from("/tmp/canopy-noon.png"));
 	}
 }
