@@ -746,7 +746,15 @@ mod tests {
 			"applied watercolor 1280x720"
 		);
 		assert_eq!(
+			visual_style_applied_detail(VisualStyle::Native, UVec2::new(1920, 1080), 1.0),
+			"applied native 1920x1080"
+		);
+		assert_eq!(
 			visual_style_applied_detail(VisualStyle::Sharp, UVec2::new(1920, 1080), 1.0),
+			"applied sharp 1920x1080"
+		);
+		assert_eq!(
+			visual_style_applied_detail(VisualStyle::Sharp, UVec2::new(2560, 1440), 1.0),
 			"applied sharp 1920x1080"
 		);
 	}
