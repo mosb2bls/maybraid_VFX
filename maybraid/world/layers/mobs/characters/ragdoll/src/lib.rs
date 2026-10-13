@@ -312,28 +312,35 @@ fn begin_corpse_handoffs(
 		if let Some(mut wish) = wish {
 			wish.0 = Vec3::ZERO;
 		}
-		commands
-			.entity(body)
-			.remove::<(CharacterController, HitCapsule, HeadCapsule)>()
-			.try_insert((RigidBodyDisabled, ColliderDisabled));
+		if let Ok(mut entity) = commands.get_entity(body) {
+			entity
+				.remove::<(CharacterController, HitCapsule, HeadCapsule)>()
+				.try_insert((RigidBodyDisabled, ColliderDisabled));
+		}
 		for (volume, child_of) in &hit_volumes {
 			if child_of.parent() == body {
-				commands.entity(volume).try_despawn();
+				if let Ok(mut entity) = commands.get_entity(volume) {
+					entity.try_despawn();
+				}
 			}
 		}
 		for (visual, child_of) in &visuals {
 			if child_of.parent() != body {
 				continue;
 			}
-			commands.entity(visual).insert((
-				Corpse {
-					source: downed.source,
-					point: downed.point,
-					inherited_velocity: inherited,
-				},
-				SuspendAnimation,
-			));
-			commands.entity(body).try_insert(CorpseHandoff { visual, started_at: now });
+			if let Ok(mut entity) = commands.get_entity(visual) {
+				entity.try_insert((
+					Corpse {
+						source: downed.source,
+						point: downed.point,
+						inherited_velocity: inherited,
+					},
+					SuspendAnimation,
+				));
+			}
+			if let Ok(mut entity) = commands.get_entity(body) {
+				entity.try_insert(CorpseHandoff { visual, started_at: now });
+			}
 			break;
 		}
 	}
@@ -372,9 +379,9 @@ fn finish_corpse_handoffs(
 		let ragdoll_ready = ragdolls.iter().any(|ragdoll| ragdoll.corpse == handoff.visual);
 		let timed_out = now - handoff.started_at >= settings.handoff_wait_secs.max(0.0);
 		if ragdoll_ready || timed_out {
-			commands
-				.entity(handoff.visual)
-				.remove::<(PlayerVisual, PlayerYawOwner, ApplyTerrainPitch)>();
+			if let Ok(mut entity) = commands.get_entity(handoff.visual) {
+				entity.try_remove::<(PlayerVisual, PlayerYawOwner, ApplyTerrainPitch)>();
+			}
 			retire_gameplay_body(
 				&mut commands,
 				body,
@@ -391,7 +398,9 @@ fn retire_gameplay_body(
 	missing_ttl: bool,
 	corpse_secs: f32,
 ) {
-	let mut entity = commands.entity(body);
+	let Ok(mut entity) = commands.get_entity(body) else {
+		return;
+	};
 	entity
 		.remove::<(Player, Npc, CameraFollow, PlayerCameraAim, CharacterController)>()
 		.try_insert((RigidBodyDisabled, ColliderDisabled, CorpseRetired));
@@ -426,7 +435,9 @@ fn initialize_ragdolls(
 		) else {
 			continue;
 		};
-		commands.entity(host).insert((state, SuspendAnimation));
+		if let Ok(mut entity) = commands.get_entity(host) {
+			entity.try_insert((state, SuspendAnimation));
+		}
 	}
 }
 
@@ -700,7 +711,9 @@ fn apply_impulse(state: &mut RagdollState, impulse: RagdollImpulse, dt: f32) {
 }
 
 fn solve_distance(particles: &mut [RagdollParticle], constraint: DistanceConstraint) {
-	let (a, b) = two_mut(particles, constraint.a, constraint.b);
+	let Some((a, b)) = two_mut(particles, constraint.a, constraint.b) else {
+		return;
+	};
 	let delta = b.position - a.position;
 	let distance = delta.length();
 	if distance <= 1e-5 {
@@ -715,14 +728,16 @@ fn solve_distance(particles: &mut [RagdollParticle], constraint: DistanceConstra
 	b.position -= correction * (b.inverse_mass / total_mass);
 }
 
-fn two_mut<T>(values: &mut [T], a: usize, b: usize) -> (&mut T, &mut T) {
-	debug_assert_ne!(a, b);
+fn two_mut<T>(values: &mut [T], a: usize, b: usize) -> Option<(&mut T, &mut T)> {
+	if a == b || a >= values.len() || b >= values.len() {
+		return None;
+	}
 	if a < b {
 		let (left, right) = values.split_at_mut(b);
-		(&mut left[a], &mut right[0])
+		Some((&mut left[a], &mut right[0]))
 	} else {
 		let (left, right) = values.split_at_mut(a);
-		(&mut right[0], &mut left[b])
+		Some((&mut right[0], &mut left[b]))
 	}
 }
 
@@ -865,6 +880,13 @@ mod tests {
 	}
 
 	#[test]
+	fn distance_solver_ignores_a_self_constraint() {
+		let mut particles = vec![particle(Vec3::ZERO), particle(Vec3::X)];
+		solve_distance(&mut particles, DistanceConstraint { a: 1, b: 1, length: 1.0 });
+		assert_eq!(particles[1].position, Vec3::X);
+	}
+
+	#[test]
 	fn every_body_skeleton_has_a_ragdoll_profile() {
 		assert!(!profile_bones(RigSkeletonKind::Humanoid).is_empty());
 		assert!(!profile_bones(RigSkeletonKind::Quadruped).is_empty());
@@ -987,6 +1009,43 @@ mod tests {
 			.get::<LinearVelocity>(body)
 			.is_some_and(|velocity| velocity.0 == Vec3::ZERO));
 		assert!(world.get::<DespawnAfter>(body).is_some());
+		Ok(())
+	}
+
+	#[test]
+	fn multi_hit_kill_then_handoff_does_not_command_despawned_volumes() -> anyhow::Result<()> {
+		use damage::{apply_hits, mark_downed, DamageApplied, Health, Hit};
+
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.init_resource::<CharacterRagdollTargets>()
+			.add_message::<Hit>()
+			.add_message::<DamageApplied>()
+			.add_message::<damage::Died>()
+			.add_systems(Update, (apply_hits, mark_downed, begin_corpse_handoffs).chain());
+		let body = app
+			.world_mut()
+			.spawn((
+				Health::from_max(10.0),
+				Npc,
+				HitCapsule { radius: 0.4, length: 0.8, along: 0.0 },
+			))
+			.id();
+		let volume = app.world_mut().spawn((HitVolume, ChildOf(body))).id();
+		for _ in 0..6 {
+			app.world_mut().write_message(Hit {
+				target: volume,
+				source: None,
+				amount: 4.0,
+				point: Vec3::new(0.0, 1.2, 0.0),
+				allow_self: false,
+			});
+		}
+		app.update();
+		app.update();
+		assert_eq!(app.world().get::<Health>(body).map(|health| health.current), Some(0.0));
+		assert!(app.world().get::<Downed>(body).is_some());
+		assert!(app.world().get_entity(volume).is_err());
 		Ok(())
 	}
 
