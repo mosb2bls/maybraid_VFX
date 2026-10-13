@@ -460,9 +460,29 @@ pub fn throw_aim(facing: Vec3, look: &PlayerLook) -> Vec3 {
 	Vec3::new(facing.x, 0.0, facing.z).normalize_or(Vec3::Z)
 }
 
+/// Avian default |g|. Thrown grenades use unit gravity scale and no linear damping.
+pub const THROW_GRAVITY: f32 = 9.81;
+
+/// Chest hold (`1.28 + hold_up`) plus the release toss offset (`0.12`).
+pub const STANDING_RELEASE_HEIGHT: f32 = 1.43;
+
 pub fn launch_velocity(aim: Vec3, stats: &GrenadeStats, inherit: Vec3) -> Vec3 {
 	let tossed = (aim + Vec3::Y * stats.upward_bias).normalize_or(Vec3::Y);
 	tossed * stats.launch_speed + inherit * stats.inherit_velocity
+}
+
+/// Seconds until a vacuum throw from `height` returns to y = 0.
+pub fn landing_time(height: f32, vy: f32, gravity: f32) -> f32 {
+	if gravity <= 1e-6 {
+		return 0.0;
+	}
+	let disc = vy * vy + 2.0 * gravity * height.max(0.0);
+	(vy + disc.sqrt()) / gravity
+}
+
+/// Horizontal meters a vacuum throw covers before y = 0.
+pub fn landing_range(height: f32, velocity: Vec3, gravity: f32) -> f32 {
+	Vec2::new(velocity.x, velocity.z).length() * landing_time(height, velocity.y, gravity)
 }
 
 #[cfg(test)]
@@ -650,9 +670,104 @@ mod tests {
 	fn launch_is_a_brisk_lob() {
 		let stats = GrenadeStats::standard();
 		let velocity = launch_velocity(Vec3::Z, &stats, Vec3::ZERO);
-		assert!(stats.launch_speed > 8.0 && stats.launch_speed < 12.0);
-		assert!(velocity.length() > 8.0 && velocity.length() < 12.0);
+		assert!(stats.launch_speed > 21.0 && stats.launch_speed < 23.0);
+		assert!(velocity.length() > 21.0 && velocity.length() < 23.0);
 		assert!(velocity.y > velocity.z * 0.18);
+	}
+
+	fn standing_third_person_velocity(stats: &GrenadeStats) -> Vec3 {
+		let look = PlayerLook::default();
+		let aim = throw_aim(Vec3::Z, &look);
+		launch_velocity(aim, stats, Vec3::ZERO)
+	}
+
+	#[test]
+	fn standing_third_person_lob_lands_around_thirty_meters() {
+		let stats = GrenadeStats::standard();
+		let velocity = standing_third_person_velocity(&stats);
+		let range = landing_range(STANDING_RELEASE_HEIGHT, velocity, THROW_GRAVITY);
+		let airtime = landing_time(STANDING_RELEASE_HEIGHT, velocity.y, THROW_GRAVITY);
+		assert!(
+			range > 28.0 && range < 32.0,
+			"median 22 m/s standing lob should land around 30 m, got {range:.1} m"
+		);
+		assert!(
+			airtime < stats.fuse,
+			"fuse {:.1}s must outlast the {airtime:.2}s lob so it lands before detonation",
+			stats.fuse
+		);
+	}
+
+	#[test]
+	fn faster_catalog_throw_lands_further() {
+		let stats = GrenadeStats::standard();
+		let mut boosted = stats;
+		boosted.launch_speed *= 1.5;
+		let base = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&stats),
+			THROW_GRAVITY,
+		);
+		let extra = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&boosted),
+			THROW_GRAVITY,
+		);
+		assert!(
+			extra > base * 1.4,
+			"launch_speed modifiers must stack on the base lob ({base:.1} m → {extra:.1} m)"
+		);
+	}
+
+	#[test]
+	fn rolled_launch_band_still_lands_inside_fuse() {
+		let mut floor = GrenadeStats::standard();
+		floor.launch_speed = 15.0;
+		let mut ceiling = GrenadeStats::standard();
+		ceiling.launch_speed = 30.0;
+		for stats in [floor, ceiling] {
+			let velocity = standing_third_person_velocity(&stats);
+			let airtime = landing_time(STANDING_RELEASE_HEIGHT, velocity.y, THROW_GRAVITY);
+			assert!(
+				airtime < stats.fuse,
+				"{} m/s lob airtime {airtime:.2}s must stay inside fuse {:.1}s",
+				stats.launch_speed,
+				stats.fuse
+			);
+		}
+		let floor_range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&floor),
+			THROW_GRAVITY,
+		);
+		let ceiling_range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&ceiling),
+			THROW_GRAVITY,
+		);
+		assert!(
+			floor_range > 15.0,
+			"15 m/s floor should still land past 15 m, got {floor_range:.1} m"
+		);
+		assert!(
+			ceiling_range > 50.0,
+			"30 m/s ceiling should land past 50 m, got {ceiling_range:.1} m"
+		);
+	}
+
+	#[test]
+	fn ten_meter_launch_used_to_land_around_ten_meters() {
+		let mut old = GrenadeStats::standard();
+		old.launch_speed = 10.0;
+		let range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&old),
+			THROW_GRAVITY,
+		);
+		assert!(
+			range > 7.0 && range < 12.0,
+			"the previous 10 m/s catalog throw should reconstruct the ~10 m lob, got {range:.1} m"
+		);
 	}
 
 	#[test]
