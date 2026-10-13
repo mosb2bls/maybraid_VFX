@@ -280,7 +280,10 @@ mod tests {
 		TerrainMeshLodBand, TerrainStampConfigs, WaterMeshAssets, WaterPresentationPlugin,
 		WatershedConfigs,
 	};
-	use lod::hcsg::{settle_presentation, HcsgNode, HcsgRestartRequest, SettlePresentation};
+	use lod::hcsg::{
+		drain_retired_hosts, settle_presentation, HcsgNode, HcsgRestartRequest, RetiredHost,
+		SettlePresentation,
+	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 	use mob_scenes::{MobKind, MobScene};
@@ -372,7 +375,7 @@ mod tests {
 
 	fn placed(app: &mut App) -> Vec<HcsgNode<PlacedMobCell<Urban>>> {
 		app.world_mut()
-			.query::<&HcsgNode<PlacedMobCell<Urban>>>()
+			.query_filtered::<&HcsgNode<PlacedMobCell<Urban>>, Without<RetiredHost>>()
 			.iter(app.world())
 			.cloned()
 			.collect()
@@ -383,6 +386,17 @@ mod tests {
 			.query_filtered::<(), (With<MobScene>, Allow<Disabled>)>()
 			.iter(app.world())
 			.count()
+	}
+
+	/// Scene fulfill can lag [`settle`]; wait for the same count the origin-cell
+	/// test already needs after HCSG hosts exist.
+	fn wait_mob_hosts(app: &mut App, at_least: usize) {
+		for _ in 0..200 {
+			if mob_hosts(app) >= at_least {
+				break;
+			}
+			app.update();
+		}
 	}
 
 	fn mobs(app: &mut App) -> Vec<crate::PlacedMob> {
@@ -417,12 +431,7 @@ mod tests {
 			assert!((at.y - ground).abs() < 1e-3, "{at} stands off the ground at {ground}");
 		}
 
-		for _ in 0..200 {
-			if mob_hosts(&mut app) >= mobs.len() {
-				break;
-			}
-			app.update();
-		}
+		wait_mob_hosts(&mut app, mobs.len());
 		assert_eq!(mob_hosts(&mut app), mobs.len(), "one mob host per placed mob");
 		Ok(())
 	}
@@ -463,6 +472,7 @@ mod tests {
 	fn leaving_the_neighborhood_retires_its_mobs() -> anyhow::Result<()> {
 		let mut app = app(UrbanizationKind::RuralLife);
 		settle(&mut app)?;
+		wait_mob_hosts(&mut app, 1);
 		assert!(mob_hosts(&mut app) > 0);
 
 		let away = Transform::from_xyz(5_000.0, 0.0, 5_000.0);
@@ -470,6 +480,11 @@ mod tests {
 		*viewers.single_mut(app.world_mut())? = away;
 		settle(&mut app)?;
 		assert!(placed(&mut app).is_empty());
+		assert_eq!(
+			drain_retired_hosts(&mut app, 256),
+			0,
+			"Leave leftovers finish under the Last budget"
+		);
 		assert_eq!(mob_hosts(&mut app), 0);
 		Ok(())
 	}

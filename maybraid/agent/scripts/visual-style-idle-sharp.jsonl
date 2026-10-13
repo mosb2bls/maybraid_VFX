@@ -1,4 +1,4 @@
-# Stationary Sharp (native, direct window) at origin.
+# Stationary Sharp (untreated 1080p offscreen, height-fit) at origin.
 
 {"cmd":"visual_style","style":"sharp"}
 {"cmd":"scenario","name":"visual-style-idle-warmup","mark":"start"}

@@ -1,4 +1,4 @@
-# Streaming route in Sharp (native, direct window).
+# Streaming route in Sharp (untreated 1080p offscreen, height-fit).
 
 {"cmd":"visual_style","style":"sharp"}
 {"cmd":"scenario","name":"visual-style-traverse-warmup","mark":"start"}

@@ -190,7 +190,8 @@ mod tests {
 	use bevy::state::app::StatesPlugin;
 	use durham::Durham;
 	use lod::hcsg::{
-		hcsg_hosts, settle_presentation, HcsgNode, HcsgRestartRequest, SettlePresentation,
+		hcsg_hosts, settle_presentation, HcsgNode, HcsgRestartRequest, RetiredHost,
+		SettlePresentation,
 	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
@@ -293,7 +294,7 @@ mod tests {
 	fn furnished(app: &mut App) -> Vec<(Id, usize)> {
 		let mut cells: Vec<_> = app
 			.world_mut()
-			.query::<&HcsgNode<Furnished<Urban>>>()
+			.query_filtered::<&HcsgNode<Furnished<Urban>>, Without<RetiredHost>>()
 			.iter(app.world())
 			.map(|node| (node.id, node.value.cell.slots.len()))
 			.collect();

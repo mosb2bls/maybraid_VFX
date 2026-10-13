@@ -8,10 +8,11 @@ use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
 use bevy::window::PrimaryWindow;
 use character_creation_menus::{
-	spin_reveal_firearm_focus, spin_reveal_focus, spin_reveal_grenade_focus, CharacterField,
-	CharacterMenu, ConceptSpecies, MenuEvent, BODY_FOCUS,
+	CharacterField, CharacterMenu, ConceptSpecies, MenuEvent, BODY_FOCUS,
 };
-use character_items::{ClothingHost, ClothingMesh, FirearmSpec, InventoryItem, ItemColor};
+#[cfg(test)]
+use character_items::InventoryItem;
+use character_items::{ClothingHost, ClothingMesh, FirearmSpec, ItemColor};
 use character_persist::SaveRoot;
 use character_ui_menu::{CameraFocus, FocusRig};
 use characters::{
@@ -372,34 +373,13 @@ fn sync_preview(
 	}
 
 	if !spin_screens.is_empty() {
+		// Starter reveal paints the catalog PNG in HUD. A live inspect mesh
+		// plus camera would stack on that icon (two trousers, two kits, …).
+		clear_preview(&mut commands, &mut sync, &mut pending, &roots);
 		if let Some(spin) = spin {
-			if spin.item.skill_map_spec().is_some() {
-				clear_preview(&mut commands, &mut sync, &mut pending, &roots);
-				sync.key = format!("spin-map:{:?}", spin.item);
-				return;
-			}
-			let key = format!("spin:{:?}", spin.item);
-			if sync.key == key && !roots.is_empty() {
-				return;
-			}
-			sync.key = key;
-			sync.anim = None;
-			for entity in &roots {
-				commands.entity(entity).try_despawn();
-			}
-			spawn_from_item(&mut commands, &spin.item);
-			let focus = if spin.item.firearm_mesh().is_some() {
-				spin_reveal_firearm_focus()
-			} else if spin.item.grenade_spec().is_some() {
-				spin_reveal_grenade_focus()
-			} else {
-				spin.item.mesh().map_or(BODY_FOCUS, |mesh| spin_reveal_focus(mesh.kind()))
-			};
-			pending.set_focus(focus);
-			pending.frame = None;
-			pending.world_space = true;
-			return;
+			sync.key = format!("spin-icon:{:?}", spin.item);
 		}
+		return;
 	}
 
 	if home.is_empty() && gallery.is_empty() {
@@ -485,8 +465,10 @@ pub(crate) fn spawn_firearm(
 
 /// Preview orb diameter. Held gameplay scale is 0.2; inspect needs to read
 /// in the right-hand pane without using the firearm camera distance.
+#[cfg(test)]
 const GRENADE_PREVIEW_SCALE: f32 = 0.7;
 
+#[cfg(test)]
 fn spawn_from_item(commands: &mut Commands, item: &InventoryItem) {
 	if let Some(spec) = item.firearm_spec() {
 		for entity in spawn_firearm(commands, spec, Transform::IDENTITY) {
@@ -513,6 +495,7 @@ fn spawn_from_item(commands: &mut Commands, item: &InventoryItem) {
 	);
 }
 
+#[cfg(test)]
 fn spawn_grenade_preview(commands: &mut Commands) {
 	commands.spawn((
 		Name::new("preview-grenade"),
@@ -804,7 +787,9 @@ fn offset_camera_into_display_pane(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use character_creation_menus::focus::{EYE_FOCUS, HEAD_ROOT_FOCUS};
+	use character_creation_menus::focus::{
+		spin_reveal_firearm_focus, spin_reveal_grenade_focus, EYE_FOCUS, HEAD_ROOT_FOCUS,
+	};
 
 	const EPS: f32 = 1e-4;
 
@@ -957,6 +942,37 @@ mod tests {
 		world.flush();
 		let count = world.query::<(&GrenadePreview, &CharacterPreviewRoot)>().iter(&world).count();
 		assert_eq!(count, 1);
+	}
+
+	#[test]
+	fn spin_reveal_does_not_keep_a_live_item_mesh() {
+		use bevy::ecs::system::RunSystemOnce;
+		use character_items::{ClothingMaterial, ClothingMesh};
+		use menu_screens::SpinRevealCurrent;
+
+		let mut world = World::new();
+		world.insert_resource(CharacterMenuState::default());
+		world.insert_resource(PreviewSyncState::default());
+		world.insert_resource(PendingCameraFocus {
+			focus: Some(BODY_FOCUS),
+			world_space: true,
+			..default()
+		});
+		world.spawn(SpinRevealScreen);
+		world.insert_resource(SpinRevealCurrent {
+			item: InventoryItem::clothing(
+				ClothingMesh::Pants,
+				ClothingMaterial::Cloth,
+				ItemColor::Red,
+			),
+			revealed: true,
+		});
+		let leftover = world.spawn(CharacterPreviewRoot).id();
+		world.run_system_once(sync_preview).expect("sync");
+		world.flush();
+		assert!(world.get_entity(leftover).is_err(), "leftover inspect mesh must despawn");
+		assert_eq!(world.query::<&CharacterPreviewRoot>().iter(&world).count(), 0);
+		assert!(world.resource::<PendingCameraFocus>().focus.is_none());
 	}
 
 	#[test]

@@ -1,5 +1,6 @@
 //! Held grenade, overhand throw, and owned recharge clocks.
 
+mod cook_hud;
 mod feel;
 mod hold;
 mod throw;
@@ -14,7 +15,7 @@ pub use feel::{blast_presence, blast_rumble, rumble_presence};
 pub use hold::{spawn_held_grenade, HeldGrenade, HoldingGrenade};
 pub use throw::{
 	landing_range, landing_time, launch_velocity, throw_aim, GrenadePhase, GrenadeThrow,
-	GrenadeUser, GrenadeUserSettings, STANDING_RELEASE_HEIGHT, THROW_GRAVITY,
+	GrenadeUser, GrenadeUserSettings, GrenadeUserSystems, STANDING_RELEASE_HEIGHT, THROW_GRAVITY,
 };
 
 /// Held-side 1:1 target of [`GrenadeUser`].
@@ -30,6 +31,7 @@ impl Plugin for GrenadeUserPlugin {
 			app.add_plugins(grenades::GrenadesPlugin);
 		}
 		app.add_systems(Update, throw::apply_throw_intents.in_set(PlayerSystems::Intent))
+			.add_systems(Startup, cook_hud::spawn_cook_fuse_hud)
 			.add_systems(
 				Update,
 				(
@@ -54,6 +56,14 @@ impl Plugin for GrenadeUserPlugin {
 					.before(throw::advance_throw),
 			)
 			.add_systems(Update, throw::advance_throw.after(PlayerPoseSystems::Overlay))
+			.add_systems(Update, throw::interrupt_live_cooks.in_set(GrenadeUserSystems::Interrupt))
+			.add_systems(
+				PostUpdate,
+				throw::interrupt_live_cooks
+					.in_set(GrenadeUserSystems::Interrupt)
+					.after(damage::DamageSystems::Down),
+			)
+			.add_systems(Update, cook_hud::sync_cook_fuse_hud.after(throw::advance_throw))
 			.add_systems(Update, feel::pulse_blast_feel.after(grenades::apply_grenade_blasts))
 			.add_systems(
 				Update,

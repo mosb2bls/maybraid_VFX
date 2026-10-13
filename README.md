@@ -59,14 +59,6 @@ If you are interested in playing Maybraid, check out the following resources:
 
 To play the game, visit the [Releases](https://github.com/ramate-io/maybraid/releases) page and identify the latest release for your platform.
 
-To build the game from source run:
-
-```shell
-nix develop
-cargo build -p maybraid --release
-./target/release/maybraid
-```
-
 > [!WARNING]
 > We are currently shipping unsigned binaries. Check the instructions for how to load the game for your operating system.
 >
