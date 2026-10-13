@@ -40,6 +40,7 @@ pub fn configure_produce(app: &mut App) {
 			gamepad::produce_gamepad,
 			keyboard::produce_keyboard,
 			mouse::produce_mouse,
+			crate::overlay::apply_pad_overlay,
 			finish_produce,
 		)
 			.chain()

@@ -122,11 +122,61 @@ impl MobKnowledge {
 			.is_some()
 	}
 
+	/// Whether [`Self::share_into`] would write anything for `recipient`.
+	///
+	/// Mirrors the early returns of [`Self::share_threat_with`] so callers can
+	/// leave a member's `Affiliations` / `ThreatKnowledge` untouched (and
+	/// unchanged for change detection) when the board has nothing new for it.
+	pub fn has_threats_for(
+		&self,
+		recipient: Entity,
+		knowledge: &ThreatKnowledge,
+		registry: &ThreatRegistry,
+	) -> bool {
+		self.threats.iter().any(|id| {
+			registry.get(*id).is_some_and(|record| record.entity != recipient)
+				&& knowledge.get(*id).is_none()
+		})
+	}
+
 	pub fn share_target_with(&self, subject: Entity, targeting: &mut CombatTargeting) -> bool {
 		if !self.targets.contains(&subject) {
 			return false;
 		}
 		targeting.include(subject, TargetSource::SHARED)
+	}
+
+	/// Whether [`Self::share_targets_into`] would write anything for `recipient`.
+	pub fn has_targets_for(&self, recipient: Entity, targeting: &CombatTargeting) -> bool {
+		self.targets.iter().any(|subject| {
+			*subject != recipient
+				&& targeting
+					.active_target(*subject)
+					.is_none_or(|target| !target.has_source(TargetSource::SHARED))
+		})
+	}
+
+	/// Whether [`Self::adopt_first_hand_threats`] would insert a new board id.
+	pub fn would_adopt_first_hand_threats(
+		&self,
+		knowledge: &ThreatKnowledge,
+		host: Entity,
+		roster: &MobRoster,
+		registry: &ThreatRegistry,
+		members: &Query<&MemberOf>,
+	) -> bool {
+		knowledge.iter().any(|known| {
+			known.sources.is_first_hand()
+				&& !self.threats.contains(&known.id)
+				&& !subject_is_pack_mate_id(known.id, host, roster, registry, members)
+		})
+	}
+
+	/// Whether [`Self::adopt_shareable_targets`] would insert a new board entity.
+	pub fn would_adopt_shareable_targets(&self, targeting: &CombatTargeting) -> bool {
+		targeting.active.iter().any(|(subject, target)| {
+			target.active_sources().intersects(SHAREABLE_TARGETS) && !self.targets.contains(subject)
+		})
 	}
 
 	pub fn share_into<'a>(
@@ -213,6 +263,24 @@ fn subject_is_pack_mate_id(
 	subject_is_pack_mate(record, host, members, roster)
 }
 
+/// `(mob, plant)` pairs sorted by mob; plants keep query order within a mob.
+fn group_by_mob(
+	pairs: &mut Vec<(Entity, Entity)>,
+	members: impl Iterator<Item = (Entity, Entity)>,
+) {
+	pairs.clear();
+	pairs.extend(members);
+	pairs.sort_by_key(|&(mob, _)| mob);
+}
+
+fn plants_of(pairs: &[(Entity, Entity)], host: Entity) -> impl Iterator<Item = Entity> + '_ {
+	let start = pairs.partition_point(|&(mob, _)| mob < host);
+	pairs[start..]
+		.iter()
+		.take_while(move |&&(mob, _)| mob == host)
+		.map(|&(_, plant)| plant)
+}
+
 pub(crate) fn share_mob_threats(
 	time: Res<Time>,
 	registry: Res<ThreatRegistry>,
@@ -225,53 +293,80 @@ pub(crate) fn share_mob_threats(
 		&ThreatIntelligenceUser,
 		&mut ThreatKnowledge,
 	)>,
+	mut by_mob: Local<Vec<(Entity, Entity)>>,
 ) {
 	let now = time.elapsed_secs();
+	group_by_mob(
+		&mut by_mob,
+		recipients.iter().map(|(plant, membership, ..)| (membership.mob, plant)),
+	);
 	for (host, roster, policy, mut board) in &mut boards {
 		if !policy.enabled {
 			continue;
 		}
-		for (_plant, membership, _affiliations, _user, knowledge) in &recipients {
-			if membership.mob != host {
+		for plant in plants_of(&by_mob, host) {
+			let Ok((_, _, _, _, knowledge)) = recipients.get(plant) else {
+				continue;
+			};
+			if !board.would_adopt_first_hand_threats(knowledge, host, roster, &registry, &members) {
 				continue;
 			}
-			board.adopt_first_hand_threats(&knowledge, host, roster, &registry, &members);
+			board.adopt_first_hand_threats(knowledge, host, roster, &registry, &members);
 		}
-		board.share_into(
-			recipients.iter_mut().filter_map(
-				|(plant, membership, affiliations, user, knowledge)| {
-					(membership.mob == host).then_some(ThreatShareRecipient {
-						entity: plant,
-						affiliations: affiliations.into_inner(),
-						user,
-						knowledge: knowledge.into_inner(),
-					})
-				},
-			),
-			&registry,
-			now,
-		);
+		for plant in plants_of(&by_mob, host) {
+			let Ok((plant, _, mut affiliations, user, mut knowledge)) = recipients.get_mut(plant)
+			else {
+				continue;
+			};
+			if !board.has_threats_for(plant, &knowledge, &registry) {
+				continue;
+			}
+			board.share_into(
+				[ThreatShareRecipient {
+					entity: plant,
+					affiliations: &mut affiliations,
+					user,
+					knowledge: &mut knowledge,
+				}],
+				&registry,
+				now,
+			);
+		}
 	}
 }
 
 pub(crate) fn share_mob_targets(
 	mut boards: Query<(Entity, &MobSharePolicy, &mut MobKnowledge), With<Mob>>,
 	mut recipients: Query<(Entity, &MemberOf, &mut CombatTargeting)>,
+	mut by_mob: Local<Vec<(Entity, Entity)>>,
 ) {
+	group_by_mob(
+		&mut by_mob,
+		recipients.iter().map(|(plant, membership, _)| (membership.mob, plant)),
+	);
 	for (host, policy, mut board) in &mut boards {
 		if !policy.enabled {
 			continue;
 		}
-		for (_plant, membership, targeting) in &recipients {
-			if membership.mob != host {
+		for plant in plants_of(&by_mob, host) {
+			if let Ok((_, _, targeting)) = recipients.get(plant) {
+				if !board.would_adopt_shareable_targets(targeting) {
+					continue;
+				}
+				board.adopt_shareable_targets(targeting);
+			}
+		}
+		for plant in plants_of(&by_mob, host) {
+			let Ok((plant, _, targeting)) = recipients.get(plant) else {
+				continue;
+			};
+			if !board.has_targets_for(plant, targeting) {
 				continue;
 			}
-			board.adopt_shareable_targets(&targeting);
+			let Ok((_, _, mut targeting)) = recipients.get_mut(plant) else {
+				continue;
+			};
+			board.share_targets_into([(plant, &mut *targeting)]);
 		}
-		board.share_targets_into(recipients.iter_mut().filter_map(
-			|(plant, membership, targeting)| {
-				(membership.mob == host).then_some((plant, targeting.into_inner()))
-			},
-		));
 	}
 }

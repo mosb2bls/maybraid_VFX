@@ -35,6 +35,19 @@ use super::util::has_present_root;
 use crate::scene::chunk::materialize_front;
 use crate::scene::LodLevelProducer;
 
+/// Reused candidate buckets for the shared type-erased begin scan (cleared each frame).
+#[derive(Resource, Default)]
+pub(crate) struct LodChunkBeginCandidateScratch {
+	presence_near: Vec<BeginCandidate>,
+	presence_far: Vec<BeginCandidate>,
+	desired_near: Vec<BeginCandidate>,
+	desired_far: Vec<BeginCandidate>,
+	/// Stale spawn requests removed after the scan (avoids `entity_mut` during scratch borrows).
+	removals: Vec<Entity>,
+	/// Hosts examined this frame (at most [`LodChunkFulfillBudget::begin_scan_per_frame`]).
+	scan_batch: Vec<(Entity, LodLevelSpawnRequest)>,
+}
+
 #[derive(Clone, Copy)]
 struct BeginCandidate {
 	host: Entity,
@@ -294,46 +307,49 @@ pub fn begin_chunk_lod_fulfill_erased(world: &mut World) {
 		return;
 	}
 
-	let hosts: Vec<_> = {
-		let mut query = world
-			.query_filtered::<(Entity, &LodLevelSpawnRequest), (With<LodSceneHost>, With<LodLevelProducer>)>(
-			);
-		query.iter(world).map(|(entity, request)| (entity, *request)).collect()
+	let (scanned, next_cursor) = {
+		let mut scratch =
+			world.remove_resource::<LodChunkBeginCandidateScratch>().unwrap_or_default();
+		scratch.presence_near.clear();
+		scratch.presence_far.clear();
+		scratch.desired_near.clear();
+		scratch.desired_far.clear();
+		scratch.removals.clear();
+		scratch.scan_batch.clear();
+		let (scanned, next_cursor) =
+			scan_erased_begin_hosts(world, viewer_xz, scan_limit, &mut scratch);
+		if scanned {
+			sort_begin_near_first(&mut scratch.presence_near);
+			sort_begin_near_first(&mut scratch.presence_far);
+			sort_begin_near_first(&mut scratch.desired_near);
+			sort_begin_near_first(&mut scratch.desired_far);
+		}
+		world.insert_resource(scratch);
+		(scanned, next_cursor)
 	};
-	if hosts.is_empty() {
+	if !scanned {
 		world.resource_mut::<LodChunkBeginScanCursor>().0 = 0;
 		return;
 	}
+	world.resource_mut::<LodChunkBeginScanCursor>().0 = next_cursor;
 
-	let start = (world.resource::<LodChunkBeginScanCursor>().0 as usize) % hosts.len();
-	let count = (scan_limit as usize).min(hosts.len());
-	world.resource_mut::<LodChunkBeginScanCursor>().0 = ((start + count) % hosts.len()) as u32;
-
-	let mut presence_near = Vec::new();
-	let mut presence_far = Vec::new();
-	let mut desired_near = Vec::new();
-	let mut desired_far = Vec::new();
-	for offset in 0..count {
-		let (host, request) = hosts[(start + offset) % hosts.len()];
-		match classify_begin_candidate_world(world, host, request) {
-			BeginClassification::Candidate(candidate) => push_begin_candidate(
-				with_host_xz_distance_world(candidate, viewer_xz, world),
-				&mut presence_near,
-				&mut presence_far,
-				&mut desired_near,
-				&mut desired_far,
-			),
-			BeginClassification::RemoveRequest => {
-				world.entity_mut(host).remove::<LodLevelSpawnRequest>();
-			}
-			BeginClassification::Skip => {}
-		}
+	let (removals, presence_near, presence_far, desired_near, desired_far) = {
+		let mut scratch = world
+			.remove_resource::<LodChunkBeginCandidateScratch>()
+			.expect("LodChunkBeginCandidateScratch inserted by LodChunkBudgetPlugin");
+		let buckets = (
+			std::mem::take(&mut scratch.removals),
+			std::mem::take(&mut scratch.presence_near),
+			std::mem::take(&mut scratch.presence_far),
+			std::mem::take(&mut scratch.desired_near),
+			std::mem::take(&mut scratch.desired_far),
+		);
+		world.insert_resource(scratch);
+		buckets
+	};
+	for host in removals {
+		world.entity_mut(host).remove::<LodLevelSpawnRequest>();
 	}
-
-	sort_begin_near_first(&mut presence_near);
-	sort_begin_near_first(&mut presence_far);
-	sort_begin_near_first(&mut desired_near);
-	sort_begin_near_first(&mut desired_far);
 
 	let presence_first =
 		matches!(world.resource::<LodChunkBeginClock>().first_class, FulfillClass::Presence);
@@ -355,6 +371,98 @@ pub fn begin_chunk_lod_fulfill_erased(world: &mut World) {
 		}
 		admit_candidates_world(world, &presence_near, FulfillClass::Presence, &lod_ref, &budget);
 		admit_candidates_world(world, &presence_far, FulfillClass::Presence, &lod_ref, &budget);
+	}
+}
+
+/// Round-robin host scan for type-erased begin (mirrors [`begin_chunk_lod_fulfill`]).
+///
+/// Returns `(false, 0)` when no hosts hold a spawn request.
+fn scan_erased_begin_hosts(
+	world: &mut World,
+	viewer_xz: Vec3,
+	scan_limit: u32,
+	scratch: &mut LodChunkBeginCandidateScratch,
+) -> (bool, u32) {
+	let start = world.resource::<LodChunkBeginScanCursor>().0;
+	let mut classified = 0u32;
+	let mut index = 0u32;
+	let mut next_cursor = 0u32;
+	let mut saw_host = false;
+
+	{
+		let mut query = world
+			.query_filtered::<(Entity, &LodLevelSpawnRequest), (With<LodSceneHost>, With<LodLevelProducer>)>(
+			);
+		for (host, request) in query.iter(world) {
+			saw_host = true;
+			let i = index;
+			index += 1;
+			if i < start {
+				continue;
+			}
+			scratch.scan_batch.push((host, *request));
+			classified += 1;
+			if classified >= scan_limit {
+				next_cursor = i.saturating_add(1);
+				break;
+			}
+		}
+	}
+
+	if !saw_host {
+		return (false, 0);
+	}
+
+	if classified < scan_limit && start > 0 {
+		index = 0;
+		let mut query = world
+			.query_filtered::<(Entity, &LodLevelSpawnRequest), (With<LodSceneHost>, With<LodLevelProducer>)>(
+			);
+		for (host, request) in query.iter(world) {
+			let i = index;
+			index += 1;
+			if i >= start {
+				break;
+			}
+			scratch.scan_batch.push((host, *request));
+			classified += 1;
+			if classified >= scan_limit {
+				next_cursor = i.saturating_add(1);
+				break;
+			}
+		}
+		if classified < scan_limit {
+			next_cursor = 0;
+		}
+	} else if classified < scan_limit {
+		next_cursor = 0;
+	}
+
+	for index in 0..scratch.scan_batch.len() {
+		let (host, request) = scratch.scan_batch[index];
+		classify_and_push_erased_begin(world, host, request, viewer_xz, scratch);
+	}
+
+	(true, next_cursor)
+}
+
+fn classify_and_push_erased_begin(
+	world: &mut World,
+	host: Entity,
+	request: LodLevelSpawnRequest,
+	viewer_xz: Vec3,
+	scratch: &mut LodChunkBeginCandidateScratch,
+) {
+	match classify_begin_candidate_world(world, host, request) {
+		BeginClassification::Candidate(candidate) => push_begin_candidate(
+			with_host_xz_distance_world(candidate, viewer_xz, world),
+			&mut scratch.presence_near,
+			&mut scratch.presence_far,
+			&mut scratch.desired_near,
+			&mut scratch.desired_far,
+		),
+		BeginClassification::RemoveRequest => scratch.removals.push(host),
+		BeginClassification::Skip => {}
 	}
 }
 
@@ -757,5 +865,41 @@ mod tests {
 		let transform = Transform::from_xyz(30.0, 8.0, 40.0);
 		let dist = host_xz_distance2(Vec3::ZERO, &transform, None);
 		assert!((dist - (30.0 * 30.0 + 40.0 * 40.0)).abs() < 0.01);
+	}
+
+	/// `cargo test -p lod erased_begin_host_collect_microbench --release -- --ignored --nocapture`
+	#[test]
+	#[ignore = "microbench"]
+	fn erased_begin_host_collect_microbench() {
+		const HOST_COUNT: usize = 4096;
+		const SCAN_LIMIT: usize = 192;
+		const SCANS: usize = 2_000;
+
+		let hosts: Vec<(u64, u64)> = (0..HOST_COUNT).map(|i| (i as u64, i as u64)).collect();
+		let start = 0usize;
+
+		let full_start = std::time::Instant::now();
+		for _ in 0..SCANS {
+			let collected: Vec<_> = hosts.iter().copied().collect();
+			std::hint::black_box(collected);
+		}
+		let full_elapsed = full_start.elapsed();
+
+		let capped_start = std::time::Instant::now();
+		for _ in 0..SCANS {
+			let mut batch = Vec::with_capacity(SCAN_LIMIT);
+			for offset in 0..SCAN_LIMIT.min(hosts.len()) {
+				batch.push(hosts[(start + offset) % hosts.len()]);
+			}
+			std::hint::black_box(batch);
+		}
+		let capped_elapsed = capped_start.elapsed();
+
+		eprintln!(
+			"erased_begin_host_collect_microbench: {HOST_COUNT} hosts × {SCANS} scans (scan_limit={SCAN_LIMIT}) — full collect {:?}, capped batch {:?} ({:.2}x)",
+			full_elapsed,
+			capped_elapsed,
+			full_elapsed.as_secs_f64() / capped_elapsed.as_secs_f64().max(1e-9),
+		);
 	}
 }

@@ -3,18 +3,18 @@
 //!
 //! Start a session with [`lod::hcsg::request_hcsg_session_restart`].
 
-use std::marker::PhantomData;
-use std::sync::Arc;
-
 use bevy::ecs::system::{SystemParam, SystemParamItem};
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
+#[cfg(test)]
 use lod::gen::Id;
 use lod::hcsg::{
 	register_session_seed, Busy, HcsgBounds, HcsgClass, HcsgStorage, PresentationPlugin,
 };
 use lod::LodViewer;
 use render_item::mesh::handle::MeshFulfillBudget;
+use std::marker::PhantomData;
+use std::sync::Arc;
 use terrain_layer_model::TerrainStreaming;
 use terrain_shaders::{RefractionWater, TerrainShader, TerrainShaderPlugin};
 use visual_geometry_core::{
@@ -187,7 +187,6 @@ pub trait SharedTerrainStorage {
 		x: f32,
 		z: f32,
 	) -> Result<Option<WaterColumn>, Busy>;
-
 }
 
 impl SharedTerrainStorage for HcsgStorage {
@@ -218,12 +217,11 @@ impl SharedTerrainStorage for HcsgStorage {
 		}
 		Ok(None)
 	}
-
 }
 
 /// Test-only direct publishes into [`HcsgStorage`]. Frame code uses
 /// [`DurhamSurface`] or presentation hosts.
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 pub trait SharedTerrainStorageTestExt: SharedTerrainStorage {
 	/// Publishes origin cell `(ix, iz)` of `layout` with `base` as its whole
 	/// SDF.
@@ -236,7 +234,7 @@ pub trait SharedTerrainStorageTestExt: SharedTerrainStorage {
 	);
 }
 
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 impl SharedTerrainStorageTestExt for HcsgStorage {
 	fn publish_base_terrain_for_test(
 		&self,
@@ -275,6 +273,27 @@ impl DurhamSurface<'_> {
 		Ok(self.height_at(xz)?.unwrap_or_else(|| self.fallback_height_at(xz)))
 	}
 
+	/// Published composed height. Unpublished or [`Busy`] cells are `None`.
+	pub fn composed_height_at(&self, xz: Vec2) -> Option<f32> {
+		match self.height_at(xz) {
+			Ok(Some(elevation)) if elevation.is_finite() => Some(elevation),
+			_ => None,
+		}
+	}
+
+	/// Lift `origin` onto composed ground plus `clearance` when that would bury it.
+	///
+	/// Unpublished or busy cells leave `origin` unchanged so callers can keep a
+	/// generation-time or POI height instead of dropping onto base noise.
+	pub fn lift_origin_above_composed(&self, origin: Vec3, clearance: f32) -> Vec3 {
+		match self.composed_height_at(origin.xz()) {
+			Some(elevation) if origin.y < elevation + clearance => {
+				Vec3::new(origin.x, elevation + clearance, origin.z)
+			}
+			_ => origin,
+		}
+	}
+
 	pub fn water_column_at(&self, xz: Vec2) -> Result<Option<WaterColumn>, lod::hcsg::Busy> {
 		self.storage.try_water_column_at(&self.layout, xz.x, xz.y)
 	}
@@ -300,13 +319,15 @@ mod tests {
 	use std::time::Duration;
 
 	use bevy::scene::ScenePlugin;
-	use lod::gen::{Id, OriginalId, Version};
-	use lod::hcsg::{HcsgBoundsPlugin, HcsgDemand, HcsgNode, HcsgRestartRequest};
+	use lod::gen::OriginalId;
+	use lod::hcsg::{
+		hcsg_hosts, settle_presentation, HcsgBoundsPlugin, HcsgRestartRequest, SettlePresentation,
+	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 
-	use super::*;
 	use super::SharedTerrainStorageTestExt;
+	use super::*;
 	use crate::terrain::{
 		fine_patch_cell_layout, CellTiling, TerrainColliderMeshSource, TerrainConfig,
 		TerrainMeshAssets, TerrainMeshLodBand, TerrainStampConfigs, WatershedConfigs,
@@ -350,28 +371,8 @@ mod tests {
 		app
 	}
 
-	/// Restart and subscribe, let the worker finish, then spawn and fulfill hosts.
 	fn settle(app: &mut App) -> anyhow::Result<()> {
-		for _ in 0..2 {
-			app.update();
-			let demand = app.world().resource::<HcsgDemand>().clone();
-			anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-		}
-		for _ in 0..4 {
-			app.update();
-		}
-		Ok(())
-	}
-
-	fn hosts<T: lod::hcsg::HcsgValue>(app: &mut App) -> Vec<(Id, Version)> {
-		let mut hosts: Vec<_> = app
-			.world_mut()
-			.query::<&HcsgNode<T>>()
-			.iter(app.world())
-			.map(|node| (node.id, node.version))
-			.collect();
-		hosts.sort();
-		hosts
+		settle_presentation(app, SettlePresentation::durham_integration(IDLE)).map_err(Into::into)
 	}
 
 	/// Height inside the patch, off the noise lattice (noise is zero on it).
@@ -396,9 +397,10 @@ mod tests {
 			.map(|OriginalId(id)| id)
 			.collect();
 		cells.sort();
-		let terrain: Vec<Id> = hosts::<Terrain>(&mut app).into_iter().map(|(id, _)| id).collect();
+		let terrain: Vec<Id> =
+			hcsg_hosts::<Terrain>(&mut app).into_iter().map(|(id, _)| id).collect();
 		assert_eq!(terrain, cells, "one terrain host per layout cell");
-		let water: Vec<Id> = hosts::<Water>(&mut app).into_iter().map(|(id, _)| id).collect();
+		let water: Vec<Id> = hcsg_hosts::<Water>(&mut app).into_iter().map(|(id, _)| id).collect();
 		let mut wet = app
 			.world()
 			.resource::<HcsgStorage>()
@@ -421,12 +423,12 @@ mod tests {
 	fn a_restart_replaces_every_host_with_the_new_session() -> anyhow::Result<()> {
 		let mut app = app();
 		settle(&mut app)?;
-		let before = hosts::<Terrain>(&mut app);
+		let before = hcsg_hosts::<Terrain>(&mut app);
 		let height = patch_height(&app)?;
 
 		seed_resources(&mut app, 2);
 		settle(&mut app)?;
-		let after = hosts::<Terrain>(&mut app);
+		let after = hcsg_hosts::<Terrain>(&mut app);
 
 		assert_eq!(after.len(), before.len());
 		for ((id, old), (new_id, new)) in before.iter().zip(&after) {
@@ -466,6 +468,21 @@ mod tests {
 			base.height_at(outside.x, outside.y)
 		);
 		assert_eq!(surface.water_column_at(inside).map_err(storage_busy)?, None);
+		assert_eq!(surface.composed_height_at(inside), Some(base.height_at(inside.x, inside.y)));
+		assert_eq!(surface.composed_height_at(outside), None);
+		let buried =
+			Vec3::new(inside.x, surface.composed_height_at(inside).unwrap() - 40.0, inside.y);
+		assert_eq!(
+			surface.lift_origin_above_composed(buried, 1.05).y,
+			surface.composed_height_at(inside).unwrap() + 1.05
+		);
+		let already_above =
+			Vec3::new(inside.x, surface.composed_height_at(inside).unwrap() + 3.0, inside.y);
+		assert_eq!(surface.lift_origin_above_composed(already_above, 1.05), already_above);
+		assert_eq!(
+			surface.lift_origin_above_composed(Vec3::new(outside.x, 4.0, outside.y), 1.05),
+			Vec3::new(outside.x, 4.0, outside.y)
+		);
 		Ok(())
 	}
 }

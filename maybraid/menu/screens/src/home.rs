@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use character_model_user::list_summaries;
 use character_persist::SaveRoot;
+use item_icons::RequestPruneItemIconCache;
 use maybraid_menu_controller::MenuController;
 use menu_components::info::description::{set_description_for_menu, TextMenuDescription};
 use menu_components::single_select::text_cursor::TextCursorColumn;
@@ -117,6 +118,7 @@ impl HomeScreen {
 
 pub fn request_show_home(commands: &mut Commands) {
 	commands.spawn(RequestShowHome);
+	commands.spawn(RequestPruneItemIconCache);
 }
 
 pub struct HomeScreenPlugin;
@@ -216,5 +218,15 @@ mod tests {
 	#[test]
 	fn missing_save_root_is_an_empty_roster() {
 		assert!(!roster_has_characters(None));
+	}
+
+	#[test]
+	fn showing_home_also_requests_an_icon_cache_prune() {
+		let mut world = bevy::prelude::World::new();
+		let mut commands = world.commands();
+		super::request_show_home(&mut commands);
+		world.flush();
+		assert_eq!(world.query::<&super::RequestShowHome>().iter(&world).count(), 1);
+		assert_eq!(world.query::<&item_icons::RequestPruneItemIconCache>().iter(&world).count(), 1);
 	}
 }

@@ -60,7 +60,7 @@ Pass `AzimuthHeightBands` at the `*_banded` call site. Do not call `torch_tree::
 
 Raising `STRUCTURAL_HIGH_FACTOR` keeps the High mesh (merged cheap-ball cards + `LeafMaterial`) on trees that used to be Medium. Triangle count is usually fine; **draw cost is fragment cheese + `discard` overdraw**, not verts. Fronds use [`FrondMaterial`](../shaders/src/frond_material.wgsl) (palette + tip-weighted sway, opaque — no cheese / `discard`).
 
-[`LeafMaterial`](../shaders/src/leaf_material.wgsl) always `discard`s a noisy rim (Opaque ignores alpha — that was the rectangular far card on a plain). Interior swiss cheese is **in ball-radii** (`LEAF_MID_DIST` 80 / sway cut 60; remapped so 140 m is never “near”). Farther: solid hub, no hole `discard`, so overlapping cards keep early-Z. Lighting is hard Lambert + sky, times fake canopy occlusion (inward faces and puff hubs) — no clustered PBR or leaf shadow maps. Opaque — alpha-to-coverage looked like a window screen.
+[`LeafMaterial`](../shaders/src/leaf_material.wgsl) `discard`s a noisy rim and interior swiss cheese **in ball-radii** (`LEAF_MID_DIST` 80 / sway cut 60: `abs / scale`). A unit kit cheeses to 80 m; a larger card keeps the same angular window so big banyans do not go rectangular while they still fill the screen. Farther: solid hub, no hole `discard`, so overlapping cards keep early-Z. Lighting is hard Lambert + sky, times fake canopy occlusion (inward faces and puff hubs) — no clustered PBR or leaf shadow maps. Opaque — alpha-to-coverage looked like a window screen.
 
 That path is shared. Any construction that emits `CheapBall` / `CheapBallCollection` with `leaf_material_ref()` gets it. To push another tree’s High the same way:
 

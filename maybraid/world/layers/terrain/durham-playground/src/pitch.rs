@@ -11,13 +11,17 @@ use crate::player::{Jumping, Player};
 
 pub(crate) fn sync_suspend_terrain_pitch(
 	mut commands: Commands,
-	players: Query<(Entity, Has<Jumping>), With<Player>>,
+	players: Query<(Entity, Has<Jumping>, Has<SuspendTerrainPitch>), With<Player>>,
 ) {
-	for (entity, jumping) in &players {
-		if jumping {
-			commands.entity(entity).insert(SuspendTerrainPitch);
-		} else {
-			commands.entity(entity).remove::<SuspendTerrainPitch>();
+	for (entity, jumping, has) in &players {
+		match (jumping, has) {
+			(true, false) => {
+				commands.entity(entity).insert(SuspendTerrainPitch);
+			}
+			(false, true) => {
+				commands.entity(entity).remove::<SuspendTerrainPitch>();
+			}
+			_ => {}
 		}
 	}
 }

@@ -7,13 +7,13 @@ pub mod hcsg;
 pub mod terrain;
 pub mod water;
 
+#[cfg(any(test))]
+pub use hcsg::SharedTerrainStorageTestExt;
 pub use hcsg::{
 	register_durham_hcsg_session, BackgroundStream, DurhamPresentationPlugin, DurhamSurface,
 	DurhamWindow, DurhamWorldPlugin, FarStream, NearStream, PlayableStreams, SharedTerrainStorage,
 	StreamPresentationPlugin, StreamRing, Streamed, TerrainStream, WaterPresentationPlugin,
 };
-#[cfg(any(test, feature = "test-support"))]
-pub use hcsg::SharedTerrainStorageTestExt;
 /// Frame-side terrain reads use [`SharedTerrainStorage`]; storage itself is
 /// [`lod::hcsg::HcsgStorage`].
 pub use terrain::render::cascade_chunk_for_cell;
