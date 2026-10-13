@@ -1,0 +1,14 @@
+# Hold-and-release grenade cook from --start-at=0,0.
+# Two Y swaps reach the starter grenade (two firearms + one charge).
+# Then hold fire so the fuse cooks in hand and release to throw.
+
+{"cmd":"scenario","name":"grenade-cook","mark":"start"}
+{"cmd":"wait","secs":2}
+{"cmd":"press","button":"swap"}
+{"cmd":"wait","secs":0.7}
+{"cmd":"press","button":"swap"}
+{"cmd":"wait","secs":0.7}
+{"cmd":"hold","fire":1,"secs":1.2}
+{"cmd":"wait","secs":2}
+{"cmd":"scenario","name":"grenade-cook","mark":"end"}
+{"cmd":"quit"}

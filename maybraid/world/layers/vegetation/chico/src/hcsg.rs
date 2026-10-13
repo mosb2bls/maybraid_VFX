@@ -399,7 +399,7 @@ mod tests {
 	use lod::gen::Version;
 	use lod::hcsg::{
 		settle_presentation, GenerationScheme, HcsgClass, HcsgNode, HcsgRestartRequest,
-		SettlePresentation, ViewerHcsgBounds,
+		RetiredHost, SettlePresentation, ViewerHcsgBounds,
 	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
@@ -496,7 +496,7 @@ mod tests {
 	fn grown(app: &mut App) -> Vec<HcsgNode<GrownGrove<Urban>>> {
 		let mut hosts: Vec<_> = app
 			.world_mut()
-			.query::<&HcsgNode<GrownGrove<Urban>>>()
+			.query_filtered::<&HcsgNode<GrownGrove<Urban>>, Without<RetiredHost>>()
 			.iter(app.world())
 			.cloned()
 			.collect();

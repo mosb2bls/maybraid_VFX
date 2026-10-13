@@ -244,7 +244,7 @@ fn begin_weapon_swap(
 		return;
 	}
 	for (player, user, swapping, grenade) in &players {
-		if swapping || grenade.is_some_and(GrenadeThrow::busy) {
+		if swapping || grenade.is_some_and(GrenadeThrow::blocks_swap) {
 			continue;
 		}
 		let Ok(bag) = bags.get(user.bag) else {
@@ -647,7 +647,11 @@ mod tests {
 				VegetationPlayer,
 				InventoryUser::carrying(bag),
 				GrenadeUser::holding(held),
-				GrenadeThrow { phase: GrenadePhase::Windup { age: 0.1 }, use_latched: true },
+				GrenadeThrow {
+					phase: GrenadePhase::Windup { age: 0.1 },
+					use_latched: true,
+					fuse: 2.0,
+				},
 			))
 			.id();
 		world
@@ -659,6 +663,52 @@ mod tests {
 			.run_system_once(begin_weapon_swap)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert!(world.get::<firearm_user::WeaponSwap>(player).is_none());
+		Ok(())
+	}
+
+	#[test]
+	fn cooking_allows_weapon_swap() -> anyhow::Result<()> {
+		use character_inventory_user::InventoryUser;
+		use grenade_user::{GrenadePhase, GrenadeThrow, GrenadeUser};
+		use maybraid_character_controller::CharacterIntent;
+
+		use crate::weapon::begin_weapon_swap;
+
+		let inventory = Inventory {
+			items: vec![
+				InventoryItem::firearm(FirearmMesh::Bullpup),
+				InventoryItem::standard_grenade(),
+			],
+			clothing: Vec::new(),
+			weapons: vec![0, 1],
+			skills: Vec::new(),
+		};
+		let mut world = World::new();
+		world.init_resource::<Messages<CharacterIntent>>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		let bag = world.spawn(inventory).id();
+		let held = world.spawn_empty().id();
+		let player = world
+			.spawn((
+				VegetationPlayer,
+				InventoryUser::carrying(bag),
+				GrenadeUser::holding(held),
+				GrenadeThrow {
+					phase: GrenadePhase::Cooking { age: 0.4 },
+					use_latched: true,
+					fuse: 2.0,
+				},
+			))
+			.id();
+		world
+			.run_system_once(|mut writer: MessageWriter<CharacterIntent>| {
+				writer.write(CharacterIntent::SwapActive);
+			})
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(begin_weapon_swap)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.get::<firearm_user::WeaponSwap>(player).is_some());
 		Ok(())
 	}
 

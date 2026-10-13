@@ -180,7 +180,7 @@ impl Plugin for CharacterScreenPlugin {
 					apply_show_character,
 					sync_character_ui,
 					sync_overlay_select,
-					sync_spin_reveal_skill_map,
+					sync_spin_reveal_item_icon,
 				)
 					.chain()
 					.in_set(CharacterHudSystems::Sync),
@@ -542,7 +542,9 @@ fn discover_menu_item_icons(
 	}
 }
 
-fn sync_spin_reveal_skill_map(
+/// Bind the shaded catalog PNG for the current starter item. The live inspect
+/// mesh is not spawned on this screen — that pair stacked two item views.
+fn sync_spin_reveal_item_icon(
 	mut commands: Commands,
 	spin: Option<Res<SpinRevealCurrent>>,
 	spin_screens: Query<(), With<SpinRevealScreen>>,
@@ -707,6 +709,35 @@ mod tests {
 		let mut pending = CatalogThumbs { icons: None };
 		if pending.image_for_key(key).is_some() {
 			anyhow::bail!("pending catalog should keep the placeholder");
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn spin_reveal_shows_the_shaded_clothing_png() -> anyhow::Result<()> {
+		use super::{sync_spin_reveal_item_icon, SkillMapSpinRevealHudView};
+		use bevy::ecs::system::RunSystemOnce;
+		use bevy::prelude::World;
+		use character_items::{ClothingMaterial, ClothingMesh, InventoryItem, ItemColor};
+		use item_icons::{CaptureId, ItemIconCache};
+		use menu_screens::{SpinRevealCurrent, SpinRevealScreen};
+
+		let item =
+			InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Red);
+		let label =
+			item.capture_id_label().ok_or_else(|| anyhow::anyhow!("clothing capture id"))?;
+		let mut cache = ItemIconCache::default();
+		cache.insert_shaded(CaptureId::new(label), bevy::prelude::Handle::default());
+
+		let mut world = World::new();
+		world.spawn(SpinRevealScreen);
+		world.insert_resource(SpinRevealCurrent { item, revealed: true });
+		world.insert_resource(cache);
+		world.run_system_once(sync_spin_reveal_item_icon).expect("sync");
+		world.flush();
+		let count = world.query::<&SkillMapSpinRevealHudView>().iter(&world).count();
+		if count != 1 {
+			anyhow::bail!("revealed clothing should spawn the catalog PNG slot, got {count}");
 		}
 		Ok(())
 	}
