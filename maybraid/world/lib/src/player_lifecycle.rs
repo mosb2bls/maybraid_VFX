@@ -304,20 +304,19 @@ fn queue_first_spawn_picker(
 	if !gameplay.0 || state.first_spawn_offered || state.pending.is_some() {
 		return;
 	}
+	// Latch before first-wave. Resume clears `resume_pending` once the body
+	// is on the trail; waiting for HCSG would re-offer the picker ~30 s later.
+	if spawn.0.is_some()
+		|| waypoints.as_deref().is_some_and(|waypoints| waypoints.resume_pending)
+		|| character_has_resume_trail(waypoints.as_deref(), layout.as_deref(), base.as_deref())
+	{
+		state.first_spawn_offered = true;
+		return;
+	}
 	let ready = wave.as_deref().map(FirstWave::ready).unwrap_or_else(|| {
 		FirstWave::sample(demand.as_deref(), jobs.map(|jobs| jobs.active()).unwrap_or(0)).ready()
 	});
 	if !ready {
-		return;
-	}
-	if spawn.0.is_some() {
-		state.first_spawn_offered = true;
-		return;
-	}
-	if waypoints.as_deref().is_some_and(|waypoints| waypoints.resume_pending)
-		|| character_has_resume_trail(waypoints.as_deref(), layout.as_deref(), base.as_deref())
-	{
-		state.first_spawn_offered = true;
 		return;
 	}
 	let now = mode.as_deref().and_then(|mode| mode.get().mode_id());
@@ -1368,9 +1367,11 @@ mod tests {
 			.run_system_once(respawn_world_player)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 
-		let mut bodies = world.query_filtered::<&Transform, With<VegetationPlayer>>();
-		let body = bodies.single(&world)?;
+		let mut bodies =
+			world.query_filtered::<(&Transform, Has<OffTerrainAnchor>), With<VegetationPlayer>>();
+		let (body, anchored) = bodies.single(&world)?;
 		assert_eq!(body.translation.xz(), Vec2::new(80.0, 5.0));
+		assert!(!anchored, "urban pins stay outdoor");
 		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
 		assert!(!world.resource::<WorldMapView>().open);
 		assert!(world.resource::<WorldMapView>().begin_life);
@@ -1666,6 +1667,31 @@ mod tests {
 	fn first_spawn_picker_skips_an_explicit_start_at() -> anyhow::Result<()> {
 		let mut world = first_spawn_world(true, Some(Vec2::new(-1500.0, -600.0)));
 		let player = world.spawn((VegetationPlayer, Transform::from_xyz(12.0, 4.0, -8.0))).id();
+		world
+			.run_system_once(queue_first_spawn_picker)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.entities().contains(player));
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
+		assert!(world.resource::<WorldPlayerRespawnState>().first_spawn_offered);
+		Ok(())
+	}
+
+	#[test]
+	fn first_spawn_picker_latches_a_saved_trail_before_first_wave() -> anyhow::Result<()> {
+		let mut world = first_spawn_world(true, None);
+		world.insert_resource(FirstWave { undiscovered: 1, remaining: 40, passed: false });
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(PlayerPositionWaypoints {
+			positions: vec![Vec3::new(2178.3, 36.6, 1383.6)],
+			just_loaded: false,
+			resume_pending: false,
+			..default()
+		});
+		let player =
+			world.spawn((VegetationPlayer, Transform::from_xyz(2178.3, 36.6, 1383.6))).id();
 		world
 			.run_system_once(queue_first_spawn_picker)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
