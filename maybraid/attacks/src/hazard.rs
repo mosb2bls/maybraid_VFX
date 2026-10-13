@@ -401,7 +401,13 @@ fn collect_hazard_hits(pass: HazardHitPass<'_>) -> Vec<Hit> {
 		} else {
 			hit_clock.insert(target, now);
 		}
-		hits.push(Hit { target, source: Some(owner), amount, point });
+		hits.push(Hit {
+			target,
+			source: Some(owner),
+			amount,
+			point,
+			allow_self: target == owner,
+		});
 	}
 	hits
 }
