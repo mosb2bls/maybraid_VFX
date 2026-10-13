@@ -3126,7 +3126,20 @@ dependencies = [
  "anyhow",
  "bevy",
  "damage",
+ "lubikans",
  "menu-components",
+ "player",
+]
+
+[[package]]
+name = "combat-hud-playground"
+version = "0.1.3"
+dependencies = [
+ "bevy",
+ "clap",
+ "combat-hud",
+ "damage",
+ "lubikans",
  "player",
 ]
 
@@ -6616,6 +6629,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
+name = "lubikans"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "damage",
+ "player",
+]
+
+[[package]]
+name = "lubikans-damage"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "damage",
+ "lubikans",
+]
+
+[[package]]
 name = "lz4_flex"
 version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7005,6 +7038,8 @@ dependencies = [
  "lod",
  "lod-avian",
  "log",
+ "lubikans",
+ "lubikans-damage",
  "maputo",
  "material-ref",
  "maybraid-agent",
@@ -7018,6 +7053,7 @@ dependencies = [
  "meandering-intelligence",
  "menu-components",
  "mob-characters",
+ "mob-intelligence",
  "mob-layer-model",
  "mob-scenes",
  "movement-intelligence",

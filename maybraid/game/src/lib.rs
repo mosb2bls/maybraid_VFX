@@ -22,8 +22,9 @@ use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	parse_render_scale_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
 	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, RenderScale, ShadowQuality,
-	TerrainStreaming, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlayerLoadout, WorldPlugin,
-	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, RENDER_SCALE_ENV,
+	TerrainStreaming, WorldGameplayEnabled, WorldMobHudEnabled, WorldPlaySessionEnded,
+	WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
+	RENDER_SCALE_ENV,
 };
 use menu_components::{
 	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
@@ -183,10 +184,12 @@ fn clear_play_session(
 	mut session: ResMut<PlaySession>,
 	mut mode: ResMut<GameMode>,
 	mut ready: ResMut<WorldSurfaceReady>,
+	mut ended: MessageWriter<WorldPlaySessionEnded>,
 ) {
 	ready.0 = false;
 	*session = PlaySession::None;
 	mode.label = String::from(PlaySession::Discovery.label());
+	ended.write(WorldPlaySessionEnded);
 }
 
 fn load_active_player_loadout(
@@ -524,7 +527,9 @@ mod tests {
 		render_scale_readout, route_home_choice, sync_world_loadout_from_editor,
 		sync_world_shadows, GameFlow, PlaySession,
 	};
-	use maybraid_world::{RenderScale, ShadowQuality, WorldPlayerLoadout, WorldSurfaceReady};
+	use maybraid_world::{
+		RenderScale, ShadowQuality, WorldPlaySessionEnded, WorldPlayerLoadout, WorldSurfaceReady,
+	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
 	};
@@ -583,6 +588,7 @@ mod tests {
 	#[test]
 	fn leave_drops_the_session() -> anyhow::Result<()> {
 		let mut world = World::new();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
 		world.insert_resource(PlaySession::Discovery);
 		world.insert_resource(GameMode::new("Elsewhere"));
 		world.insert_resource(WorldSurfaceReady(true));
@@ -592,6 +598,8 @@ mod tests {
 		assert_eq!(*world.resource::<PlaySession>(), PlaySession::None);
 		assert_eq!(world.resource::<GameMode>().label, "Discovery");
 		assert!(!world.resource::<WorldSurfaceReady>().0);
+		let ended = world.resource_mut::<Messages<WorldPlaySessionEnded>>().drain().count();
+		assert_eq!(ended, 1, "leave should emit WorldPlaySessionEnded for Lubikan teardown");
 		Ok(())
 	}
 

@@ -157,15 +157,6 @@ impl<T> NodeStore<T> {
 		Some(entry)
 	}
 
-	/// Ids that would be dropped by [`Self::retain_overlapping`], without mutating.
-	pub(super) fn ids_outside(&self, regions: &[Aabb3d]) -> Vec<Id> {
-		self.entries
-			.iter()
-			.filter(|(id, entry)| **id != Id::Universal && !overlaps_regions(entry.bounds, regions))
-			.map(|(id, _)| *id)
-			.collect()
-	}
-
 	/// Removes entries outside `regions` and bumps the membership revision.
 	pub(super) fn evict_outside(&mut self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
 		let mut removed = Vec::new();
@@ -197,38 +188,11 @@ impl<T> NodeStore<T> {
 		removed
 	}
 
-	/// Removes `ids` and bumps the membership revision. No-op when `ids` is empty.
-	pub(super) fn remove_ids(&mut self, ids: &[Id], revision: u64) {
-		if ids.is_empty() {
-			return;
-		}
-		// Dropping most of the store is cheaper as one index rebuild than thousands
-		// of per-id spatial removes (worker retention sweeps).
-		let bulk = self.spatial.is_some() && ids.len() * 2 > self.entries.len();
-		if bulk {
-			for id in ids {
-				self.entries.remove(id);
-			}
-			self.rebuild_index(self.base_scale);
-		} else {
-			for id in ids {
-				self.entries.remove(id);
-				if let Some(spatial) = self.spatial.as_mut() {
-					spatial.remove(*id);
-				}
-				self.unindexed.remove(id);
-			}
-		}
-		self.membership_revision = revision;
-	}
-
 	/// Keeps entries that overlap any of `regions`, and every `Id::Universal`
 	/// entry regardless of bounds. Returns the ids that were removed.
 	#[cfg(test)]
 	pub(super) fn retain_overlapping(&mut self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
-		let removed = self.ids_outside(regions);
-		self.remove_ids(&removed, revision);
-		removed
+		self.evict_outside(regions, revision)
 	}
 
 	/// Drops every entry, keeping the base scale.

@@ -45,6 +45,7 @@ use super::super::viewer::LodViewer;
 use super::super::{ensure_refresh_core, LodRefreshSystems};
 use super::cull::{apply_lod_cull_requests, cull_lod_level_roots, drain_lod_cull, LodCullRequest};
 
+use begin::LodChunkBeginCandidateScratch;
 pub use begin::{begin_chunk_lod_fulfill, begin_chunk_lod_fulfill_erased};
 pub use complete::{bump_nested_streamed_progress, complete_chunk_lod_fulfill};
 pub use drain::drain_chunk_lod_fulfill;
@@ -123,6 +124,7 @@ impl Plugin for LodChunkBudgetPlugin {
 			.init_resource::<LodChunkBudgetClock>()
 			.init_resource::<LodChunkBeginClock>()
 			.init_resource::<LodChunkBeginScanCursor>()
+			.init_resource::<LodChunkBeginCandidateScratch>()
 			.init_resource::<LodChunkDrainCursor>()
 			.init_resource::<LodChunkDrainDiagnostics>()
 			.add_message::<LodCullRequest>()
