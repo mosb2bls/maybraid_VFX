@@ -47,6 +47,21 @@ impl ControlMode {
 	pub fn is_tanzer(self) -> bool {
 		self == Self::Tanzer
 	}
+
+	pub fn script_id(self) -> &'static str {
+		match self {
+			Self::Standard => "standard",
+			Self::Tanzer => "tanzer",
+		}
+	}
+
+	pub fn from_script_id(raw: &str) -> Option<Self> {
+		match raw.trim().to_ascii_lowercase().as_str() {
+			"standard" | "loco" | "locomotion" => Some(Self::Standard),
+			"tanzer" | "tanz" => Some(Self::Tanzer),
+			_ => None,
+		}
+	}
 }
 
 /// Per-character Tanz ownership. Mode, settings, and the temporal recognizer
@@ -90,6 +105,25 @@ impl TanzUser {
 		}
 		self.mode = self.mode.toggle();
 		self.recognizer.reset();
+		execution.clear();
+		wish.0 = Vec3::ZERO;
+		info!("tanz control mode -> {:?}", self.mode);
+		true
+	}
+
+	/// Set the mode directly (script / agent). Same cleanup as a chord toggle.
+	pub fn set_mode(
+		&mut self,
+		mode: ControlMode,
+		execution: &mut TanzExecution,
+		wish: &mut MoveWish,
+	) -> bool {
+		if self.mode == mode {
+			return false;
+		}
+		self.mode = mode;
+		self.recognizer.reset();
+		self.toggle.reset();
 		execution.clear();
 		wish.0 = Vec3::ZERO;
 		info!("tanz control mode -> {:?}", self.mode);
@@ -285,6 +319,28 @@ pub fn look_yaw(look: Option<&PlayerLook>) -> f32 {
 mod tests {
 	use super::*;
 	use maybraid_skill_map::SkillMapFlick;
+
+	#[test]
+	fn script_ids_roundtrip() {
+		assert_eq!(ControlMode::from_script_id("tanzer"), Some(ControlMode::Tanzer));
+		assert_eq!(ControlMode::from_script_id("STANDARD"), Some(ControlMode::Standard));
+		assert_eq!(ControlMode::Tanzer.script_id(), "tanzer");
+		assert!(ControlMode::from_script_id("toggle").is_none());
+	}
+
+	#[test]
+	fn set_mode_is_idempotent_and_clears() -> anyhow::Result<()> {
+		let mut user = TanzUser { mode: ControlMode::Standard, ..TanzUser::default() };
+		let mut execution = TanzExecution::default();
+		execution.begin(TanzId::ForwardDash, Vec2::Y, 0.5);
+		let mut wish = MoveWish(Vec3::Y);
+		assert!(!user.set_mode(ControlMode::Standard, &mut execution, &mut wish));
+		assert!(user.set_mode(ControlMode::Tanzer, &mut execution, &mut wish));
+		assert_eq!(user.mode, ControlMode::Tanzer);
+		assert!(execution.active.is_none());
+		assert_eq!(wish.0, Vec3::ZERO);
+		Ok(())
+	}
 
 	#[test]
 	fn bumper_chord_toggles_once_per_hold() -> anyhow::Result<()> {

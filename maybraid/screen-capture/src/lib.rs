@@ -37,6 +37,7 @@ pub use session::{
 pub use subject::{CaptureMesh, CaptureMeshKind, CaptureScene, CaptureSubject, MeshCaptureSubject};
 pub use view::{CaptureFraming, CaptureProjection, CaptureView};
 
+pub use png::{bgra_to_rgba, encode_rgba_png, write_all_atomic};
 pub use scene_ref::{SceneRef, SceneRefPlugin};
 
 #[cfg(test)]

@@ -207,6 +207,10 @@ fn start_command(
 			effects.push(TickEffect::Instant { id, command });
 			true
 		}
+		command @ AgentCommand::Screenshot { .. } => {
+			effects.push(TickEffect::Instant { id, command });
+			true
+		}
 		command => {
 			effects.push(TickEffect::Instant { id, command });
 			effects.push(TickEffect::Finished { id, cmd: label });
@@ -411,15 +415,30 @@ mod tests {
 
 	#[test]
 	fn visual_style_is_receipt_then_instant() -> anyhow::Result<()> {
-		let mut playback = Playback::from_commands([AgentCommand::VisualStyle {
-			style: "retro".into(),
-		}]);
+		let mut playback =
+			Playback::from_commands([AgentCommand::VisualStyle { style: "retro".into() }]);
 		let tick = playback.tick(0.016, &TickView::default());
 		assert_eq!(started(&tick.effects), vec![0]);
 		assert!(tick.effects.iter().any(|effect| matches!(
 			effect,
 			TickEffect::Instant { id: 0, command: AgentCommand::VisualStyle { style } }
 				if style == "retro"
+		)));
+		assert!(!tick.effects.iter().any(|effect| matches!(effect, TickEffect::Finished { .. })));
+		assert!(tick.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn screenshot_is_receipt_then_instant() -> anyhow::Result<()> {
+		let mut playback =
+			Playback::from_commands([AgentCommand::Screenshot { path: "/tmp/tanz.png".into() }]);
+		let tick = playback.tick(0.016, &TickView::default());
+		assert_eq!(started(&tick.effects), vec![0]);
+		assert!(tick.effects.iter().any(|effect| matches!(
+			effect,
+			TickEffect::Instant { id: 0, command: AgentCommand::Screenshot { path } }
+				if path == "/tmp/tanz.png"
 		)));
 		assert!(!tick.effects.iter().any(|effect| matches!(effect, TickEffect::Finished { .. })));
 		assert!(tick.idle);

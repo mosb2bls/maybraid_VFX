@@ -47,6 +47,9 @@ with `"cmd"`.
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
 | `visual_style` | `style` (`native`, `sharp`, `impressionist`, `watercolor`, `retro`, `antediluvian`, `pre_post_modern`) | instant; `started` is receipt, `finished` includes resolved `WIDTHxHEIGHT` |
+| `tanz_mode` | `mode` (`tanzer`, `standard`, `toggle`) | instant; sets Tanzer without the LB+RB chord |
+| `tanz` | `id` (`healing_salute`, `left_strafe`, `right_strafe`, `forward_dash`) | instant; enters Tanzer if needed and submits the Tanz |
+| `screenshot` | `path` | instant start; `finished` after GPU readback writes the PNG (`detail` has mean luma) |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
 | `quit` | | request process exit |
 
@@ -99,6 +102,7 @@ published outside the repo (Traces releases) state the version they target.
 | 3 | `visual_style` — set presentation mode (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) |
 | 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
 | 5 | `visual_style` adds `native` (direct window). `sharp` is now untreated 1080p offscreen (height-fit); v4 `sharp` was today's Native |
+| 6 | `tanz_mode`, `tanz`, and `screenshot` (GPU readback of the presented 3D surface). Tanz mode / active Tanz also emit `kind: tanz` events |
 
 ## Events
 
@@ -116,6 +120,7 @@ and `frame`.
 | `actors` | `hosts` / `bodies` / `brains` plus `min_y` / `max_y` / `ground_at_min_y` when the census or Y band changes |
 | `picker` | locked spawn picker opened or closed (`open`) |
 | `presentation` | offscreen `resize` / `recreate` (`window`, `target`) — must be zero in a measure window |
+| `tanz` | Tanzer mode change and/or the Tanz that just became active (`mode`, optional `id`) |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the

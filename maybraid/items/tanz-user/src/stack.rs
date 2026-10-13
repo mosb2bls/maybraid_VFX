@@ -29,6 +29,25 @@ impl TanzId {
 			Self::ForwardDash => forward_dash(),
 		}
 	}
+
+	pub fn script_id(self) -> &'static str {
+		match self {
+			Self::HealingSalute => "healing_salute",
+			Self::LeftStrafe => "left_strafe",
+			Self::RightStrafe => "right_strafe",
+			Self::ForwardDash => "forward_dash",
+		}
+	}
+
+	pub fn from_script_id(raw: &str) -> Option<Self> {
+		match raw.trim().to_ascii_lowercase().as_str() {
+			"healing_salute" | "salute" => Some(Self::HealingSalute),
+			"left_strafe" | "left" => Some(Self::LeftStrafe),
+			"right_strafe" | "right" => Some(Self::RightStrafe),
+			"forward_dash" | "dash" | "forward" => Some(Self::ForwardDash),
+			_ => None,
+		}
+	}
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -158,6 +177,10 @@ mod tests {
 
 	#[test]
 	fn starter_priority_prefers_salute_over_dash() -> anyhow::Result<()> {
+		assert_eq!(TanzId::from_script_id("left_strafe"), Some(TanzId::LeftStrafe));
+		assert_eq!(TanzId::from_script_id("DASH"), Some(TanzId::ForwardDash));
+		assert_eq!(TanzId::LeftStrafe.script_id(), "left_strafe");
+		assert!(TanzId::from_script_id("spin").is_none());
 		let stack = TanzStack::starter();
 		let hit = stack.match_input(&input(Vec2::Y, 0.9, TanzButton::APress), |_| false);
 		assert_eq!(hit, Some(TanzId::HealingSalute));

@@ -7066,6 +7066,7 @@ dependencies = [
  "poi-intelligence",
  "richmond",
  "routing-intelligence",
+ "screen-capture",
  "serde",
  "serde_json",
  "spotting-intelligence",

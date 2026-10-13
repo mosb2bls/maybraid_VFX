@@ -78,6 +78,7 @@ npc-intelligence = { workspace = true }
 poi-intelligence = { workspace = true }
 world-player = { workspace = true }
 richmond = { workspace = true }
+screen-capture = { workspace = true }
 urbanization-cells = { workspace = true }
 routing-intelligence = { workspace = true }
 item-icons = { workspace = true }
