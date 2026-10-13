@@ -103,6 +103,7 @@ mod tests {
 			target: victim,
 			source: Some(attacker),
 			amount: 10.0,
+			applied: 10.0,
 			remaining: 90.0,
 			point: Vec3::ZERO,
 		});

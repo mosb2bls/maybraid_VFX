@@ -9,6 +9,7 @@ use durham::DurhamSurface;
 use firearm_user::FirearmUser;
 use firearms::WeaponTrigger;
 use grenade_user::GrenadeUser;
+use lubikans::LubikanOwner;
 use maybraid_character_controller::CharacterIntent;
 use maybraid_input::{PadButton, VirtualPad};
 use mob_characters::{LOCAL_POI, SALOON_POI, URBAN_POI, VEGETATION_POI};
@@ -21,9 +22,10 @@ use poi_intelligence::{
 use spotting_intelligence::SpotSubject;
 use threat_intelligence::{Affiliations, ThreatSubject};
 use world_player::{
-	player_position_above_surface, spawn_player_body, CharacterLocomotion, CharacterSpecies,
-	ModePlayerPolicies, MoveWish, Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet,
-	PlayerSpawnXz, RequestSetCharacter, RequestSetCharacterAppearance, RespawnOrigin,
+	player_position_above_surface, player_spawn_point_at, spawn_player_body, surface_or_hold_at,
+	AwaitingTerrainSurface, CharacterLocomotion, CharacterSpecies, ModePlayerPolicies, MoveWish,
+	Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet, PlayerSpawnXz, RequestSetCharacter,
+	RequestSetCharacterAppearance, RespawnOrigin,
 };
 
 use layer_stack::ActiveGenerationMode;
@@ -152,8 +154,14 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 					drive_respawn_picker,
 					respawn_world_player
 						.after(queue_first_spawn_picker)
-						.after(drive_respawn_picker),
-					apply_camera_begin_life.after(respawn_world_player),
+						.after(drive_respawn_picker)
+						.run_if(world_player_respawn_pending),
+					close_orphaned_locked_respawn_map
+						.after(respawn_world_player)
+						.run_if(orphaned_locked_respawn_map),
+					apply_camera_begin_life
+						.after(respawn_world_player)
+						.after(close_orphaned_locked_respawn_map),
 				)
 					.after(PoiSystems::Index)
 					.in_set(PlayerLifeSet::Resolve),
@@ -263,6 +271,7 @@ fn queue_downed_world_player(
 			SpotSubject,
 			ThreatSubject,
 			Affiliations,
+			LubikanOwner,
 		)>();
 	}
 }
@@ -404,6 +413,32 @@ fn drive_respawn_picker(
 	}
 }
 
+/// Skip the mesh / material / surface params on the live combat path
+/// ([#1209](https://github.com/ramate-io/maybraid/issues/1209)).
+fn world_player_respawn_pending(state: Res<WorldPlayerRespawnState>) -> bool {
+	state.pending.is_some()
+}
+
+/// A locked picker with no pending respawn is leftover UI, not a spawn.
+fn orphaned_locked_respawn_map(
+	state: Res<WorldPlayerRespawnState>,
+	map: Res<WorldMapView>,
+) -> bool {
+	state.pending.is_none() && map.close_locked
+}
+
+fn close_orphaned_locked_respawn_map(
+	live_player: Query<(), With<VegetationPlayer>>,
+	mut map: ResMut<WorldMapView>,
+) {
+	if live_player.is_empty() {
+		return;
+	}
+	if map.close_locked {
+		map.close();
+	}
+}
+
 /// A mode that keeps the player respawns near a POI. A mode whose policy ends
 /// the life replaces the body where it fell and writes [`PlayerLifeEnded`].
 /// Leaving that mode mid-respawn replaces the body at once and ends nothing.
@@ -493,9 +528,14 @@ fn respawn_world_player(
 	let position = match placed {
 		Some(record) => {
 			state.last_poi = Some(record.id);
-			player_position_above_surface(surface_at(record.position, &surface))
+			player_spawn_point_at(
+				record.position.xz(),
+				surface_or_hold_at(&surface, record.position.xz()),
+			)
 		}
-		None => player_position_above_surface(surface_at(fallback_at, &surface)),
+		None => {
+			player_spawn_point_at(fallback_at.xz(), surface_or_hold_at(&surface, fallback_at.xz()))
+		}
 	};
 	finish_world_player_spawn(
 		&mut commands,
@@ -699,15 +739,6 @@ fn xz_distance(a: Vec3, b: Vec3) -> f32 {
 	(a.xz() - b.xz()).length()
 }
 
-fn surface_at(mut point: Vec3, surface: &DurhamSurface) -> Vec3 {
-	if let Ok(terrain_y) = surface.height_or_fallback(point.xz()) {
-		if terrain_y.is_finite() {
-			point.y = terrain_y;
-		}
-	}
-	point
-}
-
 #[allow(clippy::too_many_arguments)]
 fn finish_world_player_spawn(
 	commands: &mut Commands,
@@ -720,6 +751,10 @@ fn finish_world_player_spawn(
 	position: Vec3,
 ) {
 	let player = spawn_player_body(commands, meshes, materials, locomotion, position);
+	// First-drop hold: snap teleports onto composed height and waits for a
+	// local trimesh. Without this marker, gravity can turn on while the body
+	// is still sitting on a base-noise or death-pose Y under the mesh.
+	commands.entity(player).insert(AwaitingTerrainSurface);
 	crate::control::apply_world_player_motor(commands, player);
 	if let Some(loadout) = loadout {
 		if !origin.ends_life(now) {
@@ -1129,6 +1164,40 @@ mod tests {
 	}
 
 	#[test]
+	fn respawn_system_gate_is_pending_only() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldPlayerRespawnState>();
+		let pending = world
+			.run_system_once(world_player_respawn_pending)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!pending);
+		Ok(())
+	}
+
+	#[test]
+	fn orphaned_locked_map_closes_when_a_live_player_has_no_pending() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldPlayerRespawnState>();
+		world.insert_resource(WorldMapView {
+			open: true,
+			close_locked: true,
+			..default()
+		});
+		let orphaned = world
+			.run_system_once(orphaned_locked_respawn_map)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(orphaned);
+		world.spawn(VegetationPlayer);
+		world
+			.run_system_once(close_orphaned_locked_respawn_map)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.resource::<WorldMapView>().open);
+		assert!(!world.resource::<WorldMapView>().close_locked);
+		assert!(world.resource::<WorldMapView>().begin_life);
+		Ok(())
+	}
+
+	#[test]
 	fn a_live_player_does_not_close_an_unlocked_map() -> anyhow::Result<()> {
 		let mut world = respawn_world(0.0, true, true);
 		world.spawn(VegetationPlayer);
@@ -1244,6 +1313,39 @@ mod tests {
 		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
 		assert!(!world.resource::<WorldMapView>().open);
 		assert!(world.resource::<WorldMapView>().begin_life);
+		Ok(())
+	}
+
+	#[test]
+	fn discovery_respawn_holds_above_unpublished_terrain() -> anyhow::Result<()> {
+		let mut world = discovery_respawn_world(0.2);
+		let poi = world.spawn_empty().id();
+		world.resource_mut::<PoiRegistry>().upsert(
+			poi,
+			poi_intelligence::Poi::new(PoiId(1), URBAN_POI).with_arrival_radius(8.0),
+			Vec3::new(80.0, 4.0, 5.0),
+			true,
+			false,
+		)?;
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.write_message(PlayerChoseRespawnPoi { poi: Some(PoiId(1)) });
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+		let mut bodies = world
+			.query_filtered::<(&Transform, Has<AwaitingTerrainSurface>), With<VegetationPlayer>>();
+		let (body, awaiting) = bodies.single(&world)?;
+		let base = &world.resource::<WorldBaseTerrain>().0;
+		let expected = player_spawn_point_at(
+			Vec2::new(80.0, 5.0),
+			world_player::holding_elevation(base, 80.0, 5.0),
+		);
+		assert_eq!(body.translation, expected);
+		assert!(body.translation.y > base.height_at(80.0, 5.0) + 50.0);
+		assert!(awaiting);
 		Ok(())
 	}
 

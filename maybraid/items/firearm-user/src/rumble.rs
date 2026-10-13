@@ -189,6 +189,7 @@ mod tests {
 			target,
 			source: Some(player),
 			amount: 25.0,
+			applied: 25.0,
 			remaining: 75.0,
 			point: Vec3::ZERO,
 		});
@@ -209,6 +210,7 @@ mod tests {
 			target,
 			source: Some(player),
 			amount: 40.0,
+			applied: 40.0,
 			remaining: 60.0,
 			point: Vec3::ZERO,
 		});
@@ -226,6 +228,7 @@ mod tests {
 			target: player,
 			source: Some(npc),
 			amount: 25.0,
+			applied: 25.0,
 			remaining: 75.0,
 			point: Vec3::ZERO,
 		});
