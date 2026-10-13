@@ -24,7 +24,8 @@ pub struct RequestShowSpinReveal;
 #[derive(Resource, Clone, Debug)]
 pub struct SpinRevealItems(pub Vec<InventoryItem>);
 
-/// The garment currently on the roll, for hosts that spawn a live preview.
+/// The garment currently on the roll. Hosts bind the catalog PNG here; they
+/// should not spawn a live inspect mesh or camera.
 #[derive(Resource, Clone, Debug)]
 pub struct SpinRevealCurrent {
 	pub item: InventoryItem,
