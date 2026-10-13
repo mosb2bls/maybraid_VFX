@@ -425,7 +425,7 @@ mod tests {
 		const CHARACTERS: u32 = 32;
 		const RUNS: u32 = 5;
 		let mix = Mix::new(Squat::for_loop(1.0, 1.0), TwoFootedJump::default(), weight);
-		let mut rigs: Vec<HumanoidV0Rig> =
+		let rigs: Vec<HumanoidV0Rig> =
 			(0..CHARACTERS).map(|_| HumanoidV0Rig::imported()).collect();
 		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
 		for _ in 0..RUNS {

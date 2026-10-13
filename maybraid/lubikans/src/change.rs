@@ -90,8 +90,13 @@ pub struct LubikanChargeChanged {
 	pub recipient: Entity,
 	/// Account credited or debited at the moment the event resolved.
 	pub lubikan: LubikanAccountId,
-	/// Signed applied amount after clamping. Zero is a valid clamped result.
+	/// Signed applied amount after the stock cap. Zero is a valid clamped result.
 	pub amount: f32,
+	/// Signed points produced by the interaction, before overflow was discarded.
+	///
+	/// The point feed reads this so earned points still appear when charge is
+	/// already at the stock cap (`amount` may be `0`).
+	pub points_earned: f32,
 	pub reason: LubikanChargeReason,
 	/// World-space origin of the interaction, when the producer has one.
 	pub origin: Option<Vec3>,
@@ -105,7 +110,21 @@ impl LubikanChargeChanged {
 		reason: LubikanChargeReason,
 		origin: Option<Vec3>,
 	) -> Self {
-		Self { recipient, lubikan, amount, reason, origin }
+		Self { recipient, lubikan, amount, points_earned: amount, reason, origin }
+	}
+
+	pub fn with_points_earned(self, points_earned: f32) -> Self {
+		Self { points_earned, ..self }
+	}
+
+	/// Charge that actually landed after the stock cap. Same as [`Self::amount`].
+	pub fn charge_applied(self) -> f32 {
+		self.amount
+	}
+
+	/// Positive earn that added no charge because the stock cap was already full.
+	pub fn discarded_at_stock_cap(self) -> bool {
+		self.points_earned > 0.0 && self.amount == 0.0
 	}
 }
 
@@ -123,5 +142,31 @@ mod tests {
 		assert_eq!(LubikanChargeReason::COMBAT_HIT.label(), "hit");
 		assert_eq!(LubikanChargeReason::COMBAT_KILL.label(), "kill");
 		assert_eq!(LubikanChargeReason::from_raw(4_001).label(), "custom");
+	}
+
+	#[test]
+	fn new_defaults_points_earned_to_applied_amount() {
+		let change = LubikanChargeChanged::new(
+			Entity::from_bits(1),
+			LubikanAccountId::SELF,
+			4.0,
+			LubikanChargeReason::COMBAT_HIT,
+			None,
+		);
+		assert_eq!(change.points_earned, 4.0);
+		assert_eq!(change.charge_applied(), 4.0);
+		assert!(!change.discarded_at_stock_cap());
+		let capped = change.with_points_earned(9.0);
+		assert_eq!(capped.amount, 4.0);
+		assert_eq!(capped.points_earned, 9.0);
+		let full = LubikanChargeChanged::new(
+			Entity::from_bits(1),
+			LubikanAccountId::SELF,
+			0.0,
+			LubikanChargeReason::COMBAT_HIT,
+			None,
+		)
+		.with_points_earned(3.0);
+		assert!(full.discarded_at_stock_cap());
 	}
 }

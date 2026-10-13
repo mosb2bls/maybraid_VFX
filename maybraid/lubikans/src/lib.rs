@@ -32,6 +32,7 @@ pub use activation::{
 pub use award::LubikanCombatAward;
 pub use catalog::{
 	LubikanCatalog, LubikanSelfConfig, DEFAULT_SELF_ACTIVATION_COST, DEFAULT_SELF_CAPACITY,
+	DEFAULT_SELF_MAX_STOCK,
 };
 pub use change::{LubikanChargeChanged, LubikanChargeReason, LubikanChargeRequest};
 pub use charge::{LubikanCharge, LubikanChargeMutation};
