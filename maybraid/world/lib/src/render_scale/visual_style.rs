@@ -118,6 +118,7 @@ impl VisualStyle {
 				image_scale_factor: 1.0,
 				treatment: PresentationTreatment::None,
 				wash_strength: self.wash_strength(),
+				force_offscreen: false,
 			};
 		}
 
@@ -155,6 +156,7 @@ impl VisualStyle {
 			image_scale_factor,
 			treatment,
 			wash_strength: self.wash_strength(),
+			force_offscreen: false,
 		}
 	}
 }
@@ -177,14 +179,21 @@ pub struct VisualStylePlan {
 	pub image_scale_factor: f32,
 	pub treatment: PresentationTreatment,
 	pub wash_strength: f32,
+	/// Keep the offscreen blit even when the 3D target matches the window
+	/// (native-resolution A/B against Sharp's direct path).
+	pub force_offscreen: bool,
 }
 
 impl VisualStylePlan {
 	/// Whether this plan requires an offscreen render target and presentation pass.
 	pub fn requires_offscreen(&self, window_physical: UVec2) -> bool {
-		self.target_size != UVec2::ZERO
-			&& (self.treatment != PresentationTreatment::None
-				|| self.target_size != window_physical)
+		if self.target_size == UVec2::ZERO {
+			return false;
+		}
+		if self.force_offscreen {
+			return true;
+		}
+		self.treatment != PresentationTreatment::None || self.target_size != window_physical
 	}
 }
 
@@ -243,6 +252,9 @@ mod tests {
 		assert_eq!(plan.target_size, UVec2::new(1920, 1080));
 		assert_eq!(plan.treatment, PresentationTreatment::None);
 		assert!(!plan.requires_offscreen(UVec2::new(1920, 1080)));
+		let mut forced = plan;
+		forced.force_offscreen = true;
+		assert!(forced.requires_offscreen(UVec2::new(1920, 1080)));
 	}
 
 	#[test]

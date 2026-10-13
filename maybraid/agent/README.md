@@ -114,6 +114,7 @@ and `frame`.
 | `chunk_loads` | count of new cascade chunks this frame (cheap summary) |
 | `actors` | `hosts` / `bodies` / `brains` plus `min_y` / `max_y` / `ground_at_min_y` when the census or Y band changes |
 | `picker` | locked spawn picker opened or closed (`open`) |
+| `presentation` | offscreen `resize` / `recreate` (`window`, `target`) — must be zero in a measure window |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the

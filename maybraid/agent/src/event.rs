@@ -84,6 +84,12 @@ pub enum AgentEventBody {
 	Picker {
 		open: bool,
 	},
+	/// Offscreen present image resize or blit/camera recreate.
+	Presentation {
+		action: String,
+		window: [u32; 2],
+		target: [u32; 2],
+	},
 	Quit,
 }
 
@@ -125,6 +131,10 @@ impl AgentEvent {
 				}
 				Some(message)
 			}
+			AgentEventBody::Presentation { action, window, target } => Some(format!(
+				"agent.presentation {action} window {}x{} target {}x{}",
+				window[0], window[1], target[0], target[1]
+			)),
 			_ => None,
 		}
 	}
@@ -209,6 +219,23 @@ mod tests {
 		assert!(line.contains(r#""kind":"picker""#));
 		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
 		assert_eq!(event.tracy_message().as_deref(), Some("agent.picker open=true"));
+		Ok(())
+	}
+
+	#[test]
+	fn presentation_roundtrip() -> anyhow::Result<()> {
+		let event = AgentEvent {
+			t: 12.0,
+			frame: 700,
+			body: AgentEventBody::Presentation {
+				action: "resize".into(),
+				window: [1920, 1052],
+				target: [719, 394],
+			},
+		};
+		let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(line.contains(r#""kind":"presentation""#));
+		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
 		Ok(())
 	}
 

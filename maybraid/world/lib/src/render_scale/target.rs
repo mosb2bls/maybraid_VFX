@@ -1,11 +1,14 @@
 //! Offscreen 3D target + window blit with visual style treatments.
-//! Despawned entirely for Sharp (native resolution, no treatment).
+//! Despawned entirely for Sharp (native resolution, no treatment) unless
+//! [`super::VisualStyleSetting::force_offscreen`] keeps the apparatus.
 
 use bevy::asset::RenderAssetUsages;
+use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, ImageRenderTarget, RenderTarget};
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
+use bevy::ui::Node;
 use bevy::window::PrimaryWindow;
 use player_camera::FollowCamera;
 
@@ -14,10 +17,14 @@ use super::presentation::{
 	create_presentation_material,
 };
 use super::visual_style::{PresentationTreatment, VisualStyle};
-use super::{RenderScale, VisualStyleSetting};
+use super::{PresentationAction, PresentationChurn, RenderScale, VisualStyleSetting};
 
 /// Present camera order matches the loading backdrop (`1`) and sits above the 3D camera (`0`).
 const PRESENT_ORDER: isize = 1;
+/// Isolated from world layer 0 so CPU visibility rejects scene entities early.
+pub const PRESENT_RENDER_LAYER: usize = 29;
+/// Ignore macOS fullscreen height flicker (1920×1080 ↔ 1920×1052 is 28 px).
+const WINDOW_STABLE_DELTA: u32 = 32;
 
 #[derive(Resource, Default)]
 pub(super) struct AppliedRenderScale {
@@ -25,6 +32,8 @@ pub(super) struct AppliedRenderScale {
 	blit_mesh: Option<Handle<Mesh>>,
 	last_offscreen: bool,
 	last_size: UVec2,
+	last_window_physical: Option<UVec2>,
+	last_window_logical: Option<Vec2>,
 	last_scale: f32,
 	last_style: Option<VisualStyle>,
 	last_treatment: Option<PresentationTreatment>,
@@ -44,6 +53,10 @@ pub(super) struct RenderScalePresentCamera;
 #[derive(Component)]
 pub(super) struct RenderScalePresentSprite;
 
+/// UI stamped onto [`PRESENT_RENDER_LAYER`] while the present camera is up.
+#[derive(Component)]
+pub(super) struct PresentUiLayer;
+
 /// Window logical → render-target logical.
 pub fn map_window_to_render(window_pos: Vec2, window_logical: Vec2, render_logical: Vec2) -> Vec2 {
 	scale_point(window_pos, window_logical, render_logical)
@@ -61,6 +74,23 @@ fn scale_point(pos: Vec2, from: Vec2, to: Vec2) -> Vec2 {
 	Vec2::new(pos.x * to.x / from.x, pos.y * to.y / from.y)
 }
 
+pub(super) fn present_render_layers() -> RenderLayers {
+	RenderLayers::layer(PRESENT_RENDER_LAYER)
+}
+
+fn stabilize_window(last: Option<UVec2>, physical: UVec2) -> UVec2 {
+	let Some(last) = last else {
+		return physical;
+	};
+	if physical.x.abs_diff(last.x) < WINDOW_STABLE_DELTA
+		&& physical.y.abs_diff(last.y) < WINDOW_STABLE_DELTA
+	{
+		last
+	} else {
+		physical
+	}
+}
+
 pub(super) fn sync_render_scale_target(
 	mut commands: Commands,
 	visual_style: Res<VisualStyleSetting>,
@@ -72,24 +102,25 @@ pub(super) fn sync_render_scale_target(
 	mut pre_post_modern: ResMut<Assets<PrePostModernMaterial>>,
 	mut nearest_neighbor: ResMut<Assets<NearestNeighborMaterial>>,
 	mut applied: ResMut<AppliedRenderScale>,
+	mut churn: MessageWriter<PresentationChurn>,
 	mut sources: Query<
 		(Entity, &Camera, &mut RenderTarget, &mut Projection, Has<IsDefaultUiCamera>),
 		(With<Camera3d>, With<FollowCamera>, Without<RenderScalePresentCamera>),
 	>,
-	presents: Query<(Entity, &Camera), With<RenderScalePresentCamera>>,
+	presents: Query<(Entity, &Camera, Has<IsDefaultUiCamera>), With<RenderScalePresentCamera>>,
 	sprites: Query<Entity, With<RenderScalePresentSprite>>,
 	mut blit_transforms: Query<&mut Transform, With<RenderScalePresentSprite>>,
+	mut blit_sprites: Query<&mut Sprite, With<RenderScalePresentSprite>>,
 ) {
 	let Ok(window) = windows.single() else {
 		return;
 	};
-	let physical = UVec2::new(window.physical_width(), window.physical_height());
+	let raw_physical = UVec2::new(window.physical_width(), window.physical_height());
+	let physical = stabilize_window(applied.last_window_physical, raw_physical);
 
-	// Use visual style if set, otherwise fall back to legacy render scale
 	let style_plan = visual_style.plan(physical, window.scale_factor());
 	let legacy_plan = scale.plan(physical, window.scale_factor());
 
-	// Visual style takes precedence when explicitly set
 	let (
 		target_size,
 		window_logical,
@@ -107,7 +138,6 @@ pub(super) fn sync_render_scale_target(
 			style_plan.requires_offscreen(physical),
 		)
 	} else {
-		// Legacy render scale mode
 		(
 			legacy_plan.target_size,
 			legacy_plan.window_logical,
@@ -133,7 +163,9 @@ pub(super) fn sync_render_scale_target(
 			*render_target = RenderTarget::default();
 			projection.set_changed();
 		}
-		teardown_present(&mut commands, &presents, &sprites);
+		if applied.last_offscreen {
+			teardown_present(&mut commands, &presents, &sprites);
+		}
 		if applied.last_offscreen || applied.last_size == UVec2::ZERO {
 			if let Some(style) = effective_style {
 				info!(
@@ -150,6 +182,8 @@ pub(super) fn sync_render_scale_target(
 			}
 			applied.last_offscreen = false;
 			applied.last_size = physical;
+			applied.last_window_physical = Some(physical);
+			applied.last_window_logical = Some(window_logical);
 			applied.last_scale = 1.0;
 			applied.last_style = effective_style;
 			applied.last_treatment = None;
@@ -157,14 +191,43 @@ pub(super) fn sync_render_scale_target(
 		return;
 	}
 
+	let unchanged = applied.last_offscreen
+		&& applied.last_size == target_size
+		&& applied.last_style == effective_style
+		&& applied.last_treatment == Some(treatment)
+		&& applied.last_window_logical == Some(window_logical)
+		&& !presents.is_empty()
+		&& !sprites.is_empty();
+	if unchanged {
+		if let Ok((present, present_camera, present_is_ui)) = presents.single() {
+			if !present_camera.is_active {
+				commands.entity(present).insert((
+					Camera {
+						order: PRESENT_ORDER,
+						is_active: true,
+						clear_color: ClearColorConfig::Custom(Color::BLACK),
+						..default()
+					},
+					IsDefaultUiCamera,
+					present_render_layers(),
+				));
+			} else if !present_is_ui {
+				commands.entity(present).insert(IsDefaultUiCamera);
+			}
+		}
+		return;
+	}
+
 	let handle = ensure_target_image(&mut images, &mut applied, target_size, treatment);
 	let wash_strength = effective_style.map(VisualStyle::wash_strength).unwrap_or(1.0);
+	let size_changed = applied.last_size != target_size;
 	let rebuild_blit = sprites.is_empty()
 		|| applied.last_treatment != Some(treatment)
 		|| applied.last_style != effective_style
-		|| applied.last_size != target_size;
+		|| size_changed
+		|| !applied.last_offscreen;
 	if !applied.last_offscreen
-		|| applied.last_size != target_size
+		|| size_changed
 		|| applied.last_style != effective_style
 		|| applied.last_treatment != Some(treatment)
 	{
@@ -179,18 +242,29 @@ pub(super) fn sync_render_scale_target(
 				treatment_label(treatment)
 			);
 		} else {
-			let scale = target_size.x as f32 / physical.x as f32;
+			let scale = target_size.x as f32 / physical.x.max(1) as f32;
 			info!(
 				"render scale {:.3}: 3D {}x{} -> window {}x{}",
 				scale, target_size.x, target_size.y, physical.x, physical.y
 			);
 		}
-		applied.last_offscreen = true;
-		applied.last_size = target_size;
-		applied.last_scale = target_size.x as f32 / physical.x as f32;
-		applied.last_style = effective_style;
-		applied.last_treatment = Some(treatment);
 	}
+	if size_changed && applied.last_offscreen && applied.last_size != UVec2::ZERO {
+		churn.write(PresentationChurn {
+			action: PresentationAction::Resize,
+			window: physical,
+			target: target_size,
+			style: effective_style,
+		});
+	}
+	applied.last_offscreen = true;
+	applied.last_size = target_size;
+	applied.last_window_physical = Some(physical);
+	applied.last_window_logical = Some(window_logical);
+	applied.last_scale = target_size.x as f32 / physical.x.max(1) as f32;
+	applied.last_style = effective_style;
+	applied.last_treatment = Some(treatment);
+
 	let image_target = SourceTarget::Image { size: target_size, scale_factor: image_scale_factor };
 	if retarget(&mut applied, source, image_target) {
 		*render_target = RenderTarget::Image(ImageRenderTarget {
@@ -204,7 +278,7 @@ pub(super) fn sync_render_scale_target(
 	}
 
 	match presents.single() {
-		Ok((present, present_camera)) => {
+		Ok((present, present_camera, present_is_ui)) => {
 			if !present_camera.is_active {
 				commands.entity(present).insert((
 					Camera {
@@ -214,8 +288,9 @@ pub(super) fn sync_render_scale_target(
 						..default()
 					},
 					IsDefaultUiCamera,
+					present_render_layers(),
 				));
-			} else {
+			} else if !present_is_ui {
 				commands.entity(present).insert(IsDefaultUiCamera);
 			}
 			if rebuild_blit {
@@ -236,8 +311,19 @@ pub(super) fn sync_render_scale_target(
 					treatment,
 					wash_strength,
 				);
-			} else if let Ok(mut transform) = blit_transforms.single_mut() {
-				transform.scale = Vec3::new(window_logical.x, window_logical.y, 1.0);
+				churn.write(PresentationChurn {
+					action: PresentationAction::Recreate,
+					window: physical,
+					target: target_size,
+					style: effective_style,
+				});
+			} else {
+				write_blit_if_changed(
+					&mut blit_transforms,
+					&mut blit_sprites,
+					window_logical,
+					treatment,
+				);
 			}
 		}
 		Err(_) => {
@@ -256,7 +342,57 @@ pub(super) fn sync_render_scale_target(
 				treatment,
 				wash_strength,
 			);
+			churn.write(PresentationChurn {
+				action: PresentationAction::Recreate,
+				window: physical,
+				target: target_size,
+				style: effective_style,
+			});
 		}
+	}
+}
+
+fn write_blit_if_changed(
+	blit_transforms: &mut Query<&mut Transform, With<RenderScalePresentSprite>>,
+	blit_sprites: &mut Query<&mut Sprite, With<RenderScalePresentSprite>>,
+	window_logical: Vec2,
+	treatment: PresentationTreatment,
+) {
+	if uses_sprite(treatment) {
+		if let Ok(mut sprite) = blit_sprites.single_mut() {
+			if sprite.custom_size != Some(window_logical) {
+				sprite.custom_size = Some(window_logical);
+			}
+		}
+		return;
+	}
+	if let Ok(mut transform) = blit_transforms.single_mut() {
+		let want = Vec3::new(window_logical.x, window_logical.y, 1.0);
+		if transform.scale != want {
+			transform.scale = want;
+		}
+	}
+}
+
+fn uses_sprite(treatment: PresentationTreatment) -> bool {
+	matches!(treatment, PresentationTreatment::None | PresentationTreatment::NearestNeighbor)
+}
+
+pub(super) fn stamp_present_ui_layers(
+	presents: Query<Entity, With<RenderScalePresentCamera>>,
+	mut commands: Commands,
+	unlabeled: Query<Entity, (With<Node>, Without<RenderLayers>, Without<PresentUiLayer>)>,
+	stamped: Query<Entity, With<PresentUiLayer>>,
+) {
+	if presents.is_empty() {
+		for entity in &stamped {
+			commands.entity(entity).remove::<(PresentUiLayer, RenderLayers)>();
+		}
+		return;
+	}
+	let layers = present_render_layers();
+	for entity in &unlabeled {
+		commands.entity(entity).insert((layers.clone(), PresentUiLayer));
 	}
 }
 
@@ -349,6 +485,7 @@ fn spawn_present(
 			..default()
 		},
 		IsDefaultUiCamera,
+		present_render_layers(),
 		RenderScalePresentCamera,
 	));
 	spawn_present_blit(
@@ -381,6 +518,17 @@ fn spawn_present_blit(
 	treatment: PresentationTreatment,
 	wash_strength: f32,
 ) {
+	let layers = present_render_layers();
+	if uses_sprite(treatment) {
+		commands.spawn((
+			Name::new("render-scale-blit"),
+			Sprite { image, custom_size: Some(window_logical), ..default() },
+			Transform::IDENTITY,
+			layers,
+			RenderScalePresentSprite,
+		));
+		return;
+	}
 	let mesh = applied.blit_mesh.clone().unwrap_or_else(|| {
 		let handle = meshes.add(Rectangle::new(1.0, 1.0));
 		applied.blit_mesh = Some(handle.clone());
@@ -395,11 +543,12 @@ fn spawn_present_blit(
 		Name::new("render-scale-blit"),
 		Mesh2d(mesh),
 		transform,
+		layers,
 		RenderScalePresentSprite,
 	));
 	if let Some(material) = create_presentation_material(
 		treatment,
-		image.clone(),
+		image,
 		source_size,
 		window_physical,
 		wash_strength,
@@ -414,21 +563,16 @@ fn spawn_present_blit(
 			PresentationMaterial::PrePostModern(handle) => {
 				entity.insert(MeshMaterial2d(handle));
 			}
-			PresentationMaterial::NearestNeighbor(handle) => {
-				entity.insert(MeshMaterial2d(handle));
-			}
 		}
-	} else {
-		entity.insert(Sprite { image, custom_size: Some(window_logical), ..default() });
 	}
 }
 
 fn teardown_present(
 	commands: &mut Commands,
-	presents: &Query<(Entity, &Camera), With<RenderScalePresentCamera>>,
+	presents: &Query<(Entity, &Camera, Has<IsDefaultUiCamera>), With<RenderScalePresentCamera>>,
 	sprites: &Query<Entity, With<RenderScalePresentSprite>>,
 ) {
-	for (entity, _) in presents {
+	for (entity, _, _) in presents {
 		commands.entity(entity).despawn();
 	}
 	for entity in sprites {
@@ -477,56 +621,6 @@ mod tests {
 		cameras.single(app.world()).ok()?.physical_target_size()
 	}
 
-	#[test]
-	fn every_step_resizes_the_3d_pass() -> anyhow::Result<()> {
-		use bevy::render::camera::camera_system;
-		use bevy::render::texture::ManualTextureViews;
-		use bevy::window::{WindowCreated, WindowResized, WindowScaleFactorChanged};
-
-		let mut app = App::new();
-		app.init_resource::<Assets<Image>>()
-			.init_resource::<Assets<Mesh>>()
-			.init_resource::<Assets<ImpressionistMaterial>>()
-			.init_resource::<Assets<PrePostModernMaterial>>()
-			.init_resource::<Assets<NearestNeighborMaterial>>()
-			.init_resource::<ManualTextureViews>()
-			.init_resource::<AppliedRenderScale>()
-			.insert_resource(VisualStyleSetting::default())
-			.insert_resource(RenderScale::default())
-			.add_message::<WindowCreated>()
-			.add_message::<WindowResized>()
-			.add_message::<WindowScaleFactorChanged>()
-			.add_message::<AssetEvent<Image>>()
-			.add_systems(Update, (sync_render_scale_target, camera_system).chain());
-		app.world_mut().spawn((Window::default(), PrimaryWindow));
-		app.world_mut().spawn((Camera3d::default(), FollowCamera::default()));
-
-		// Set explicit render scale to 1.0 to take precedence over visual style
-		app.world_mut().resource_mut::<RenderScale>().set(1.0);
-		app.update();
-		assert_eq!(source_target_size(&mut app), Some(UVec2::new(1280, 720)));
-
-		for (scale, size) in [
-			(0.5, UVec2::new(640, 360)),
-			(1.0, UVec2::new(1280, 720)),
-			(0.75, UVec2::new(960, 540)),
-			(1.0, UVec2::new(1280, 720)),
-			(0.5, UVec2::new(640, 360)),
-			(0.75, UVec2::new(960, 540)),
-		] {
-			app.world_mut().resource_mut::<RenderScale>().set(scale);
-			app.update();
-			assert_eq!(source_target_size(&mut app), Some(size), "scale {scale}");
-		}
-		Ok(())
-	}
-
-	fn present_count(app: &mut App) -> usize {
-		let mut presents =
-			app.world_mut().query_filtered::<Entity, With<RenderScalePresentCamera>>();
-		presents.iter(app.world()).count()
-	}
-
 	fn boot_target_app() -> App {
 		use bevy::render::camera::camera_system;
 		use bevy::render::texture::ManualTextureViews;
@@ -546,10 +640,66 @@ mod tests {
 			.add_message::<WindowResized>()
 			.add_message::<WindowScaleFactorChanged>()
 			.add_message::<AssetEvent<Image>>()
-			.add_systems(Update, (sync_render_scale_target, camera_system).chain());
+			.add_message::<PresentationChurn>()
+			.add_systems(
+				Update,
+				(sync_render_scale_target, stamp_present_ui_layers, camera_system).chain(),
+			);
 		app.world_mut().spawn((Window::default(), PrimaryWindow));
 		app.world_mut().spawn((Camera3d::default(), FollowCamera::default()));
 		app
+	}
+
+	fn present_count(app: &mut App) -> usize {
+		let mut presents =
+			app.world_mut().query_filtered::<Entity, With<RenderScalePresentCamera>>();
+		presents.iter(app.world()).count()
+	}
+
+	fn present_layers(app: &mut App) -> Option<RenderLayers> {
+		let mut presents = app
+			.world_mut()
+			.query_filtered::<&RenderLayers, With<RenderScalePresentCamera>>();
+		presents.single(app.world()).ok().cloned()
+	}
+
+	fn blit_is_sprite(app: &mut App) -> bool {
+		let mut sprites =
+			app.world_mut().query_filtered::<&Sprite, With<RenderScalePresentSprite>>();
+		sprites.single(app.world()).is_ok()
+	}
+
+	fn take_churn(app: &mut App) -> Vec<PresentationChurn> {
+		let mut messages = app.world_mut().resource_mut::<Messages<PresentationChurn>>();
+		messages.drain().collect()
+	}
+
+	fn set_window(app: &mut App, physical: UVec2) {
+		let mut windows = app.world_mut().query_filtered::<&mut Window, With<PrimaryWindow>>();
+		let mut window = windows.single_mut(app.world_mut()).expect("window");
+		window.resolution.set_physical_resolution(physical.x, physical.y);
+	}
+
+	#[test]
+	fn every_step_resizes_the_3d_pass() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		app.world_mut().resource_mut::<RenderScale>().set(1.0);
+		app.update();
+		assert_eq!(source_target_size(&mut app), Some(UVec2::new(1280, 720)));
+
+		for (scale, size) in [
+			(0.5, UVec2::new(640, 360)),
+			(1.0, UVec2::new(1280, 720)),
+			(0.75, UVec2::new(960, 540)),
+			(1.0, UVec2::new(1280, 720)),
+			(0.5, UVec2::new(640, 360)),
+			(0.75, UVec2::new(960, 540)),
+		] {
+			app.world_mut().resource_mut::<RenderScale>().set(scale);
+			app.update();
+			assert_eq!(source_target_size(&mut app), Some(size), "scale {scale}");
+		}
+		Ok(())
 	}
 
 	#[test]
@@ -568,6 +718,81 @@ mod tests {
 			assert_eq!(source_target_size(&mut app), Some(size), "{style:?}");
 			assert_eq!(present_count(&mut app) > 0, present, "{style:?} present");
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn fullscreen_height_flicker_does_not_resize_the_3d_target() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		set_window(&mut app, UVec2::new(1920, 1080));
+		app.world_mut()
+			.resource_mut::<VisualStyleSetting>()
+			.set(VisualStyle::Impressionist);
+		app.update();
+		assert_eq!(source_target_size(&mut app), Some(UVec2::new(700, 394)));
+		take_churn(&mut app);
+		set_window(&mut app, UVec2::new(1920, 1052));
+		app.update();
+		assert_eq!(source_target_size(&mut app), Some(UVec2::new(700, 394)));
+		assert!(take_churn(&mut app).is_empty(), "28 px height flicker must be a no-op");
+		Ok(())
+	}
+
+	#[test]
+	fn unchanged_presentation_is_a_noop() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		app.world_mut()
+			.resource_mut::<VisualStyleSetting>()
+			.set(VisualStyle::Impressionist);
+		app.update();
+		take_churn(&mut app);
+		app.update();
+		assert!(take_churn(&mut app).is_empty());
+		assert_eq!(present_count(&mut app), 1);
+		Ok(())
+	}
+
+	#[test]
+	fn present_camera_uses_an_isolated_layer() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		app.world_mut()
+			.resource_mut::<VisualStyleSetting>()
+			.set(VisualStyle::Impressionist);
+		app.update();
+		let layers = present_layers(&mut app).ok_or_else(|| anyhow::anyhow!("present layers"))?;
+		assert!(layers.intersects(&present_render_layers()));
+		assert!(!layers.intersects(&RenderLayers::layer(0)));
+		Ok(())
+	}
+
+	#[test]
+	fn retro_and_antediluvian_use_a_nearest_sprite() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		for style in [VisualStyle::Retro, VisualStyle::Antediluvian] {
+			app.world_mut().resource_mut::<VisualStyleSetting>().set(style);
+			app.update();
+			assert!(blit_is_sprite(&mut app), "{style:?}");
+		}
+		app.world_mut()
+			.resource_mut::<VisualStyleSetting>()
+			.set(VisualStyle::Impressionist);
+		app.update();
+		assert!(!blit_is_sprite(&mut app), "Impressionist keeps the material blit");
+		Ok(())
+	}
+
+	#[test]
+	fn force_offscreen_sharp_keeps_the_present_camera() -> anyhow::Result<()> {
+		let mut app = boot_target_app();
+		{
+			let mut style = app.world_mut().resource_mut::<VisualStyleSetting>();
+			style.set(VisualStyle::Sharp);
+			style.set_force_offscreen(true);
+		}
+		app.update();
+		assert_eq!(source_target_size(&mut app), Some(UVec2::new(1280, 720)));
+		assert_eq!(present_count(&mut app), 1);
+		assert!(blit_is_sprite(&mut app));
 		Ok(())
 	}
 
@@ -595,5 +820,13 @@ mod tests {
 		assert!(usage.contains(TextureUsages::TEXTURE_BINDING));
 		assert!(usage.contains(TextureUsages::COPY_SRC));
 		Ok(())
+	}
+
+	#[test]
+	fn stabilize_window_ignores_sub_delta_flicker() {
+		let locked = UVec2::new(1920, 1080);
+		assert_eq!(stabilize_window(Some(locked), UVec2::new(1920, 1052)), locked);
+		assert_eq!(stabilize_window(Some(locked), UVec2::new(1920, 800)), UVec2::new(1920, 800));
+		assert_eq!(stabilize_window(None, UVec2::new(1920, 1052)), UVec2::new(1920, 1052));
 	}
 }

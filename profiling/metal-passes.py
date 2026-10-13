@@ -278,6 +278,7 @@ def parse_events_window(events_path, scenario):
     start = end = None
     last_actors = None
     last_t = 0.0
+    presentation = []
     with open(events_path) as f:
         for line in f:
             line = line.strip()
@@ -296,11 +297,25 @@ def parse_events_window(events_path, scenario):
                     end = t
             if ev.get("kind") == "actors":
                 last_actors = ev
+            if ev.get("kind") == "presentation":
+                presentation.append(ev)
+    in_window = presentation
+    if start is not None and end is not None:
+        in_window = [e for e in presentation if start <= float(e.get("t") or 0) <= end]
+    counts = {"resize": 0, "recreate": 0}
+    for e in in_window:
+        action = e.get("action") or ""
+        if action in counts:
+            counts[action] += 1
+        else:
+            counts[action] = counts.get(action, 0) + 1
     return {
         "start": start,
         "end": end,
         "last_t": last_t,
         "actors": last_actors,
+        "presentation_in_window": counts,
+        "presentation_total": len(presentation),
     }
 
 
@@ -397,6 +412,30 @@ def toc_duration(toc_path):
     return float(m.group(1)) if m else None
 
 
+def cluster_gpu_frames(gpu, gap_ns=500_000):
+    """Group overlapping/adjacent GPU intervals into real frames.
+
+    A new frame starts when work begins more than `gap_ns` after the current
+    cluster's last end. Default 0.5 ms is below a 60 Hz period and above
+    typical intra-frame channel overlap.
+    """
+    by_frame = defaultdict(list)
+    if not gpu:
+        return by_frame
+    rows = sorted(gpu, key=lambda r: r["cstart"])
+    fr = 0
+    end = rows[0]["cend"]
+    by_frame[0].append(rows[0])
+    for r in rows[1:]:
+        if r["cstart"] > end + gap_ns:
+            fr += 1
+            end = r["cend"]
+        else:
+            end = max(end, r["cend"])
+        by_frame[fr].append(r)
+    return by_frame
+
+
 def classify_label(gpu_row, encoders):
     enc = encoders.get(gpu_row["encoder_id"] or -1)
     if enc and enc.get("label"):
@@ -424,23 +463,28 @@ def analyze(encoders, gpu_rows, pstate, window_ns, pid):
     for r in gpu:
         r["pass"] = classify_label(r, encoders)
 
-    # Frame grouping: prefer Metal frame-number on GPU intervals; fall back
-    # to 16.67ms bins of GPU start time. Unique-per-interval frame ids
-    # (n_frames ≈ n_gpu_intervals, p50 << 1 ms) are the #1198 discard case —
-    # treat them as missing and bin instead.
+    # Frame grouping: prefer Metal frame-number when it actually clusters work
+    # into display frames. Unique-per-interval ids (#1198) are treated as
+    # missing; then cluster by GPU-busy gaps instead of 16.67 ms vsync bins.
     numbered = [r["frame"] for r in gpu if r["frame"] is not None]
     unique_numbered = len(set(numbered))
     expected_bins = max(int((w1 - w0) / 16_670_000), 1)
     collapsed = bool(numbered) and unique_numbered > expected_bins * 2
-    use_bins = collapsed or not numbered
+    use_frame_numbers = bool(numbered) and not collapsed
     by_frame = defaultdict(list)
     unlabeled_frames = 0
-    for r in gpu:
-        fr = r["frame"]
-        if use_bins or fr is None:
-            fr = int(r["cstart"] // 16_670_000)
-            unlabeled_frames += 1
-        by_frame[fr].append(r)
+    if use_frame_numbers:
+        for r in gpu:
+            fr = r["frame"]
+            if fr is None:
+                unlabeled_frames += 1
+                fr = -1
+            by_frame[fr].append(r)
+        grouping = "frame-number"
+    else:
+        by_frame = cluster_gpu_frames(gpu)
+        unlabeled_frames = len(gpu)
+        grouping = "gpu-gap"
 
     frame_union = []
     frame_sum = []
@@ -492,7 +536,7 @@ def analyze(encoders, gpu_rows, pstate, window_ns, pid):
         "n_gpu_intervals": len(gpu),
         "n_frames": nframes,
         "unlabeled_frames": unlabeled_frames,
-        "frame_grouping": "vsync-bin" if use_bins else "frame-number",
+        "frame_grouping": grouping,
         "collapsed_frame_numbers": collapsed,
         "gpu_union_ms": stats(frame_union),
         "gpu_sum_ms": stats(frame_sum),
@@ -559,12 +603,20 @@ def main():
 
     pid = args.pid or toc_pid(toc_path)
     print(f"pid={pid}", file=sys.stderr)
-    print(f"parsing encoders {encoders_path}", file=sys.stderr)
-    encoders, labels_seen = parse_encoders(encoders_path, pid_filter=pid)
-    print(f"  {len(encoders)} encoders, {len(labels_seen)} labels", file=sys.stderr)
-    print(f"parsing gpu intervals {gpu_path}", file=sys.stderr)
-    gpu_rows = parse_gpu_intervals(gpu_path, pid_filter=pid)
-    print(f"  {len(gpu_rows)} game GPU intervals", file=sys.stderr)
+    encoders, labels_seen = {}, {}
+    gpu_rows = []
+    if encoders_path and os.path.exists(encoders_path) and os.path.getsize(encoders_path) > 0:
+        print(f"parsing encoders {encoders_path}", file=sys.stderr)
+        encoders, labels_seen = parse_encoders(encoders_path, pid_filter=pid)
+        print(f"  {len(encoders)} encoders, {len(labels_seen)} labels", file=sys.stderr)
+    else:
+        print("encoders table missing; GPU busy still works from intervals", file=sys.stderr)
+    if gpu_path and os.path.exists(gpu_path) and os.path.getsize(gpu_path) > 0:
+        print(f"parsing gpu intervals {gpu_path}", file=sys.stderr)
+        gpu_rows = parse_gpu_intervals(gpu_path, pid_filter=pid)
+        print(f"  {len(gpu_rows)} game GPU intervals", file=sys.stderr)
+    else:
+        print("gpu interval table missing; writing an unparsed stub", file=sys.stderr)
     pstate = []
     if pstate_path and os.path.exists(pstate_path):
         print(f"parsing pstate {pstate_path}", file=sys.stderr)
@@ -638,8 +690,17 @@ def main():
     lines.append(window_note)
     if result.get("collapsed_frame_numbers"):
         lines.append(
-            "Frame grouping fell back to 16.67 ms bins: Metal `frame-number` was unique per GPU interval "
-            "([#1198](https://github.com/ramate-io/maybraid/issues/1198))."
+            f"Metal `frame-number` was unique per GPU interval "
+            f"([#1198](https://github.com/ramate-io/maybraid/issues/1198)); "
+            f"grouped with `{result.get('frame_grouping')}` (real GPU-busy gaps, not 16.67 ms bins)."
+        )
+    elif result.get("frame_grouping"):
+        lines.append(f"Frame grouping: `{result.get('frame_grouping')}`.")
+    if ev and ev.get("presentation_in_window"):
+        pres = ev["presentation_in_window"]
+        lines.append(
+            f"Presentation churn in measure window: resize={pres.get('resize', 0)} "
+            f"recreate={pres.get('recreate', 0)} (total events {ev.get('presentation_total', 0)})."
         )
     if ev and ev.get("actors"):
         a = ev["actors"]
@@ -693,6 +754,28 @@ def main():
         lines.append(md_table(["state", "ms", "share"], psrows))
     else:
         lines.append("_no pstate table_")
+    lines.append("")
+    min_ms = 0.0
+    for st, ms in result["pstate_ms"].items():
+        if "min" in st.lower():
+            min_ms += ms
+    min_share = min_ms / total_ps if total_ps else 0.0
+    opaque = result["buckets"].get("opaque") or {}
+    opaque_present = opaque.get("present_frames") or 0
+    nframes = result.get("n_frames") or 0
+    if min_share >= 0.5:
+        lines.append(
+            f"**P-state flag:** Minimum/Low held {100*min_share:.1f}% of the window. "
+            "GPU ms overstates a fully clocked chip; do not treat this run as the intended savings."
+        )
+    if nframes and opaque_present < nframes * 0.25:
+        lines.append(
+            f"**Opaque labels missing** ({opaque_present}/{nframes} frames). "
+            "GPU busy (union) does not depend on encoder labels and is still valid; "
+            "skip pass-by-pass opaque comparison."
+        )
+    if not gpu_rows:
+        lines.append("**Unparsed:** no GPU interval table. Zip the `.trace` and re-export later.")
     lines.append("")
     lines.append("Apple GPUs downclock when lightly loaded; GPU ms at Minimum/Low overstates cost relative to a fully clocked chip.")
     with open(md_path, "w") as f:

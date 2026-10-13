@@ -16,7 +16,7 @@ use maybraid_sky::{
 use mob_scenes::MobKind;
 
 use crate::mob_spawn::RequestSpawnMobs;
-use crate::{RequestRenderScale, RequestVsyncToggle};
+use crate::{RequestForceOffscreen, RequestRenderScale, RequestVsyncToggle};
 
 #[cfg(feature = "debug-commands")]
 use std::path::PathBuf;
@@ -173,6 +173,19 @@ pub enum Sky {
 pub enum Render {
 	/// Shade the 3D world at `factor ×` window physical size (`0.5`–`1.0`).
 	Scale { factor: f32 },
+	/// Keep the offscreen blit even at native resolution (`MAYBRAID_FORCE_OFFSCREEN`).
+	Offscreen {
+		#[arg(value_parser = parse_on_off, action = clap::ArgAction::Set)]
+		enabled: bool,
+	},
+}
+
+fn parse_on_off(raw: &str) -> Result<bool, String> {
+	match raw.trim().to_ascii_lowercase().as_str() {
+		"1" | "true" | "on" | "yes" => Ok(true),
+		"0" | "false" | "off" | "no" => Ok(false),
+		other => Err(format!("expected on/off, got {other:?}")),
+	}
 }
 
 #[derive(Clone, Subcommand)]
@@ -309,6 +322,11 @@ impl Render {
 				let factor = crate::render_scale::RenderScale::clamp(factor);
 				commands.spawn(RequestRenderScale(factor));
 				*console = format!("render scale {factor:.3}: pending");
+			}
+			Self::Offscreen { enabled } => {
+				commands.spawn(RequestForceOffscreen(enabled));
+				*console =
+					format!("render offscreen {}: pending", if enabled { "on" } else { "off" });
 			}
 		}
 	}
@@ -459,6 +477,17 @@ mod tests {
 			}
 			_ => anyhow::bail!("expected render scale 0.75"),
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn parse_render_offscreen() -> anyhow::Result<()> {
+		let on = PlaygroundCommand::parse_line("render offscreen on")
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		assert!(matches!(on, PlaygroundCommand::Render(Render::Offscreen { enabled: true })));
+		let off = PlaygroundCommand::parse_line("render offscreen off")
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		assert!(matches!(off, PlaygroundCommand::Render(Render::Offscreen { enabled: false })));
 		Ok(())
 	}
 

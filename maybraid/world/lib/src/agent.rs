@@ -23,7 +23,7 @@ use crate::PlayerSpawnXz;
 use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
 use crate::map_view::WorldMapView;
-use crate::render_scale::{RequestVisualStyle, VisualStyle};
+use crate::render_scale::{PresentationChurn, RequestVisualStyle, VisualStyle};
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
 const DEFAULT_READY_TIMEOUT: f32 = 90.0;
@@ -133,6 +133,7 @@ impl Plugin for WorldAgentPlugin {
 				Update,
 				(
 					agent_apply_world_ops,
+					agent_emit_presentation_churn,
 					agent_sample_player,
 					agent_sample_picker,
 					agent_chunk_loads,
@@ -589,6 +590,27 @@ fn agent_sample_picker(
 			body: AgentEventBody::Picker { open },
 		},
 	);
+}
+
+fn agent_emit_presentation_churn(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	mut churn: MessageReader<PresentationChurn>,
+) {
+	for event in churn.read() {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t: time.elapsed_secs(),
+				frame: runtime.frame,
+				body: AgentEventBody::Presentation {
+					action: event.action.as_str().into(),
+					window: [event.window.x, event.window.y],
+					target: [event.target.x, event.target.y],
+				},
+			},
+		);
+	}
 }
 
 fn agent_chunk_loads(
