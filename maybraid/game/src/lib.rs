@@ -17,16 +17,18 @@ use crate::shell::{
 	stamp_preview_render_layers, ShellRoute,
 };
 use bevy::prelude::*;
+use bevy::render::renderer::RenderAdapterInfo;
 use bevy::window::PrimaryWindow;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
 use maybraid_input::MenuNavPad;
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
-	parse_visual_style_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
-	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
-	TerrainStreaming, VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMobHudEnabled,
-	WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady,
-	WorldSurfaceSet, VISUAL_STYLE_ENV,
+	host_memory_bytes, parse_device_tier_env, parse_visual_style_env, reset_first_spawn_offer,
+	resume_discovery_from_saved_waypoints, AdapterKind, Durham, InventoryEditCameraFollow,
+	PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality, TerrainStreaming, VisualStyle,
+	VisualStyleAutoReason, VisualStyleSetting, VisualStyleSignals, WorldGameplayEnabled,
+	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
 	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
@@ -38,11 +40,12 @@ use menu_playground::{
 	CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
 };
 use menu_screens::{
-	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
-	request_show_in_game_settings, CreateCharacterPlugin, GalleryScreen, GameMode, HomeMenuChoice,
-	HomeScreenPlugin, InGameMenuChoice, InGameScreenPlugin, InGameSettings, InGameSettingsScreen,
-	InGameSettingsSystems, InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin,
-	LoadingScreenSystems, MenuScreen, RenderScaleReadout, SpinRevealScreen,
+	apply_unsaved_visual_style_default, cancel_pending_create, request_show_gallery,
+	request_show_home, request_show_in_game, request_show_in_game_settings, CreateCharacterPlugin,
+	GalleryScreen, GameMode, HomeMenuChoice, HomeScreenPlugin, InGameMenuChoice,
+	InGameScreenPlugin, InGameSettings, InGameSettingsScreen, InGameSettingsSystems,
+	InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin, LoadingScreenSystems, MenuScreen,
+	RenderScaleReadout, SpinRevealScreen, VisualStyleAutoPick, VisualStyleSaved,
 };
 
 pub struct GamePlugin;
@@ -115,8 +118,12 @@ impl Plugin for GamePlugin {
 					)
 						.chain(),
 					sync_world_shadows,
-					sync_world_render_scale,
-					sync_render_scale_readout,
+					(
+						apply_unsaved_visual_style_from_host,
+						sync_world_render_scale,
+						sync_render_scale_readout,
+					)
+						.chain(),
 				),
 			)
 			.add_systems(PreUpdate, sync_inventory_edit_follow.run_if(in_state(WorldPause::Menu)))
@@ -138,7 +145,11 @@ impl Plugin for GamePlugin {
 					persist_changed_player_inventory,
 					sync_world_mob_hud,
 					sync_world_shadows,
-					(sync_world_render_scale, sync_render_scale_readout)
+					(
+						apply_unsaved_visual_style_from_host,
+						sync_world_render_scale,
+						sync_render_scale_readout,
+					)
 						.chain()
 						.after(InGameSettingsSystems::ApplyChoice)
 						.before(InGameSettingsSystems::Show),
@@ -357,6 +368,43 @@ fn sync_world_shadows(settings: Res<InGameSettings>, mut quality: ResMut<ShadowQ
 	}
 }
 
+fn apply_unsaved_visual_style_from_host(
+	saved: Res<VisualStyleSaved>,
+	mut auto: ResMut<VisualStyleAutoPick>,
+	mut settings: ResMut<InGameSettings>,
+	adapter: Option<Res<RenderAdapterInfo>>,
+	windows: Query<&Window, With<PrimaryWindow>>,
+) {
+	if saved.0 || auto.reason.is_some() {
+		return;
+	}
+	let Some(adapter) = adapter else {
+		return;
+	};
+	let window = match windows.single() {
+		Ok(window) => UVec2::new(window.physical_width(), window.physical_height()),
+		Err(_) => UVec2::ZERO,
+	};
+	let signals = VisualStyleSignals {
+		adapter_kind: AdapterKind::from_wgpu_device_type_name(&format!(
+			"{:?}",
+			adapter.device_type
+		)),
+		name: adapter.name.clone(),
+		driver: adapter.driver.clone(),
+		driver_info: adapter.driver_info.clone(),
+		window,
+		cpu_cores: std::thread::available_parallelism().ok().map(|n| n.get() as u32),
+		memory_bytes: host_memory_bytes(),
+		device_tier: parse_device_tier_env(std::env::var(DEVICE_TIER_ENV).ok().as_deref()),
+	};
+	let Some(pick) = apply_unsaved_visual_style_default(saved.0, &mut settings, &signals) else {
+		return;
+	};
+	info!("visual style default {:?} ({})", pick.style, pick.reason.as_str());
+	auto.reason = Some(pick.reason);
+}
+
 fn sync_world_render_scale(
 	settings: Res<InGameSettings>,
 	mut visual_style: ResMut<VisualStyleSetting>,
@@ -382,6 +430,7 @@ fn apply_settings_to_visual_style(
 fn sync_render_scale_readout(
 	style: Res<VisualStyleSetting>,
 	windows: Query<&Window, With<PrimaryWindow>>,
+	auto: Res<VisualStyleAutoPick>,
 	mut readout: ResMut<RenderScaleReadout>,
 ) {
 	let env = parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref());
@@ -391,7 +440,7 @@ fn sync_render_scale_readout(
 		}
 		Err(_) => (UVec2::ZERO, 1.0),
 	};
-	let next = visual_style_readout(&style, physical, factor, env);
+	let next = visual_style_readout(&style, physical, factor, env, auto.reason);
 	if *readout != next {
 		*readout = next;
 	}
@@ -402,6 +451,7 @@ fn visual_style_readout(
 	window_physical: UVec2,
 	window_scale_factor: f32,
 	env_override: Option<VisualStyle>,
+	auto_reason: Option<VisualStyleAutoReason>,
 ) -> RenderScaleReadout {
 	let plan = style.plan(window_physical, window_scale_factor);
 	let effective_scale = if window_physical.y == 0 {
@@ -415,6 +465,7 @@ fn visual_style_readout(
 		window_physical,
 		target_physical: plan.target_size,
 		env_override,
+		auto_reason,
 	}
 }
 
@@ -751,9 +802,9 @@ mod tests {
 		apply_settings_to_visual_style(
 			&mut style,
 			InGameVisualStyle::Retro,
-			Some(VisualStyle::Sharp),
+			Some(VisualStyle::Native),
 		);
-		assert_eq!(style.requested(), Some(VisualStyle::Sharp));
+		assert_eq!(style.requested(), Some(VisualStyle::Native));
 		Ok(())
 	}
 
@@ -766,6 +817,7 @@ mod tests {
 			UVec2::new(1920, 1080),
 			1.0,
 			Some(VisualStyle::Impressionist),
+			None,
 		);
 		assert_eq!(
 			readout,
@@ -775,8 +827,39 @@ mod tests {
 				window_physical: UVec2::new(1920, 1080),
 				target_physical: UVec2::new(700, 394),
 				env_override: Some(VisualStyle::Impressionist),
+				auto_reason: None,
 			}
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn unsaved_host_picks_sharp_on_low_unified_memory() -> anyhow::Result<()> {
+		use maybraid_world::{AdapterKind, VisualStyleAutoReason, VisualStyleSignals};
+		use menu_screens::apply_unsaved_visual_style_default;
+
+		let mut settings = InGameSettings {
+			mob_hud: false,
+			shadows: InGameShadowQuality::Off,
+			visual_style: InGameVisualStyle::Native,
+		};
+		let signals = VisualStyleSignals {
+			adapter_kind: AdapterKind::IntegratedGpu,
+			name: "Apple M1".into(),
+			window: UVec2::new(2560, 1600),
+			cpu_cores: Some(8),
+			memory_bytes: Some(16 * 1024 * 1024 * 1024),
+			..VisualStyleSignals::default()
+		};
+		let pick = apply_unsaved_visual_style_default(false, &mut settings, &signals)
+			.expect("unsaved pick");
+		assert_eq!(pick.style, VisualStyle::Sharp);
+		assert_eq!(pick.reason, VisualStyleAutoReason::UnifiedMemoryBelow24GiB);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+
+		settings.visual_style = InGameVisualStyle::Impressionist;
+		assert!(apply_unsaved_visual_style_default(true, &mut settings, &signals).is_none());
+		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
 		Ok(())
 	}
 }

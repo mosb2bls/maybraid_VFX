@@ -3,7 +3,7 @@
 use bevy::log::{error, info};
 use bevy::prelude::{App, IntoScheduleConfigs, Last, Local, Res, SystemSet, Time, Update};
 
-use crate::scene::LodRefreshSystems;
+use crate::scene::{LodChunkFulfillBudget, LodRefreshSystems};
 
 use super::demand::HcsgDemand;
 use super::presentation::despawn_retired_hosts;
@@ -26,7 +26,8 @@ pub(super) fn ensure_runtime(app: &mut App) {
 	if app.world().contains_resource::<HcsgWorker>() {
 		return;
 	}
-	app.configure_sets(Update, HcsgSystems.before(LodRefreshSystems::Track))
+	app.init_resource::<LodChunkFulfillBudget>()
+		.configure_sets(Update, HcsgSystems.before(LodRefreshSystems::Track))
 		.add_systems(Last, despawn_retired_hosts);
 	if std::env::var_os(DIAG_ENV).is_some() {
 		app.add_systems(Update, log_store_diagnostics);
