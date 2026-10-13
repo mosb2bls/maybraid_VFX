@@ -1,6 +1,6 @@
-# RFC: Ambient Wind and Dust VFX
+# RFC-1252: Ambient Wind and Dust VFX
 
-**Status:** Draft  
+**Status:** Approved  
 **Author:** Russell Wang  
 **Date:** 13 October 2026
 
