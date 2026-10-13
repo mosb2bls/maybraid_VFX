@@ -5,7 +5,7 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use camera_controls::look::CameraLookEnabled;
-use character_items::{random_gallery_firearms, FirearmSpec, ItemRng};
+use character_items::{FirearmSpec, ItemRng};
 use characters::species::braidman::BraidmanConfig;
 use characters::{character_bounds, CharacterMotionSystems, CharacterRecipe, ComponentsOnly};
 use characters_playground::CameraController;
@@ -83,7 +83,8 @@ fn apply_show_weapons(
 }
 
 fn spawn_gallery_operators(commands: &mut Commands) {
-	let items = random_gallery_firearms(&mut ItemRng::from_entropy(), GALLERY_COUNT);
+	let mut rng = ItemRng::from_entropy();
+	let items = rng.random_gallery_firearms(GALLERY_COUNT);
 	let rows = GALLERY_COUNT.div_ceil(GALLERY_COLS);
 	for (index, item) in items.into_iter().enumerate() {
 		let Some(spec) = item.firearm_spec() else {

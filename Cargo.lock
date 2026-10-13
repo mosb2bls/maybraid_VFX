@@ -3126,7 +3126,20 @@ dependencies = [
  "anyhow",
  "bevy",
  "damage",
+ "lubikans",
  "menu-components",
+ "player",
+]
+
+[[package]]
+name = "combat-hud-playground"
+version = "0.1.3"
+dependencies = [
+ "bevy",
+ "clap",
+ "combat-hud",
+ "damage",
+ "lubikans",
  "player",
 ]
 
@@ -5352,8 +5365,11 @@ dependencies = [
  "characters",
  "firearm-user",
  "grenades",
+ "maybraid-audio",
  "maybraid-character-controller",
+ "maybraid-input",
  "player",
+ "player-camera",
 ]
 
 [[package]]
@@ -5365,6 +5381,7 @@ dependencies = [
  "character-items",
  "damage",
  "lod-avian",
+ "maybraid-audio",
 ]
 
 [[package]]
@@ -5922,7 +5939,7 @@ dependencies = [
  "image-webp",
  "moxcms",
  "num-traits",
- "png",
+ "png 0.18.0",
  "qoi",
  "ravif",
  "rayon",
@@ -6097,6 +6114,26 @@ name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
+
+[[package]]
+name = "item-icons"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "character-inventory-user",
+ "character-items",
+ "character-persist",
+ "character-shaders",
+ "characters",
+ "firearm-user",
+ "firearms-components",
+ "grenades",
+ "lod",
+ "material-ref",
+ "screen-capture",
+ "tempfile",
+]
 
 [[package]]
 name = "items-playground"
@@ -6597,6 +6634,7 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "bevy",
+ "damage",
  "player",
 ]
 
@@ -6770,6 +6808,7 @@ dependencies = [
  "characters-playground",
  "clap",
  "layer-stack",
+ "maybraid-agent",
  "maybraid-character-controller",
  "maybraid-game-mode-discover",
  "maybraid-game-mode-reliquary",
@@ -6779,6 +6818,17 @@ dependencies = [
  "menu-components",
  "menu-playground",
  "menu-screens",
+ "tempfile",
+]
+
+[[package]]
+name = "maybraid-agent"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
@@ -6914,6 +6964,7 @@ dependencies = [
  "combat-targeting",
  "damage",
  "evasion-intelligence",
+ "item-icons",
  "lod-avian",
  "maybraid-character-controller",
  "maybraid-input",
@@ -6921,6 +6972,7 @@ dependencies = [
  "noise",
  "player",
  "projectiles",
+ "screen-capture",
  "threat-management-intelligence",
 ]
 
@@ -6980,6 +7032,7 @@ dependencies = [
  "ground-avian",
  "hiding-intelligence",
  "intelligence-lod",
+ "item-icons",
  "language-layer-model",
  "layer-stack",
  "lod",
@@ -6989,6 +7042,7 @@ dependencies = [
  "lubikans-damage",
  "maputo",
  "material-ref",
+ "maybraid-agent",
  "maybraid-character-controller",
  "maybraid-game-mode-discover",
  "maybraid-input",
@@ -6999,6 +7053,7 @@ dependencies = [
  "meandering-intelligence",
  "menu-components",
  "mob-characters",
+ "mob-intelligence",
  "mob-layer-model",
  "mob-scenes",
  "movement-intelligence",
@@ -7032,6 +7087,7 @@ name = "maybraid-world-playground"
 version = "0.1.3"
 dependencies = [
  "bevy",
+ "maybraid-agent",
  "maybraid-input",
  "maybraid-world",
 ]
@@ -7079,6 +7135,7 @@ dependencies = [
 name = "menu-playground"
 version = "0.1.3"
 dependencies = [
+ "anyhow",
  "bevy",
  "camera-controls",
  "character-creation-menus",
@@ -7093,6 +7150,8 @@ dependencies = [
  "firearm-user",
  "firearms-components",
  "game-commands",
+ "grenades",
+ "item-icons",
  "lod",
  "maybraid-character-ui-menu-renderer",
  "maybraid-input",
@@ -7113,7 +7172,9 @@ dependencies = [
  "character-model-user",
  "character-persist",
  "game-commands",
+ "item-icons",
  "maybraid-menu-controller",
+ "maybraid-world",
  "menu-components",
  "serde",
  "serde_json",
@@ -8957,6 +9018,19 @@ dependencies = [
 
 [[package]]
 name = "png"
+version = "0.17.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526"
+dependencies = [
+ "bitflags 1.3.2",
+ "crc32fast",
+ "fdeflate",
+ "flate2",
+ "miniz_oxide",
+]
+
+[[package]]
+name = "png"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97baced388464909d42d89643fe4361939af9b7ce7a31ee32a168f832a70f2a0"
@@ -10264,6 +10338,18 @@ dependencies = [
  "precomputed-hash",
  "selectors",
  "tendril 0.4.3",
+]
+
+[[package]]
+name = "screen-capture"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "png 0.17.16",
+ "scene-ref",
+ "tempfile",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

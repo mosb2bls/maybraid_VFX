@@ -474,6 +474,7 @@ mod tests {
 						),
 						1,
 					)),
+					marazion_leaves: Vec::new(),
 				}),
 				derived,
 			);
@@ -505,6 +506,7 @@ mod tests {
 			Arc::new(HydroComplexCell {
 				cell: bounds,
 				complex: Arc::new(HydroComplex::new(Bounds2::from_xz(0.0, 0.0, 100.0, 100.0), 1)),
+				marazion_leaves: Vec::new(),
 			}),
 			bounds,
 		);

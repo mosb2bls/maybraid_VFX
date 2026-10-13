@@ -228,7 +228,8 @@ impl Plugin for WorldMapViewPlugin {
 					sync_map_player_marker,
 					sync_map_death_bones,
 					sync_respawn_picker_title,
-					sync_respawn_spawn_knobs,
+					sync_respawn_spawn_knobs.run_if(respawn_picker_prompt_visible),
+					despawn_leftover_respawn_spawn_knobs.run_if(leftover_respawn_spawn_knobs),
 					sync_respawn_selection_marker,
 					draw_highlighted_poi,
 				)
@@ -336,16 +337,18 @@ pub(crate) fn toggle_map_view(
 
 fn sync_map_camera_locks(
 	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
 	edit: Option<Res<InventoryEditCameraFollow>>,
 	mut locked: Option<ResMut<CameraPovLocked>>,
 	mut suppressed: Option<ResMut<CameraLookSuppressed>>,
 ) {
-	let hold = map.open || edit.is_some_and(|edit| edit.0);
+	let presenting = map.open && gameplay.0;
+	let hold = presenting || edit.is_some_and(|edit| edit.0);
 	if let Some(locked) = locked.as_deref_mut() {
 		locked.0 = hold;
 	}
 	if let Some(suppressed) = suppressed.as_deref_mut() {
-		suppressed.0 = map.open;
+		suppressed.0 = presenting;
 	}
 }
 
@@ -372,6 +375,7 @@ fn pan_map_view(
 }
 
 fn stamp_map_camera(
+	gameplay: Res<WorldGameplayEnabled>,
 	mut map: ResMut<WorldMapView>,
 	surface: DurhamSurface,
 	mut cameras: Query<&mut CameraController, With<FollowCamera>>,
@@ -384,7 +388,7 @@ fn stamp_map_camera(
 		map.begin_life = false;
 	}
 	for mut controller in &mut cameras {
-		if map.open {
+		if map.open && gameplay.0 {
 			controller.enter_map(map.focus, map.height, ground);
 		} else if begin_life {
 			controller.begin_life();
@@ -433,18 +437,26 @@ fn quantize_map_axis(value: f32) -> i32 {
 	(value / MAP_PIN_QUANT_M).round() as i32
 }
 
+type MapCameraQuery<'w, 's> = Query<
+	'w,
+	's,
+	(&'static Camera, &'static GlobalTransform),
+	(With<Camera3d>, With<FollowCamera>),
+>;
+
 fn prepare_map_presentation(
 	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
 	overlay: Res<LanguageOverlay>,
 	registry: Option<Res<PoiRegistry>>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
-	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
+	camera: MapCameraQuery,
 	surface: DurhamSurface,
 	places: Query<(Entity, &DiscoverablePlace, &GlobalTransform)>,
 	mut presentation: ResMut<MapPresentation>,
 	mut last_key: Local<Option<MapPrepKey>>,
 ) {
-	if !map.open {
+	if !map.open || !gameplay.0 {
 		if presentation.open {
 			*presentation = MapPresentation::default();
 		}
@@ -452,7 +464,7 @@ fn prepare_map_presentation(
 		return;
 	}
 	let highlighted = pending.as_deref().and_then(|state| state.pending.as_ref()?.highlighted);
-	let picker = picker_prompt_visible(&map);
+	let picker = picker_prompt_visible(&map, gameplay.0);
 	let (cam, yaw_q, viewport) = if let Ok((camera, camera_transform)) = camera.single() {
 		let translation = camera_transform.translation();
 		let forward = camera_transform.forward();
@@ -1418,14 +1430,15 @@ fn place_edge_arrow(node: &mut Node, label: Vec2, dir: Vec2) {
 
 fn sync_map_player_marker(
 	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
 	players: Query<&Transform, With<VegetationPlayer>>,
-	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
+	camera: MapCameraQuery,
 	surface: DurhamSurface,
 	hud: Query<Entity, With<MapNameHud>>,
 	mut markers: Query<(&mut Node, &mut Visibility), With<MapPlayerMarker>>,
 	mut commands: Commands,
 ) {
-	if !map.open || picker_prompt_visible(&map) {
+	if !map.open || !gameplay.0 || picker_prompt_visible(&map, gameplay.0) {
 		hide_player_markers(&mut markers);
 		return;
 	}
@@ -1503,6 +1516,7 @@ fn place_player_marker(node: &mut Node, screen: Vec2) {
 
 fn sync_map_death_bones(
 	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
 	icon: Option<Res<MapBonesIcon>>,
 	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
@@ -1511,7 +1525,7 @@ fn sync_map_death_bones(
 	mut markers: Query<(&mut Node, &mut Visibility), With<MapDeathBones>>,
 	mut commands: Commands,
 ) {
-	if !picker_prompt_visible(&map) || pending_is_first_life(pending.as_deref()) {
+	if !picker_prompt_visible(&map, gameplay.0) || pending_is_first_life(pending.as_deref()) {
 		hide_death_bones(&mut markers);
 		return;
 	}
@@ -1576,8 +1590,35 @@ fn place_death_bones(node: &mut Node, screen: Vec2) {
 	node.top = Val::Px(screen.y - DEATH_BONES_PX * 0.5);
 }
 
-fn picker_prompt_visible(map: &WorldMapView) -> bool {
-	map.open && map.close_locked
+fn picker_prompt_visible(map: &WorldMapView, gameplay: bool) -> bool {
+	gameplay && map.open && map.close_locked
+}
+
+/// Death-picker UI only. Live combat must not construct `DurhamSurface` /
+/// camera / `PoiRegistry` params for a closed picker ([#1209](https://github.com/ramate-io/maybraid/issues/1209)).
+fn respawn_picker_prompt_visible(
+	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
+) -> bool {
+	picker_prompt_visible(&map, gameplay.0)
+}
+
+/// One leftover-knob sweep after the picker closes, not every idle frame.
+fn leftover_respawn_spawn_knobs(
+	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
+	knobs: Query<(), With<MapSpawnKnob>>,
+) -> bool {
+	!picker_prompt_visible(&map, gameplay.0) && !knobs.is_empty()
+}
+
+fn despawn_leftover_respawn_spawn_knobs(
+	knobs: Query<Entity, With<MapSpawnKnob>>,
+	mut commands: Commands,
+) {
+	for entity in &knobs {
+		commands.entity(entity).despawn();
+	}
 }
 
 fn pending_is_first_life(pending: Option<&WorldPlayerRespawnState>) -> bool {
@@ -1588,9 +1629,10 @@ fn pending_is_first_life(pending: Option<&WorldPlayerRespawnState>) -> bool {
 
 fn sync_respawn_picker_title(
 	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
 	mut titles: Query<&mut Visibility, With<RespawnPickerTitle>>,
 ) {
-	let visible = picker_prompt_visible(&map);
+	let visible = picker_prompt_visible(&map, gameplay.0);
 	for mut visibility in &mut titles {
 		*visibility = if visible { Visibility::Visible } else { Visibility::Hidden };
 	}
@@ -1616,7 +1658,6 @@ fn picker_highlighted(pending: Option<&WorldPlayerRespawnState>) -> Option<PoiId
 }
 
 fn sync_respawn_spawn_knobs(
-	map: Res<WorldMapView>,
 	registry: Option<Res<PoiRegistry>>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
 	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
@@ -1631,12 +1672,6 @@ fn sync_respawn_spawn_knobs(
 	)>,
 	mut commands: Commands,
 ) {
-	if !picker_prompt_visible(&map) {
-		for (entity, _, _, _, _, _) in &knobs {
-			commands.entity(entity).despawn();
-		}
-		return;
-	}
 	let Ok((camera, camera_transform)) = camera.single() else {
 		for (_, _, _, _, _, mut visibility) in &mut knobs {
 			*visibility = Visibility::Hidden;
@@ -1773,6 +1808,7 @@ fn paint_spawn_knob(
 
 fn sync_respawn_selection_marker(
 	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
 	registry: Option<Res<PoiRegistry>>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
 	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
@@ -1781,7 +1817,7 @@ fn sync_respawn_selection_marker(
 	mut commands: Commands,
 ) {
 	let Some(xz) = selected_poi_xz(pending.as_deref(), registry.as_deref())
-		.filter(|_| picker_prompt_visible(&map))
+		.filter(|_| picker_prompt_visible(&map, gameplay.0))
 	else {
 		hide_selection_markers(&mut markers);
 		return;
@@ -1864,16 +1900,17 @@ fn place_selection_marker(node: &mut Node, screen: Vec2) {
 
 fn draw_highlighted_poi(
 	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
 	registry: Option<Res<PoiRegistry>>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
 	players: Query<&Transform, With<VegetationPlayer>>,
 	surface: DurhamSurface,
 	mut gizmos: Gizmos,
 ) {
-	if !map.open {
+	if !map.open || !gameplay.0 {
 		return;
 	}
-	if !picker_prompt_visible(&map) {
+	if !picker_prompt_visible(&map, gameplay.0) {
 		if let Some(xz) = players.iter().next().map(|transform| transform.translation.xz()) {
 			if let Ok(world) = pin_world(&surface, xz) {
 				gizmos.sphere(Isometry3d::from_translation(world), 2.2, TEXT_YELLOW);
@@ -2217,17 +2254,51 @@ mod tests {
 
 	#[test]
 	fn picker_title_only_shows_on_a_locked_map() {
-		assert!(picker_prompt_visible(&WorldMapView {
-			open: true,
-			close_locked: true,
-			..default()
-		}));
-		assert!(!picker_prompt_visible(&WorldMapView {
-			open: true,
-			close_locked: false,
-			..default()
-		}));
-		assert!(!picker_prompt_visible(&WorldMapView::default()));
+		let locked = WorldMapView { open: true, close_locked: true, ..default() };
+		assert!(picker_prompt_visible(&locked, true));
+		assert!(!picker_prompt_visible(&locked, false));
+		assert!(!picker_prompt_visible(
+			&WorldMapView { open: true, close_locked: false, ..default() },
+			true
+		));
+		assert!(!picker_prompt_visible(&WorldMapView::default(), true));
+	}
+
+	#[test]
+	fn leftover_spawn_knob_condition_tracks_picker_and_knobs() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldMapView>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		let needed = world
+			.run_system_once(leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!needed, "no knobs and a closed picker need no sweep");
+
+		world.spawn(MapSpawnKnob { id: PoiId(1) });
+		let needed = world
+			.run_system_once(leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(needed, "closed picker with leftover knobs must sweep once");
+
+		world.insert_resource(WorldMapView { open: true, close_locked: true, ..default() });
+		let needed = world
+			.run_system_once(leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!needed, "an open picker owns the knobs via sync");
+		Ok(())
+	}
+
+	#[test]
+	fn leftover_spawn_knobs_despawn_when_the_picker_is_closed() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldMapView>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		let knob = world.spawn(MapSpawnKnob { id: PoiId(1) }).id();
+		world
+			.run_system_once(despawn_leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.entities().contains(knob));
+		Ok(())
 	}
 
 	#[test]

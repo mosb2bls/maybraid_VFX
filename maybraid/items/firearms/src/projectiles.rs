@@ -1049,6 +1049,7 @@ fn tick_laser_hits(
 				source: source.map(|source| source.0),
 				amount: payload.amount,
 				point: muzzle + dir * distance,
+				allow_self: false,
 			});
 		}
 	}

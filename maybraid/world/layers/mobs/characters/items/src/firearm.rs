@@ -632,7 +632,8 @@ mod tests {
 
 	#[test]
 	fn rolled_looks_are_independent_per_slot() {
-		let items = crate::random_gallery_firearms(&mut ItemRng::from_seed(99), 40);
+		let mut rng = ItemRng::from_seed(99);
+		let items = rng.random_gallery_firearms(40);
 		assert!(items.iter().any(|item| {
 			let looks = item.firearm_spec().unwrap().looks;
 			looks.body != looks.barrel || looks.body != looks.grip
@@ -664,7 +665,8 @@ mod tests {
 
 	#[test]
 	fn gallery_rolls_include_sights() {
-		let items = crate::random_gallery_firearms(&mut ItemRng::from_seed(21), 80);
+		let mut rng = ItemRng::from_seed(21);
+		let items = rng.random_gallery_firearms(80);
 		assert!(items
 			.iter()
 			.any(|item| item.firearm_spec().unwrap().kit.sight == FirearmSight::Holorand));

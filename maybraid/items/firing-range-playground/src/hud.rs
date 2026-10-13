@@ -1,12 +1,11 @@
 //! Firing-range-specific additions to the shared combat HUD.
 
 use bevy::prelude::*;
-use combat_hud::{CombatHudOpponentTotal, CombatHudStatusColor};
 use evasion_intelligence::EvasionIntelligenceUser;
 use game_commands::GameCommandDrawerVisible;
-use player::{Npc, Player};
+use player::Player;
 
-use crate::session::{CombatantKit, RangeSession};
+use crate::session::CombatantKit;
 
 const GUN_CARD_WIDTH: f32 = 248.0;
 const DRAWER_CLEARANCE: f32 = 290.0;
@@ -63,35 +62,6 @@ fn spawn_gun_stats_card(parent: &mut ChildSpawnerCommands) {
 				TextColor(Color::srgb(0.92, 0.95, 0.98)),
 			));
 		});
-}
-
-pub(crate) fn sync_combat_hud_opponent_total(
-	session: Res<RangeSession>,
-	mut total: ResMut<CombatHudOpponentTotal>,
-) {
-	total.0 = session.is_generated_field().then(|| usize::from(session.field_count().max(1)));
-}
-
-type EvasionHudNpcs<'w, 's> = Query<
-	'w,
-	's,
-	(Entity, Option<&'static EvasionIntelligenceUser>, Option<&'static CombatHudStatusColor>),
-	With<Npc>,
->;
-
-pub(crate) fn sync_evasion_hud_status(mut commands: Commands, npcs: EvasionHudNpcs) {
-	for (entity, evasion, current) in &npcs {
-		let wanted = evasion.and_then(evasion_dot_color).map(CombatHudStatusColor);
-		if current.copied() == wanted {
-			continue;
-		}
-		let mut entity = commands.entity(entity);
-		if let Some(wanted) = wanted {
-			entity.insert(wanted);
-		} else {
-			entity.remove::<CombatHudStatusColor>();
-		}
-	}
 }
 
 pub(crate) fn sync_gun_stats(

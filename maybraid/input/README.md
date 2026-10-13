@@ -35,7 +35,9 @@ so analog and pad buttons clear; the key overlay remains.
 ## Schedule
 
 `VirtualPadSystems::Produce` (after Bevy `InputSystems`) then `Derive`, both
-in `PreUpdate`. Consumers run in `Update`.
+in `PreUpdate`. Consumers run in `Update`. An optional [`PadOverlay`] resource
+is applied after HID producers and before `finish_produce`. Insert it only when
+an injector (the agent plugin) is active; missing overlay is a no-op.
 
 Set [`VirtualPadConfig::debug_overlay`] to dump raw `Gamepad` sticks/buttons
 and the virtual pad onto the screen (menu playground enables this). Menu

@@ -39,17 +39,30 @@ use fulfill::{fulfill_multi_scene_merge_roots, fulfill_scene_ref_roots};
 /// [`Self::new_merge_meshes_per_frame`] is a separate cap on **first-time**
 /// [`MultiSceneMerge`] bakes (`meshes.add`). Cache hits still fulfill under
 /// [`Self::per_frame`] only.
+///
+/// [`Self::inspect_per_frame`] caps how many pending roots are **probed**
+/// (cache lookup / asset-ready check) each tick. Drain can leave thousands of
+/// unready [`MultiSceneMergeRoot`]s in the query; without this cap, fulfill
+/// hashes every key every frame after the bake budget is spent. `u32::MAX` =
+/// walk the whole query (tests / playgrounds).
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct SceneRefAdmitBudget {
 	/// Max SceneRef / MultiSceneMerge roots fulfilled this frame (each path).
 	pub per_frame: u32,
 	/// Max new merged mesh assets created this frame. `u32::MAX` = unlimited.
 	pub new_merge_meshes_per_frame: u32,
+	/// Max pending-root probes this frame (cache hits and misses). Round-robin
+	/// so later roots are not starved when the front of the query is unready.
+	pub inspect_per_frame: u32,
 }
 
 impl Default for SceneRefAdmitBudget {
 	fn default() -> Self {
-		Self { per_frame: u32::MAX, new_merge_meshes_per_frame: u32::MAX }
+		Self {
+			per_frame: u32::MAX,
+			new_merge_meshes_per_frame: u32::MAX,
+			inspect_per_frame: u32::MAX,
+		}
 	}
 }
 
@@ -148,6 +161,7 @@ mod tests {
 		let budget = SceneRefAdmitBudget::default();
 		assert_eq!(budget.per_frame, u32::MAX);
 		assert_eq!(budget.new_merge_meshes_per_frame, u32::MAX);
+		assert_eq!(budget.inspect_per_frame, u32::MAX);
 	}
 
 	#[test]

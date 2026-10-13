@@ -7,7 +7,6 @@
 //! A session starts with [`lod::hcsg::request_hcsg_session_restart`].
 
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use bevy::ecs::system::SystemParam;
 use bevy::math::bounding::Aabb3d;
@@ -23,8 +22,8 @@ use durham::terrain::{
 use lod::gen::{Id, OriginalId};
 use lod::hcsg::universal_bounds;
 use lod::hcsg::{
-	self, register_session_seed, Busy, GenerationContext, GenerationPlugin, GenerationScheme,
-	HcsgClass, HcsgRegions, HcsgStorage, HcsgSystems, ViewerHcsgBounds,
+	self, register_session_seed, Busy, GenerationContext, GenerationPlugin, HcsgClass, HcsgRegions,
+	HcsgStorage, HcsgSystems, ViewerHcsgBounds,
 };
 use lod::LodViewer;
 use richmond::DEVELOPMENT_CELL_SIZE;
@@ -32,10 +31,7 @@ use richmond::DEVELOPMENT_CELL_SIZE;
 use crate::named::{Forests, Groves, Named, Places, Regions, Stamp, Urban, Waters};
 use crate::places::LanguageGround;
 use crate::present::{present_language_overlay, LanguageOverlay, Nearby};
-use crate::tiles::{
-	large_tile_aabb, large_tile_index, large_tile_origin, LargeTile,
-	LARGE_TILE,
-};
+use crate::tiles::{large_tile_aabb, large_tile_index, large_tile_origin, LargeTile, LARGE_TILE};
 
 /// Language tiles stay generated within this XZ radius of the viewer.
 const LANGUAGE_GENERATE_RADIUS: f32 = 40_000.0;
@@ -251,16 +247,6 @@ fn track_language<C: Send + Sync + 'static>(
 	}
 }
 
-/// The stored value for `id` and its published bounds after generate.
-pub(crate) fn generated<T: GenerationScheme>(
-	cx: &mut GenerationContext,
-	id: Id,
-) -> Option<(Arc<T>, Aabb3d)> {
-	let value = cx.get_or_generate::<T>(id)?;
-	let bounds = cx.stored_bounds::<T>(id)?;
-	Some((value, bounds))
-}
-
 /// Geneva over ground `W`: language tiles and region names within channel
 /// `C`'s regions, names for the forests, groves, urbanization, Durham
 /// geography and Richmond places near the [`LodViewer`], and the
@@ -305,7 +291,10 @@ mod tests {
 		fine_patch_cell_layout, Durham, DurhamWindow, TerrainConfig, TerrainMeshAssets,
 		TerrainMeshLodBand, TerrainStampConfigs, WaterMeshAssets, WatershedConfigs,
 	};
-	use lod::hcsg::{Gated, HcsgBoundsPlugin, HcsgDemand, HcsgGate, HcsgRestartRequest};
+	use lod::hcsg::{
+		settle_presentation, Gated, HcsgBoundsPlugin, HcsgGate, HcsgRestartRequest,
+		SettlePresentation,
+	};
 	use lod::lod_ref::LodNodePose;
 	use richmond::{
 		AuthoredDevelopment, AuthoredDevelopments, DevelopmentConfig, DevelopmentKind,
@@ -362,15 +351,7 @@ mod tests {
 	}
 
 	fn settle(app: &mut App) -> anyhow::Result<()> {
-		for _ in 0..3 {
-			app.update();
-			let demand = app.world().resource::<HcsgDemand>().clone();
-			anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-		}
-		for _ in 0..8 {
-			app.update();
-		}
-		Ok(())
+		settle_presentation(app, SettlePresentation::geneva_integration(IDLE)).map_err(Into::into)
 	}
 
 	fn region_names(app: &App) -> Vec<(i32, i32, String)> {

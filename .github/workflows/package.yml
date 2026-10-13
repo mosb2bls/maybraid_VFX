@@ -26,10 +26,11 @@ permissions:
 jobs:
   version:
     if: >
-      github.event_name == 'release' ||
+      (github.event_name == 'release' ||
       github.event_name == 'workflow_dispatch' ||
       github.ref == 'refs/heads/main' ||
-      contains(github.event.head_commit.message, 'ci-action::package')
+      contains(github.event.head_commit.message, 'ci-action::package')) &&
+      !(github.event_name == 'release' && endsWith(github.event.release.tag_name, '-traces'))
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -120,7 +121,7 @@ jobs:
           retention-days: 14
 
   publish-release:
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && !endsWith(github.event.release.tag_name, '-traces')
     needs: [linux, macos, windows]
     runs-on: ubuntu-latest
     steps:

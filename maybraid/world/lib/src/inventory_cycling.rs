@@ -254,8 +254,9 @@ mod tests {
 	use bevy::ecs::system::RunSystemOnce;
 
 	use character_items::InventoryItem;
-	use lubikans::fixtures::LubikanFixture;
-	use lubikans::{LubikanDefinition, LubikanDefinitionId, LubikanSelection};
+	use lubikans::{
+		LubikanDefinition, LubikanDefinitionId, LubikanLedger, LubikanSelection, LubikanSelfConfig,
+	};
 
 	use super::*;
 
@@ -368,41 +369,26 @@ mod tests {
 
 	#[test]
 	fn lubikan_cycle_changes_selection_not_charge() -> anyhow::Result<()> {
-		let mut app = App::new();
-		let fixture = LubikanFixture::spawn_in(&mut app);
+		use lubikans::LubikanSelfConfig;
+
 		let extra = LubikanDefinition::new(LubikanDefinitionId::from_raw(2), 12.0, 4.0);
-		let extra_id = fixture.unlock(app.world_mut(), extra).ok_or_else(|| anyhow::anyhow!("unlock"))?;
-		{
-			let mut ledger = fixture.ledger_mut(app.world_mut()).ok_or_else(|| anyhow::anyhow!("ledger"))?;
-			let _ = ledger.apply_to_equipped(5.0);
-			ledger.select(Some(extra_id));
-		}
-		let extra_charge = fixture
-			.ledger(app.world())
-			.ok_or_else(|| anyhow::anyhow!("ledger"))?
-			.account(extra_id)
-			.ok_or_else(|| anyhow::anyhow!("extra"))?
-			.charge()
-			.current();
-		let mut ledger = fixture.ledger_mut(app.world_mut()).ok_or_else(|| anyhow::anyhow!("ledger"))?;
+		let config = LubikanSelfConfig::default();
+		let mut ledger = LubikanLedger::with_self(&config);
+		let extra_id = ledger.ensure_owned(extra);
+		let _ = ledger.apply_to_equipped(5.0);
+		assert!(ledger.select(Some(extra_id)));
+		let extra_charge = ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
 		assert!(cycle_ledger_selection(&mut ledger, 1));
 		assert_eq!(ledger.selection(), LubikanSelection::default());
-		let extra_after = fixture
-			.ledger(app.world())
-			.ok_or_else(|| anyhow::anyhow!("ledger"))?
-			.account(extra_id)
-			.ok_or_else(|| anyhow::anyhow!("extra"))?
-			.charge()
-			.current();
+		let extra_after =
+			ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
 		assert_eq!(extra_charge, extra_after);
 		Ok(())
 	}
 
 	#[test]
 	fn single_owned_lubikan_cycle_is_safe() -> anyhow::Result<()> {
-		let mut app = App::new();
-		let fixture = LubikanFixture::spawn_in(&mut app);
-		let mut ledger = fixture.ledger_mut(app.world_mut()).ok_or_else(|| anyhow::anyhow!("ledger"))?;
+		let mut ledger = LubikanLedger::with_self(&LubikanSelfConfig::default());
 		assert!(!cycle_ledger_selection(&mut ledger, 1));
 		assert!(ledger.selection().is_self());
 		Ok(())

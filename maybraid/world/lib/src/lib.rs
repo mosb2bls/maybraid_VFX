@@ -9,18 +9,29 @@
 //! Painted furniture is a generate pass over Richmond High slots, presented as
 //! flattened 50 m cell hosts in a neighborhood around the camera.
 
+mod agent;
 mod camera;
 pub mod commands;
-mod control;
+pub mod control;
 mod crate_loot;
 mod first_wave;
 mod intelligence;
+mod cycle_target;
 mod inventory_cycling;
+mod item_icons;
 mod map_view;
+pub mod world_lubikan;
+
+#[cfg(feature = "debug-commands")]
+pub mod world_debug;
+
+mod mob_spawn;
 mod pitch;
 mod player_lifecycle;
 mod player_position;
 mod poi;
+pub mod render_scale;
+mod spawn_surface;
 mod start;
 mod stash;
 mod ui;
@@ -31,6 +42,12 @@ mod world_layers;
 
 pub use world_furnished::WorldFurnished;
 
+pub use agent::AgentDrive;
+#[cfg(feature = "debug-commands")]
+pub use commands::{
+	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
+	RequestSpawnNpc, RequestTakeDamage, RequestTeleport,
+};
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
@@ -42,7 +59,12 @@ pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
+pub use cycle_target::InventoryCycleTarget;
 pub use inventory_cycling::ActiveInventoryCyclingCategory;
+pub use item_icons::{
+	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
+	ItemIconPlugin, ITEM_ICON_RESOLUTION,
+};
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
@@ -58,6 +80,13 @@ pub use player_position::{
 	resume_discovery_from_saved_waypoints, PlayerPositionPlugin, PlayerPositionWaypoints,
 };
 pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
+pub use render_scale::{
+	map_render_to_window, map_window_to_render, parse_force_offscreen_env,
+	parse_presentation_treatment_env, parse_render_scale_env, parse_visual_style_env,
+	target_physical_size, RenderScale, RequestForceOffscreen, RequestRenderScale,
+	RequestVisualStyle, VisualStyle, VisualStyleSetting, FORCE_OFFSCREEN_ENV,
+	PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV, VISUAL_STYLE_ENV,
+};
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
 	START_AT_ENV,
@@ -84,8 +113,6 @@ use firearms::EnergyMaterialPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
-use lubikans::{LubikanSystems, LubikansPlugin};
-use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
@@ -119,10 +146,11 @@ const WORLD_BULLSEYE_OUTER_M: f32 = 2_000.0;
 const WORLD_LATTICE_EXCLUDE_M: f32 = 2_000.0;
 const WORLD_LATTICE_OUTER_M: f32 = 8_000.0;
 const WORLD_COMBAT_HUD: CombatHudPlugin = CombatHudPlugin {
-	health_bars: false,
 	hit_markers: true,
 	directional_damage: true,
 	player_vitals: true,
+	lubikan_charge: true,
+	lubikan_point_feedback: true,
 	score: true,
 };
 const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbes(false);
@@ -132,6 +160,8 @@ const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbe
 /// Playground chrome (command drawer and FPS HUD) is on by default.
 /// The game executable uses [`WorldPlugin::game`] (FPS log, no HUD or console).
 /// `F8` / `/stats vsync` / `MAYBRAID_VSYNC=off` toggles vsync for Tracy flights.
+/// `/render scale <f>` / `MAYBRAID_RENDER_SCALE` shades 3D below native window
+/// size without resizing the window.
 pub struct WorldPlugin {
 	/// `/` console, debug gizmos, and FPS HUD.
 	pub debug_chrome: bool,
@@ -185,15 +215,16 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldLayersPlugin)
 			.add_plugins(DiscoveryPlayerPlugin)
 			.add_plugins(WorldIntelligencePlugin)
+			.add_plugins(crate::spawn_surface::SpawnSurfacePlugin)
 			.add_plugins(WeatherPlugin)
 			.add_plugins(SkillMapPlugin)
-			.add_plugins(LubikansPlugin)
-			.add_plugins(LubikanDamagePlugin)
+			.add_plugins(world_lubikan::WorldLubikanPlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
 			.add_plugins(WorldMapViewPlugin)
 			.add_plugins(WorldPlayerLifecyclePlugin)
 			.add_plugins(WorldStashPlugin)
+			.add_plugins(ItemIconPlugin)
 			.add_plugins(PlayerPositionPlugin)
 			.insert_resource(PadMovementEnabled(false))
 			.insert_resource(VegetationPlayerMotor(false))
@@ -227,17 +258,19 @@ impl Plugin for WorldPlugin {
 		} else {
 			app.init_resource::<TextEntryFocus>();
 		}
-		app.add_systems(Startup, vsync::apply_startup_vsync)
-			.add_systems(Update, (vsync::toggle_vsync, commands::apply_sky_commands))
-			.add_systems(PostStartup, spawn_default_braidman)
+		app.add_systems(Startup, vsync::apply_startup_vsync).add_systems(
+			Update,
+			(
+				vsync::toggle_vsync,
+				commands::apply_sky_commands,
+				mob_spawn::apply_spawn_mob_requests,
+			),
+		);
+		render_scale::configure(app);
+		app.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,
-				(
-					control::stamp_vegetation_motor_traction,
-					control::stamp_world_player_motor,
-					control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
-					control::sync_lubikan_session.before(LubikanSystems::Owner),
-				),
+				(control::stamp_vegetation_motor_traction, control::stamp_world_player_motor),
 			)
 			.configure_sets(Update, control::WorldSurfaceSet)
 			.add_systems(
@@ -257,6 +290,7 @@ impl Plugin for WorldPlugin {
 			);
 		camera::configure(app);
 		inventory_cycling::configure(app);
+		cycle_target::configure(app);
 		weapon::configure(app);
 		app.configure_sets(
 			Update,
@@ -288,6 +322,11 @@ impl Plugin for WorldPlugin {
 				ui::draw_npc_behavior_gizmos.run_if(resource_equals(WorldMobHudEnabled(true))),
 			),
 		);
+		if app.world().contains_resource::<AgentDrive>() {
+			app.add_plugins(agent::WorldAgentPlugin);
+		}
+		#[cfg(feature = "debug-commands")]
+		app.add_plugins(world_debug::WorldDebugPlugin);
 		if self.debug_chrome {
 			app.add_systems(Startup, ui::spawn_mob_debug_hud).add_systems(
 				Update,
@@ -337,10 +376,11 @@ mod tests {
 
 	#[test]
 	fn world_only_enables_combat_feedback_without_health_bars() {
-		assert!(!WORLD_COMBAT_HUD.health_bars);
 		assert!(WORLD_COMBAT_HUD.hit_markers);
 		assert!(WORLD_COMBAT_HUD.directional_damage);
 		assert!(WORLD_COMBAT_HUD.player_vitals);
+		assert!(WORLD_COMBAT_HUD.lubikan_charge);
+		assert!(WORLD_COMBAT_HUD.lubikan_point_feedback);
 	}
 
 	#[test]

@@ -113,6 +113,43 @@ impl LubikanActivationReport {
 	}
 }
 
+/// Presentation pulse when a consumer closes an accepted session.
+///
+/// HUD (#1113 / #1155) shows completed from this message. The ledger does
+/// not stay in [`LubikanActivationPhase::Completed`] — Self returns to Idle
+/// so a later activate in the same life can spend again.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LubikanActivationFinished {
+	pub owner: Entity,
+	pub account: LubikanAccountId,
+	pub definition: LubikanDefinitionId,
+	pub id: LubikanActivationSessionId,
+	pub outcome: LubikanActivationOutcome,
+}
+
+impl LubikanActivationFinished {
+	pub fn from_session(
+		session: LubikanActivationSession,
+		outcome: LubikanActivationOutcome,
+	) -> Self {
+		Self {
+			owner: session.owner,
+			account: session.account,
+			definition: session.definition,
+			id: session.id,
+			outcome,
+		}
+	}
+
+	pub fn completed(session: LubikanActivationSession) -> Self {
+		Self::from_session(session, LubikanActivationOutcome::Completed)
+	}
+
+	pub fn cancelled(session: LubikanActivationSession) -> Self {
+		Self::from_session(session, LubikanActivationOutcome::Cancelled)
+	}
+}
+
 /// How a consumer closed an accepted session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LubikanActivationOutcome {

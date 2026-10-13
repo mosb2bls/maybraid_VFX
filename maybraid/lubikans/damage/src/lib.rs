@@ -92,6 +92,7 @@ mod tests {
 			source: Some(attacker),
 			amount: 8.0,
 			point: Vec3::ZERO,
+			allow_self: false,
 		});
 		app.update();
 		let record = history(&app)?
@@ -124,6 +125,7 @@ mod tests {
 			source: Some(summon),
 			amount: 12.0,
 			point: Vec3::ZERO,
+			allow_self: false,
 		});
 		app.update();
 		let record = history(&app)?
@@ -157,6 +159,7 @@ mod tests {
 			source: Some(summon),
 			amount: 6.0,
 			point: Vec3::ZERO,
+			allow_self: false,
 		});
 		app.update();
 		let record = history(&app)?

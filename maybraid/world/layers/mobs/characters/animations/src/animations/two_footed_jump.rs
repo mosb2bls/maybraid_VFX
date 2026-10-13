@@ -32,6 +32,44 @@ pub const LAND_POSE_BLEND_MAX_SECS: f32 = 0.5;
 const MIN_SEGMENT_DURATION: f32 = 1e-3;
 const MIN_SPEED: f32 = 1e-3;
 
+/// Constant-gravity parabolic jump from a standing launch height.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BallisticJump {
+	pub gravity: f32,
+	pub jump_height: f32,
+}
+
+impl BallisticJump {
+	pub const fn new(gravity: f32, jump_height: f32) -> Self {
+		Self { gravity, jump_height }
+	}
+
+	/// Impact speed at touch-down for a jump of the given height under constant gravity.
+	pub fn launch_speed(self) -> f32 {
+		(2.0 * self.gravity * self.jump_height).sqrt()
+	}
+
+	/// Ballistic air time from take-off back to launch height.
+	pub fn air_duration(self) -> f32 {
+		2.0 * self.launch_speed() / self.gravity
+	}
+
+	/// Time after take-off when [`ballistic_height`] returns to zero on descent.
+	pub fn touchdown_time_since_launch(self) -> f32 {
+		self.air_duration()
+	}
+
+	/// Height above launch point `time_since_launch` seconds after take-off.
+	pub fn ballistic_height(self, time_since_launch: f32) -> f32 {
+		if time_since_launch <= 0.0 {
+			return 0.0;
+		}
+		let v0 = self.launch_speed();
+		(v0 * time_since_launch - 0.5 * self.gravity * time_since_launch * time_since_launch)
+			.max(0.0)
+	}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JumpTiming {
 	/// Pre-jump stand-to-bottom duration (seconds).
@@ -111,6 +149,10 @@ impl Default for TwoFootedJump {
 }
 
 impl TwoFootedJump {
+	pub fn ballistic(&self) -> BallisticJump {
+		BallisticJump::new(self.gravity, self.jump_height)
+	}
+
 	pub fn with_gravity(mut self, gravity: f32) -> Self {
 		self.gravity = gravity;
 		self
@@ -132,7 +174,7 @@ impl TwoFootedJump {
 	}
 
 	fn squat_configs(&self, lengths: LegSegmentLengths) -> (Squat, Land) {
-		let impact = launch_speed(self.gravity, self.jump_height);
+		let impact = self.ballistic().launch_speed();
 		let squat_peak = Squat::default().peak_vertical_drop(lengths);
 
 		let windup_descent = self.pre_squat_speed.max(MIN_SPEED);
@@ -148,7 +190,7 @@ impl TwoFootedJump {
 
 	pub fn timings(&self, lengths: LegSegmentLengths) -> JumpTiming {
 		let (windup, landing) = self.squat_configs(lengths);
-		let touchdown = touchdown_time_since_launch(self.gravity, self.jump_height);
+		let touchdown = self.ballistic().touchdown_time_since_launch();
 		// Fall runs from spring end until ballistic height returns to zero. Spring already
 		// consumes part of the post-launch clock, so subtract it from the full arc.
 		let fall_duration = (touchdown - DEFAULT_SPRING_DURATION).max(MIN_SEGMENT_DURATION);
@@ -164,7 +206,7 @@ impl TwoFootedJump {
 
 	/// Seconds after take-off when [`ballistic_height`] returns to zero on descent.
 	pub fn touchdown_time_since_launch(&self) -> f32 {
-		touchdown_time_since_launch(self.gravity, self.jump_height)
+		self.ballistic().touchdown_time_since_launch()
 	}
 
 	pub fn cycle_duration(&self, lengths: LegSegmentLengths) -> f32 {
@@ -180,11 +222,11 @@ impl TwoFootedJump {
 	}
 
 	pub fn launch_speed(&self) -> f32 {
-		launch_speed(self.gravity, self.jump_height)
+		self.ballistic().launch_speed()
 	}
 
 	pub fn ballistic_height(&self, time_since_launch: f32) -> f32 {
-		ballistic_height(time_since_launch, self.gravity, self.jump_height)
+		self.ballistic().ballistic_height(time_since_launch)
 	}
 
 	pub fn segment_at_time(time: f32, timings: &JumpTiming) -> (JumpSegment, f32) {
@@ -253,30 +295,6 @@ impl TwoFootedJump {
 	}
 }
 
-/// Impact speed at touch-down for a jump of the given height under constant gravity.
-pub fn launch_speed(gravity: f32, jump_height: f32) -> f32 {
-	(2.0 * gravity * jump_height).sqrt()
-}
-
-/// Ballistic air time from take-off back to launch height.
-pub fn air_duration(gravity: f32, jump_height: f32) -> f32 {
-	2.0 * launch_speed(gravity, jump_height) / gravity
-}
-
-/// Time after take-off when [`ballistic_height`] returns to zero on descent.
-pub fn touchdown_time_since_launch(gravity: f32, jump_height: f32) -> f32 {
-	air_duration(gravity, jump_height)
-}
-
-/// Height above launch point `t` seconds after take-off.
-pub fn ballistic_height(time_since_launch: f32, gravity: f32, jump_height: f32) -> f32 {
-	if time_since_launch <= 0.0 {
-		return 0.0;
-	}
-	let v0 = launch_speed(gravity, jump_height);
-	(v0 * time_since_launch - 0.5 * gravity * time_since_launch * time_since_launch).max(0.0)
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -334,7 +352,7 @@ mod tests {
 		let lengths = LegSegmentLengths::default();
 		let jump = default_jump();
 		let timings = jump.timings(lengths);
-		let impact = launch_speed(DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT);
+		let impact = BallisticJump::new(DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT).launch_speed();
 		let squat_peak = Squat::default().peak_vertical_drop(lengths);
 
 		assert!((timings.squat_ascent_duration - squat_peak / impact).abs() < 1e-3);
@@ -406,11 +424,10 @@ mod tests {
 
 	#[test]
 	fn ballistic_reaches_configured_apex() -> anyhow::Result<()> {
-		let g = DEFAULT_GRAVITY;
-		let h = DEFAULT_JUMP_HEIGHT;
-		let t_peak = launch_speed(g, h) / g;
-		let apex = ballistic_height(t_peak, g, h);
-		assert!((apex - h).abs() < 1e-4);
+		let arc = BallisticJump::new(DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT);
+		let t_peak = arc.launch_speed() / arc.gravity;
+		let apex = arc.ballistic_height(t_peak);
+		assert!((apex - DEFAULT_JUMP_HEIGHT).abs() < 1e-4);
 		Ok(())
 	}
 
@@ -425,7 +442,8 @@ mod tests {
 		assert!(jump.vertical_offset(lengths, timings.squat_end() - 0.001).abs() < 0.08);
 
 		let apex_time = timings.squat_end()
-			+ launch_speed(DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT) / DEFAULT_GRAVITY;
+			+ BallisticJump::new(DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT).launch_speed()
+				/ DEFAULT_GRAVITY;
 		assert!((jump.vertical_offset(lengths, apex_time) - DEFAULT_JUMP_HEIGHT).abs() < 0.05);
 
 		Ok(())

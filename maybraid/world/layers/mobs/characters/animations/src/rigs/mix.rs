@@ -14,10 +14,17 @@ where
 	}
 
 	fn effects_for(&self, rig: &HumanoidV0Rig, progress: f32) -> Effects {
+		let weight = self.weight.clamp(0.0, 1.0);
+		if weight <= 0.0 {
+			return self.from.effects_for(rig, progress);
+		}
+		if weight >= 1.0 {
+			return self.to.effects_for(rig, progress);
+		}
 		mix_effects(
 			self.from.effects_for(rig, progress),
 			self.to.effects_for(rig, progress),
-			self.weight,
+			weight,
 		)
 	}
 }
@@ -54,10 +61,17 @@ where
 	}
 
 	fn effects_for(&self, rig: &HumanoidV0Rig, progress: f32) -> Effects {
+		let weight = crate::animations::smoothstep(self.weight);
+		if weight <= 0.0 {
+			return self.from.effects_for(rig, progress);
+		}
+		if weight >= 1.0 {
+			return self.to.effects_for(rig, progress);
+		}
 		mix_effects(
 			self.from.effects_for(rig, progress),
 			self.to.effects_for(rig, progress),
-			crate::animations::smoothstep(self.weight),
+			weight,
 		)
 	}
 }
@@ -394,6 +408,62 @@ mod tests {
 		}
 	}
 
+	fn mix_effects_for_legacy<A, B>(mix: &Mix<A, B>, rig: &HumanoidV0Rig, progress: f32) -> Effects
+	where
+		A: Animation<HumanoidV0Rig>,
+		B: Animation<HumanoidV0Rig>,
+	{
+		mix_effects(
+			mix.from.effects_for(rig, progress),
+			mix.to.effects_for(rig, progress),
+			mix.weight,
+		)
+	}
+
+	fn bench_mix_effects_for(legacy: bool, weight: f32) -> Vec<u128> {
+		const FRAMES: u32 = 5_000;
+		const CHARACTERS: u32 = 32;
+		const RUNS: u32 = 5;
+		let mix = Mix::new(Squat::for_loop(1.0, 1.0), TwoFootedJump::default(), weight);
+		let rigs: Vec<HumanoidV0Rig> = (0..CHARACTERS).map(|_| HumanoidV0Rig::imported()).collect();
+		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
+		for _ in 0..RUNS {
+			let start = Instant::now();
+			for frame in 0..FRAMES {
+				let frame = black_box(frame);
+				for (index, rig) in rigs.iter().enumerate() {
+					let progress =
+						black_box((frame as f32 * 0.011 + index as f32 * 0.03).rem_euclid(1.0));
+					if legacy {
+						black_box(mix_effects_for_legacy(&mix, rig, progress));
+					} else {
+						black_box(mix.effects_for(rig, progress));
+					}
+				}
+			}
+			let samples = FRAMES as u64 * CHARACTERS as u64;
+			run_ns.push(start.elapsed().as_nanos() / samples as u128);
+		}
+		run_ns.sort_unstable();
+		run_ns
+	}
+
+	#[test]
+	fn mix_effects_for_endpoints_match_legacy() -> anyhow::Result<()> {
+		let squat = Squat::for_loop(1.0, 1.0);
+		let jump = TwoFootedJump::default();
+		let rig = HumanoidV0Rig::imported();
+		for weight in [0.0, 1.0, 0.5] {
+			let mix = Mix::new(squat.clone(), jump.clone(), weight);
+			for progress in [0.0, 0.35, 0.9] {
+				let legacy = mix_effects_for_legacy(&mix, &rig, progress);
+				let optimized = mix.effects_for(&rig, progress);
+				assert_eq!(legacy, optimized, "weight={weight} progress={progress}");
+			}
+		}
+		Ok(())
+	}
+
 	fn report_bench(label: &str, run_ns: &[u128]) {
 		let min = *run_ns.first().expect("run");
 		let median = run_ns[run_ns.len() / 2];
@@ -402,6 +472,21 @@ mod tests {
 			"mix_blend_microbench {label}: runs={runs:?} min={min} median={median} mean={mean} ns/sample",
 			runs = run_ns,
 		);
+	}
+
+	/// `cargo test -p character-animations mix_effects_microbench --release -- --ignored --nocapture`
+	#[test]
+	#[ignore]
+	fn mix_effects_microbench() {
+		eprintln!(
+			"32 characters × 5000 frames × 5 runs, Mix<Squat,TwoFootedJump> effects_for only"
+		);
+		report_bench("weight 0.0 legacy", &bench_mix_effects_for(true, 0.0));
+		report_bench("weight 0.0 optimized", &bench_mix_effects_for(false, 0.0));
+		report_bench("weight 1.0 legacy", &bench_mix_effects_for(true, 1.0));
+		report_bench("weight 1.0 optimized", &bench_mix_effects_for(false, 1.0));
+		report_bench("weight 0.5 legacy", &bench_mix_effects_for(true, 0.5));
+		report_bench("weight 0.5 optimized", &bench_mix_effects_for(false, 0.5));
 	}
 
 	/// `cargo test -p character-animations mix_blend_microbench --release -- --ignored --nocapture`
