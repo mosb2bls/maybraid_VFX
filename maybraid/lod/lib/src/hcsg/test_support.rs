@@ -7,7 +7,7 @@ use bevy::prelude::*;
 
 use crate::gen::{Id, Version};
 
-use super::{HcsgDemand, HcsgNode, HcsgValue};
+use super::{HcsgDemand, HcsgNode, HcsgValue, RetiredHost};
 
 /// [`settle_presentation`] waited longer than [`SettlePresentation::idle_timeout`].
 #[derive(Debug, Clone, Copy, thiserror::Error)]
@@ -70,7 +70,7 @@ pub fn settle_presentation(app: &mut App, opts: SettlePresentation) -> Result<()
 pub fn hcsg_hosts<T: HcsgValue>(app: &mut App) -> Vec<(Id, Version)> {
 	let mut hosts: Vec<_> = app
 		.world_mut()
-		.query::<&HcsgNode<T>>()
+		.query_filtered::<&HcsgNode<T>, Without<RetiredHost>>()
 		.iter(app.world())
 		.map(|node| (node.id, node.version))
 		.collect();

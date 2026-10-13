@@ -280,7 +280,9 @@ mod tests {
 		TerrainMeshLodBand, TerrainStampConfigs, WaterMeshAssets, WaterPresentationPlugin,
 		WatershedConfigs,
 	};
-	use lod::hcsg::{settle_presentation, HcsgNode, HcsgRestartRequest, SettlePresentation};
+	use lod::hcsg::{
+		settle_presentation, HcsgNode, HcsgRestartRequest, RetiredHost, SettlePresentation,
+	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 	use mob_scenes::{MobKind, MobScene};
@@ -372,7 +374,7 @@ mod tests {
 
 	fn placed(app: &mut App) -> Vec<HcsgNode<PlacedMobCell<Urban>>> {
 		app.world_mut()
-			.query::<&HcsgNode<PlacedMobCell<Urban>>>()
+			.query_filtered::<&HcsgNode<PlacedMobCell<Urban>>, Without<RetiredHost>>()
 			.iter(app.world())
 			.cloned()
 			.collect()
