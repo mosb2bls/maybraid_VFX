@@ -622,6 +622,105 @@ fn local_query_clone_timing() {
 }
 
 #[test]
+fn collect_matching_in_xz_tile_matches_matching_in_xz_tile() -> anyhow::Result<()> {
+	let mut registry = PoiRegistry::default();
+	registry.upsert(
+		Entity::from_bits(1),
+		Poi::new(PoiId(1), CAMP),
+		Vec3::new(40.0, 0.0, 40.0),
+		true,
+		false,
+	)?;
+	registry.upsert(
+		Entity::from_bits(2),
+		Poi::new(PoiId(2), CAMP),
+		Vec3::new(400.0, 0.0, 400.0),
+		false,
+		true,
+	)?;
+	let interests = PoiInterests::one(CAMP);
+	let tile = IVec2::ZERO;
+	let records = registry.matching_in_xz_tile(tile, 256.0, 0.0, &interests);
+	let mut ids = Vec::new();
+	registry.collect_matching_in_xz_tile(tile, 256.0, 0.0, &interests, &mut ids);
+	assert_eq!(
+		records.iter().map(|record| record.id).collect::<Vec<_>>(),
+		ids,
+	);
+	Ok(())
+}
+
+#[test]
+#[ignore]
+fn xz_tile_matching_clone_timing() {
+	const GLOBAL_COUNT: usize = 512;
+	const SCANS: usize = 5_000;
+	const TILE_SIZE: f32 = 256.0;
+	let interests = PoiInterests::one(CAMP);
+	let tile = IVec2::ZERO;
+	let on_tile = |position: Vec3| (position.xz() / TILE_SIZE).floor().as_ivec2() == tile;
+
+	let mut registry = PoiRegistry::default();
+	for index in 0..GLOBAL_COUNT {
+		let id = PoiId(index as u64 + 1);
+		let angle = (index as f32 / GLOBAL_COUNT as f32) * core::f32::consts::TAU;
+		let position = Vec3::new(angle.cos() * 4_000.0, 0.0, angle.sin() * 4_000.0);
+		registry
+			.upsert(Entity::from_bits(index as u64 + 1), Poi::new(id, CAMP), position, true, true)
+			.expect("upsert poi");
+	}
+	registry
+		.upsert(
+			Entity::from_bits(GLOBAL_COUNT as u64 + 1),
+			Poi::new(PoiId(GLOBAL_COUNT as u64 + 1), CAMP),
+			Vec3::new(32.0, 0.0, 32.0),
+			true,
+			true,
+		)
+		.expect("tile-local poi");
+
+	let clone_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		let records = registry
+			.global_matching(&interests)
+			.into_iter()
+			.filter(|record| on_tile(record.position))
+			.collect::<Vec<_>>();
+		std::hint::black_box(records);
+	}
+	let clone_elapsed = clone_start.elapsed();
+
+	let mut global_ids = Vec::new();
+	let global_id_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		registry.collect_global_matching(&interests, &mut global_ids);
+		let matches = global_ids
+			.iter()
+			.filter(|id| registry.get(**id).is_some_and(|record| on_tile(record.position)))
+			.count();
+		std::hint::black_box(matches);
+	}
+	let global_id_elapsed = global_id_start.elapsed();
+
+	let mut scratch = Vec::new();
+	let tile_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		registry.collect_matching_in_xz_tile(tile, TILE_SIZE, 0.0, &interests, &mut scratch);
+		for id in &scratch {
+			std::hint::black_box(registry.get(*id));
+		}
+	}
+	let tile_elapsed = tile_start.elapsed();
+
+	eprintln!(
+		"xz_tile_matching_clone_timing: {GLOBAL_COUNT} globals + 1 on-tile × {SCANS} probes — global_matching+filter {:?}, collect_global_matching+filter {:?}, collect_matching_in_xz_tile {:?}",
+		clone_elapsed,
+		global_id_elapsed,
+		tile_elapsed,
+	);
+}
+
+#[test]
 #[ignore]
 fn choose_in_clone_timing() {
 	use crate::hash::unit_f32;

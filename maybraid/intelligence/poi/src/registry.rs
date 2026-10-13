@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use bevy::math::{bounding::Aabb3d, DVec3};
 use bevy::prelude::*;
@@ -309,15 +309,21 @@ impl PoiRegistry {
 		}
 	}
 
-	pub fn matching_in_xz_tile(
+	/// Fill `out` with ids of records matching `interests` in xz tile `tile`.
+	///
+	/// Avoids cloning every global [`PoiRecord`] when only a sparse tile subset
+	/// matches; pair with [`Self::get`] on the hot path.
+	pub fn collect_matching_in_xz_tile(
 		&self,
 		tile: IVec2,
 		tile_size: f32,
 		center_y: f32,
 		interests: &PoiInterests,
-	) -> Vec<PoiRecord> {
+		out: &mut Vec<PoiId>,
+	) {
+		out.clear();
 		if !tile_size.is_finite() || !center_y.is_finite() {
-			return Vec::new();
+			return;
 		}
 		let size = tile_size.clamp(1.0, MAX_LOCAL_QUERY_RADIUS);
 		let min_xz = tile.as_vec2() * size;
@@ -329,21 +335,37 @@ impl PoiRegistry {
 		let query_level = BaseScale::new(self.local.grid().base_scale())
 			.map(|base| base.insertion_level(&region))
 			.unwrap_or(0);
-		let mut records = BTreeMap::new();
+		let mut seen = HashSet::new();
 		for (record, _) in self
 			.local
 			.query_values(region, BaseScale::levels_through(query_level.max(self.local_max_level)))
 		{
 			if interests.contains(record.kind) && xz_tile(record.position, size) == tile {
-				records.insert(record.id, *record);
+				seen.insert(record.id);
 			}
 		}
-		for record in self.global_matching(interests) {
-			if xz_tile(record.position, size) == tile {
-				records.insert(record.id, record);
+		for id in &self.globals {
+			let Some(record) = self.records.get(id) else {
+				continue;
+			};
+			if interests.contains(record.kind) && xz_tile(record.position, size) == tile {
+				seen.insert(*id);
 			}
 		}
-		records.into_values().collect()
+		out.extend(seen);
+		out.sort_unstable_by_key(|id| id.0);
+	}
+
+	pub fn matching_in_xz_tile(
+		&self,
+		tile: IVec2,
+		tile_size: f32,
+		center_y: f32,
+		interests: &PoiInterests,
+	) -> Vec<PoiRecord> {
+		let mut ids = Vec::new();
+		self.collect_matching_in_xz_tile(tile, tile_size, center_y, interests, &mut ids);
+		ids.iter().filter_map(|id| self.get(*id).copied()).collect()
 	}
 
 	pub fn len(&self) -> usize {

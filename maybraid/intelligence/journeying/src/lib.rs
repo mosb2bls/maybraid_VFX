@@ -111,6 +111,7 @@ pub fn select_journeying_goals(
 	registry: Res<PoiRegistry>,
 	mut users: Query<JourneyingSelection<'_>, JourneyingFilter>,
 	mut commands: Commands,
+	mut tile_matches: Local<Vec<poi_intelligence::PoiId>>,
 ) {
 	let now = time.elapsed_secs();
 	for (entity, transform, mut journeying, mut learner, mut knowledge, mut visits, mut state) in
@@ -140,6 +141,7 @@ pub fn select_journeying_goals(
 					visits: &mut visits,
 					now,
 				},
+				&mut tile_matches,
 			)
 		};
 		let Some(id) = selected else {
@@ -172,6 +174,7 @@ fn cycle_is_full(policy: PoiVisitPolicy, visits: &PoiVisitState) -> bool {
 fn select_from_distant_tile(
 	journeying: &mut JourneyingIntelligenceUser,
 	selection: TileSelection<'_>,
+	tile_matches: &mut Vec<poi_intelligence::PoiId>,
 ) -> Option<poi_intelligence::PoiId> {
 	let TileSelection { at, user_entity, registry, learner, knowledge, visits, now } = selection;
 	let empty_tile_retry_secs = journeying.empty_tile_retry_secs.max(0.0);
@@ -186,17 +189,24 @@ fn select_from_distant_tile(
 		if journeying.empty_tiles.contains_key(&tile) {
 			continue;
 		}
-		let records = registry.matching_in_xz_tile(tile, tile_size, at.y, &learner.interests);
+		registry.collect_matching_in_xz_tile(
+			tile,
+			tile_size,
+			at.y,
+			&learner.interests,
+			tile_matches,
+		);
 		let mut candidates: Vec<_> = knowledge
 			.matching(&learner.interests)
 			.copied()
 			.filter(|known| tile_of(known.position, tile_size) == tile)
 			.collect();
-		if records.is_empty() && candidates.is_empty() {
+		if tile_matches.is_empty() && candidates.is_empty() {
 			journeying.empty_tiles.insert(tile, now);
 			continue;
 		}
-		for record in records {
+		for id in tile_matches.iter().copied() {
+			let record = registry.get(id).expect("collect_matching_in_xz_tile ids are indexed");
 			if knowledge.get(record.id).is_none() && !learner.try_take_learning_credit() {
 				continue;
 			}
@@ -329,6 +339,7 @@ mod tests {
 		let mut learner = PoiIntelligenceUser::new(PoiInterests::one(kind));
 		let mut knowledge = PoiKnowledge::default();
 		let mut visits = PoiVisitState::default();
+		let mut tile_matches = Vec::new();
 		let selected = select_from_distant_tile(
 			&mut journeying,
 			TileSelection {
@@ -340,6 +351,7 @@ mod tests {
 				visits: &mut visits,
 				now: 0.0,
 			},
+			&mut tile_matches,
 		);
 		assert_eq!(selected, Some(PoiId(7)));
 		assert!(knowledge.get(PoiId(7)).is_some());
