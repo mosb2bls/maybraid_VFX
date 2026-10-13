@@ -67,9 +67,21 @@ impl FlickLane {
 	}
 }
 
-/// True while the skill-map steer modifier is down (Xbox **RB** / keyboard **V**).
+/// How the map consumes stick input.
+///
+/// Standard keeps RB + either-stick flicks. Tanz disables that producer so
+/// committed Tanz gestures can publish [`SkillMapFlick`] instead.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SkillMapSteerPolicy {
+	#[default]
+	Standard,
+	Tanz,
+}
+
+/// True while the skill-map steer modifier is down (Xbox **RB** / keyboard **V**)
+/// and the Tanzer bumper chord is not held.
 pub fn skill_map_steer_held(pad: &VirtualPad) -> bool {
-	pad.pressed(PadButton::BumperFire)
+	pad.pressed(PadButton::BumperFire) && !pad.bumper_chord_held()
 }
 
 /// Watches move and look sticks. One flick per sample, stronger stick wins if both land.
@@ -103,10 +115,11 @@ pub fn detect_skill_map_flicks(
 	config: Option<Res<VirtualPadConfig>>,
 	gamepads: Query<&Gamepad>,
 	enabled: Res<SkillMapEnabled>,
+	policy: Option<Res<SkillMapSteerPolicy>>,
 	mut controller: ResMut<SkillMapController>,
 	mut flicks: MessageWriter<SkillMapFlick>,
 ) {
-	if !enabled.0 {
+	if !enabled.0 || policy.is_some_and(|policy| *policy == SkillMapSteerPolicy::Tanz) {
 		controller.reset();
 		return;
 	}
@@ -176,6 +189,16 @@ mod tests {
 		pad.hold_digital(PadButton::BumperFire);
 		pad.finish_digital();
 		assert!(skill_map_steer_held(&pad));
+	}
+
+	#[test]
+	fn bumper_chord_is_not_the_steer_hold() {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.hold_digital(PadButton::BumperFocus);
+		pad.hold_digital(PadButton::BumperFire);
+		pad.finish_digital();
+		assert!(!skill_map_steer_held(&pad));
 	}
 
 	#[test]

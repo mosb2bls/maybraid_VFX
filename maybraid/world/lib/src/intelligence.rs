@@ -34,6 +34,7 @@ use routing_intelligence::{RoutingPlugin, RoutingSystems};
 use spotting_intelligence::{
 	InterestLayers, SpotBounds, SpotSubject, SpottingObserveLimits, SpottingSystems,
 };
+use tanz_user::TanzUserPlugin;
 use tether_intelligence::TetherSystems;
 use threat_intelligence::{
 	Affiliations, ThreatDiscoverLimits, ThreatId, ThreatIntelligencePlugin, ThreatSubject,
@@ -92,6 +93,9 @@ impl Plugin for WorldIntelligencePlugin {
 		}
 		if !app.is_plugin_added::<GrenadeUserPlugin>() {
 			app.add_plugins(GrenadeUserPlugin);
+		}
+		if !app.is_plugin_added::<TanzUserPlugin>() {
+			app.add_plugins(TanzUserPlugin);
 		}
 		if !app.is_plugin_added::<MovementIntelligencePlugin<AvianMovementSurface<'_, '_>>>() {
 			app.add_plugins(MovementIntelligencePlugin::<AvianMovementSurface<'_, '_>>::default());

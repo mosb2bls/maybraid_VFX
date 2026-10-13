@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use maybraid_input::{MenuOwnsBack, PadButton, PadGameplayEnabled, VirtualPad, VirtualPadConfig};
 
 use crate::intent::CharacterIntent;
+use crate::OrdinaryLocomotionEnabled;
 
 const ANALOG_EPS: f32 = 1e-6;
 const STANCE_HOLD_SECS: f32 = 0.35;
@@ -14,10 +15,13 @@ pub fn produce_character_intents(
 	time: Res<Time>,
 	gameplay: Res<PadGameplayEnabled>,
 	menu_owns: Option<Res<MenuOwnsBack>>,
+	ordinary: Res<OrdinaryLocomotionEnabled>,
 	mut intents: MessageWriter<CharacterIntent>,
 ) {
 	let stance_enabled = gameplay.is_enabled() && !menu_owns.is_some_and(|owns| owns.0);
-	for intent in collect(&pad, config.trigger_press_threshold, time.delta_secs(), stance_enabled) {
+	for intent in
+		collect(&pad, config.trigger_press_threshold, time.delta_secs(), stance_enabled, ordinary.0)
+	{
 		intents.write(intent);
 	}
 }
@@ -27,9 +31,10 @@ pub fn collect(
 	trigger_threshold: f32,
 	dt: f32,
 	stance_enabled: bool,
+	ordinary_locomotion: bool,
 ) -> Vec<CharacterIntent> {
 	let mut out = Vec::new();
-	if pad.move_stick.length_squared() > ANALOG_EPS {
+	if ordinary_locomotion && pad.move_stick.length_squared() > ANALOG_EPS {
 		out.push(CharacterIntent::Move(pad.move_stick));
 	}
 	if pad.look_stick.length_squared() > ANALOG_EPS {
@@ -38,26 +43,26 @@ pub fn collect(
 	if pad.trigger_focus > ANALOG_EPS {
 		out.push(CharacterIntent::Focus(pad.trigger_focus));
 	}
-	if pad.pressed(PadButton::BumperFocus) {
+	if pad.pressed(PadButton::BumperFocus) && !pad.bumper_chord_held() {
 		out.push(CharacterIntent::Ads(1.0));
 	}
 	if pad.pressed(PadButton::TriggerFire) || pad.trigger_fire >= trigger_threshold {
 		out.push(CharacterIntent::UseItem(pad.trigger_fire.max(trigger_threshold)));
 	}
 
-	if pad.pressed(PadButton::StickClickMove) {
+	if ordinary_locomotion && pad.pressed(PadButton::StickClickMove) {
 		out.push(CharacterIntent::StartSprint);
 	}
-	if pad.just_released(PadButton::StickClickMove) {
+	if ordinary_locomotion && pad.just_released(PadButton::StickClickMove) {
 		out.push(CharacterIntent::StopSprint);
 	}
 	if pad.just_pressed(PadButton::StickClickLook) {
 		out.push(CharacterIntent::SwapPov);
 	}
-	if pad.just_pressed(PadButton::A) {
+	if ordinary_locomotion && pad.just_pressed(PadButton::A) {
 		out.push(CharacterIntent::Jump);
 	}
-	if stance_enabled {
+	if ordinary_locomotion && stance_enabled {
 		if pad.just_released(PadButton::B) && pad.hold_secs(PadButton::B) < STANCE_HOLD_SECS {
 			out.push(CharacterIntent::ChangeSquat);
 		}
@@ -118,7 +123,7 @@ mod tests {
 	}
 
 	fn intents(pad: &VirtualPad) -> Vec<CharacterIntent> {
-		collect(pad, 0.5, 0.0, true)
+		collect(pad, 0.5, 0.0, true, true)
 	}
 
 	#[test]
@@ -216,13 +221,13 @@ mod tests {
 		pad.hold_digital(PadButton::B);
 		finish(&mut pad);
 		pad.tick_holds(0.2);
-		assert!(!collect(&pad, 0.5, 0.2, true).contains(&CharacterIntent::ChangeProne));
+		assert!(!collect(&pad, 0.5, 0.2, true, true).contains(&CharacterIntent::ChangeProne));
 
 		pad.begin_frame();
 		pad.hold_digital(PadButton::B);
 		finish(&mut pad);
 		pad.tick_holds(0.2);
-		let crossing = collect(&pad, 0.5, 0.2, true);
+		let crossing = collect(&pad, 0.5, 0.2, true, true);
 		assert!(crossing.contains(&CharacterIntent::ChangeProne));
 		assert!(!crossing.contains(&CharacterIntent::ChangeSquat));
 
@@ -230,11 +235,11 @@ mod tests {
 		pad.hold_digital(PadButton::B);
 		finish(&mut pad);
 		pad.tick_holds(0.16);
-		assert!(!collect(&pad, 0.5, 0.16, true).contains(&CharacterIntent::ChangeProne));
+		assert!(!collect(&pad, 0.5, 0.16, true, true).contains(&CharacterIntent::ChangeProne));
 
 		pad.begin_frame();
 		finish(&mut pad);
-		let release = collect(&pad, 0.5, 0.16, true);
+		let release = collect(&pad, 0.5, 0.16, true, true);
 		assert!(!release.contains(&CharacterIntent::ChangeSquat));
 		assert!(!release.contains(&CharacterIntent::ChangeProne));
 		Ok(())
@@ -249,7 +254,7 @@ mod tests {
 		pad.tick_holds(0.1);
 		pad.begin_frame();
 		finish(&mut pad);
-		assert!(collect(&pad, 0.5, 0.1, false).is_empty());
+		assert!(collect(&pad, 0.5, 0.1, false, true).is_empty());
 		Ok(())
 	}
 
@@ -327,7 +332,28 @@ mod tests {
 		pad.hold_digital(PadButton::BumperFocus);
 		pad.hold_digital(PadButton::BumperFire);
 		finish(&mut pad);
-		assert_eq!(intents(&pad), vec![CharacterIntent::Ads(1.0)]);
+		assert!(intents(&pad).is_empty());
+		Ok(())
+	}
+
+	#[test]
+	fn tanzer_skips_move_jump_and_stance_but_keeps_look() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.add_move(Vec2::Y);
+		pad.add_look(Vec2::X);
+		pad.hold_digital(PadButton::A);
+		finish(&mut pad);
+		let collected = collect(&pad, 0.5, 0.0, true, false);
+		assert!(!collected.iter().any(|intent| matches!(intent, CharacterIntent::Move(_))));
+		assert!(!collected.contains(&CharacterIntent::Jump));
+		assert_eq!(
+			collected
+				.iter()
+				.find(|intent| matches!(intent, CharacterIntent::Look(_)))
+				.copied(),
+			Some(CharacterIntent::Look(Vec2::X))
+		);
 		Ok(())
 	}
 
