@@ -5,7 +5,7 @@ use bevy::prelude::*;
 /// Despawn full-screen menu roots (home, in-game, character, loading).
 pub fn despawn_menu_screens(commands: &mut Commands, existing: impl IntoIterator<Item = Entity>) {
 	for entity in existing {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 }
 

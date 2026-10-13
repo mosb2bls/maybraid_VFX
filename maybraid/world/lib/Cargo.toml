@@ -12,6 +12,8 @@ rust-version = { workspace = true }
 [features]
 # Test fixtures for crates that test against the world (e.g. `UnitXTile`).
 test-support = ["lod/test-support"]
+# Debug commands for preview evidence capture (grant-points, take-damage, spawn-npc).
+debug-commands = []
 
 [dependencies]
 layer-stack = { workspace = true }
@@ -54,6 +56,7 @@ material-ref = { workspace = true }
 world-materials = { workspace = true }
 maybraid-character-controller = { workspace = true }
 maybraid-input = { workspace = true }
+maybraid-agent = { workspace = true }
 menu-components = { workspace = true }
 maybraid-skill-map = { workspace = true }
 maybraid-vfx = { workspace = true }
@@ -63,6 +66,7 @@ mob-scenes = { workspace = true }
 player = { workspace = true }
 player-camera = { workspace = true }
 mob-characters = { workspace = true }
+mob-intelligence = { workspace = true }
 barking = { workspace = true }
 mob-layer-model = { workspace = true }
 meandering-intelligence = { workspace = true }
@@ -76,6 +80,7 @@ world-player = { workspace = true }
 richmond = { workspace = true }
 urbanization-cells = { workspace = true }
 routing-intelligence = { workspace = true }
+item-icons = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 spotting-intelligence = { workspace = true }

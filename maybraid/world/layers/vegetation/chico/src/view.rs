@@ -130,7 +130,11 @@ impl Plugin for VegetationLodRefreshPlugin {
 			completes_per_frame: 1024,
 			..Default::default()
 		})
-		.insert_resource(SceneRefAdmitBudget { per_frame: 256, new_merge_meshes_per_frame: 64 })
+		.insert_resource(SceneRefAdmitBudget {
+			per_frame: 256,
+			new_merge_meshes_per_frame: 64,
+			inspect_per_frame: 256,
+		})
 		.add_plugins((
 			LodSceneRefreshRegionPlugin::<Bullseye, With<Camera>, VegetationBullseye>::default(),
 			LodSceneRefreshRegionPlugin::<Spotlight, With<Camera>, VegetationSpotlight>::default(),

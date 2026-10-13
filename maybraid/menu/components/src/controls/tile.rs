@@ -5,9 +5,9 @@ use bevy::text::{Justify, LineBreak, LineHeight, TextBounds, TextSpan};
 use bevy::ui::widget::ViewportNode;
 
 use crate::theme::{
-	PANEL_CHIP_GAP, PANEL_GROUP_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_TILE_COLUMNS,
-	PANEL_TILE_MIN_HEIGHT, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
-	TEXT_YELLOW_HOVER, TILE_FOCUS_PAD,
+	MENU_CLEAR, OBJECTIVE_MARKER_BORDER, OBJECTIVE_MARKER_RADIUS, PANEL_CHIP_GAP,
+	PANEL_GROUP_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_TILE_COLUMNS, PANEL_TILE_MIN_HEIGHT,
+	TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_HOVER, TILE_FOCUS_PAD,
 };
 
 use super::display::menu_display_name;
@@ -95,7 +95,7 @@ pub fn spawn_asset_tile(
 			if let Some(thumbnail) = thumbnail {
 				button.spawn((
 					ImageNode::new(thumbnail),
-					Node { width: Val::Px(54.0), height: Val::Px(54.0), ..default() },
+					Node { width: Val::Px(48.0), height: Val::Px(48.0), ..default() },
 					Pickable::IGNORE,
 				));
 			}
@@ -125,7 +125,7 @@ pub fn spawn_grid_catalog_tile(
 	let face = tile_face(selected, muted);
 	let mark = if muted { TEXT_YELLOW_FAINT } else { TEXT_YELLOW };
 	let pictured = thumbnail.is_some() || viewport.is_some();
-	const VIEWPORT_PX: f32 = 160.0;
+	const THUMB_PX: f32 = 72.0;
 	let mut tile = parent.spawn((
 		Button,
 		HoverTile { equipped: selected, preserve_fill: false },
@@ -142,28 +142,10 @@ pub fn spawn_grid_catalog_tile(
 		button
 			.spawn((
 				Node {
-					width: if viewport.is_some() {
-						Val::Px(VIEWPORT_PX)
-					} else if pictured {
-						Val::Percent(100.0)
-					} else {
-						Val::Px(54.0)
-					},
-					height: if viewport.is_some() {
-						Val::Px(VIEWPORT_PX)
-					} else if pictured {
-						Val::Auto
-					} else {
-						Val::Px(54.0)
-					},
+					width: if pictured { Val::Percent(100.0) } else { Val::Px(48.0) },
+					height: if pictured { Val::Auto } else { Val::Px(48.0) },
 					aspect_ratio: pictured.then_some(1.0),
-					min_height: if viewport.is_some() {
-						Val::Px(VIEWPORT_PX)
-					} else if pictured {
-						Val::Px(120.0)
-					} else {
-						Val::Px(54.0)
-					},
+					min_height: Val::Px(if pictured { THUMB_PX } else { 48.0 }),
 					position_type: PositionType::Relative,
 					justify_content: JustifyContent::Center,
 					align_items: AlignItems::Center,
@@ -182,8 +164,8 @@ pub fn spawn_grid_catalog_tile(
 						slot.spawn((
 							Node {
 								position_type: PositionType::Absolute,
-								width: Val::Px(54.0),
-								height: Val::Px(54.0),
+								width: Val::Px(48.0),
+								height: Val::Px(48.0),
 								justify_content: JustifyContent::Center,
 								align_items: AlignItems::Center,
 								border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -210,8 +192,8 @@ pub fn spawn_grid_catalog_tile(
 					slot.spawn((
 						ViewportNode::new(camera),
 						Node {
-							width: Val::Px(VIEWPORT_PX),
-							height: Val::Px(VIEWPORT_PX),
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
 							..default()
 						},
 						Pickable::IGNORE,
@@ -224,12 +206,7 @@ pub fn spawn_grid_catalog_tile(
 					));
 				}
 				if let Some(rank) = rank {
-					slot.spawn((
-						Text::new(rank.to_string()),
-						fonts.item(PANEL_ITEM_FONT_SIZE),
-						TextColor(mark),
-						Pickable::IGNORE,
-					));
+					spawn_rank_tag(slot, fonts, rank, mark);
 				} else if selected {
 					crate::icons::Icon::maybraid(22.0, mark).spawn(
 						slot,
@@ -243,6 +220,35 @@ pub fn spawn_grid_catalog_tile(
 			spawn_detail_line(button, fonts, detail);
 		}
 	});
+}
+
+fn spawn_rank_tag(parent: &mut ChildSpawnerCommands, fonts: &HudFonts, rank: u8, face: Color) {
+	parent
+		.spawn((
+			Node {
+				position_type: PositionType::Absolute,
+				top: Val::Px(2.0),
+				left: Val::Px(2.0),
+				padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)),
+				border: UiRect::all(Val::Px(OBJECTIVE_MARKER_BORDER)),
+				border_radius: BorderRadius::all(Val::Px(OBJECTIVE_MARKER_RADIUS)),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			BackgroundColor(MENU_CLEAR),
+			BorderColor::all(face),
+			ZIndex(1),
+			Pickable::IGNORE,
+		))
+		.with_children(|tag| {
+			tag.spawn((
+				Text::new(rank.to_string()),
+				fonts.item(PANEL_ITEM_FONT_SIZE),
+				TextColor(face),
+				Pickable::IGNORE,
+			));
+		});
 }
 
 fn spawn_detail_line(parent: &mut ChildSpawnerCommands, fonts: &HudFonts, detail: &str) {
@@ -395,8 +401,8 @@ mod tests {
 	}
 
 	#[test]
-	fn tile_grid_is_two_columns() {
-		assert_eq!(PANEL_TILE_COLUMNS, 2);
+	fn tile_grid_is_three_columns() {
+		assert_eq!(PANEL_TILE_COLUMNS, 3);
 		assert_eq!(tile_grid_columns().len(), 1);
 		assert_eq!(tile_node().width, Val::Percent(100.0));
 	}

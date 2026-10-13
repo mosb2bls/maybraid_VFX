@@ -33,6 +33,14 @@ pub fn spin_reveal_firearm_focus() -> CameraFocus {
 	CameraFocus::new(FocusRig::Body, "root", Vec3::new(-3.6, 1.6, 0.8), Vec3::new(0.0, 0.2, 0.0))
 }
 
+/// World-space framing for the unit grenade orb at the origin.
+///
+/// Closer than the firearm kit: the charge is ~0.7 m across in preview, and a
+/// gun-distance camera would leave an empty pane.
+pub fn spin_reveal_grenade_focus() -> CameraFocus {
+	CameraFocus::new(FocusRig::Body, "root", Vec3::new(-1.1, 0.55, 1.25), Vec3::ZERO)
+}
+
 pub const HEAD_ROOT_FOCUS: CameraFocus =
 	CameraFocus::new(FocusRig::Head, "root", Vec3::new(0.0, 0.0, 1.0), Vec3::new(0.0, 0.05, 0.0));
 

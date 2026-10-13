@@ -280,7 +280,7 @@ mod tests {
 		TerrainMeshLodBand, TerrainStampConfigs, WaterMeshAssets, WaterPresentationPlugin,
 		WatershedConfigs,
 	};
-	use lod::hcsg::{HcsgDemand, HcsgNode, HcsgRestartRequest};
+	use lod::hcsg::{settle_presentation, HcsgNode, HcsgRestartRequest, SettlePresentation};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
 	use mob_scenes::{MobKind, MobScene};
@@ -367,15 +367,7 @@ mod tests {
 	}
 
 	fn settle(app: &mut App) -> anyhow::Result<()> {
-		for _ in 0..2 {
-			app.update();
-			let demand = app.world().resource::<HcsgDemand>().clone();
-			anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-		}
-		for _ in 0..8 {
-			app.update();
-		}
-		Ok(())
+		settle_presentation(app, SettlePresentation::layer_integration(IDLE)).map_err(Into::into)
 	}
 
 	fn placed(app: &mut App) -> Vec<HcsgNode<PlacedMobCell<Urban>>> {

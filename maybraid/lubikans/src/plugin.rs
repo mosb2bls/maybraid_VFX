@@ -1,5 +1,7 @@
 //! Gameplay plugin: register Self, attach ledgers, and honor owner lifetime.
 
+use bevy::ecs::lifecycle::HookContext;
+use bevy::ecs::world::DeferredWorld;
 use bevy::prelude::*;
 use player::Player;
 
@@ -13,9 +15,15 @@ use crate::ledger::{LubikanAccountBinding, LubikanLedger, LubikanOwner};
 use crate::lifetime::{LubikanOwnerLifetime, LubikanOwnerLifetimeKind};
 use crate::{LubikanActivationRefused, LubikanInterfacePlugin, LubikanSystems};
 
-/// Cached ledger that survives player-body replacement and session restart.
+/// Session ledger that survives body replacement without per-frame clones.
+///
+/// The live [`LubikanLedger`] component is authoritative while a body exists.
+/// Retirement captures that ledger once (component hook or owner removal)
+/// before it is dropped, so activation spends and combat awards from the
+/// same frame as death are not overwritten by a stale PreUpdate snapshot.
 #[derive(Resource, Default, Debug)]
 pub struct LubikanSessionStore {
+	live: Option<Entity>,
 	cached: Option<(Entity, LubikanLedger)>,
 	pending_replace: bool,
 }
@@ -23,6 +31,28 @@ pub struct LubikanSessionStore {
 impl LubikanSessionStore {
 	pub fn cached_ledger(&self) -> Option<&LubikanLedger> {
 		self.cached.as_ref().map(|(_, ledger)| ledger)
+	}
+
+	pub(crate) fn cached_ledger_mut(&mut self) -> Option<&mut LubikanLedger> {
+		self.cached.as_mut().map(|(_, ledger)| ledger)
+	}
+
+	fn retire(&mut self, entity: Entity, ledger: LubikanLedger) {
+		self.cached = Some((entity, ledger));
+		self.pending_replace = true;
+		if self.live == Some(entity) {
+			self.live = None;
+		}
+	}
+}
+
+/// Capture the authoritative ledger as the component leaves the world.
+pub(crate) fn capture_retiring_ledger(mut world: DeferredWorld, ctx: HookContext) {
+	let Some(ledger) = world.get::<LubikanLedger>(ctx.entity).cloned() else {
+		return;
+	};
+	if let Some(mut store) = world.get_resource_mut::<LubikanSessionStore>() {
+		store.retire(ctx.entity, ledger);
 	}
 }
 
@@ -50,7 +80,6 @@ impl Plugin for LubikansPlugin {
 			.add_systems(
 				PreUpdate,
 				(
-					cache_live_ledgers,
 					remember_removed_owners,
 					attach_new_owners,
 					apply_lifetime_notices,
@@ -66,33 +95,35 @@ impl Plugin for LubikansPlugin {
 					.in_set(LubikanSystems::Activate),
 			);
 		crate::award::configure(app);
-	}
-}
-
-type LiveLubikanOwner = Or<(With<Player>, With<LubikanOwner>)>;
-
-fn cache_live_ledgers(
-	owners: Query<(Entity, &LubikanLedger), LiveLubikanOwner>,
-	mut store: ResMut<LubikanSessionStore>,
-) {
-	for (entity, ledger) in &owners {
-		store.cached = Some((entity, ledger.clone()));
+		crate::heal::configure(app);
 	}
 }
 
 fn remember_removed_owners(
 	mut players: RemovedComponents<Player>,
 	mut owners: RemovedComponents<LubikanOwner>,
+	ledgers: Query<&LubikanLedger>,
 	mut store: ResMut<LubikanSessionStore>,
 	mut commands: Commands,
 ) {
 	for entity in players.read().chain(owners.read()) {
-		if store.cached.as_ref().is_some_and(|(id, _)| *id == entity) {
-			store.pending_replace = true;
-			commands
-				.entity(entity)
-				.try_remove::<(LubikanLedger, LubikanOwner, LubikanAccountBinding)>();
+		let known = store.live == Some(entity)
+			|| store.cached.as_ref().is_some_and(|(id, _)| *id == entity)
+			|| ledgers.contains(entity);
+		if !known {
+			continue;
 		}
+		if let Ok(ledger) = ledgers.get(entity) {
+			store.retire(entity, ledger.clone());
+		} else {
+			store.pending_replace = true;
+			if store.live == Some(entity) {
+				store.live = None;
+			}
+		}
+		commands
+			.entity(entity)
+			.try_remove::<(LubikanLedger, LubikanOwner, LubikanAccountBinding)>();
 	}
 }
 
@@ -113,6 +144,7 @@ fn attach_new_owners(
 	}
 	for entity in added {
 		if existing.contains(entity) {
+			store.live = Some(entity);
 			continue;
 		}
 		let previous = store.cached.as_ref().map(|(id, _)| *id).filter(|_| store.pending_replace);
@@ -134,6 +166,7 @@ fn attach_new_owners(
 			LubikanOwnerLifetimeKind::Equip
 		};
 		let binding = LubikanAccountBinding::from_selection(ledger.selection(), entity);
+		store.live = Some(entity);
 		commands.entity(entity).insert((LubikanOwner, ledger, binding));
 		lives.write(LubikanOwnerLifetime::new(previous, Some(entity), kind));
 	}
@@ -237,8 +270,12 @@ mod tests {
 	use crate::activation::LubikanActivationPhase;
 	use crate::identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
 	use crate::lifetime::LubikanPersistence;
-	use crate::{LubikanActivationReport, LubikanChargeChanged, LubikanChargeReason};
+	use crate::{
+		LubikanActivationReport, LubikanActivationRequest, LubikanChargeChanged,
+		LubikanChargeReason,
+	};
 	use anyhow::{anyhow, Result};
+	use damage::{DamagePlugin, Health, Hit};
 
 	fn gameplay() -> App {
 		let mut app = App::new();
@@ -580,6 +617,55 @@ mod tests {
 		assert_eq!(
 			ledger(&app, owner)?.equipped().activation().phase,
 			LubikanActivationPhase::Idle
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn activate_and_award_same_frame_as_death_survive_replace() -> Result<()> {
+		let mut app = gameplay();
+		app.add_plugins(DamagePlugin);
+		let owner = spawn_player(&mut app);
+		app.world_mut().entity_mut(owner).insert(Health { current: 20.0, max: 100.0 });
+		app.update();
+		let cost = app.world().resource::<LubikanCatalog>().self_definition().activation_cost;
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<LubikanLedger>(owner)
+				.ok_or_else(|| anyhow!("ledger"))?;
+			ledger.apply_to_equipped(cost);
+		}
+		let npc = app.world_mut().spawn(Health { current: 40.0, max: 40.0 }).id();
+		app.world_mut().write_message(LubikanActivationRequest::equipped(owner));
+		app.world_mut().write_message(Hit {
+			target: npc,
+			source: Some(owner),
+			amount: 10.0,
+			point: Vec3::ZERO,
+			allow_self: false,
+		});
+		app.world_mut().write_message(Hit {
+			target: owner,
+			source: None,
+			amount: 200.0,
+			point: Vec3::ZERO,
+			allow_self: false,
+		});
+		app.update();
+		assert_eq!(
+			ledger(&app, owner)?.equipped().charge().current(),
+			10.0,
+			"spend and the same-frame combat award must both land before retirement"
+		);
+		app.world_mut().entity_mut(owner).remove::<Player>();
+		app.update();
+		let replacement = spawn_player(&mut app);
+		app.update();
+		assert_eq!(
+			ledger(&app, replacement)?.equipped().charge().current(),
+			10.0,
+			"replacement must not refund activation or drop the award"
 		);
 		Ok(())
 	}

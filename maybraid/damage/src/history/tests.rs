@@ -250,6 +250,7 @@ fn overkill_records_applied_hp_separately_from_requested() -> Result<()> {
 		source: None,
 		amount: 25.0,
 		point: Vec3::ZERO,
+		allow_self: false,
 	});
 	app.update();
 	let record = history(&app)?
@@ -278,6 +279,7 @@ fn already_dead_hits_do_not_enter_history() -> Result<()> {
 		source: None,
 		amount: 10.0,
 		point: Vec3::ZERO,
+		allow_self: false,
 	});
 	app.update();
 	if history(&app)?.len() != 1 {
@@ -288,6 +290,7 @@ fn already_dead_hits_do_not_enter_history() -> Result<()> {
 		source: None,
 		amount: 7.0,
 		point: Vec3::ZERO,
+		allow_self: false,
 	});
 	app.update();
 	let hist = history(&app)?;
@@ -311,6 +314,7 @@ fn zero_damage_is_recorded_as_zero_effect() -> Result<()> {
 		source: None,
 		amount: 0.0,
 		point: Vec3::ZERO,
+		allow_self: false,
 	});
 	app.update();
 	let record = history(&app)?
@@ -336,6 +340,7 @@ fn victim_retirement_leaves_history_queryable() -> Result<()> {
 		source: None,
 		amount: 10.0,
 		point: Vec3::new(1.0, 2.0, 3.0),
+		allow_self: false,
 	});
 	app.update();
 	let retired = DamageActorId::from_entity(victim);
@@ -361,6 +366,7 @@ fn history_set_runs_after_apply() -> Result<()> {
 		source: None,
 		amount: 7.0,
 		point: Vec3::ZERO,
+		allow_self: false,
 	});
 	app.update();
 	if !history(&app)?.received_positive_damage_since(DamageActorId::from_entity(victim), 0.0) {

@@ -3,8 +3,13 @@
 Generic hit receiver. Producers write [`Hit`](src/lib.rs); this crate mutates
 [`Health`](src/lib.rs) and emits [`DamageApplied`](src/lib.rs) / [`Died`](src/lib.rs).
 `Died` is materialized once as a durable [`Downed`](src/lifecycle.rs) component.
-[`DespawnAfter`](src/lifecycle.rs) provides a shared game-time queue so consumers
-can finish visual or event handoffs before removing an entity hierarchy.
+Further [`Hit`]s on already-dead `Health` are ignored, so a body that never
+receives a corpse clock would stand there un-injurable. [`mark_downed`](src/lifecycle.rs)
+and [`ensure_downed_have_despawn`](src/lifecycle.rs) therefore stamp a fallback
+[`DespawnAfter`](src/lifecycle.rs) ([`DEFAULT_CORPSE_SECS`](src/lifecycle.rs));
+consumers may replace it with a tighter timer. [`down_zero_health`](src/lifecycle.rs)
+covers zero-HP bodies that never emitted `Died`. The shared game-time queue lets
+handoffs finish before the hierarchy is removed.
 
 Accepted hits are also copied into a bounded [`DamageHistory`](src/history.rs)
 during [`DamageSystems::History`](src/lib.rs), after apply and before down. Records

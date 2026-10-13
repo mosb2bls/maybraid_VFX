@@ -238,6 +238,73 @@ fn damage_is_just_another_first_hand_bit() -> anyhow::Result<()> {
 	Ok(())
 }
 
+fn member_change_ticks(world: &World, plant: Entity) -> anyhow::Result<(u32, u32)> {
+	let entity = world.entity(plant);
+	let affiliations = entity
+		.get_change_ticks::<Affiliations>()
+		.ok_or_else(|| anyhow::anyhow!("missing affiliations"))?;
+	let knowledge = entity
+		.get_change_ticks::<ThreatKnowledge>()
+		.ok_or_else(|| anyhow::anyhow!("missing knowledge"))?;
+	Ok((affiliations.changed.get(), knowledge.changed.get()))
+}
+
+#[test]
+fn settled_board_leaves_members_unchanged() -> anyhow::Result<()> {
+	let mut world = World::new();
+	let (_host, first, second) = spawn_pack(&mut world, MobSharePolicy::on())?;
+	let subject_id = ThreatId(99);
+	let (_subject, record) = insert_subject(&mut world, subject_id, Vec3::X * 4.0)?;
+	observe_first_hand(&mut world, first, &record, ThreatSource::LOCAL_SCAN)?;
+
+	anyhow::ensure!(world.run_system_once(share_mob_threats).is_ok());
+	anyhow::ensure!(world
+		.get::<ThreatKnowledge>(second)
+		.is_some_and(|knowledge| knowledge.get(subject_id).is_some()));
+	let before = (member_change_ticks(&world, first)?, member_change_ticks(&world, second)?);
+
+	anyhow::ensure!(world.run_system_once(share_mob_threats).is_ok());
+	let after = (member_change_ticks(&world, first)?, member_change_ticks(&world, second)?);
+	anyhow::ensure!(before == after, "settled share rewrote members: {before:?} -> {after:?}");
+	Ok(())
+}
+
+#[test]
+fn share_stays_inside_each_mob() -> anyhow::Result<()> {
+	let mut world = World::new();
+	let (_host, first, _second) = spawn_pack(&mut world, MobSharePolicy::on())?;
+	let other_host = spawn_mob(
+		&mut world.commands(),
+		Transform::from_xyz(-30.0, 0.0, 0.0),
+		MobInstall::new(MobId(9), 12.0, vec![RosterMember::new(Personality::Grazer, Vec3::X)]),
+	);
+	world.flush();
+	world.entity_mut(other_host).insert(MobSharePolicy::on());
+	let stranger_id = ThreatId(31);
+	let stranger = world
+		.spawn((
+			MemberOf { mob: other_host, slot: 0 },
+			ThreatSubject::new(stranger_id),
+			pack_member(stranger_id),
+			user_with_threshold(0.2),
+			ThreatKnowledge::default(),
+			GlobalTransform::from_xyz(-30.0, 0.9, 0.0),
+		))
+		.id();
+	let subject_id = ThreatId(99);
+	let (_subject, record) = insert_subject(&mut world, subject_id, Vec3::X * 4.0)?;
+	observe_first_hand(&mut world, first, &record, ThreatSource::LOCAL_SCAN)?;
+
+	anyhow::ensure!(world.run_system_once(share_mob_threats).is_ok());
+	anyhow::ensure!(world
+		.get::<ThreatKnowledge>(stranger)
+		.is_some_and(|knowledge| knowledge.get(subject_id).is_none()));
+	anyhow::ensure!(world
+		.get::<MobKnowledge>(other_host)
+		.is_some_and(|board| board.threats.is_empty()));
+	Ok(())
+}
+
 #[test]
 fn affiliation_gate_still_runs() -> anyhow::Result<()> {
 	let mut world = World::new();
@@ -354,6 +421,33 @@ fn target_membership_shares_semantic_bits_only() -> anyhow::Result<()> {
 		.active_target(subject)
 		.is_some_and(|target| target.sources == TargetSource::SHARED));
 	anyhow::ensure!(second_targeting.contact(subject).is_none());
+	Ok(())
+}
+
+#[test]
+fn settled_target_board_leaves_members_unchanged() -> anyhow::Result<()> {
+	let mut world = World::new();
+	let (_host, first, second) = spawn_pack(&mut world, MobSharePolicy::on())?;
+	let subject = Entity::from_bits(77);
+	if let Some(mut targeting) = world.get_mut::<CombatTargeting>(first) {
+		anyhow::ensure!(targeting.include(subject, TargetSource::OBJECTIVE));
+	}
+
+	anyhow::ensure!(world.run_system_once(share_mob_targets).is_ok());
+	let before = world
+		.entity(second)
+		.get_change_ticks::<CombatTargeting>()
+		.ok_or_else(|| anyhow::anyhow!("missing targeting"))?
+		.changed
+		.get();
+	anyhow::ensure!(world.run_system_once(share_mob_targets).is_ok());
+	let after = world
+		.entity(second)
+		.get_change_ticks::<CombatTargeting>()
+		.ok_or_else(|| anyhow::anyhow!("missing targeting"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled target share rewrote targeting: {before} -> {after}");
 	Ok(())
 }
 

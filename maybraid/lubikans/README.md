@@ -32,16 +32,17 @@ Damage history stays generic. [`lubikans-damage`](damage/) copies
 | [`LubikanDefinitionId`](src/identity.rs) / [`LubikanAccountId`](src/identity.rs) | Catalog vs owned-account identity. Self is `LubikanDefinitionId::SELF` / `LubikanAccountId::SELF`. |
 | [`LubikanDefinition`](src/identity.rs) | Capacity and activation cost for one catalog entry. |
 | [`LubikanSelfConfig`](src/catalog.rs) | Configurable Self limits and lifetime policy. |
+| [`LubikanSelfHealConfig`](src/heal.rs) / [`LubikanSelfHeal`](src/heal.rs) / [`LubikanSelfHealChannel`](src/heal.rs) | Self heal rate, duration, caps, and the HUD-readable channel (`active`, `remaining`, `rate`). |
 | [`LubikanCatalog`](src/catalog.rs) | Registered definitions. A normal game registers Self here. |
 | [`LubikanCharge`](src/charge.rs) / [`LubikanChargeMutation`](src/charge.rs) | Bounded charge and the result of a signed apply (requested, applied, new value, clamp flags). |
 | [`LubikanChargeRequest`](src/change.rs) / [`LubikanChargeChanged`](src/change.rs) / [`LubikanChargeReason`](src/change.rs) | Request → one apply → one change. Occupancy and combat write requests; Award is the sole owner. |
-| [`LubikanCombatAward`](src/award.rs) | Combat weights (default 1 / 2 / 5, stacked kill). Zero-effect hits award nothing; overkill does not use requested damage. |
+| [`LubikanCombatAward`](src/award.rs) | Combat credits: hit = applied HP, kill = opponent max health (stacked by default). Zero-effect hits award nothing; overkill does not use requested damage. |
 | [`LubikanActivationRequest`](src/activation.rs) / [`LubikanActivation`](src/activation.rs) / [`LubikanReadiness`](src/activation.rs) | Activation request, session phase, and derived eligibility. |
-| [`LubikanActivationSession`](src/activation.rs) / [`LubikanActivationRefused`](src/activation.rs) / [`LubikanActivationReport`](src/activation.rs) | Handoff: one owner accepts (spend once) or refuses (no spend). #1110 / summons consume the session and report completion or cancel. |
+| [`LubikanActivationSession`](src/activation.rs) / [`LubikanActivationRefused`](src/activation.rs) / [`LubikanActivationReport`](src/activation.rs) / [`LubikanActivationFinished`](src/activation.rs) | Handoff: one owner accepts (spend once) or refuses (no spend). #1110 / summons consume the session and report. HUD reads `Finished` (account + session id); Self returns to Idle after a natural complete. |
 | [`LubikanSelection`](src/selection.rs) | Equipped account, or Self when none is equipped. |
 | [`LubikanLedger`](src/ledger.rs) / [`LubikanAccount`](src/ledger.rs) / [`LubikanOwner`](src/ledger.rs) / [`LubikanAccountBinding`](src/ledger.rs) | Per-owner owned accounts, plus a bind-time snapshot for attribution. Self cannot be removed. |
 | [`LubikanOwnerLifetime`](src/lifetime.rs) / [`LubikanLifetimePolicy`](src/lifetime.rs) | Equip, unequip, body replace, and session restart. |
-| [`LubikanSystems`](src/lib.rs) | Schedule sets other lanes order against (`Owner`, `Activate`, `Award`). |
+| [`LubikanSystems`](src/lib.rs) | Schedule sets other lanes order against (`Owner`, `Activate`, `Heal`, `Award`). |
 | [`fixtures`](src/fixtures.rs) | Test helper (`test-support` feature or this crate's tests). |
 
 [`LubikanInterfacePlugin`](src/lib.rs) only registers the shared messages.
@@ -51,13 +52,25 @@ it spends once, emits [`LubikanActivationSession`](src/activation.rs) or
 [`LubikanActivationRefused`](src/activation.rs), and applies
 [`LubikanActivationReport`](src/activation.rs) to the captured account.
 Consumers order after [`LubikanSystems::Owner`](src/lib.rs) (PreUpdate).
-World capsules get the owner marker from `grant_world_player_lubikan_owner`
-(do not insert a fresh `LubikanLedger::with_self`). Pause does not restart
-the session; `WorldPlaySessionEnded` does. Input cycles through
+Self healing runs in [`LubikanSystems::Heal`](src/lib.rs) after Activate: it
+consumes Self [`LubikanActivationSession`](src/activation.rs)s, regenerates
+from `DamageApplied.applied` / [`DamageHistory`](../damage/src/history.rs),
+and reports [`LubikanActivationReport`](src/activation.rs) plus
+[`LubikanActivationFinished`](src/activation.rs) (account + session id). A
+natural complete returns the captured account to Idle in the same frame so a
+later activate in the same life can spend again. HUD shows completed from
+`Finished`, not by holding `Completed`. It does not spend charge or call
+`try_activate`. World capsules get the owner marker from
+`grant_world_player_lubikan_owner` (do not insert a fresh
+`LubikanLedger::with_self`). Pause copies `WorldGameplayEnabled` onto
+[`LubikanHealingEnabled`](src/heal.rs) and freezes healing without cancelling.
+`WorldPlaySessionEnded` is teardown. Input cycles through
 [`LubikanLedger::select`](src/ledger.rs) only (`None` / `Some(Self)` are the
-Self fallback). The world Self loop also adds [`LubikanDamagePlugin`](damage/) so bindings
-copy onto generic `DamageCredit` before history ingest. The plugin has no
-Bikanwarda or HUD dependency.
+Self fallback) and writes [`LubikanActivationRequest`](src/activation.rs) from
+`CharacterIntent::PowerUseItem` (pad **X** + fire). The world Self loop also
+adds [`LubikanDamagePlugin`](damage/) so bindings copy onto generic
+`DamageCredit` before history ingest. The plugin has no Bikanwarda or HUD
+dependency.
 
 ## Consumer fixture
 

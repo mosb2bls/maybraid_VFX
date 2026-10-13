@@ -355,15 +355,22 @@ pub(crate) fn orient_firearm_combatants(
 		};
 		if targeting.engaged.is_none() {
 			if let Some(mut yaw_owner) = yaw_owner {
-				*yaw_owner = PlayerYawOwner::Wish;
+				if *yaw_owner != PlayerYawOwner::Wish {
+					*yaw_owner = PlayerYawOwner::Wish;
+				}
 			}
 			continue;
 		}
 		if let Some(mut yaw_owner) = yaw_owner {
-			*yaw_owner = PlayerYawOwner::Look;
+			if *yaw_owner != PlayerYawOwner::Look {
+				*yaw_owner = PlayerYawOwner::Look;
+			}
 		}
 		let forward = Quat::from_axis_angle(Vec3::Y, look.yaw) * -Vec3::Z;
-		let current = heading.resolve(&visual);
+		if !heading.would_turn_toward(&visual, forward) {
+			continue;
+		}
+		let current = heading.facing(&visual);
 		heading.set(&mut visual, current.slerp(forward, amount));
 	}
 }

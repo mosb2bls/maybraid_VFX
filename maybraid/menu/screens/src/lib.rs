@@ -36,11 +36,12 @@ pub use loading::{
 	LoadingScreenSystems, RequestShowLoading,
 };
 pub use settings::{
-	apply_seed, apply_shadows_env, classify_host, load_machine_settings, parse_shadows_env,
-	request_show_in_game_settings, save_machine_settings, seed_device_class, DeviceClass,
-	DeviceType, HostProbe, InGameSettings, InGameSettingsChoice, InGameSettingsPlugin,
-	InGameSettingsScreen, InGameShadowQuality, PersistPolicy, Preference, QualitySeeded,
-	RequestShowInGameSettings, ENV_SHADOWS,
+	apply_seed, apply_shadows_env, classify_host, load_machine_settings, parse_render_scale_env,
+	parse_shadows_env, request_show_in_game_settings, save_machine_settings, seed_device_class,
+	DeviceClass, DeviceType, HostProbe, InGameRenderScale, InGameSettings, InGameSettingsChoice,
+	InGameSettingsPlugin, InGameSettingsScreen, InGameSettingsSystems, InGameShadowQuality,
+	InGameVisualStyle, PersistPolicy, Preference, QualitySeeded, RenderScaleReadout,
+	RequestShowInGameSettings, ENV_RENDER_SCALE, ENV_SHADOWS,
 };
 pub use show::{despawn_menu_screens, take_menu_show_request};
 pub use spin_reveal::{

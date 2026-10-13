@@ -24,6 +24,7 @@ maybraid-character-controller = { workspace = true }
 maybraid-game-mode-discover = { workspace = true }
 maybraid-game-mode-reliquary = { workspace = true }
 maybraid-input = { workspace = true }
+maybraid-agent = { workspace = true }
 maybraid-menu-controller = { workspace = true }
 maybraid-world = { workspace = true }
 menu-components = { workspace = true }

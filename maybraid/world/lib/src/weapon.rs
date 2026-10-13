@@ -712,8 +712,8 @@ mod tests {
 		use character_items::GrenadeStats;
 		use grenades::{GrenadeDetonated, GrenadeEffect};
 		use maybraid_vfx::{
-			EffectDefinition, FlipbookAsset, FIERY_EXPLOSION, ScaleBounds, VfxFlipbooks, VfxInstance,
-			VfxLibrary,
+			EffectDefinition, FlipbookAsset, ScaleBounds, VfxFlipbooks, VfxInstance, VfxLibrary,
+			FIERY_EXPLOSION,
 		};
 
 		let mut world = World::new();

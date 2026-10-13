@@ -1,0 +1,16 @@
+# Actor-density flight at --start-at=0,0: 16 Pleb host(s) placed on a
+# 24 m grid around the player (seed 1, fixed rosters), plus the always-
+# occupied origin mob cell. Warmup covers stream-in and High fulfill of
+# the placed rosters; `actors` events record the live census.
+
+{"cmd":"scenario","name":"crowd-16-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":20}
+{"cmd":"console","line":"mobs spawn pleb 16 --at 0,0 --spacing 24 --seed 1"}
+{"cmd":"wait","secs":20}
+{"cmd":"scenario","name":"crowd-16-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"crowd-16","mark":"start"}
+{"cmd":"wait","secs":25}
+{"cmd":"scenario","name":"crowd-16","mark":"end"}
+{"cmd":"quit"}

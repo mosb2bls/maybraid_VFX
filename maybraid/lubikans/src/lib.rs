@@ -11,6 +11,7 @@ mod award;
 mod catalog;
 mod change;
 mod charge;
+mod heal;
 mod identity;
 mod ledger;
 mod lifetime;
@@ -23,17 +24,23 @@ pub mod fixtures;
 use bevy::prelude::*;
 
 pub use activation::{
-	LubikanActivation, LubikanActivationDenied, LubikanActivationGrant, LubikanActivationOutcome,
-	LubikanActivationPhase, LubikanActivationRefused, LubikanActivationReport,
-	LubikanActivationRequest, LubikanActivationSession, LubikanActivationSessionId,
-	LubikanReadiness,
+	LubikanActivation, LubikanActivationDenied, LubikanActivationFinished, LubikanActivationGrant,
+	LubikanActivationOutcome, LubikanActivationPhase, LubikanActivationRefused,
+	LubikanActivationReport, LubikanActivationRequest, LubikanActivationSession,
+	LubikanActivationSessionId, LubikanReadiness,
 };
 pub use award::LubikanCombatAward;
 pub use catalog::{
 	LubikanCatalog, LubikanSelfConfig, DEFAULT_SELF_ACTIVATION_COST, DEFAULT_SELF_CAPACITY,
+	DEFAULT_SELF_MAX_STOCK,
 };
 pub use change::{LubikanChargeChanged, LubikanChargeReason, LubikanChargeRequest};
 pub use charge::{LubikanCharge, LubikanChargeMutation};
+pub use heal::{
+	LubikanHealingEnabled, LubikanSelfHeal, LubikanSelfHealChannel, LubikanSelfHealConfig,
+	DEFAULT_SELF_HEAL_CAP_DAMAGED, DEFAULT_SELF_HEAL_CAP_HEALTHY, DEFAULT_SELF_HEAL_DURATION_SECS,
+	DEFAULT_SELF_HEAL_RATE_FRAC,
+};
 pub use identity::{LubikanAccountId, LubikanDefinition, LubikanDefinitionId};
 pub use ledger::{LubikanAccount, LubikanAccountBinding, LubikanLedger, LubikanOwner};
 pub use lifetime::{
@@ -51,6 +58,8 @@ pub enum LubikanSystems {
 	/// Sole owner of [`LubikanActivationRequest`]s: spend once and emit a
 	/// [`LubikanActivationSession`], or emit [`LubikanActivationRefused`].
 	Activate,
+	/// Self healing consumer: pick up Self sessions, regenerate, and report.
+	Heal,
 	/// Apply [`LubikanChargeRequest`]s and emit [`LubikanChargeChanged`].
 	Award,
 }
@@ -67,6 +76,7 @@ impl Plugin for LubikanInterfacePlugin {
 			.add_message::<LubikanActivationSession>()
 			.add_message::<LubikanActivationRefused>()
 			.add_message::<LubikanActivationReport>()
+			.add_message::<LubikanActivationFinished>()
 			.add_message::<LubikanOwnerLifetime>();
 	}
 }
@@ -85,6 +95,7 @@ mod tests {
 		assert!(app.world().get_resource::<Messages<LubikanActivationSession>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationRefused>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanActivationReport>>().is_some());
+		assert!(app.world().get_resource::<Messages<LubikanActivationFinished>>().is_some());
 		assert!(app.world().get_resource::<Messages<LubikanOwnerLifetime>>().is_some());
 	}
 }

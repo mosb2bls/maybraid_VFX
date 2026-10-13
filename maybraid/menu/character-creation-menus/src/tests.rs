@@ -475,6 +475,7 @@ fn create_menu_clothing_is_grid_catalog() -> anyhow::Result<()> {
 		InventoryItem::clothing(ClothingMesh::Robe, ClothingMaterial::Hawaiian, ItemColor::Red),
 	];
 	let expected_name = items[0].name();
+	let expected_key = items[0].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.braidman.clothing.value.menu_nodes();
 	let MenuNode::GridCatalog { max_selected, choices, .. } = &nodes[0] else {
@@ -485,7 +486,11 @@ fn create_menu_clothing_is_grid_catalog() -> anyhow::Result<()> {
 	assert!(choices[0].selected);
 	assert!(choices[1].selected);
 	assert!(!choices[2].selected);
+	assert_eq!(choices[0].rank, Some(1));
+	assert_eq!(choices[1].rank, Some(2));
+	assert_eq!(choices[2].rank, None);
 	assert_eq!(choices[0].label, expected_name);
+	assert_eq!(choices[0].image_key, expected_key);
 	assert!(!choices[0].detail.is_empty());
 	assert!(menu.apply(MenuEvent::ToggleInventory(0)));
 	assert!(!menu.inventory.as_ref().expect("create inventory").is_worn(0));
@@ -507,6 +512,7 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 		InventoryItem::firearm(FirearmMesh::Reltor),
 	];
 	let expected_name = items[3].name();
+	let expected_key = items[3].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.menu_nodes();
 	let weapons = nodes.iter().find_map(|node| match node {
@@ -522,6 +528,7 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	assert_eq!(choices[1].rank, Some(2));
 	assert!(choices[0].selected);
 	assert_eq!(choices[0].label, expected_name);
+	assert_eq!(choices[0].image_key, expected_key);
 	assert!(!choices[0].detail.is_empty());
 	assert!(menu.overlay_editable("Weapons"));
 	assert!(menu.apply(MenuEvent::ToggleInventory(3)));
@@ -541,7 +548,7 @@ fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
 		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 2)),
 	];
 	let expected_name = items[0].name();
-	let expected_key = items[0].skill_map_spec().map(|spec| spec.catalog_key());
+	let expected_key = items[0].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.menu_nodes();
 	let skills = nodes.iter().find_map(|node| match node {

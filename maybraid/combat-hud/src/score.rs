@@ -89,7 +89,12 @@ pub(crate) fn spawn_combat_score(parent: &mut ChildSpawnerCommands, fonts: &HudF
 		parent,
 		"combat-score",
 		CombatScoreRoot,
-		HudPlateLayout { width: SCORE_WIDTH, row_gap: 4.0, corner: HudPlateCorner::TopRight },
+		HudPlateLayout {
+			width: SCORE_WIDTH,
+			row_gap: 4.0,
+			corner: HudPlateCorner::TopRight,
+			bottom_lift: 0.0,
+		},
 		|plate| {
 			let score = CombatScore::default();
 			spawn_hud_text_card(plate, (), |card| {

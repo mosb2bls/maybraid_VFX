@@ -12,6 +12,33 @@ use player::{
 use crate::look::{CameraController, CameraPov};
 use crate::FollowCamera;
 
+/// Decaying translation kick applied after follow. Gameplay writes [`Self::kick`].
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct CameraShake {
+	pub remaining: f32,
+	pub duration: f32,
+	pub strength: f32,
+}
+
+impl CameraShake {
+	pub fn kick(&mut self, strength: f32, duration: f32) {
+		let strength = strength.clamp(0.0, 1.0);
+		let duration = duration.max(0.0);
+		if strength <= 1e-4 || duration <= 0.0 {
+			return;
+		}
+		if strength >= self.strength {
+			self.strength = strength;
+			self.duration = duration;
+			self.remaining = duration;
+		} else {
+			self.strength = (self.strength + strength * 0.3).min(1.0);
+			self.remaining = self.remaining.max(duration);
+			self.duration = self.duration.max(duration);
+		}
+	}
+}
+
 pub(crate) fn follow_character_camera(
 	time: Res<Time>,
 	players: Query<
@@ -89,6 +116,36 @@ pub(crate) fn follow_character_camera(
 		}
 	}
 	*camera_transform = pose.transform();
+}
+
+/// Peak world offset at full strength, in meters.
+const SHAKE_AMPLITUDE: f32 = 0.09;
+
+pub fn apply_camera_shake(
+	time: Res<Time>,
+	mut cameras: Query<(&mut Transform, &mut CameraShake, &CameraController), With<Camera3d>>,
+) {
+	let dt = time.delta_secs();
+	let now = time.elapsed_secs();
+	for (mut transform, mut shake, controller) in &mut cameras {
+		if controller.pov.is_map() {
+			shake.remaining = 0.0;
+			shake.strength = 0.0;
+			continue;
+		}
+		if shake.remaining <= 0.0 {
+			shake.strength = 0.0;
+			continue;
+		}
+		shake.remaining = (shake.remaining - dt).max(0.0);
+		let fade = (shake.remaining / shake.duration.max(1e-3)).clamp(0.0, 1.0);
+		let amp = shake.strength * fade * SHAKE_AMPLITUDE;
+		let yaw = (now * 41.0).sin();
+		let pitch = (now * 53.0).cos();
+		let right = transform.rotation * Vec3::X;
+		let up = transform.rotation * Vec3::Y;
+		transform.translation += right * yaw * amp + up * pitch * amp * 0.72;
+	}
 }
 
 fn stance_height_scale(
@@ -345,5 +402,24 @@ mod tests {
 		assert!(focused > 0.0 && focused < 1.0);
 		let released = focus_blend_toward(focused, 0.0, speed, 1.0 / 60.0);
 		assert!(released >= 0.0 && released < focused);
+	}
+
+	#[test]
+	fn stronger_kick_replaces_a_weaker_shake() {
+		let mut shake = CameraShake::default();
+		shake.kick(0.3, 0.2);
+		shake.kick(0.8, 0.4);
+		assert!((shake.strength - 0.8).abs() < 1e-4);
+		assert!((shake.remaining - 0.4).abs() < 1e-4);
+	}
+
+	#[test]
+	fn weaker_kick_extends_without_replacing() {
+		let mut shake = CameraShake::default();
+		shake.kick(0.8, 0.2);
+		shake.kick(0.2, 0.5);
+		assert!(shake.strength > 0.8);
+		assert!(shake.strength <= 1.0);
+		assert!((shake.remaining - 0.5).abs() < 1e-4);
 	}
 }

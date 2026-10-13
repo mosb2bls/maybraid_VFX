@@ -7,16 +7,21 @@ use crate::lifetime::LubikanLifetimePolicy;
 
 /// Default Self capacity. Balancing should change [`LubikanSelfConfig`], not
 /// this constant's meaning.
-pub const DEFAULT_SELF_CAPACITY: f32 = 100.0;
+pub const DEFAULT_SELF_CAPACITY: f32 = 512.0;
 
 /// Default Self activation cost. Balancing should change [`LubikanSelfConfig`].
-pub const DEFAULT_SELF_ACTIVATION_COST: f32 = 25.0;
+pub const DEFAULT_SELF_ACTIVATION_COST: f32 = 512.0;
+
+/// Default Self activation stock. Balancing should change [`LubikanSelfConfig`].
+pub const DEFAULT_SELF_MAX_STOCK: u32 = 1;
 
 /// Configurable Self limits and lifetime policy.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct LubikanSelfConfig {
 	pub capacity: f32,
 	pub activation_cost: f32,
+	/// How many Self activations can be banked. Defaults to `1`.
+	pub max_stock: u32,
 	pub lifetime: LubikanLifetimePolicy,
 }
 
@@ -25,6 +30,7 @@ impl Default for LubikanSelfConfig {
 		Self {
 			capacity: DEFAULT_SELF_CAPACITY,
 			activation_cost: DEFAULT_SELF_ACTIVATION_COST,
+			max_stock: DEFAULT_SELF_MAX_STOCK,
 			lifetime: LubikanLifetimePolicy::default(),
 		}
 	}
@@ -33,6 +39,7 @@ impl Default for LubikanSelfConfig {
 impl LubikanSelfConfig {
 	pub fn self_definition(self) -> LubikanDefinition {
 		LubikanDefinition::self_with(self.capacity, self.activation_cost)
+			.with_max_stock(self.max_stock)
 	}
 }
 
@@ -62,6 +69,14 @@ impl LubikanCatalog {
 
 	pub fn activation_cost(&self, id: LubikanDefinitionId) -> f32 {
 		self.get(id).map(|entry| entry.activation_cost).unwrap_or(0.0)
+	}
+
+	pub fn max_stock(&self, id: LubikanDefinitionId) -> u32 {
+		self.get(id).map(|entry| entry.max_stock).unwrap_or(1)
+	}
+
+	pub fn stock_capacity(&self, id: LubikanDefinitionId) -> f32 {
+		self.get(id).map(|entry| entry.stock_capacity()).unwrap_or(0.0)
 	}
 
 	/// Insert or replace a definition. Self cannot be removed; registering
@@ -96,10 +111,15 @@ mod tests {
 		assert_eq!(catalog.capacity(LubikanDefinitionId::SELF), DEFAULT_SELF_CAPACITY);
 		catalog.register(LubikanDefinition::self_with(40.0, 8.0));
 		assert_eq!(catalog.activation_cost(LubikanDefinitionId::SELF), 8.0);
-		catalog.register(LubikanDefinition::new(LubikanDefinitionId::from_raw(4), 12.0, 3.0));
+		assert_eq!(catalog.max_stock(LubikanDefinitionId::SELF), 1);
+		catalog.register(
+			LubikanDefinition::new(LubikanDefinitionId::from_raw(4), 12.0, 3.0).with_max_stock(3),
+		);
 		assert_eq!(
 			catalog.get(LubikanDefinitionId::from_raw(4)).map(|entry| entry.capacity),
 			Some(12.0)
 		);
+		assert_eq!(catalog.max_stock(LubikanDefinitionId::from_raw(4)), 3);
+		assert_eq!(catalog.stock_capacity(LubikanDefinitionId::from_raw(4)), 9.0);
 	}
 }
