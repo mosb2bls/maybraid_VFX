@@ -266,15 +266,17 @@ fn queue_downed_world_player(
 			FirearmUser,
 			GrenadeUser,
 			grenade_user::GrenadeThrow,
-			tanz_user::TanzUser,
-			tanz_user::TanzStack,
-			tanz_user::TanzExecution,
 			InventoryUser,
 			MoveWish,
 			SpotSubject,
 			ThreatSubject,
 			Affiliations,
 			LubikanOwner,
+		)>();
+		commands.entity(player).remove::<(
+			tanz_user::TanzUser,
+			tanz_user::TanzStack,
+			tanz_user::TanzExecution,
 		)>();
 	}
 }

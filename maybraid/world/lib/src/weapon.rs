@@ -18,7 +18,7 @@ use player::{
 	apply_character_mobility, CameraFollow, Player as MaybraidPlayer, PlayerCameraAim, PlayerLook,
 	PlayerUse, PlayerVisual as MaybraidPlayerVisual, PlayerYawOwner,
 };
-use tanz_user::{spawn_tanz_user, ControlMode, TanzUser};
+use tanz_user::{spawn_tanz_user, TanzUser};
 use world_player::{
 	CharacterSpecies, Player as VegetationPlayer, PlayerVisual as VegetationPlayerVisual,
 	PlaygroundMode, RequestSetCharacter, RequestSetCharacterAppearance,
@@ -397,6 +397,7 @@ mod tests {
 		ClothingMaterial, ClothingMesh, FirearmMesh, Inventory, InventoryItem, ItemColor,
 	};
 	use characters::{CharacterAppearance, CharacterRoot};
+	use tanz_user::{ControlMode, TanzUser};
 	use world_player::{
 		Player as VegetationPlayer, PlayerVisual as VegetationPlayerVisual, PlaygroundMode,
 		RequestSetCharacterAppearance,

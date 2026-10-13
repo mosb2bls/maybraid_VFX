@@ -92,6 +92,7 @@ impl TanzUser {
 		self.recognizer.reset();
 		execution.clear();
 		wish.0 = Vec3::ZERO;
+		info!("tanz control mode -> {:?}", self.mode);
 		true
 	}
 }
