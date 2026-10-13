@@ -88,7 +88,11 @@ trap cleanup EXIT
 	echo "hw=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || true)"
 	echo "mem_bytes=$(sysctl -n hw.memsize 2>/dev/null || true)"
 	echo "vsync=off"
-	echo "start_at=0,0 (a leading script start overrides)"
+	if [[ "${MAYBRAID_NO_START_AT:-}" == 1 ]]; then
+		echo "start_at= (Home-first; picker and per-character resume stay live)"
+	else
+		echo "start_at=0,0 (a leading script start overrides)"
+	fi
 	echo "commit=$(git -C "$root" rev-parse HEAD 2>/dev/null || true)"
 } >"$meta_file"
 
@@ -104,7 +108,11 @@ if ! kill -0 "$cap_pid" 2>/dev/null; then
 fi
 
 export MAYBRAID_VSYNC=off
-"$bin" --start-at=0,0 \
+start_at_args=()
+if [[ "${MAYBRAID_NO_START_AT:-}" != 1 ]]; then
+	start_at_args=(--start-at=0,0)
+fi
+"$bin" "${start_at_args[@]}" \
 	--agent-script "$script" \
 	--agent-events "$events_jsonl" \
 	--agent-quit \
