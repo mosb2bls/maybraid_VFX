@@ -48,8 +48,8 @@ pub use commands::{
 };
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
-	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
-	WorldSurfaceReady, WorldSurfaceSet,
+	InventoryEditCameraFollow, WorldGameplayEnabled, WorldMenuShell, WorldPlaySessionEnded,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
 };
 pub use durham::Durham;
 #[cfg(any(test, feature = "test-support"))]
@@ -229,6 +229,7 @@ impl Plugin for WorldPlugin {
 			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
+			.init_resource::<crate::WorldMenuShell>()
 			.init_resource::<crate::FirstWave>()
 			.init_resource::<WorldSceneryVisible>()
 			.insert_resource(WorldMobHudEnabled::from_debug_chrome(self.debug_chrome))

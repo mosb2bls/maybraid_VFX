@@ -21,7 +21,7 @@ use world_player::player::{holding_elevation, player_spawn_point_at, AwaitingTer
 use world_player::Player as VegetationPlayer;
 
 use crate::commands::PlaygroundCommand;
-use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
+use crate::control::{WorldGameplayEnabled, WorldMenuShell, WorldSurfaceReady};
 use crate::map_view::WorldMapView;
 use crate::render_scale::{PresentationChurn, RequestVisualStyle, VisualStyle};
 use crate::PlayerSpawnXz;
@@ -218,6 +218,7 @@ fn agent_sync_ready(
 	gameplay: Res<WorldGameplayEnabled>,
 	surface: Res<WorldSurfaceReady>,
 	streaming: Res<TerrainStreaming<Durham>>,
+	menu_shell: Option<Res<WorldMenuShell>>,
 	time: Res<Time>,
 ) {
 	if runtime.ready {
@@ -242,11 +243,11 @@ fn agent_sync_ready(
 	}
 	let elapsed = time.elapsed_secs();
 	let surface_ready = gameplay.0 && surface.0;
-	// Home / Characters keep streaming off. WorldGameplayEnabled defaults on,
-	// so do not also require gameplay off — a leaked true blocked Home-first
-	// scripts for the full ready timeout. LoadingWorld turns streaming on
-	// with gameplay still off; that must not count as a menu.
-	let menu_shell_ready = !streaming.enabled && elapsed >= MENU_READY_SECS;
+	// Prefer the shell bit the game writes from GameFlow. Streaming-off is a
+	// fallback, but Home has leaked streaming=on in live boots and that sat
+	// Home-first scripts on the 90 s timeout.
+	let menu_shell_ready = elapsed >= MENU_READY_SECS
+		&& (menu_shell.is_some_and(|shell| shell.0) || !streaming.enabled);
 	let timed_out = elapsed >= runtime.ready_timeout;
 	if !surface_ready && !menu_shell_ready && !timed_out {
 		return;
@@ -827,6 +828,22 @@ mod tests {
 			.run_system_once(agent_sync_ready)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert!(!world.resource::<AgentRuntime>().ready);
+		Ok(())
+	}
+
+	#[test]
+	fn menu_shell_bit_is_ready_even_when_streaming_leaked_on() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		world.insert_resource(WorldMenuShell(true));
+		world.insert_resource(advance_time(MENU_READY_SECS));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<AgentRuntime>().ready);
 		Ok(())
 	}
 

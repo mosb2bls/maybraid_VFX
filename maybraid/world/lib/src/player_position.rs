@@ -34,6 +34,10 @@ pub struct PlayerPositionWaypoints {
 	/// True after a character's file is read. The leftover body from the
 	/// previous character must not be written back onto this trail.
 	pub(crate) just_loaded: bool,
+	/// True while a loaded trail is waiting for the leftover body to arrive.
+	/// Retain and the first-life picker honor this even if `just_loaded` was
+	/// cleared by a same-frame write.
+	pub(crate) resume_pending: bool,
 }
 
 impl PlayerPositionWaypoints {
@@ -184,6 +188,17 @@ pub fn resume_discovery_from_saved_waypoints(
 			warn!(target: "world.player", "failed to drop default-spawn waypoint: {error}");
 		}
 	}
+	info!(
+		target: "world.player",
+		"resume character_changed={character_changed} player=({:.1},{:.1},{:.1}) default=({:.1},{:.1},{:.1}) trail={} -> {resume_at:?}",
+		player_tf.translation.x,
+		player_tf.translation.y,
+		player_tf.translation.z,
+		default_spawn.x,
+		default_spawn.y,
+		default_spawn.z,
+		waypoints.positions.len()
+	);
 	if let Some(at) = resume_at {
 		info!(
 			target: "world.player",
@@ -307,7 +322,7 @@ fn retain_player_waypoints(
 	let Ok(transform) = players.single() else {
 		return;
 	};
-	if waypoints.just_loaded {
+	if waypoints.just_loaded || waypoints.resume_pending {
 		if waypoints
 			.positions
 			.last()
@@ -316,6 +331,7 @@ fn retain_player_waypoints(
 			return;
 		}
 		waypoints.just_loaded = false;
+		waypoints.resume_pending = false;
 	}
 	if !record_waypoint(&mut waypoints.positions, transform.translation) {
 		return;
@@ -374,11 +390,10 @@ fn load_waypoints(root: &SaveRoot, id: CharacterId) -> PlayerPositionWaypoints {
 	if file.version != FILE_VERSION {
 		return PlayerPositionWaypoints { owner: Some(id), just_loaded: true, ..default() };
 	}
-	PlayerPositionWaypoints {
-		owner: Some(id),
-		positions: file.waypoints.into_iter().map(|[x, y, z]| Vec3::new(x, y, z)).collect(),
-		just_loaded: true,
-	}
+	let positions: Vec<Vec3> =
+		file.waypoints.into_iter().map(|[x, y, z]| Vec3::new(x, y, z)).collect();
+	let resume_pending = !positions.is_empty();
+	PlayerPositionWaypoints { owner: Some(id), positions, just_loaded: true, resume_pending }
 }
 
 fn save_waypoints(
@@ -577,6 +592,7 @@ mod tests {
 			owner: Some(previous),
 			positions: vec![leftover],
 			just_loaded: false,
+			..default()
 		});
 		let player = world
 			.spawn((
@@ -652,7 +668,13 @@ mod tests {
 		let mut world = retain_world(
 			root.clone(),
 			id,
-			PlayerPositionWaypoints { owner: Some(id), positions: vec![saved], just_loaded: true },
+			PlayerPositionWaypoints {
+				owner: Some(id),
+				positions: vec![saved],
+				just_loaded: true,
+				resume_pending: true,
+				..default()
+			},
 			leftover,
 		);
 		world
@@ -664,6 +686,7 @@ mod tests {
 		let waypoints = world.resource::<PlayerPositionWaypoints>();
 		assert_eq!(waypoints.positions, vec![saved]);
 		assert!(waypoints.just_loaded);
+		assert!(waypoints.resume_pending);
 		assert_eq!(load_waypoints(&root, id).positions, vec![saved]);
 		Ok(())
 	}
@@ -678,7 +701,13 @@ mod tests {
 		let mut world = retain_world(
 			root,
 			id,
-			PlayerPositionWaypoints { owner: Some(id), positions: vec![saved], just_loaded: true },
+			PlayerPositionWaypoints {
+				owner: Some(id),
+				positions: vec![saved],
+				just_loaded: true,
+				resume_pending: true,
+				..default()
+			},
 			saved,
 		);
 		world
@@ -686,6 +715,7 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let waypoints = world.resource::<PlayerPositionWaypoints>();
 		assert!(!waypoints.just_loaded);
+		assert!(!waypoints.resume_pending);
 		assert_eq!(waypoints.positions, vec![saved]);
 		Ok(())
 	}
@@ -716,6 +746,7 @@ mod tests {
 			owner: Some(previous),
 			positions: vec![leftover],
 			just_loaded: false,
+			..default()
 		});
 		let player =
 			world.spawn((world_player::Player, Transform::from_translation(leftover))).id();

@@ -314,7 +314,9 @@ fn queue_first_spawn_picker(
 		state.first_spawn_offered = true;
 		return;
 	}
-	if character_has_resume_trail(waypoints.as_deref(), layout.as_deref(), base.as_deref()) {
+	if waypoints.as_deref().is_some_and(|waypoints| waypoints.resume_pending)
+		|| character_has_resume_trail(waypoints.as_deref(), layout.as_deref(), base.as_deref())
+	{
 		state.first_spawn_offered = true;
 		return;
 	}
@@ -1682,6 +1684,7 @@ mod tests {
 		)));
 		world.insert_resource(PlayerPositionWaypoints {
 			positions: vec![Vec3::new(2178.3, 36.6, 1383.6)],
+			resume_pending: true,
 			..default()
 		});
 		let player = world.spawn((VegetationPlayer, Transform::from_xyz(-49.7, 78.3, 50.0))).id();
