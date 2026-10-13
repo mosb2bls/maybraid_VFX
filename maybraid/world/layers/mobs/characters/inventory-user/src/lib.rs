@@ -179,11 +179,9 @@ impl InventoryItemFile {
 			InventoryItem::SkillMap { spec } => {
 				Self::SkillMap { skill: spec.kind, seed: spec.seed }
 			}
-			InventoryItem::Grenade { spec, stats, recharge } => Self::Grenade {
-				mesh: spec.mesh,
-				stats: Some(*stats),
-				recharge: recharge.remaining,
-			},
+			InventoryItem::Grenade { spec, stats, recharge } => {
+				Self::Grenade { mesh: spec.mesh, stats: Some(*stats), recharge: recharge.remaining }
+			}
 		}
 	}
 
@@ -318,14 +316,15 @@ pub fn spawn_bag(commands: &mut Commands, host: Entity, inventory: Inventory) ->
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use character_items::{random_starter_loadout, ClothingMesh, ItemRng};
+	use character_items::{ClothingMesh, ItemRng};
 
 	#[test]
 	fn starter_outfit_round_trips() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
 		let id = CharacterId(7);
-		let items = random_starter_loadout(&mut ItemRng::from_seed(3));
+		let mut rng = ItemRng::from_seed(3);
+		let items = rng.random_starter_loadout();
 		let inventory = Inventory::with_starter_outfit(items);
 		save(&root, id, &inventory).expect("save");
 		let loaded = load(&root, id).expect("load");

@@ -32,6 +32,7 @@ members = [
   "maybraid/weather",
   "maybraid/scene-ref",
   "maybraid/material-ref",
+  "maybraid/screen-capture",
   "maybraid/world/materials/lib",
   "maybraid/world/materials/playground",
   "maybraid/vfx/lib",
@@ -101,7 +102,11 @@ members = [
   "maybraid/world/modes/discover",
   "maybraid/world/modes/reliquary",
   "maybraid/input",
+  "maybraid/agent",
   "maybraid/combat-hud",
+  "maybraid/combat-hud/playground",
+  "maybraid/lubikans",
+  "maybraid/lubikans/damage",
   "maybraid/player",
   "maybraid/player-camera",
   "maybraid/world/layers/mobs/characters/generated",
@@ -111,6 +116,7 @@ members = [
   "maybraid/projectiles",
   "maybraid/damage",
   "maybraid/items/firearms-components",
+  "maybraid/items/icons",
   "maybraid/items/firearms",
   "maybraid/items/firearm-user",
   "maybraid/items/grenades",
@@ -297,6 +303,7 @@ maybraid-weather = { path = "maybraid/weather" }
 scene-ref = { path = "maybraid/scene-ref" }
 visual-geometry-core = { path = "maybraid/visual-geometry-core" }
 material-ref = { path = "maybraid/material-ref" }
+screen-capture = { path = "maybraid/screen-capture" }
 terrain-chunk-ref = { path = "maybraid/terrain-chunk-ref" }
 avian3d = "0.7"
 
@@ -355,13 +362,18 @@ spatial-rumble-playground = { path = "maybraid/spatial-rumble/playground" }
 maybraid-skill-map = { path = "maybraid/skill-map" }
 maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
+maybraid-agent = { path = "maybraid/agent" }
 combat-hud = { path = "maybraid/combat-hud" }
+combat-hud-playground = { path = "maybraid/combat-hud/playground" }
+lubikans = { path = "maybraid/lubikans" }
+lubikans-damage = { path = "maybraid/lubikans/damage" }
 player = { path = "maybraid/player" }
 player-camera = { path = "maybraid/player-camera" }
 movement-realization = { path = "maybraid/movement-realization" }
 projectiles = { path = "maybraid/projectiles" }
 damage = { path = "maybraid/damage" }
 firearms-components = { path = "maybraid/items/firearms-components" }
+item-icons = { path = "maybraid/items/icons" }
 firearms = { path = "maybraid/items/firearms" }
 firearm-user = { path = "maybraid/items/firearm-user" }
 grenades = { path = "maybraid/items/grenades" }

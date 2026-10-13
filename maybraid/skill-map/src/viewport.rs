@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{TextureDimension, TextureFormat, TextureUsages};
 use bevy::ui::widget::ViewportNode;
 use character_inventory_user::InventoryUser;
-use character_items::Inventory;
+use character_items::{Inventory, InventoryItem};
+use item_icons::{ItemIconCache, FIREARM_SILHOUETTE_RESOLUTION};
 use menu_components::{
 	spawn_hud_text_card, spawn_hud_text_card_label, HudFonts, HUD_TEXT_CARD_FACE_PX,
 	PANEL_BLOCK_FONT_SIZE, TEXT_YELLOW,
@@ -40,6 +41,33 @@ const FIREARM_CARD_BORDER: f32 = 1.5;
 const FIREARM_CARD_RADIUS: f32 = 8.0;
 const FIREARM_CARD_FILL: Color = Color::srgba(0.52, 0.52, 0.56, 0.82);
 const FIREARM_CARD_STROKE: Color = Color::srgba(0.78, 0.78, 0.82, 0.9);
+const GRENADE_SILHOUETTE_PX: f32 = 40.0;
+const GRENADE_SILHOUETTE_STROKE: f32 = 2.0;
+
+fn weapon_icon_slot() -> Node {
+	Node {
+		width: Val::Percent(100.0),
+		aspect_ratio: Some(
+			FIREARM_SILHOUETTE_RESOLUTION.width as f32
+				/ FIREARM_SILHOUETTE_RESOLUTION.height as f32,
+		),
+		flex_shrink: 0.0,
+		justify_content: JustifyContent::Center,
+		align_items: AlignItems::Center,
+		overflow: Overflow::clip(),
+		..default()
+	}
+}
+
+fn weapon_slot_display(show: bool) -> Display {
+	if show {
+		Display::Flex
+	} else {
+		Display::None
+	}
+}
+const FIREARM_SILHOUETTE: Color =
+	Color::srgb(0x84 as f32 / 255.0, 0x88 as f32 / 255.0, 0x84 as f32 / 255.0);
 
 /// Kenney outline Xbox **RB** (hold to steer the map).
 pub const SKILL_MAP_RB_ICON: &str = "iconography/kenney/input-prompts/xbox_rb_outline.png";
@@ -65,6 +93,36 @@ pub struct SkillMapFirearmHud;
 
 #[derive(Component)]
 pub struct SkillMapFirearmName;
+
+#[derive(Component)]
+pub(crate) struct SkillMapFirearmSilhouette;
+
+#[derive(Component)]
+pub(crate) struct SkillMapFirearmSilhouettePlaceholder;
+
+#[derive(Component)]
+pub(crate) struct SkillMapFirearmSilhouetteImage;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadeSilhouette;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadePlaceholder;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadeSilhouetteImage;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadeChargeFill;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadeChargeImage;
+
+#[derive(Component)]
+pub(crate) struct SkillMapGrenadeChargeGlyph;
+
+#[derive(Component)]
+pub(crate) struct SkillMapWeaponAction;
 
 #[derive(Component)]
 pub struct Debraid {
@@ -316,7 +374,7 @@ fn spawn_map_frame(
 					Pickable::IGNORE,
 				))
 				.with_children(|slot| {
-					spawn_prompt_chip(slot, fonts, asset_server, SKILL_MAP_RB_ICON, "Hold");
+					spawn_prompt_chip(slot, fonts, asset_server, SKILL_MAP_RB_ICON, "Hold", ());
 				});
 		})
 		.id()
@@ -360,6 +418,7 @@ fn spawn_firearm_hud(
 				));
 			});
 			spawn_firearm_silhouette(stack);
+			spawn_grenade_silhouette(stack);
 			stack
 				.spawn((
 					Node {
@@ -371,8 +430,15 @@ fn spawn_firearm_hud(
 					Pickable::IGNORE,
 				))
 				.with_children(|row| {
-					spawn_prompt_chip(row, fonts, asset_server, SKILL_MAP_RT_ICON, "Fire");
-					spawn_prompt_chip(row, fonts, asset_server, SKILL_MAP_Y_ICON, "Switch");
+					spawn_prompt_chip(
+						row,
+						fonts,
+						asset_server,
+						SKILL_MAP_RT_ICON,
+						"Fire",
+						SkillMapWeaponAction,
+					);
+					spawn_prompt_chip(row, fonts, asset_server, SKILL_MAP_Y_ICON, "Switch", ());
 				});
 		});
 }
@@ -383,6 +449,7 @@ fn spawn_prompt_chip(
 	asset_server: &AssetServer,
 	icon: &'static str,
 	label: &str,
+	extra: impl Bundle,
 ) {
 	spawn_hud_text_card(parent, (), |card| {
 		card.spawn((
@@ -400,6 +467,7 @@ fn spawn_prompt_chip(
 			fonts.item(HUD_TEXT_CARD_FACE_PX),
 			TextColor(TEXT_YELLOW),
 			Pickable::IGNORE,
+			extra,
 		));
 	});
 }
@@ -407,6 +475,32 @@ fn spawn_prompt_chip(
 fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 	parent
 		.spawn((
+			SkillMapFirearmSilhouette,
+			weapon_icon_slot(),
+			Visibility::Inherited,
+			Pickable::IGNORE,
+		))
+		.with_children(|gun| {
+			spawn_firearm_silhouette_placeholder(gun);
+			gun.spawn((
+				SkillMapFirearmSilhouetteImage,
+				ImageNode { color: FIREARM_SILHOUETTE, ..default() },
+				Node {
+					width: Val::Percent(100.0),
+					height: Val::Percent(100.0),
+					flex_shrink: 0.0,
+					..default()
+				},
+				Visibility::Hidden,
+				Pickable::IGNORE,
+			));
+		});
+}
+
+fn spawn_firearm_silhouette_placeholder(parent: &mut ChildSpawnerCommands) {
+	parent
+		.spawn((
+			SkillMapFirearmSilhouettePlaceholder,
 			Node {
 				width: Val::Px(96.0),
 				height: Val::Px(28.0),
@@ -414,6 +508,7 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 				align_items: AlignItems::Center,
 				..default()
 			},
+			Visibility::Inherited,
 			Pickable::IGNORE,
 		))
 		.with_children(|gun| {
@@ -460,13 +555,123 @@ fn spawn_firearm_silhouette(parent: &mut ChildSpawnerCommands) {
 		});
 }
 
+fn spawn_grenade_silhouette(parent: &mut ChildSpawnerCommands) {
+	parent
+		.spawn((
+			SkillMapGrenadeSilhouette,
+			{
+				let mut slot = weapon_icon_slot();
+				slot.display = Display::None;
+				slot
+			},
+			Visibility::Hidden,
+			Pickable::IGNORE,
+		))
+		.with_children(|slot| {
+			slot.spawn((
+				Node {
+					width: Val::Px(GRENADE_SILHOUETTE_PX),
+					height: Val::Px(GRENADE_SILHOUETTE_PX),
+					justify_content: JustifyContent::FlexEnd,
+					align_items: AlignItems::Center,
+					overflow: Overflow::clip(),
+					..default()
+				},
+				Pickable::IGNORE,
+			))
+			.with_children(|orb| {
+				orb.spawn((
+					SkillMapGrenadePlaceholder,
+					Node {
+						width: Val::Percent(100.0),
+						height: Val::Percent(100.0),
+						justify_content: JustifyContent::FlexEnd,
+						align_items: AlignItems::Center,
+						overflow: Overflow::clip(),
+						border: UiRect::all(Val::Px(GRENADE_SILHOUETTE_STROKE)),
+						border_radius: BorderRadius::all(Val::Px(GRENADE_SILHOUETTE_PX)),
+						..default()
+					},
+					BorderColor::all(TEXT_YELLOW),
+					Pickable::IGNORE,
+				))
+				.with_children(|circle| {
+					circle.spawn((
+						SkillMapGrenadeChargeFill,
+						Node {
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
+							border_radius: BorderRadius::all(Val::Px(GRENADE_SILHOUETTE_PX)),
+							..default()
+						},
+						BackgroundColor(TEXT_YELLOW),
+						Pickable::IGNORE,
+					));
+				});
+				orb.spawn((
+					SkillMapGrenadeSilhouetteImage,
+					ImageNode { color: FIREARM_SILHOUETTE, ..default() },
+					Node {
+						position_type: PositionType::Absolute,
+						width: Val::Percent(100.0),
+						height: Val::Percent(100.0),
+						..default()
+					},
+					Visibility::Hidden,
+					Pickable::IGNORE,
+				));
+				orb.spawn((
+					SkillMapGrenadeChargeImage,
+					Node {
+						position_type: PositionType::Absolute,
+						left: Val::Px(0.0),
+						right: Val::Px(0.0),
+						bottom: Val::Px(0.0),
+						width: Val::Percent(100.0),
+						height: Val::Percent(100.0),
+						overflow: Overflow::clip(),
+						..default()
+					},
+					Visibility::Hidden,
+					Pickable::IGNORE,
+				))
+				.with_children(|clip| {
+					clip.spawn((
+						SkillMapGrenadeChargeGlyph,
+						ImageNode { color: TEXT_YELLOW, ..default() },
+						Node {
+							position_type: PositionType::Absolute,
+							left: Val::Px(0.0),
+							bottom: Val::Px(0.0),
+							width: Val::Percent(100.0),
+							height: Val::Px(GRENADE_SILHOUETTE_PX),
+							..default()
+						},
+						Pickable::IGNORE,
+					));
+				});
+			});
+		});
+}
+
 pub fn sync_viewport_chrome(
 	enabled: Res<SkillMapEnabled>,
 	users: Query<(&SkillMapUser, &SkillMapHeld)>,
-	mut huds: Query<(&SkillMapMember, &mut Visibility), With<SkillMapHud>>,
+	mut huds: Query<
+		(&SkillMapMember, &mut Visibility),
+		(
+			With<SkillMapHud>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapGrenadeSilhouette>,
+			Without<SkillMapGrenadeSilhouetteImage>,
+			Without<SkillMapGrenadeChargeImage>,
+		),
+	>,
 	mut nodes: Query<
 		(&SkillMapMember, &mut BorderColor, &mut BackgroundColor),
-		(With<SkillMapViewport>, Without<SkillMapHud>),
+		(With<SkillMapViewport>, Without<SkillMapHud>, Without<SkillMapGrenadeChargeFill>),
 	>,
 ) {
 	for (_, mut visibility) in &mut huds {
@@ -490,26 +695,259 @@ pub fn sync_viewport_chrome(
 pub fn sync_firearm_chrome(
 	users: Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
 	bags: Query<&Inventory>,
-	mut blocks: Query<(&SkillMapMember, &mut Visibility), With<SkillMapFirearmHud>>,
+	icons: Option<Res<ItemIconCache>>,
+	members: Query<&SkillMapMember, With<SkillMapFirearmHud>>,
+	mut blocks: Query<
+		(&SkillMapMember, &mut Visibility),
+		(
+			With<SkillMapFirearmHud>,
+			Without<SkillMapHud>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapGrenadeSilhouette>,
+			Without<SkillMapGrenadeSilhouetteImage>,
+			Without<SkillMapGrenadeChargeImage>,
+		),
+	>,
 	mut names: Query<(&SkillMapMember, &mut Text), With<SkillMapFirearmName>>,
+	mut guns: Query<
+		(&mut Node, &mut Visibility),
+		(
+			With<SkillMapFirearmSilhouette>,
+			Without<SkillMapHud>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapGrenadeSilhouette>,
+			Without<SkillMapGrenadeSilhouetteImage>,
+			Without<SkillMapGrenadeChargeImage>,
+			Without<SkillMapFirearmSilhouettePlaceholder>,
+		),
+	>,
+	mut placeholders: Query<
+		&mut Node,
+		(
+			With<SkillMapFirearmSilhouettePlaceholder>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapGrenadePlaceholder>,
+			Without<SkillMapGrenadeChargeFill>,
+			Without<SkillMapGrenadeChargeImage>,
+		),
+	>,
+	mut silhouettes: Query<
+		(&mut ImageNode, &mut Visibility),
+		(
+			With<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapHud>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapGrenadeSilhouette>,
+			Without<SkillMapGrenadeSilhouetteImage>,
+			Without<SkillMapGrenadeChargeImage>,
+			Without<SkillMapGrenadeChargeGlyph>,
+		),
+	>,
+	mut actions: Query<&mut Text, (With<SkillMapWeaponAction>, Without<SkillMapFirearmName>)>,
 ) {
 	for (member, mut visibility) in &mut blocks {
-		let name = firearm_action_name(member.user, &users, &bags);
+		let name = primary_weapon_name(member.user, &users, &bags);
 		*visibility = if name.is_some() { Visibility::Inherited } else { Visibility::Hidden };
 	}
 	for (member, mut text) in &mut names {
-		text.0 = firearm_action_name(member.user, &users, &bags).unwrap_or_default();
+		text.0 = primary_weapon_name(member.user, &users, &bags).unwrap_or_default();
+	}
+	let Some(member) = members.iter().next() else {
+		return;
+	};
+	let weapon = primary_weapon(member.user, &users, &bags);
+	let grenade = weapon.and_then(grenade_charge);
+	let show_orb = grenade.is_some();
+	let silhouette =
+		weapon.and_then(|item| icons.as_ref().and_then(|cache| cache.silhouette_for_item(item)));
+	let gun_icon = if show_orb { None } else { silhouette };
+	for (mut node, mut visibility) in &mut guns {
+		node.display = weapon_slot_display(!show_orb);
+		*visibility = if show_orb { Visibility::Hidden } else { Visibility::Inherited };
+	}
+	for mut node in &mut placeholders {
+		// `Visibility::Hidden` still reserves layout and shoves the image right.
+		node.display = if show_orb || gun_icon.is_some() { Display::None } else { Display::Flex };
+	}
+	for (mut image, mut visibility) in &mut silhouettes {
+		if let Some(handle) = gun_icon.as_ref() {
+			image.image = handle.clone();
+			image.color = FIREARM_SILHOUETTE;
+			*visibility = Visibility::Inherited;
+		} else {
+			*visibility = Visibility::Hidden;
+		}
+	}
+	let verb = if show_orb { "Throw" } else { "Fire" };
+	for mut text in &mut actions {
+		if text.0 != verb {
+			text.0 = verb.to_string();
+		}
 	}
 }
 
-fn firearm_action_name(
+pub fn sync_grenade_chrome(
+	users: Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
+	bags: Query<&Inventory>,
+	icons: Option<Res<ItemIconCache>>,
+	members: Query<&SkillMapMember, With<SkillMapFirearmHud>>,
+	mut orbs: Query<
+		(&mut Node, &mut Visibility),
+		(
+			With<SkillMapGrenadeSilhouette>,
+			Without<SkillMapHud>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapGrenadeSilhouetteImage>,
+			Without<SkillMapGrenadeChargeImage>,
+			Without<SkillMapGrenadePlaceholder>,
+			Without<SkillMapGrenadeChargeFill>,
+		),
+	>,
+	mut placeholders: Query<
+		&mut Node,
+		(
+			With<SkillMapGrenadePlaceholder>,
+			Without<SkillMapGrenadeSilhouette>,
+			Without<SkillMapFirearmSilhouettePlaceholder>,
+			Without<SkillMapGrenadeChargeFill>,
+			Without<SkillMapGrenadeChargeImage>,
+		),
+	>,
+	mut images: Query<
+		(&mut ImageNode, &mut Visibility),
+		(
+			With<SkillMapGrenadeSilhouetteImage>,
+			Without<SkillMapHud>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapGrenadeChargeImage>,
+			Without<SkillMapGrenadeChargeGlyph>,
+			Without<SkillMapGrenadeSilhouette>,
+		),
+	>,
+	mut charge_clips: Query<
+		(&mut Node, &mut Visibility, &Children),
+		(
+			With<SkillMapGrenadeChargeImage>,
+			Without<SkillMapHud>,
+			Without<SkillMapFirearmHud>,
+			Without<SkillMapFirearmSilhouette>,
+			Without<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapGrenadeSilhouetteImage>,
+			Without<SkillMapGrenadePlaceholder>,
+			Without<SkillMapGrenadeChargeFill>,
+			Without<SkillMapGrenadeSilhouette>,
+			Without<SkillMapFirearmSilhouettePlaceholder>,
+		),
+	>,
+	mut charge_glyphs: Query<
+		&mut ImageNode,
+		(
+			With<SkillMapGrenadeChargeGlyph>,
+			Without<SkillMapFirearmSilhouetteImage>,
+			Without<SkillMapGrenadeSilhouetteImage>,
+		),
+	>,
+	mut fills: Query<
+		(&mut Node, &mut BackgroundColor),
+		(
+			With<SkillMapGrenadeChargeFill>,
+			Without<SkillMapViewport>,
+			Without<SkillMapGrenadeSilhouette>,
+			Without<SkillMapGrenadePlaceholder>,
+			Without<SkillMapGrenadeChargeImage>,
+			Without<SkillMapFirearmSilhouettePlaceholder>,
+		),
+	>,
+) {
+	let Some(member) = members.iter().next() else {
+		return;
+	};
+	let weapon = primary_weapon(member.user, &users, &bags);
+	let grenade = weapon.and_then(grenade_charge);
+	let show_orb = grenade.is_some();
+	let charge_icon = show_orb
+		.then_some(weapon)
+		.flatten()
+		.and_then(|item| icons.as_ref().and_then(|cache| cache.silhouette_for_item(item)));
+	for (mut node, mut visibility) in &mut orbs {
+		node.display = weapon_slot_display(show_orb);
+		*visibility = if show_orb { Visibility::Inherited } else { Visibility::Hidden };
+	}
+	for mut node in &mut placeholders {
+		node.display =
+			if show_orb && charge_icon.is_none() { Display::Flex } else { Display::None };
+	}
+	for (mut image, mut visibility) in &mut images {
+		if let Some(handle) = charge_icon.as_ref() {
+			image.image = handle.clone();
+			image.color = FIREARM_SILHOUETTE;
+			*visibility = Visibility::Inherited;
+		} else {
+			*visibility = Visibility::Hidden;
+		}
+	}
+	for (mut node, mut visibility, children) in &mut charge_clips {
+		if let (Some(handle), Some(progress)) = (charge_icon.as_ref(), grenade) {
+			for child in children.iter() {
+				if let Ok(mut image) = charge_glyphs.get_mut(child) {
+					image.image = handle.clone();
+					image.color = if progress >= 1.0 - 1e-3 {
+						TEXT_YELLOW
+					} else {
+						TEXT_YELLOW.with_alpha(0.55 + 0.45 * progress)
+					};
+				}
+			}
+			node.height = Val::Percent((progress * 100.0).clamp(0.0, 100.0));
+			*visibility = Visibility::Inherited;
+		} else {
+			*visibility = Visibility::Hidden;
+		}
+	}
+	if let Some(progress) = grenade {
+		for (mut node, mut fill) in &mut fills {
+			node.height = Val::Percent((progress * 100.0).clamp(0.0, 100.0));
+			fill.0 = if progress >= 1.0 - 1e-3 {
+				TEXT_YELLOW
+			} else {
+				TEXT_YELLOW.with_alpha(0.55 + 0.45 * progress)
+			};
+		}
+	}
+}
+
+fn primary_weapon<'a>(
+	user: Entity,
+	users: &'a Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
+	bags: &'a Query<&Inventory>,
+) -> Option<&'a InventoryItem> {
+	let (_, inventory) = users.iter().find(|(entity, _)| *entity == user)?;
+	bags.get(inventory?.bag).ok()?.primary_weapon()
+}
+
+fn primary_weapon_name(
 	user: Entity,
 	users: &Query<(Entity, Option<&InventoryUser>), With<SkillMapUser>>,
 	bags: &Query<&Inventory>,
 ) -> Option<String> {
-	let (_, inventory) = users.iter().find(|(entity, _)| *entity == user)?;
-	let bag = bags.get(inventory?.bag).ok()?;
-	Some(bag.primary_weapon()?.name())
+	Some(primary_weapon(user, users, bags)?.name())
+}
+
+fn grenade_charge(item: &InventoryItem) -> Option<f32> {
+	let InventoryItem::Grenade { stats, recharge, .. } = item else {
+		return None;
+	};
+	if stats.recharge <= 1e-4 {
+		return Some(1.0);
+	}
+	Some((1.0 - recharge.remaining / stats.recharge).clamp(0.0, 1.0))
 }
 
 type TrackedCameras<'w, 's> = Query<
@@ -604,11 +1042,30 @@ mod tests {
 	use crate::SkillMapEnabled;
 
 	#[test]
+	fn unused_weapon_slot_leaves_the_layout() {
+		assert_eq!(weapon_slot_display(false), Display::None);
+		assert_eq!(weapon_slot_display(true), Display::Flex);
+		assert_eq!(
+			weapon_icon_slot().aspect_ratio,
+			Some(
+				FIREARM_SILHOUETTE_RESOLUTION.width as f32
+					/ FIREARM_SILHOUETTE_RESOLUTION.height as f32
+			)
+		);
+	}
+
+	#[test]
 	fn chrome_and_track_queries_are_disjoint() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins).init_resource::<SkillMapEnabled>().add_systems(
 			Update,
-			(sync_viewport_chrome, sync_firearm_chrome, track_cursors, tick_debraid),
+			(
+				sync_viewport_chrome,
+				sync_firearm_chrome,
+				sync_grenade_chrome,
+				track_cursors,
+				tick_debraid,
+			),
 		);
 		app.update();
 	}
@@ -630,5 +1087,36 @@ mod tests {
 		bag.weapons.push(0);
 		assert_eq!(bag.primary_weapon().map(InventoryItem::name), Some(bag.items[0].name()));
 		assert!(bag.primary_weapon().is_some());
+	}
+
+	#[test]
+	fn firearm_hud_keeps_placeholder_until_silhouette_is_ready() {
+		use character_items::{FirearmMesh, InventoryItem};
+
+		let item = InventoryItem::firearm(FirearmMesh::Bullpup);
+		let cache = ItemIconCache::default();
+		assert!(cache.silhouette_for_item(&item).is_none());
+		assert!(item.capture_id_label().is_some());
+	}
+
+	#[test]
+	fn grenade_charge_fills_as_recharge_elapses() {
+		use character_items::{GrenadeRecharge, GrenadeSpec, GrenadeStats, InventoryItem};
+
+		let stats = GrenadeStats::standard();
+		let ready = InventoryItem::Grenade {
+			spec: GrenadeSpec::standard(),
+			stats,
+			recharge: GrenadeRecharge { remaining: 0.0 },
+		};
+		let half = InventoryItem::Grenade {
+			spec: GrenadeSpec::standard(),
+			stats,
+			recharge: GrenadeRecharge { remaining: stats.recharge * 0.5 },
+		};
+		assert!((grenade_charge(&ready).unwrap() - 1.0).abs() < 1e-4);
+		assert!((grenade_charge(&half).unwrap() - 0.5).abs() < 1e-4);
+		assert!(grenade_charge(&InventoryItem::firearm(character_items::FirearmMesh::Bullpup))
+			.is_none());
 	}
 }

@@ -31,9 +31,7 @@ mod tests {
 	use bevy::math::bounding::Aabb3d;
 	use bevy::math::Vec3;
 	use bevy::prelude::World;
-	use durham::{
-		BaseTerrainNoise, Terrain, TerrainCellLayout, TerrainConfig, TerrainMeshBuilder,
-	};
+	use durham::{BaseTerrainNoise, Terrain, TerrainCellLayout, TerrainConfig, TerrainMeshBuilder};
 	use lod::gen::Id;
 	use lod::hcsg::HcsgStorage;
 	use lod_cascade::Chunk;

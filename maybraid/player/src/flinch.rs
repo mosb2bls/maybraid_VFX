@@ -57,7 +57,7 @@ pub(crate) fn play_flinch_grunts(
 		if let Some(mut state) = state {
 			*state = local;
 		} else {
-			commands.entity(event.target).insert(local);
+			commands.entity(event.target).try_insert(local);
 		}
 	}
 }

@@ -1,0 +1,17 @@
+# Off-origin first spawn at the dusk-night-raid cell [1800,700].
+# Leading `start` replaces --start-at so stream-in happens there.
+# Measure player Y vs composed ground (base traces sat near y=-230).
+# Do not send `stats vsync`.
+
+{"cmd":"start","xz":[1800,700]}
+
+{"cmd":"scenario","name":"dusk-spawn-warmup","mark":"start"}
+{"cmd":"console","line":"sky dusk"}
+{"cmd":"console","line":"sky pause"}
+{"cmd":"wait","secs":20}
+{"cmd":"scenario","name":"dusk-spawn-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"dusk-spawn","mark":"start"}
+{"cmd":"wait","secs":10}
+{"cmd":"scenario","name":"dusk-spawn","mark":"end"}
+{"cmd":"quit"}

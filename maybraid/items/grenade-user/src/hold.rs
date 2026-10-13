@@ -63,7 +63,7 @@ pub fn realize_held_grenade_visuals(
 	held: Query<Entity, (With<HeldGrenade>, Without<Mesh3d>)>,
 ) {
 	for entity in &held {
-		commands.entity(entity).insert((
+		commands.entity(entity).try_insert((
 			Mesh3d(meshes.add(grenade_mesh())),
 			MeshMaterial3d(materials.add(grenade_material())),
 		));
@@ -86,7 +86,7 @@ pub fn stamp_holding_grenade(
 				continue;
 			}
 			if overlay && !holding {
-				commands.entity(entity).insert(HoldingGrenade);
+				commands.entity(entity).try_insert(HoldingGrenade);
 			}
 			if overlay && armed {
 				commands.entity(entity).remove::<HoldingArms>();

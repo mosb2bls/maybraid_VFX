@@ -142,8 +142,8 @@ fn right_shoulder_anchor(
 
 pub fn pose_held_firearm(
 	users: Query<(&FirearmUser, &PlayerLook)>,
-	mut visuals: Query<
-		(&Transform, &mut CharacterHeading, &CharacterMembers, &ChildOf),
+	visuals: Query<
+		(&Transform, &CharacterHeading, &CharacterMembers, &ChildOf),
 		(With<CharacterRoot>, Without<HeldFirearm>, Without<characters::AnimBone>),
 	>,
 	maps: Query<&BoneMap, Without<HeldFirearm>>,
@@ -156,7 +156,7 @@ pub fn pose_held_firearm(
 		Query<&mut Transform, (With<FirearmRoot>, With<HeldFirearm>, Without<CharacterRoot>)>,
 	)>,
 ) {
-	for (visual, mut heading, members, child_of) in &mut visuals {
+	for (visual, heading, members, child_of) in &visuals {
 		let Ok((user, look)) = users.get(child_of.parent()) else {
 			continue;
 		};
@@ -176,7 +176,7 @@ pub fn pose_held_firearm(
 			continue;
 		};
 		drop(current);
-		let facing = heading.resolve(visual);
+		let facing = heading.facing(visual);
 		let look_dir = Quat::from_axis_angle(Vec3::Y, look.yaw) * -Vec3::Z;
 		let rotation = gun_aim_rotation_for(
 			facing,

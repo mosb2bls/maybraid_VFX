@@ -1,0 +1,14 @@
+# Stationary Pre-post-modern (~1280×720 color-print) at origin.
+
+{"cmd":"visual_style","style":"pre_post_modern"}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":18}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"visual-style-idle","mark":"start"}
+{"cmd":"wait","secs":4}
+{"cmd":"console","line":"screenshot profiling/captures/screenshots/visual-style-idle-pre-post-modern.png"}
+{"cmd":"wait","secs":16}
+{"cmd":"scenario","name":"visual-style-idle","mark":"end"}
+{"cmd":"quit"}

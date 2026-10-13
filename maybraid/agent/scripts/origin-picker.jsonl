@@ -1,0 +1,18 @@
+# First-life Discovery picker at the origin. The game shell only leaves Home
+# when `--start-at` / a `start` command boots Discovery — and that skip
+# `pick_first_spawn`. Driving Home without a character (empty saves) never
+# streams terrain. Use `death-picker.jsonl` for the same
+# `finish_world_player_spawn` Y path. This file still parse-checks.
+# Do not send `stats vsync`.
+
+{"cmd":"scenario","name":"origin-picker-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":24}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"origin-picker-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"origin-picker","mark":"start"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"origin-picker","mark":"end"}
+{"cmd":"quit"}

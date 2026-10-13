@@ -380,6 +380,28 @@ impl TerrainCellLayout {
 			.unwrap_or_default()
 	}
 
+	/// Origin-cell ids covering `(x, z)` on every lattice this layout tiles
+	/// (fine grid, outer rings, and stream rings).
+	///
+	/// Streamed discovery stays on the finest ring ([`Self::origin_ids`]);
+	/// callers that must attach to a coarser presented cell (far / background
+	/// bump-outs) use this list so they can `get_or_generate` that size.
+	pub fn origin_ids_covering_xz(&self, x: f32, z: f32) -> Vec<OriginalId> {
+		std::iter::once(self.cell_size)
+			.chain(self.outer_rings.iter().map(|outer| outer.cell_size))
+			.chain(self.stream_rings.iter().map(|ring| ring.cell_size))
+			.map(|size| {
+				let size = size.max(1e-3);
+				OriginalId(Id::from_cell(cell_bounds(
+					(x / size).floor() as i32,
+					(z / size).floor() as i32,
+					size,
+					self.vertical_half_extent,
+				)))
+			})
+			.collect()
+	}
+
 	/// Fine-grid cell containing `xz` (Y ignored).
 	pub fn fine_cell_containing_xz(&self, xz: Vec3) -> IVec2 {
 		let size = self.cell_size.max(1e-3);
@@ -704,6 +726,15 @@ mod tests {
 			far.level_for(Vec3::X * 12.0 * TERRAIN_CELL_SIZE, Vec3::ZERO),
 			LodSceneLevel::Medium
 		);
+	}
+
+	#[test]
+	fn covering_xz_includes_every_stream_lattice() {
+		let layout = streamed_layout();
+		let ids = layout.origin_ids_covering_xz(12.0 * TERRAIN_CELL_SIZE, 0.0);
+		assert!(count_edge(&ids, TERRAIN_CELL_SIZE) >= 1);
+		assert!(count_edge(&ids, 2.0 * TERRAIN_CELL_SIZE) >= 1);
+		assert!(count_edge(&ids, 4.0 * TERRAIN_CELL_SIZE) >= 1);
 	}
 
 	#[test]

@@ -162,7 +162,9 @@ pub(crate) fn drive_player_locomotion(
 
 	let horizontal = Vec3::new(velocity.x, 0.0, velocity.z);
 	let speed = horizontal.length();
-	heading.turn_toward(&mut visual, wish.0, time.delta_secs());
+	if heading.would_turn_toward(&visual, wish.0) {
+		heading.turn_toward(&mut visual, wish.0, time.delta_secs());
+	}
 
 	for member in members.iter() {
 		let Ok(rig) = rigs.get(member) else {
