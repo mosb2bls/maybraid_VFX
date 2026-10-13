@@ -14,8 +14,11 @@ that a thin adapter turns into [`LubikanChargeRequest`](../lubikans/src/change.r
 [PR #1142](https://github.com/ramate-io/maybraid/pull/1142).
 [`LubikanSystems::Award`](../lubikans/src/award.rs)
 ([#1108](https://github.com/ramate-io/maybraid/issues/1108) /
-[PR #1154](https://github.com/ramate-io/maybraid/pull/1154)) applies each
-request once and emits one `LubikanChargeChanged`.
+[PR #1154](https://github.com/ramate-io/maybraid/pull/1154) /
+[PR #1219](https://github.com/ramate-io/maybraid/pull/1219)) applies each
+request once through the stock cap and emits one `LubikanChargeChanged`
+(`amount` applied, `points_earned` requested). Occupancy does not award
+from the HUD and does not wait on flying-point animation.
 
 ```text
 GlobalTransform
@@ -24,7 +27,7 @@ GlobalTransform
     → RewardRule match against CellMetadataStore
     → OccupancyAward
     → LubikanChargeRequest   (account, OCCUPANCY, signed f32, origin)
-    → LubikanSystems::Award  → LubikanChargeChanged
+    → LubikanSystems::Award  (stock cap) → LubikanChargeChanged { amount, points_earned }
 ```
 
 ## Matching granularity
@@ -68,7 +71,14 @@ dependency.
 ## World registration
 
 The ordinary world (`maybraid-world`) registers this plugin through
-`WorldOccupancyPlugin`. That publisher fills `CellMetadataStore` from HCSG
-`ChicoForest` / `ChicoGrove` cell facts — not vegetation meshes — and inserts
-only `OccupancyRewardsUser`. Ledgers come from [`LubikansPlugin`](../lubikans);
-evaluation skips a player until a ledger is present.
+`WorldOccupancyPlugin` next to [`WorldLubikanPlugin`](../world/lib/src/world_lubikan.rs).
+That publisher fills `CellMetadataStore` from HCSG `ChicoForest` / `ChicoGrove`
+cell facts — not vegetation meshes — and inserts only `OccupancyRewardsUser`.
+Ledgers and Award come from [`LubikansPlugin`](../lubikans) via the world
+Lubikan adapter. Evaluation skips a player until a ledger is present.
+Self works without Bikanwarda; gameplay works with `combat-hud` absent.
+
+Self demonstration interval and amount stay on `RewardRule` (`with_interval` /
+`with_amount`). [#1111](https://github.com/ramate-io/maybraid/issues/1111)
+does not agree a production rate, so the 5 s / +1 defaults are a configurable
+demo only.

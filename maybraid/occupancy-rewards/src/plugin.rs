@@ -121,7 +121,9 @@ mod tests {
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
 	use lubikans::fixtures::LubikanFixture;
-	use lubikans::{LubikanAccountId, LubikanChargeReason, LubikanChargeRequest};
+	use lubikans::{
+		LubikanAccountId, LubikanChargeReason, LubikanChargeRequest, LubikanOwner, LubikansPlugin,
+	};
 
 	use super::*;
 	use crate::identity::{GroveLayerId, OccupancyIdentity, SemanticCellKey, VegetationLayer};
@@ -226,6 +228,54 @@ mod tests {
 			.run_system_once(evaluate_occupancy_rewards)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(drain_requests(app.world_mut()).len(), 2);
+		Ok(())
+	}
+
+	#[test]
+	fn award_applies_occupancy_request_with_points_earned() -> anyhow::Result<()> {
+		let mut store = CellMetadataStore::default();
+		publish_demo(&mut store, Vec3::ZERO);
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.add_plugins(LubikansPlugin)
+			.add_plugins(OccupancyRewardsPlugin {
+				rules: RewardRuleSet::new([RewardRule::self_demonstration()]),
+			})
+			.insert_resource(store);
+		let owner = app
+			.world_mut()
+			.spawn((
+				LubikanOwner,
+				GlobalTransform::from_translation(Vec3::ZERO),
+				OccupancyRewardsUser::default(),
+			))
+			.id();
+		app.update();
+		let _ = app
+			.world_mut()
+			.resource_mut::<Messages<lubikans::LubikanChargeChanged>>()
+			.drain()
+			.count();
+		let mut time = Time::<()>::default();
+		time.advance_by(Duration::from_secs(5));
+		app.insert_resource(time);
+		app.world_mut()
+			.run_system_once(evaluate_occupancy_rewards)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		app.world_mut().resource_mut::<OccupancyRewardsPaused>().0 = true;
+		app.update();
+		app.world_mut().resource_mut::<OccupancyRewardsPaused>().0 = false;
+		let changed: Vec<_> = app
+			.world_mut()
+			.resource_mut::<Messages<lubikans::LubikanChargeChanged>>()
+			.drain()
+			.filter(|change| change.reason == LubikanChargeReason::OCCUPANCY)
+			.collect();
+		anyhow::ensure!(changed.len() == 1, "Award should apply the occupancy request once");
+		assert_eq!(changed[0].recipient, owner);
+		assert_eq!(changed[0].lubikan, LubikanAccountId::SELF);
+		assert_eq!(changed[0].amount, 1.0);
+		assert_eq!(changed[0].points_earned, 1.0);
 		Ok(())
 	}
 

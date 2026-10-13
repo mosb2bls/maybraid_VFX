@@ -4,7 +4,10 @@
 //! [`ChicoForest`] / [`ChicoGrove`] from [`HcsgStorage`] — selected cell
 //! metadata, not vegetation meshes or [`chico::ChicoGroveHost`]. The ordinary
 //! world registers this plugin so occupancy runs with Self and no Bikanwarda.
-//! Ledgers are created only by [`LubikansPlugin`] ([#1149](https://github.com/ramate-io/maybraid/pull/1149)).
+//! Ledgers and the stock-capped award path belong to
+//! [`crate::world_lubikan::WorldLubikanPlugin`] /
+//! [`LubikansPlugin`]. This adapter only publishes cell facts and inserts
+//! [`OccupancyRewardsUser`].
 
 use std::collections::BTreeSet;
 
@@ -361,7 +364,7 @@ mod tests {
 	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
 	use lubikans::{
 		LubikanAccountId, LubikanChargeChanged, LubikanChargeReason, LubikanChargeRequest,
-		LubikanLedger, LubikansPlugin,
+		LubikanLedger, LubikanSelfConfig, LubikansPlugin,
 	};
 	use occupancy_rewards::{
 		evaluate_occupancy_rewards, OccupancyIdentity, OccupancyRewardsPaused, RewardRule,
@@ -395,8 +398,13 @@ mod tests {
 	}
 
 	fn occupancy_app(storage: HcsgStorage) -> App {
+		occupancy_app_with_self(storage, LubikanSelfConfig::default())
+	}
+
+	fn occupancy_app_with_self(storage: HcsgStorage, self_config: LubikanSelfConfig) -> App {
 		let mut app = App::new();
-		app.add_plugins(MinimalPlugins)
+		app.insert_resource(self_config)
+			.add_plugins(MinimalPlugins)
 			.add_plugins(WorldOccupancyPlugin)
 			.insert_resource(storage);
 		app
@@ -552,8 +560,10 @@ mod tests {
 		assert_eq!(change.recipient, player);
 		assert_eq!(change.lubikan, LubikanAccountId::SELF);
 		assert_eq!(change.amount, expected);
+		assert_eq!(change.points_earned, expected);
 		assert_eq!(change.reason, LubikanChargeReason::OCCUPANCY);
 		assert_eq!(change.origin, Some(STAND));
+		assert!(!change.discarded_at_stock_cap());
 		let charge_after = app
 			.world()
 			.get::<LubikanLedger>(player)
@@ -562,6 +572,56 @@ mod tests {
 			.charge()
 			.current();
 		anyhow::ensure!(charge_after == expected, "Award must credit the ledger");
+		Ok(())
+	}
+
+	#[test]
+	fn occupancy_award_uses_stock_cap_and_keeps_points_earned() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app_with_self(
+			storage,
+			LubikanSelfConfig {
+				capacity: 1.0,
+				activation_cost: 1.0,
+				max_stock: 1,
+				..LubikanSelfConfig::default()
+			},
+		);
+		let player = spawn_player(&mut app, STAND);
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		app.world_mut()
+			.run_system_once(attach_world_occupancy_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		attach_runtime_ledger(&mut app);
+		let _ = drain_requests(app.world_mut());
+		let _ = drain_changes(app.world_mut());
+		let requested = RewardRule::self_demonstration().amount;
+
+		evaluate_with(&mut app, Duration::from_secs(5))?;
+		flush_award(&mut app);
+		let first = drain_changes(app.world_mut());
+		anyhow::ensure!(first.len() == 1, "first occupancy tick should apply under the cap");
+		assert_eq!(first[0].amount, requested);
+		assert_eq!(first[0].points_earned, requested);
+		assert!(!first[0].discarded_at_stock_cap());
+
+		evaluate_with(&mut app, Duration::from_secs(5))?;
+		flush_award(&mut app);
+		let overflow = drain_changes(app.world_mut());
+		anyhow::ensure!(overflow.len() == 1, "capped occupancy still emits one change");
+		assert_eq!(overflow[0].amount, 0.0);
+		assert_eq!(overflow[0].points_earned, requested);
+		assert!(overflow[0].discarded_at_stock_cap());
+		let charge = app
+			.world()
+			.get::<LubikanLedger>(player)
+			.ok_or_else(|| anyhow::anyhow!("ledger"))?
+			.equipped()
+			.charge()
+			.current();
+		anyhow::ensure!(charge == requested, "overflow must not raise charge past stock");
 		Ok(())
 	}
 }
