@@ -61,6 +61,18 @@ pub struct GrenadeDetonated {
 	pub damage: f32,
 }
 
+/// Spawn a live body that already has its pin pulled (drop on death / swap / dump).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct DropLiveGrenade {
+	pub origin: Vec3,
+	pub velocity: Vec3,
+	pub spec: GrenadeSpec,
+	pub stats: GrenadeStats,
+	pub effect: GrenadeEffect,
+	pub fuse: f32,
+	pub source: Entity,
+}
+
 /// Animated membership, contacts Fixed and other Animated (terrain and capsules).
 pub fn grenade_layers() -> CollisionLayers {
 	PhysicsInteractionLayer::animated_layers()
@@ -96,6 +108,7 @@ pub fn spawn_thrown_grenade(
 	stats: GrenadeStats,
 	effect: GrenadeEffect,
 	source: Entity,
+	fuse_remaining: f32,
 ) -> Entity {
 	let radius = stats.radius.max(0.08);
 	let collider = Collider::sphere(radius);
@@ -133,7 +146,7 @@ pub fn spawn_thrown_grenade(
 					combine_rule: CoefficientCombine::Average,
 				},
 				ThrownGrenade { spec, stats, effect, source, detonated: false },
-				GrenadeFuse { remaining: stats.fuse },
+				GrenadeFuse { remaining: fuse_remaining.max(0.0) },
 				CollidingEntities::default(),
 				sound::GrenadeBounceClock { next_at: 0.0, touching: Vec::new() },
 			),
@@ -165,6 +178,28 @@ pub fn tick_grenade_fuses(
 			damage: grenade.stats.blast_damage,
 		});
 		commands.entity(entity).try_despawn();
+	}
+}
+
+pub fn spawn_dropped_live_grenades(
+	mut commands: Commands,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut materials: ResMut<Assets<GrenadeMaterial>>,
+	mut drops: MessageReader<DropLiveGrenade>,
+) {
+	for drop in drops.read() {
+		spawn_thrown_grenade(
+			&mut commands,
+			&mut meshes,
+			&mut materials,
+			drop.origin,
+			drop.velocity,
+			drop.spec,
+			drop.stats,
+			drop.effect,
+			drop.source,
+			drop.fuse,
+		);
 	}
 }
 
@@ -283,10 +318,17 @@ impl Plugin for GrenadesPlugin {
 			app.add_plugins(GrenadeMaterialPlugin);
 		}
 		sound::configure_grenade_audio(app);
-		app.add_message::<GrenadeDetonated>().add_message::<Hit>().add_systems(
-			Update,
-			(tick_grenade_fuses, apply_grenade_blasts.after(tick_grenade_fuses)),
-		);
+		app.add_message::<GrenadeDetonated>()
+			.add_message::<DropLiveGrenade>()
+			.add_message::<Hit>()
+			.add_systems(
+				Update,
+				(
+					tick_grenade_fuses,
+					apply_grenade_blasts.after(tick_grenade_fuses),
+					spawn_dropped_live_grenades.after(tick_grenade_fuses),
+				),
+			);
 	}
 }
 
@@ -375,6 +417,36 @@ mod tests {
 		let stats = GrenadeStats::standard();
 		let effect = GrenadeEffect::from_stats(&stats);
 		assert!((effect.scale - stats.effect_scale).abs() < 1e-4);
+	}
+
+	#[test]
+	fn thrown_body_keeps_the_requested_fuse() {
+		let mut world = World::new();
+		world.init_resource::<Assets<Mesh>>();
+		world.init_resource::<Assets<GrenadeMaterial>>();
+		let stats = GrenadeStats::standard();
+		let id = world
+			.run_system_once(
+				move |mut commands: Commands,
+				      mut meshes: ResMut<Assets<Mesh>>,
+				      mut materials: ResMut<Assets<GrenadeMaterial>>| {
+					spawn_thrown_grenade(
+						&mut commands,
+						&mut meshes,
+						&mut materials,
+						Vec3::ZERO,
+						Vec3::Z,
+						GrenadeSpec::standard(),
+						stats,
+						GrenadeEffect::from_stats(&stats),
+						Entity::PLACEHOLDER,
+						1.25,
+					)
+				},
+			)
+			.expect("spawn");
+		let fuse = world.get::<GrenadeFuse>(id).expect("fuse");
+		assert!((fuse.remaining - 1.25).abs() < 1e-4);
 	}
 
 	#[test]

@@ -242,6 +242,10 @@ pub fn sync_held_visibility(
 fn throw_phase_t(phase: GrenadePhase, throw_secs: f32) -> f32 {
 	match phase {
 		GrenadePhase::Ready => 0.0,
+		GrenadePhase::Cooking { age } => {
+			// Hold the authored cock keyframe (0.45) while the pin is pulled.
+			(age / throw_secs.max(1e-3)).min(0.45).clamp(0.0, 1.0)
+		}
 		GrenadePhase::Windup { age } | GrenadePhase::Recovery { age } => {
 			(age / throw_secs.max(1e-3)).clamp(0.0, 1.0)
 		}
@@ -456,6 +460,10 @@ mod tests {
 		assert_eq!(
 			throw_phase_t(GrenadePhase::Recovery { age: stats.throw_secs }, stats.throw_secs),
 			1.0
+		);
+		assert_eq!(
+			throw_phase_t(GrenadePhase::Cooking { age: stats.fuse }, stats.throw_secs),
+			0.45
 		);
 		Ok(())
 	}
