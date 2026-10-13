@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 
 use bevy::prelude::*;
-use chico_vegetation_on_terrain_playground::PlayerSpawnXz;
+use world_player::PlayerSpawnXz;
 
 /// `MAYBRAID_START_AT=x,z` when argv does not pass `--start-at`.
 pub const START_AT_ENV: &str = "MAYBRAID_START_AT";

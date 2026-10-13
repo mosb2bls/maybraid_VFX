@@ -87,7 +87,8 @@ fn load_exceptions(path: &Path) -> Result<HashMap<String, Vec<String>>, Language
 		let Some(inflected) = parts.next() else {
 			continue;
 		};
-		let bases: Vec<String> = parts.map(normalize_lemma).filter(|base| !base.is_empty()).collect();
+		let bases: Vec<String> =
+			parts.map(normalize_lemma).filter(|base| !base.is_empty()).collect();
 		if !bases.is_empty() {
 			map.insert(normalize_lemma(inflected), bases);
 		}
@@ -118,7 +119,9 @@ fn suffix_substitutions(form: &str, pos: Pos) -> Vec<String> {
 			("ing", "e"),
 			("ing", ""),
 		],
-		Pos::Adjective | Pos::AdjectiveSatellite => &[("er", ""), ("est", ""), ("er", "e"), ("est", "e")],
+		Pos::Adjective | Pos::AdjectiveSatellite => {
+			&[("er", ""), ("est", ""), ("er", "e"), ("est", "e")]
+		}
 		Pos::Adverb => &[],
 	};
 	let mut out = Vec::new();

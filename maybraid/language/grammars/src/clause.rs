@@ -72,9 +72,8 @@ pub fn wrap_relative(
 	if relatives.is_empty() {
 		return head;
 	}
-	let boundary = SurfaceConstituent::Boundary {
-		kind: maybraid_language_core::BoundaryKind::Relative,
-	};
+	let boundary =
+		SurfaceConstituent::Boundary { kind: maybraid_language_core::BoundaryKind::Relative };
 	match placement {
 		RelativePlacement::AfterHead => {
 			head.push(boundary);

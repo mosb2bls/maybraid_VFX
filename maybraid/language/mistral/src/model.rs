@@ -52,6 +52,12 @@ impl MistralLanguageModel {
 		// Dummy mapping loads onto the selected GPU (or CPU) instead.
 		// https://github.com/EricLBuehler/mistral.rs/issues/2078
 		let device = InferenceDevice::select(config.force_cpu)?;
+		if !InferenceDevice::is_gpu(&device) && !config.force_cpu && InferenceDevice::must_use_cpu()
+		{
+			eprintln!(
+				"maybraid-language: Candle 0.11 Metal GEMM kernels fail on this macOS compiler; using CPU. Set MAYBRAID_LANGUAGE_FORCE_METAL=1 to try the GPU anyway."
+			);
+		}
 		let model = GgufModelBuilder::new(dir.display().to_string(), vec![file_name])
 			.with_device(device)
 			.with_device_mapping(DeviceMapSetting::dummy())

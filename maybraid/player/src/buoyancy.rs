@@ -4,8 +4,8 @@ use crate::body::{CharacterController, Grounded, Jumping, MOVE_SPEED};
 use avian3d::prelude::{Gravity, GravityScale, LinearVelocity};
 use bevy::ecs::query::Has;
 use bevy::prelude::*;
-use crozon_characters::LocomotionCapsule;
-use durham_terrain_models::{TerrainCellLayout, TerrainEntryStore, WaterColumn};
+use characters::LocomotionCapsule;
+use durham::{DurhamSurface, WaterColumn};
 
 /// Draft as a fraction of hull height (head out).
 pub const FLOAT_DRAFT: f32 = 0.55;
@@ -95,8 +95,7 @@ pub(crate) fn wade_speed() -> f32 {
 pub(crate) fn apply_buoyancy(
 	mut commands: Commands,
 	time: Res<Time>,
-	store: Option<Res<TerrainEntryStore>>,
-	layout: Option<Res<TerrainCellLayout>>,
+	surface: Option<DurhamSurface>,
 	gravity: Option<Res<Gravity>>,
 	mut controllers: Query<
 		(
@@ -112,11 +111,7 @@ pub(crate) fn apply_buoyancy(
 	>,
 ) {
 	let dt = time.delta_secs();
-	let Some(store) = store else {
-		clear_water_markers(&mut commands, &mut controllers);
-		return;
-	};
-	let Some(layout) = layout else {
+	let Some(surface) = surface else {
 		clear_water_markers(&mut commands, &mut controllers);
 		return;
 	};
@@ -127,8 +122,10 @@ pub(crate) fn apply_buoyancy(
 	{
 		let height = hull.half_height() * 2.0;
 		let feet_y = transform.translation.y - hull.half_height();
-		let column =
-			store.water_column_at(&layout, transform.translation.x, transform.translation.z);
+		let column = match surface.water_column_at(transform.translation.xz()) {
+			Ok(column) => column,
+			Err(_) => continue,
+		};
 		let submersion =
 			column.map(|c| submersion_fraction(feet_y, height, c.surface)).unwrap_or(0.0);
 		match water_regime(column, feet_y, height) {

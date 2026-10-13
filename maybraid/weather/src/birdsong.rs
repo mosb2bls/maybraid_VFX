@@ -52,16 +52,7 @@ pub(crate) fn spawn_birdsong_near_listener(
 	let origin = listener.translation();
 	let BirdsongClock { next, noise, pick } = &mut *clock;
 	let world = point_birdsong(origin, noise);
-	sounds.play_birdsong(
-		&mut commands,
-		pick,
-		noise,
-		&clips,
-		audio,
-		&mut mixer,
-		listener,
-		world,
-	);
+	sounds.play_birdsong(&mut commands, pick, noise, &clips, audio, &mut mixer, listener, world);
 	*next = wind::lerp(BIRDSONG_GAP_MIN, BIRDSONG_GAP_MAX, wind::unit(noise));
 }
 

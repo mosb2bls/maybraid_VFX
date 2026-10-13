@@ -8,7 +8,8 @@ use crate::marshall::SemanticNode;
 use crate::output::LexicalOutput;
 use crate::profile::Profile;
 use crate::utterance::{
-	Clause, ClauseId, Number, Polarity, Referent, ReferentId, SemanticRole, SemanticValue, Utterance,
+	Clause, ClauseId, Number, Polarity, Referent, ReferentId, SemanticRole, SemanticValue,
+	Utterance,
 };
 
 mod surface;
@@ -199,8 +200,9 @@ impl SurfaceGrammar {
 			input.ipa_for(SemanticNode::Predicate(clause_id)).unwrap_or("…"),
 			SemanticNode::Predicate(clause_id),
 		);
-		let negative = (clause.polarity == Polarity::Negative)
-			.then(|| SurfaceConstituent::particle(self.particles.negative, ParticleDomain::Polarity));
+		let negative = (clause.polarity == Polarity::Negative).then(|| {
+			SurfaceConstituent::particle(self.particles.negative, ParticleDomain::Polarity)
+		});
 
 		let mut words = Vec::new();
 		match self.clause_order {
@@ -253,10 +255,19 @@ impl SurfaceGrammar {
 			if let Some(value) = clause_value(clause, role) {
 				if let Some(particle) = particle {
 					if !is_bound(value, bound) {
-						complements.push(SurfaceConstituent::particle(particle, ParticleDomain::Adposition));
+						complements.push(SurfaceConstituent::particle(
+							particle,
+							ParticleDomain::Adposition,
+						));
 					}
 				}
-				self.emit_value(complements, input, value, bound, Some(GrammaticalRelation::Object));
+				self.emit_value(
+					complements,
+					input,
+					value,
+					bound,
+					Some(GrammaticalRelation::Object),
+				);
 			}
 		}
 	}

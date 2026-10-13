@@ -28,6 +28,16 @@ pub fn inset_aabb2(a: Aabb2d, pad: f32) -> Option<Aabb2d> {
 	Some(Aabb2d { min, max })
 }
 
+/// Smallest axis-aligned box containing `a` and `b`.
+pub fn union_aabb3(a: Aabb3d, b: Aabb3d) -> Aabb3d {
+	Aabb3d::from_min_max(a.min.min(b.min), a.max.max(b.max))
+}
+
+/// Smallest axis-aligned box containing every item, if any.
+pub fn union_aabb3_iter(bounds: impl IntoIterator<Item = Aabb3d>) -> Option<Aabb3d> {
+	bounds.into_iter().reduce(union_aabb3)
+}
+
 /// True when the open rectangles overlap (strict, with a small epsilon).
 pub fn intersects_aabb2(a: Aabb2d, b: Aabb2d) -> bool {
 	a.min.x < b.max.x - EPS
@@ -294,6 +304,15 @@ mod tests {
 		assert!((Vec3::from(free.min).y - 0.0).abs() < 1e-4);
 		assert!((Vec3::from(free.max).y - 3.0).abs() < 1e-4);
 		assert!(Vec3::from(free.min).z >= 1.9);
+	}
+
+	#[test]
+	fn union_aabb3_spans_both_boxes() {
+		let a = Aabb3d::from_min_max(Vec3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 1.0, 1.0));
+		let b = Aabb3d::from_min_max(Vec3::new(2.0, -1.0, 3.0), Vec3::new(4.0, 2.0, 5.0));
+		let u = union_aabb3(a, b);
+		assert_eq!(Vec3::from(u.min), Vec3::new(0.0, -1.0, 0.0));
+		assert_eq!(Vec3::from(u.max), Vec3::new(4.0, 2.0, 5.0));
 	}
 
 	#[test]

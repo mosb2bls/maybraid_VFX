@@ -9,8 +9,10 @@ use maybraid_character_controller::CharacterControlSystems;
 use player::{PlayerPlugin, PlayerPoseSystems, PlayerSystems};
 use std::f32::consts::FRAC_PI_2;
 
-pub use follow::{sync_camera_fov, sync_first_person_head_visibility};
-pub use look::{CameraController, CameraPov, CameraPovLocked};
+pub use follow::{
+	apply_camera_shake, map_pose, sync_camera_fov, sync_first_person_head_visibility, CameraShake,
+};
+pub use look::{CameraController, CameraLookSuppressed, CameraPov, CameraPovLocked};
 
 /// Camera schedule. Item crates add aim writers to [`PlayerCameraSystems::Aim`].
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -47,7 +49,7 @@ pub struct FollowCamera {
 impl FollowCamera {
 	pub fn hip_fov(&self, pov: CameraPov) -> f32 {
 		match pov {
-			CameraPov::ThirdPerson => self.third_person_fov,
+			CameraPov::ThirdPerson | CameraPov::Map => self.third_person_fov,
 			CameraPov::FirstPerson => self.first_person_fov,
 		}
 	}
@@ -91,6 +93,7 @@ pub struct PlayerCameraPlugin;
 impl Plugin for PlayerCameraPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<CameraPovLocked>()
+			.init_resource::<look::CameraLookSuppressed>()
 			.configure_sets(
 				Update,
 				(
@@ -123,7 +126,11 @@ impl Plugin for PlayerCameraPlugin {
 			)
 			.add_systems(
 				Update,
-				(follow::sync_camera_fov, follow::sync_first_person_head_visibility)
+				(
+					follow::sync_camera_fov,
+					follow::sync_first_person_head_visibility,
+					follow::apply_camera_shake,
+				)
 					.in_set(PlayerCameraSystems::Apply),
 			)
 			.add_systems(Update, release_modifiers_on_focus_change);
@@ -159,14 +166,8 @@ pub fn spawn_follow_camera(commands: &mut Commands) -> Entity {
 				far: follow.far,
 				..default()
 			}),
-			CameraController {
-				yaw,
-				pitch,
-				pov: CameraPov::ThirdPerson,
-				focus: 0.0,
-				ads: 0.0,
-				focus_blend: 0.0,
-			},
+			CameraController { yaw, pitch, ..default() },
+			CameraShake::default(),
 		))
 		.id()
 }
@@ -195,7 +196,7 @@ fn release_modifiers_on_focus_change(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crozon_characters::CharacterMotionSystems;
+	use characters::CharacterMotionSystems;
 	use maybraid_character_controller::CharacterIntent;
 
 	#[test]
@@ -211,6 +212,7 @@ mod tests {
 					.abs() < 1e-5
 			);
 		}
+		assert!(world.get::<CameraShake>(camera).is_some());
 	}
 
 	#[test]

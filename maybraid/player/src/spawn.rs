@@ -2,7 +2,7 @@
 
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use crozon_characters::{
+use characters::{
 	spawn_fixed_character_visual, CharacterComponents, CharacterHeading, CharacterRoot,
 };
 
@@ -12,7 +12,7 @@ use crate::identity::{
 	PlayerYawOwner,
 };
 
-pub use crozon_characters::LocomotionCapsule;
+pub use characters::LocomotionCapsule;
 
 /// Humanoid default; live bodies carry [`LocomotionCapsule`] from the recipe.
 pub const CAPSULE_RADIUS: f32 = LocomotionCapsule::HUMANOID.radius;

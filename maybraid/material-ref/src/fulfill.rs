@@ -31,11 +31,11 @@ pub fn fulfill_material_ref_roots<L>(
 		let has_mesh = meshes.contains(entity);
 		if propagate && !has_mesh {
 			// Meshes arrive later under WorldAsset; only mark the root seen.
-			commands.entity(entity).insert(MaterialRefApplied);
+			commands.entity(entity).try_insert(MaterialRefApplied);
 			continue;
 		}
 		lib.fulfill(entity, &root.0, &mut commands);
-		commands.entity(entity).insert(MaterialRefApplied);
+		commands.entity(entity).try_insert(MaterialRefApplied);
 	}
 }
 
@@ -47,12 +47,13 @@ pub fn invalidate_changed_material_ref_roots(
 	applied: Query<(), With<MaterialRefApplied>>,
 ) {
 	for root in &changed {
-		commands.entity(root).remove::<MaterialRefApplied>();
+		// LOD / restamp can despawn the walked tree before deferred commands apply.
+		commands.entity(root).try_remove::<MaterialRefApplied>();
 		let mut stack: Vec<Entity> =
 			children.get(root).map(|c| c.iter().copied().collect()).unwrap_or_default();
 		while let Some(child) = stack.pop() {
 			if applied.contains(child) {
-				commands.entity(child).remove::<MaterialRefApplied>();
+				commands.entity(child).try_remove::<MaterialRefApplied>();
 			}
 			if let Ok(kids) = children.get(child) {
 				stack.extend(kids.iter().copied());
@@ -78,7 +79,7 @@ pub fn fulfill_material_ref_descendants<L>(
 			continue;
 		};
 		lib.fulfill(entity, &material_ref, &mut commands);
-		commands.entity(entity).insert(MaterialRefApplied);
+		commands.entity(entity).try_insert(MaterialRefApplied);
 	}
 }
 
@@ -103,7 +104,7 @@ pub fn restamp_material_ref_descendants_of_changed<L>(
 		while let Some(child) = stack.pop() {
 			if meshes.contains(child) {
 				lib.fulfill(child, &material.0, &mut commands);
-				commands.entity(child).insert(MaterialRefApplied);
+				commands.entity(child).try_insert(MaterialRefApplied);
 			}
 			if let Ok(kids) = children.get(child) {
 				stack.extend(kids.iter().copied());
@@ -127,7 +128,7 @@ fn propagating_material_ref(
 
 /// Shared invalidate / fulfill schedule labels. [`invalidate_changed_material_ref_roots`]
 /// is not generic and is installed once, even when several [`MaterialRefPlugin`]`<L>`
-/// instances share the app (Chico + Crozon characters).
+/// instances share the app (Chico + characters).
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MaterialRefSystems {
 	Invalidate,

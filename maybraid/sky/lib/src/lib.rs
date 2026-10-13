@@ -281,8 +281,9 @@ mod tests {
 			.query_filtered::<&MeshMaterial3d<SkyFieldMaterial>, With<SkyField>>();
 		let handle = fields.single(app.world()).map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let materials = app.world().resource::<Assets<SkyFieldMaterial>>();
-		let material =
-			materials.get(&handle.0).ok_or_else(|| anyhow::anyhow!("missing field material"))?;
+		let material = materials
+			.get(&handle.0)
+			.ok_or_else(|| anyhow::anyhow!("missing field material"))?;
 		assert!(material.params.sun_dir.y < 0.0, "shader sun should sit below the horizon");
 		Ok(())
 	}

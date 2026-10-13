@@ -3,7 +3,7 @@
 Capsule body, character visual, and **handoff slots** for camera and pose.
 
 The collider size comes from the character recipe's
-[`LocomotionCapsule`](../crozon/characters/src/components.rs), not from this
+[`LocomotionCapsule`](../world/layers/mobs/characters/lib/src/components.rs), not from this
 crate. Spawn uses the humanoid default until a visual is attached; attaching a
 recipe reapplies that hull (`Collider`, `ShapeCaster`, component). This crate
 does not know about firearms or melee. Item-user crates write the
@@ -39,12 +39,12 @@ capsules get a kinematic XZ [`SoftBump`](src/separation.rs) on `MoveWish`
 before realization so pack-mates start steering apart before capsule contacts
 shove them. Animated movers contact Fixed geometry and each other; restitution
 on the capsule stays zero. Pronograde recipes keep that vertical motor
-hull and add a query-only horizontal [`HitCapsule`](../crozon/characters/src/components.rs)
+hull and add a query-only horizontal [`HitCapsule`](../world/layers/mobs/characters/lib/src/components.rs)
 child (`Sensor`, Animated layer) so projectiles can hit the body and tail.
 Hit radius follows rest-pose shoulder / hip / torso bone scales, not the motor
 radius. Bipeds keep a single vertical motor capsule sized from rest-pose legs,
 spine, neck, and shoulders. Oversized heads (Spibmom, cartoon whelps) add a
-query-only [`HeadCapsule`](../crozon/characters/src/components.rs) that
+query-only [`HeadCapsule`](../world/layers/mobs/characters/lib/src/components.rs) that
 stretches on Y (ears / crown) without fattening XZ. The child follows visual
 yaw; `Health`
 stays on the body.

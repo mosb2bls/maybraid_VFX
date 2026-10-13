@@ -1,6 +1,6 @@
-# Unsigned game packages: Apple DMG, Windows zip, SteamOS tarball.
-# Artifacts on main / ci-action::package / workflow_dispatch.
-# GitHub Release assets only when a release is published.
+# Unsigned game packages: macOS DMG, Windows zip, Linux tarballs (Steam + general).
+# Release builds use each platform's native Rust toolchain; Nix is for development.
+# Runs on main, published releases, workflow_dispatch, and ci-action::package.
 #
 # Push is branch-only so creating a tag does not start a second run that
 # shares a ref with `release` and cancels the upload (v0.1.0-playtest-001).
@@ -24,116 +24,113 @@ permissions:
   contents: write
 
 jobs:
-  package:
+  version:
     if: >
-      github.event_name == 'release' ||
+      (github.event_name == 'release' ||
       github.event_name == 'workflow_dispatch' ||
       github.ref == 'refs/heads/main' ||
-      contains(github.event.head_commit.message, 'ci-action::package')
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            slug: macos-arm64
-          - os: windows-latest
-            slug: windows-x64
-          - os: ubuntu-22.04
-            slug: steamos-x64
-    runs-on: ${{ matrix.os }}
+      contains(github.event.head_commit.message, 'ci-action::package')) &&
+      !(github.event_name == 'release' && endsWith(github.event.release.tag_name, '-traces'))
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      rust: ${{ steps.ver.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        run: |
+          echo "version=$(packaging/version.sh)" >> "$GITHUB_OUTPUT"
+          echo "rust=$(packaging/version.sh --rust)" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    # Steam Linux Runtime 3.0 (sniper) SDK, pinned by manifest digest.
+    container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk@sha256:1c33c507bc75d012e77df5727f93b0d5b8c3f7c8d4142ba5f7a16882cc92e014
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ needs.version.outputs.rust }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p maybraid --release --locked
+      - run: packaging/scripts/package-linux.sh
+      - run: packaging/smoke.sh "dist/Maybraid-$VERSION-linux-x64/maybraid"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maybraid-${{ env.VERSION }}-steam-linux-x64
+          path: dist/*-steam-linux-x64.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maybraid-${{ env.VERSION }}-linux-x64
+          path: dist/Maybraid-${{ env.VERSION }}-linux-x64.tar.xz
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    needs: version
+    runs-on: macos-14
     timeout-minutes: 180
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ needs.version.outputs.rust }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p maybraid --release --locked
+      - run: packaging/scripts/package-macos.sh
+      - run: packaging/smoke.sh dist/Maybraid.app/Contents/MacOS/maybraid
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maybraid-${{ env.VERSION }}-macos-arm64
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 120
     defaults:
       run:
         shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Version
-        id: ver
-        run: |
-          workspace_version=$(awk '
-            $0 == "[workspace.package]" { hit = 1; next }
-            hit && /^\[/ { exit }
-            hit && $1 == "version" {
-              gsub(/"/, "", $3)
-              print $3
-              exit
-            }
-          ' Cargo.toml)
-          if [ -z "$workspace_version" ]; then
-            echo "could not read workspace.package.version from Cargo.toml" >&2
-            exit 1
-          fi
-          if [ "${{ github.event_name }}" = "release" ]; then
-            v="${{ github.event.release.tag_name }}"
-            v="${v#v}"
-          else
-            v="${workspace_version}-${GITHUB_SHA::7}"
-          fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-
-      - uses: DeterminateSystems/nix-installer-action@main
-        if: runner.os != 'Windows'
-
-      - name: Enable Nix Flakes
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p ~/.config/nix
-          echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
-
-      - name: Package macOS
-        if: runner.os == 'macOS'
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: nix develop --command bash -lc 'packaging/scripts/package-macos.sh'
-
-      - name: Package SteamOS
-        if: runner.os == 'Linux'
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          nix develop --command bash -lc \
-            'cargo build -p maybraid --release && packaging/scripts/package-steamos.sh'
-
       - uses: dtolnay/rust-toolchain@master
-        if: runner.os == 'Windows'
         with:
-          toolchain: 1.95.0
-
+          toolchain: ${{ needs.version.outputs.rust }}
+          targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
-        if: runner.os == 'Windows'
-        with:
-          key: package-${{ matrix.slug }}
-
-      - name: Package Windows
-        if: runner.os == 'Windows'
-        env:
-          VERSION: ${{ steps.ver.outputs.version }}
-        run: |
-          cargo build -p maybraid --release
-          packaging/scripts/package-windows.sh
-
+      - run: cargo build -p maybraid --release --locked --target x86_64-pc-windows-msvc
+      - run: packaging/scripts/package-windows.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: maybraid-${{ steps.ver.outputs.version }}-${{ matrix.slug }}
-          path: |
-            dist/*.dmg
-            dist/*.zip
-            dist/*.tar.xz
+          name: maybraid-${{ env.VERSION }}-windows-x64
+          path: dist/*.zip
           if-no-files-found: error
           retention-days: 14
 
   publish-release:
-    if: github.event_name == 'release'
-    needs: package
+    if: github.event_name == 'release' && !endsWith(github.event.release.tag_name, '-traces')
+    needs: [linux, macos, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: maybraid-*
           merge-multiple: true
-      - name: Attach to GitHub Release
-        env:
+      - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "${{ github.event.release.tag_name }}" artifacts/* --clobber
+        run: gh release upload "${{ github.event.release.tag_name }}" artifacts/*.{dmg,zip,tar.xz} --clobber

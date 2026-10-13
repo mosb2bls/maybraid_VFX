@@ -13,6 +13,9 @@ pub const BARLOW_SEMIBOLD: &str = "fonts/barlow/BarlowSemiCondensed-SemiBold.ttf
 /// Barlow Semi Condensed Regular, under `maybraid/assets`.
 pub const BARLOW_REGULAR: &str = "fonts/barlow/BarlowSemiCondensed-Regular.ttf";
 
+/// Noto Sans Regular — IPA coverage for generated place names.
+pub const NOTO_SANS_REGULAR: &str = "fonts/noto/NotoSans-Regular.ttf";
+
 /// Largest face on a text menu (title / header).
 pub const HEADER_FONT_SIZE: f32 = 96.0;
 
@@ -86,6 +89,30 @@ pub const CURSOR_ICON_GAP: f32 = 12.0;
 /// Maybraid mark, under `maybraid/assets`. Author file: `art/iconography/maybraid_logo_icon.blend`.
 pub const MAYBRAID_LOGO: &str = "iconography/maybraid_logo_icon.png";
 
+/// Death / last-body mark. Author file: `art/iconography/bones_icon.blend`.
+pub const BONES_ICON: &str = "iconography/bones_icon.png";
+
+/// Kenney cartography pine. A single tree.
+pub const MAP_TREE_ICON: &str = "iconography/kenney/cartography/tree_pine.png";
+
+/// Kenney cartography pine cluster. A grove or forest.
+pub const MAP_GROVE_ICON: &str = "iconography/kenney/cartography/tree_pines.png";
+
+/// Kenney cartography house. Discoverable places.
+pub const MAP_HOUSE_ICON: &str = "iconography/kenney/cartography/house.png";
+
+/// Kenney cartography houses. Urban cells.
+pub const MAP_TOWN_ICON: &str = "iconography/kenney/cartography/houses.png";
+
+/// Kenney cartography mountain. Landform features.
+pub const MAP_MOUNTAIN_ICON: &str = "iconography/kenney/cartography/mountain.png";
+
+/// Kenney cartography lake. Water features.
+pub const MAP_WATER_ICON: &str = "iconography/kenney/cartography/lake.png";
+
+/// Kenney game-icons white arrow. Rotated toward off-screen anchors.
+pub const MAP_ARROW_ICON: &str = "iconography/kenney/game-icons/arrow_up.png";
+
 /// Blink period for animated marks, in seconds.
 pub const ICON_BLINK_SECS: f32 = 1.2;
 
@@ -137,6 +164,39 @@ pub const DESCRIPTION_UNDER_COLUMN_GAP: f32 = 24.0;
 /// Wrap width for explainer copy under a top-left menu.
 pub const DESCRIPTION_UNDER_COLUMN_MAX_WIDTH: f32 = 440.0;
 
+/// Info-box body width under a centered column.
+pub const INFO_BOX_MAX_WIDTH: f32 = DESCRIPTION_UNDER_COLUMN_MAX_WIDTH;
+
+/// Horizontal padding inside an info box.
+pub const INFO_BOX_PAD_X: f32 = 16.0;
+
+/// Vertical padding inside an info box.
+pub const INFO_BOX_PAD_Y: f32 = 14.0;
+
+/// Corner radius on the info-box border.
+pub const INFO_BOX_RADIUS: f32 = 12.0;
+
+/// Stroke on the info-box border.
+pub const INFO_BOX_BORDER: f32 = 1.5;
+
+/// Diameter of the circled `i` mark.
+pub const INFO_BOX_MARK_SIZE: f32 = 28.0;
+
+/// Radius of the circled `i` mark (half of [`INFO_BOX_MARK_SIZE`]).
+pub const INFO_BOX_MARK_RADIUS: f32 = 14.0;
+
+/// Gap between the circled `i` and the body copy.
+pub const INFO_BOX_MARK_GAP: f32 = 12.0;
+
+/// Face size of the circled `i`.
+pub const INFO_BOX_MARK_FONT_SIZE: f32 = 18.0;
+
+/// Wash inside the info box (menu yellow, very low alpha).
+pub const INFO_BOX_FILL: Color = Color::srgba(1.0, 0.86, 0.22, 0.06);
+
+/// Wash inside the circled `i`.
+pub const INFO_BOX_MARK_FILL: Color = Color::srgba(1.0, 0.86, 0.22, 0.14);
+
 /// Loading-page Maybraid mark.
 pub const LOADING_ICON_SIZE: f32 = 192.0;
 
@@ -186,13 +246,13 @@ pub const PANEL_CURSOR_ICON_GAP: f32 = 10.0;
 pub const PANEL_SWATCH_SIZE: f32 = 22.0;
 
 /// Floor width so a grid cell does not collapse under long wrap.
-pub const PANEL_TILE_MIN_WIDTH: f32 = 88.0;
+pub const PANEL_TILE_MIN_WIDTH: f32 = 72.0;
 
-/// Catalog / select tiles sit two to a row.
-pub const PANEL_TILE_COLUMNS: u16 = 2;
+/// Catalog / select tiles sit three to a row.
+pub const PANEL_TILE_COLUMNS: u16 = 3;
 
 /// Minimum asset-tile height when thumbnails are off.
-pub const PANEL_TILE_MIN_HEIGHT: f32 = 56.0;
+pub const PANEL_TILE_MIN_HEIGHT: f32 = 44.0;
 
 /// Vertical rhythm inside a panel.
 pub const PANEL_ROW_GAP: f32 = 10.0;

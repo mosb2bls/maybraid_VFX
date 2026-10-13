@@ -8,13 +8,14 @@ mod hit;
 mod identity;
 mod intent;
 mod locomotion;
+mod look;
 mod movement;
 mod separation;
 mod spawn;
 mod stance;
 
 use bevy::prelude::*;
-use crozon_characters::CharacterMotionSystems;
+use characters::CharacterMotionSystems;
 use maybraid_character_controller::CharacterControlSystems;
 
 pub use body::{
@@ -24,16 +25,17 @@ pub use body::{
 	Sprinting, WalkableGround,
 };
 pub use buoyancy::{Buoyant, Wading, WaterRegime};
+pub use characters::{HeadCapsule, HitCapsule};
 pub use contact::{
 	motor_traction_bundle, register_motor_traction_physics, MotorTraction, MotorTractionHooks,
 };
-pub use crozon_characters::{HeadCapsule, HitCapsule};
 pub use hit::HitVolume;
 pub use identity::{
 	CameraFollow, Npc, Player, PlayerCameraAim, PlayerCameraPose, PlayerCapsule, PlayerLook,
 	PlayerUse, PlayerVisual, PlayerYawOwner,
 };
 pub use locomotion::drive_player_locomotion;
+pub use look::{clamp_aim_pitch, look_delta, look_forward, wrap_pi, yaw_xz, AIM_PITCH_MARGIN};
 pub use separation::{SoftBump, NPC_SEPARATION};
 pub use spawn::{
 	capsule_spawn_height, needs_npc_visual, needs_player_visual, spawn_npc, spawn_npc_visual,
@@ -104,6 +106,7 @@ impl Plugin for PlayerPlugin {
 					body::apply_wish_movement,
 					body::apply_wish_jump,
 					stance::stand_when_airborne,
+					stance::advance_stance_blend,
 					stance::apply_stance_hulls,
 					stance::sync_stance_pitch,
 					body::advance_jump_phases,

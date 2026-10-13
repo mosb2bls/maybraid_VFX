@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use bevy::text::{FontSourceTemplate, LineBreak};
-use crozon_character_items::{InventoryItem, InventorySlot};
+use character_items::{InventoryItem, InventorySlot};
 use maybraid_menu_controller::MenuController;
 use menu_components::{
 	republish_menu_activate, screen_back_scene, ButtonWithSubtext, SpinningIcon, TextMenuPlugin,

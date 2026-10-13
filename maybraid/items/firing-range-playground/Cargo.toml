@@ -17,9 +17,9 @@ combat-hud = { workspace = true }
 evasion-intelligence = { workspace = true }
 fleeing-intelligence = { workspace = true }
 hiding-intelligence = { workspace = true }
-crozon-character-items = { workspace = true }
-crozon-character-ragdoll = { workspace = true }
-crozon-characters = { workspace = true }
+character-items = { workspace = true }
+character-ragdoll = { workspace = true }
+characters = { workspace = true }
 firearm-intelligence = { workspace = true }
 firearm-user = { workspace = true }
 firearms = { workspace = true }
@@ -42,9 +42,9 @@ meandering-intelligence = { workspace = true }
 tether-intelligence = { workspace = true }
 player = { workspace = true }
 player-camera = { workspace = true }
-richmond-building-components = { workspace = true }
-richmond-building-physics = { workspace = true }
-richmond-buildings = { workspace = true }
+building-components = { workspace = true }
+building-physics = { workspace = true }
+buildings = { workspace = true }
 spotting-intelligence = { workspace = true }
 spotting-intelligence-avian = { workspace = true }
 threat-intelligence = { workspace = true }

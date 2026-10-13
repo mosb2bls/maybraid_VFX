@@ -1,14 +1,15 @@
 use bevy::prelude::*;
 use movement_intelligence::{
 	MovementIntelligence, MovementIntelligenceSystems, MovementLocation, MovementObjective,
-	ReplanMovement,
+	ReplanMovement, ReplanThreshold,
 };
 use routing_intelligence::{RoutingIntelligenceUser, RoutingSystems};
 
 use crate::memory::TetherMemory;
 use crate::user::{Tether, TetherAction, TetherIntelligenceUser};
 
-const REFRESH_DISTANCE: f32 = 1.2;
+const REPLAN_THRESHOLD: ReplanThreshold =
+	ReplanThreshold { refresh_distance: 1.2, check_radius: true, check_vantage_weights: false };
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TetherSystems {
@@ -70,13 +71,17 @@ fn apply_action(
 	match action {
 		TetherAction::None => {}
 		TetherAction::Hold => {
-			hold_in_place(entity, at, movement, routing.as_deref_mut(), commands);
+			if let Some(routing) = routing.as_deref_mut() {
+				routing.clear_destination();
+			}
+			movement.hold_at(at);
+			commands.entity(entity).remove::<ReplanMovement>();
 		}
 		TetherAction::Local(next) => {
 			if let Some(routing) = routing.as_deref_mut() {
 				routing.clear_destination();
 			}
-			if should_replan(movement.objective, next) {
+			if movement.objective.needs_replan(next, REPLAN_THRESHOLD) {
 				movement.objective = next;
 				commands.entity(entity).insert(ReplanMovement);
 			}
@@ -89,38 +94,11 @@ fn apply_action(
 					point,
 					movement.ability.agent_radius,
 				));
-				if should_replan(movement.objective, next) {
+				if movement.objective.needs_replan(next, REPLAN_THRESHOLD) {
 					movement.objective = next;
 					commands.entity(entity).insert(ReplanMovement);
 				}
 			}
 		}
 	}
-}
-
-fn hold_in_place(
-	entity: Entity,
-	at: Vec3,
-	movement: &mut MovementIntelligence,
-	routing: Option<&mut RoutingIntelligenceUser>,
-	commands: &mut Commands,
-) {
-	if let Some(routing) = routing {
-		routing.clear_destination();
-	}
-	movement.objective =
-		MovementObjective::Reach(MovementLocation::new(at, movement.ability.agent_radius));
-	movement.adopt_plan(Vec::new());
-	commands.entity(entity).remove::<ReplanMovement>();
-}
-
-fn should_replan(current: MovementObjective, next: MovementObjective) -> bool {
-	if std::mem::discriminant(&current) != std::mem::discriminant(&next) {
-		return true;
-	}
-	let a = current.location().point;
-	let b = next.location().point;
-	Vec2::new(a.x, a.z).distance(Vec2::new(b.x, b.z)) >= REFRESH_DISTANCE
-		|| (a.y - b.y).abs() >= REFRESH_DISTANCE
-		|| (current.location().radius - next.location().radius).abs() > 0.05
 }

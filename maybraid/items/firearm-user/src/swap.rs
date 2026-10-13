@@ -145,7 +145,7 @@ mod tests {
 		assert!(!WeaponSwap {
 			elapsed: WEAPON_SWAP_SECS,
 			duration: WEAPON_SWAP_SECS,
-			swapped: false,
+			swapped: false
 		}
 		.finished());
 	}

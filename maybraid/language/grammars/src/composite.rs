@@ -1,9 +1,9 @@
 //! Compose independent grammatical strategies into one [`Grammar`].
 
 use maybraid_language_core::{
-	Clause, ClauseId, Grammar, GrammarInput, GrammaticalRelation, ModifierPlacement, ParticleDomain,
-	Polarity, Referent, ReferentId, RelativePlacement, SemanticNode, SemanticRole, SemanticValue,
-	SurfaceClause, SurfaceConstituent, SurfaceForm,
+	Clause, ClauseId, Grammar, GrammarInput, GrammaticalRelation, ModifierPlacement,
+	ParticleDomain, Polarity, Referent, ReferentId, RelativePlacement, SemanticNode, SemanticRole,
+	SemanticValue, SurfaceClause, SurfaceConstituent, SurfaceForm,
 };
 
 use crate::agreement::{AgreementFeatures, AgreementStrategy};

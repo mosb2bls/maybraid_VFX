@@ -53,7 +53,7 @@ fn update_debug_overlay(
 	};
 	let mut out = String::new();
 	out.push_str(&format!(
-		"enabled={} nav={:?} move=({:.2},{:.2}) dpad=({:.2},{:.2}) A={} B={} Start={}\n",
+		"enabled={} nav={:?} move=({:.2},{:.2}) dpad=({:.2},{:.2}) A={} B={} Start={} Select={}\n",
 		enabled.is_enabled(),
 		nav.events,
 		pad.move_stick.x,
@@ -63,6 +63,7 @@ fn update_debug_overlay(
 		pad.pressed(crate::PadButton::A),
 		pad.pressed(crate::PadButton::B),
 		pad.pressed(crate::PadButton::Start),
+		pad.pressed(crate::PadButton::Select),
 	));
 	if gamepads.is_empty() {
 		out.push_str("no Gamepad components\n");

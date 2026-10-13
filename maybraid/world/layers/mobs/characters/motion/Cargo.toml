@@ -1,0 +1,25 @@
+[package]
+name = "character-motion"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+character-rigs = { workspace = true }
+ground = { workspace = true }
+intelligence-lod = { workspace = true }
+lod = { workspace = true }
+character-animations = { workspace = true }
+rigs = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+
+[lints]
+workspace = true

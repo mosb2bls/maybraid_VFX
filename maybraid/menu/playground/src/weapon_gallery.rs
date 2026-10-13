@@ -5,17 +5,15 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use camera_controls::look::CameraLookEnabled;
-use crozon_character_items::{FirearmSpec, ItemRng};
-use crozon_character_playground::CameraController;
-use crozon_characters::species::braidman::BraidmanConfig;
-use crozon_characters::{
-	character_bounds, CharacterMotionSystems, CharacterRecipe, ComponentsOnly,
-};
+use character_items::{FirearmSpec, ItemRng};
+use characters::species::braidman::BraidmanConfig;
+use characters::{character_bounds, CharacterMotionSystems, CharacterRecipe, ComponentsOnly};
+use characters_playground::CameraController;
 use firearm_user::{
 	pose_held_firearm, stamp_holding_arms, sync_hands_to_firearm, FirearmUser, HeldFirearm,
 };
-use lod::gen::LodScene;
 use lod::lod_ref::LodRef;
+use lod::scene::LodScene;
 use maybraid_menu_controller::MenuController;
 use menu_components::{screen_back_scene, BrandModeLine};
 use menu_screens::{add_menu_input, take_menu_show_request, MenuScreen};

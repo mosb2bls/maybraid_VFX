@@ -2,7 +2,7 @@
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
-use crozon_character_items::{SkillMapKind, SkillMapSpec};
+use character_items::{SkillMapKind, SkillMapSpec};
 
 /// User-facing map id. Live play presents one equipped spec at layer `0`.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -18,6 +18,9 @@ pub enum SkillKind {
 }
 
 impl SkillKind {
+	/// Stable order for catalog tables and parallel asset setup.
+	pub const ALL: [Self; 4] = [Self::Fireball, Self::Dumbwave, Self::Rockadder, Self::Cosimo];
+
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Fireball => "Fireball",
@@ -51,6 +54,15 @@ impl SkillKind {
 			Self::Dumbwave => Color::srgb(0.04, 0.07, 0.10),
 			Self::Rockadder => Color::srgb(0.10, 0.07, 0.05),
 			Self::Cosimo => Color::srgb(0.06, 0.03, 0.10),
+		}
+	}
+
+	fn catalog_seed(self) -> u32 {
+		match self {
+			Self::Fireball => 0,
+			Self::Dumbwave => 7,
+			Self::Rockadder => 13,
+			Self::Cosimo => 19,
 		}
 	}
 }
@@ -92,12 +104,7 @@ pub fn authored_map_from_spec(spec: SkillMapSpec) -> AuthoredMap {
 
 /// Catalog of kinds. Live play presents one equipped spec, not this list.
 pub fn authored_maps() -> [AuthoredMap; 4] {
-	[
-		authored_map(SkillKind::Fireball, 0),
-		authored_map(SkillKind::Dumbwave, 7),
-		authored_map(SkillKind::Rockadder, 13),
-		authored_map(SkillKind::Cosimo, 19),
-	]
+	SkillKind::ALL.map(|kind| authored_map(kind, kind.catalog_seed()))
 }
 
 #[derive(Clone, Copy, Debug)]

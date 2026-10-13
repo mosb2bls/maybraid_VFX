@@ -183,7 +183,10 @@ fn json_schema_is_an_object_constraint() {
 	let schema = GeneratedUtterance::json_schema();
 	assert_eq!(schema["type"], "object");
 	assert_eq!(schema["required"][0], "referents");
-	assert_eq!(schema["properties"]["referents"]["maxItems"].as_u64(), Some(u64::from(MAX_REFERENTS)));
+	assert_eq!(
+		schema["properties"]["referents"]["maxItems"].as_u64(),
+		Some(u64::from(MAX_REFERENTS))
+	);
 	assert_eq!(schema["properties"]["clauses"]["maxItems"].as_u64(), Some(u64::from(MAX_CLAUSES)));
 	assert_eq!(schema["properties"]["roots"]["maxItems"].as_u64(), Some(u64::from(MAX_ROOTS)));
 	let argument = &schema["properties"]["clauses"]["items"]["properties"]["arguments"]["items"];
@@ -248,9 +251,10 @@ fn copular_clause_does_not_gain_a_default_agent() -> anyhow::Result<()> {
 	};
 	let utterance = generated.into_overlay_utterance()?;
 	let clause = utterance.clauses.values().next().context("clause")?;
-	assert!(!clause.arguments.iter().any(|argument| {
-		argument.role == maybraid_language_core::SemanticRole::Agent
-	}));
+	assert!(!clause
+		.arguments
+		.iter()
+		.any(|argument| { argument.role == maybraid_language_core::SemanticRole::Agent }));
 	assert_eq!(clause.arguments.len(), 2);
 	Ok(())
 }

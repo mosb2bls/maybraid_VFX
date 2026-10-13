@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
-use crozon_characters::BoneMap;
+use characters::BoneMap;
 use firearms::{FirearmMembers, FirearmRoot};
 use player::{PlayerCameraAim, PlayerCameraPose, PlayerLook};
 

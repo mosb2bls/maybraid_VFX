@@ -1,13 +1,13 @@
 //! Live character session: Users plus save/load for the gallery editor.
 
 use bevy::prelude::*;
-use crozon_character_items::Inventory;
-use crozon_character_model_user::{
+use character_creation_menus::{CharacterMenu, MenuEvent};
+use character_inventory_user::{spawn_bag, InventoryUser, InventoryUserPlugin};
+use character_items::Inventory;
+use character_model_user::{
 	spawn_model, CharacterModel, CharacterModelUser, CharacterModelUserPlugin,
 };
-use crozon_character_persist::{CharacterId, PersistError, SaveRoot};
-use crozon_character_ui_menus::{CharacterMenu, MenuEvent};
-use crozon_inventory_user::{spawn_bag, InventoryUser, InventoryUserPlugin};
+use character_persist::{CharacterId, PersistError, SaveRoot};
 use menu_components::info::description::{set_description_for_menu, TextMenuDescription};
 use menu_components::{MenuActivate, MenuObjectiveMarker, ScreenEditPressed};
 use menu_screens::{
@@ -112,7 +112,7 @@ fn spawn_session(
 	sessions: &SessionQuery,
 	id: CharacterId,
 	name: String,
-	appearance: crozon_characters::CharacterAppearance,
+	appearance: characters::CharacterAppearance,
 	inventory: Inventory,
 ) {
 	despawn_sessions(commands, sessions);
@@ -130,8 +130,8 @@ pub fn save_editing_character(
 ) -> Result<(), PersistError> {
 	let inventory = menu.inventory.clone().unwrap_or_default();
 	let model = CharacterModel::new(id, menu.saved_name(), menu.appearance());
-	crozon_character_model_user::save(root, &model)?;
-	crozon_inventory_user::save(root, id, &inventory)?;
+	character_model_user::save(root, &model)?;
+	character_inventory_user::save(root, id, &inventory)?;
 	Ok(())
 }
 
@@ -147,13 +147,13 @@ pub fn leave_character_editor(commands: &mut Commands, return_to: Option<Charact
 
 pub fn set_active_character(commands: &mut Commands, root: &SaveRoot, id: CharacterId) {
 	commands.insert_resource(ActiveCharacter { id });
-	if let Err(error) = crozon_character_persist::save_active(root, id) {
+	if let Err(error) = character_persist::save_active(root, id) {
 		warn!("failed to save active character {}: {error}", id.to_hex());
 	}
 }
 
 fn load_active_character(mut commands: Commands, save_root: Res<SaveRoot>) {
-	if let Some(id) = crozon_character_persist::load_active(&save_root) {
+	if let Some(id) = character_persist::load_active(&save_root) {
 		if save_root.character_path(id).is_file() {
 			commands.insert_resource(ActiveCharacter { id });
 			return;
@@ -186,9 +186,7 @@ fn sync_gallery_active_caption(
 	}
 	*last = Some((root, id));
 	let caption = id
-		.and_then(|id| {
-			crozon_character_model_user::load(&save_root, id).ok().map(|model| model.name)
-		})
+		.and_then(|id| character_model_user::load(&save_root, id).ok().map(|model| model.name))
 		.unwrap_or_default();
 	set_description_for_menu(root, caption, &children, &mut lines);
 }
@@ -244,7 +242,7 @@ fn open_gallery_choice(
 				edits.write(ScreenEditPressed);
 				return;
 			}
-			if let Err(error) = crozon_character_model_user::load(&save_root, id) {
+			if let Err(error) = character_model_user::load(&save_root, id) {
 				warn!("failed to load character {}: {error}", id.to_hex());
 				return;
 			}
@@ -309,7 +307,7 @@ fn open_saved_editor(
 	inventory: Option<Inventory>,
 	return_to: CharacterEditorReturn,
 ) {
-	let model = match crozon_character_model_user::load(save_root, id) {
+	let model = match character_model_user::load(save_root, id) {
 		Ok(model) => model,
 		Err(error) => {
 			warn!("failed to load character {}: {error}", id.to_hex());
@@ -318,7 +316,7 @@ fn open_saved_editor(
 	};
 	let inventory = match inventory {
 		Some(inventory) => inventory,
-		None => match crozon_inventory_user::load(save_root, id) {
+		None => match character_inventory_user::load(save_root, id) {
 			Ok(inventory) => inventory,
 			Err(error) => {
 				warn!("failed to load inventory {}: {error}", id.to_hex());
@@ -358,7 +356,7 @@ fn open_create_character_hud(
 		&sessions,
 		ready.id,
 		String::from("Unnamed"),
-		crozon_characters::CharacterAppearance::default(),
+		characters::CharacterAppearance::default(),
 		inventory,
 	);
 	*menu_state = CharacterMenuState::for_create(ready.items.clone());
@@ -407,8 +405,8 @@ mod tests {
 	use super::{gallery_select_opens_edit, save_editing_character, CharacterSessionPlugin};
 	use crate::character::CharacterMenuState;
 	use bevy::prelude::*;
-	use crozon_character_items::ItemRng;
-	use crozon_character_persist::{CharacterId, SaveRoot};
+	use character_items::ItemRng;
+	use character_persist::{CharacterId, SaveRoot};
 
 	fn scratch_root() -> SaveRoot {
 		let dir =
@@ -435,9 +433,9 @@ mod tests {
 			let menu = CharacterMenuState::for_create(items);
 			let id = CharacterId::new();
 			save_editing_character(&root, id, &menu.0)?;
-			let model = crozon_character_model_user::load(&root, id)?;
+			let model = character_model_user::load(&root, id)?;
 			assert_eq!(model.id, id);
-			crozon_inventory_user::load(&root, id)?;
+			character_inventory_user::load(&root, id)?;
 		}
 		std::fs::remove_dir_all(&root.path)?;
 		Ok(())

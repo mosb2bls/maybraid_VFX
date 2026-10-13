@@ -1,207 +1,84 @@
-use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 
-use avian3d::prelude::{Collider, LinearVelocity, SpatialQuery, SpatialQueryFilter};
+use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
 use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
 use intelligence_lod::{due_by_rank, IntelligenceBand, IntelligenceLod, IntelligencePriority};
 use lod_avian::PhysicsInteractionLayer;
-use spotting_intelligence::{
-	allocate_sample_budget, apply_candidate_budget, rank_candidates, SpotCandidate,
-	SpotContactView, SpotDirective, SpotSubject, SpottedContact, SpottingObserveLimits,
-	SpottingUser,
-};
+use spotting_intelligence::{SpotCandidate, SpotSubject, SpottingObserveLimits, SpottingUser};
 
-use crate::clear_segment;
+use crate::candidate::ProbeCandidate;
+use crate::discover::{discover_subjects, merge_due_contacts, next_discovery_interval};
+use crate::probe::probe_candidate_visibility;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct ProbeCandidate {
-	rank: SpotCandidate,
-	respot_interval_secs: f32,
-}
-
-impl ProbeCandidate {
-	fn new(
-		subject: Entity,
-		directive: SpotDirective,
-		salience: f32,
-		distance: f32,
-		known: bool,
-		available_samples: usize,
-	) -> Self {
-		Self {
-			rank: SpotCandidate {
-				subject,
-				directive_priority: directive.priority,
-				salience: if salience.is_finite() { salience } else { 0.0 },
-				distance,
-				known,
-				max_samples: directive.max_samples_per_subject.min(available_samples),
-			},
-			respot_interval_secs: directive.respot_interval_secs.max(0.0),
-		}
-	}
-
-	fn merge(&mut self, other: Self) {
-		if other.rank.directive_priority > self.rank.directive_priority {
-			*self = other;
-			return;
-		}
-		if other.rank.directive_priority == self.rank.directive_priority {
-			self.rank.max_samples = self.rank.max_samples.max(other.rank.max_samples);
-			self.respot_interval_secs = self.respot_interval_secs.min(other.respot_interval_secs);
-		}
-		self.rank.known |= other.rank.known;
-	}
-}
-
-fn merge_candidate(candidates: &mut BTreeMap<Entity, ProbeCandidate>, candidate: ProbeCandidate) {
-	match candidates.entry(candidate.rank.subject) {
-		Entry::Vacant(entry) => {
-			entry.insert(candidate);
-		}
-		Entry::Occupied(mut entry) => entry.get_mut().merge(candidate),
-	}
-}
-
-fn directive_satisfied(
-	directive: SpotDirective,
+fn forget_invalid_contacts(
 	now: f32,
-	observer: Vec3,
-	user: &SpottingUser,
-	subjects: &Query<(Entity, &SpotSubject, Option<&LinearVelocity>)>,
-	transforms: &TransformHelper,
-) -> bool {
-	directive.is_satisfied(
-		now,
-		user.contacts.values().filter_map(|contact| {
-			let Ok((_, subject, _)) = subjects.get(contact.subject) else {
-				return None;
-			};
-			let Ok(transform) = transforms.compute_global_transform(contact.subject) else {
-				return None;
-			};
-			Some(SpotContactView {
-				contact,
-				layers: subject.layers,
-				distance: transform.translation().distance(observer),
-			})
-		}),
-	)
-}
-
-fn next_discovery_interval(user: &SpottingUser) -> f32 {
-	user.directives
-		.iter()
-		.map(|directive| directive.discovery_interval_secs.max(0.0))
-		.reduce(f32::min)
-		.unwrap_or(0.25)
-}
-
-fn discover_subjects(
-	spotter_entity: Entity,
-	user: &SpottingUser,
-	now: f32,
-	observer: Vec3,
-	spatial: &SpatialQuery,
-	animated_filter: &SpatialQueryFilter,
-	subjects: &Query<(Entity, &SpotSubject, Option<&LinearVelocity>)>,
-	parents: &Query<&ChildOf>,
-	transforms: &TransformHelper,
-	candidates: &mut BTreeMap<Entity, ProbeCandidate>,
+	spotters: &mut Query<(Entity, &mut SpottingUser, Option<&mut IntelligenceLod>)>,
+	subjects: &Query<(Entity, &SpotSubject, Option<&avian3d::prelude::LinearVelocity>)>,
 ) {
-	for &directive in &user.directives {
-		if directive.desired_count == 0
-			|| directive_satisfied(directive, now, observer, user, subjects, transforms)
-		{
-			continue;
-		}
-		let range = directive.range.max(0.0);
-		if range == 0.0 || !range.is_finite() {
-			continue;
-		}
-		let sphere = Collider::sphere(range);
-		for entity in
-			spatial.shape_intersections(&sphere, observer, Quat::IDENTITY, animated_filter)
-		{
-			if entity == spotter_entity {
-				continue;
-			}
-			let mut subject_entity = entity;
-			let Some((subject_entity, subject, _)) = (loop {
-				if let Ok(subject) = subjects.get(subject_entity) {
-					break Some(subject);
-				}
-				let Ok(parent) = parents.get(subject_entity) else {
-					break None;
-				};
-				subject_entity = parent.parent();
-			}) else {
-				continue;
-			};
-			if subject_entity == spotter_entity {
-				continue;
-			}
-			let Ok(transform) = transforms.compute_global_transform(subject_entity) else {
-				continue;
-			};
-			let distance = transform.translation().distance(observer);
-			if !directive.matches(subject.layers, distance) {
-				continue;
-			}
-			let known = user.contacts.get(&subject_entity);
-			if known.is_some_and(|contact| {
-				contact.is_fresh(now, directive.freshness_secs) && !contact.is_due(now)
-			}) {
-				continue;
-			}
-			merge_candidate(
-				candidates,
-				ProbeCandidate::new(
-					subject_entity,
-					directive,
-					subject.salience,
-					distance,
-					known.is_some(),
-					subject.bounds.sample_count(),
-				),
-			);
-		}
+	for (_, mut user, _) in spotters.iter_mut() {
+		user.forget_stale(now);
+		user.contacts.retain(|entity, _| subjects.get(*entity).is_ok());
 	}
+}
 
-	for (&subject_entity, hint) in &user.hints {
-		if subject_entity == spotter_entity {
-			continue;
-		}
-		let Ok((entity, subject, _)) = subjects.get(subject_entity) else {
-			continue;
-		};
-		let Ok(transform) = transforms.compute_global_transform(entity) else {
-			continue;
-		};
-		let distance = transform.translation().distance(observer);
-		let known = user.contacts.get(&subject_entity);
-		for &directive in &user.directives {
-			if directive.desired_count == 0 || !directive.matches(subject.layers, distance) {
-				continue;
-			}
-			if known.is_some_and(|contact| {
-				contact.is_fresh(now, directive.freshness_secs) && !contact.is_due(now)
-			}) {
-				continue;
-			}
-			let mut candidate = ProbeCandidate::new(
-				subject_entity,
-				directive,
-				subject.salience,
-				distance,
-				known.is_some(),
-				subject.bounds.sample_count(),
-			);
-			candidate.rank.directive_priority =
-				candidate.rank.directive_priority.saturating_add(hint.priority());
-			merge_candidate(candidates, candidate);
-		}
+fn due_spotters(
+	now: f32,
+	spotters: &mut Query<(Entity, &mut SpottingUser, Option<&mut IntelligenceLod>)>,
+) -> Vec<Entity> {
+	spotters
+		.iter_mut()
+		.filter_map(|(entity, user, _)| {
+			let due = now >= user.next_discovery_at
+				|| user.contacts.values().any(|contact| contact.is_due(now));
+			due.then_some(entity)
+		})
+		.collect()
+}
+
+fn fair_far_spotter(
+	due: &[Entity],
+	spotters: &mut Query<(Entity, &mut SpottingUser, Option<&mut IntelligenceLod>)>,
+) -> Option<Entity> {
+	due.iter().copied().find(|entity| {
+		spotters.get_mut(*entity).is_ok_and(|(_, _, lod)| {
+			lod.as_deref().is_some_and(|lod| {
+				lod.band != IntelligenceBand::Near && lod.skips >= IntelligenceLod::FAIRNESS_CAP
+			})
+		})
+	})
+}
+
+fn schedule_discovery(
+	now: f32,
+	user: &mut SpottingUser,
+	band: IntelligenceBand,
+	spotter_entity: Entity,
+	fair: Option<Entity>,
+) -> (bool, f32, usize) {
+	let discovery_due = now >= user.next_discovery_at;
+	let next_interval = next_discovery_interval(user);
+	let run_discovery =
+		discovery_due && (band != IntelligenceBand::Far || Some(spotter_entity) == fair);
+	let discovery_sample_cursor = if run_discovery { user.advance_sample_cursor() } else { 0 };
+	(run_discovery, next_interval, discovery_sample_cursor)
+}
+
+fn advance_discovery_clock(
+	now: f32,
+	user: &mut SpottingUser,
+	band: IntelligenceBand,
+	run_discovery: bool,
+	discovery_due: bool,
+	next_interval: f32,
+) {
+	if run_discovery {
+		// Fair Far uses the raw interval so the reserve is not immediately
+		// stretched away; Mid / Near still use `interval_scale`.
+		let scale = if band == IntelligenceBand::Far { 1.0 } else { band.interval_scale() };
+		user.next_discovery_at = now + next_interval * scale;
+	} else if discovery_due {
+		user.next_discovery_at = now + next_interval * IntelligenceBand::Far.interval_scale();
 	}
 }
 
@@ -214,7 +91,7 @@ pub fn observe_spotting(
 	priority: Res<IntelligencePriority>,
 	limits: Res<SpottingObserveLimits>,
 	mut spotters: Query<(Entity, &mut SpottingUser, Option<&mut IntelligenceLod>)>,
-	subjects: Query<(Entity, &SpotSubject, Option<&LinearVelocity>)>,
+	subjects: Query<(Entity, &SpotSubject, Option<&avian3d::prelude::LinearVelocity>)>,
 	parents: Query<&ChildOf>,
 	transforms: TransformHelper,
 ) {
@@ -222,27 +99,11 @@ pub fn observe_spotting(
 	let animated_filter = SpatialQueryFilter::from_mask(PhysicsInteractionLayer::Animated);
 	let fixed_filter = SpatialQueryFilter::from_mask(PhysicsInteractionLayer::Fixed);
 
-	for (_, mut user, _) in &mut spotters {
-		user.forget_stale(now);
-		user.contacts.retain(|entity, _| subjects.get(*entity).is_ok());
-	}
+	forget_invalid_contacts(now, &mut spotters, &subjects);
 
-	let mut due: Vec<Entity> = spotters
-		.iter_mut()
-		.filter_map(|(entity, user, _)| {
-			let due = now >= user.next_discovery_at
-				|| user.contacts.values().any(|contact| contact.is_due(now));
-			due.then_some(entity)
-		})
-		.collect();
+	let mut due = due_spotters(now, &mut spotters);
 	due_by_rank(&mut due, &priority);
-	let fair = due.iter().copied().find(|entity| {
-		spotters.get_mut(*entity).is_ok_and(|(_, _, lod)| {
-			lod.as_deref().is_some_and(|lod| {
-				lod.band != IntelligenceBand::Near && lod.skips >= IntelligenceLod::FAIRNESS_CAP
-			})
-		})
-	});
+	let fair = fair_far_spotter(&due, &mut spotters);
 
 	let mut remaining = limits.max_observers_per_tick;
 	for spotter_entity in due {
@@ -259,11 +120,9 @@ pub fn observe_spotting(
 		let observer =
 			spotter_transform.translation() + spotter_transform.rotation() * user.eye_offset;
 		let discovery_due = now >= user.next_discovery_at;
-		let mut candidates = BTreeMap::new();
-		let next_interval = next_discovery_interval(&user);
-		let run_discovery =
-			discovery_due && (band != IntelligenceBand::Far || Some(spotter_entity) == fair);
-		let discovery_sample_cursor = if run_discovery { user.advance_sample_cursor() } else { 0 };
+		let (run_discovery, next_interval, discovery_sample_cursor) =
+			schedule_discovery(now, &mut user, band, spotter_entity, fair);
+		let mut candidates = BTreeMap::<Entity, ProbeCandidate>::new();
 
 		if run_discovery {
 			remaining -= 1;
@@ -279,122 +138,42 @@ pub fn observe_spotting(
 				&transforms,
 				&mut candidates,
 			);
-			// Fair Far uses the raw interval so the reserve is not immediately
-			// stretched away; Mid / Near still use `interval_scale`.
-			let scale = if band == IntelligenceBand::Far { 1.0 } else { band.interval_scale() };
-			user.next_discovery_at = now + next_interval * scale;
-		} else if discovery_due {
-			user.next_discovery_at = now + next_interval * IntelligenceBand::Far.interval_scale();
 		}
+		advance_discovery_clock(now, &mut user, band, run_discovery, discovery_due, next_interval);
 
-		for contact in user.contacts.values().filter(|contact| contact.is_due(now)) {
-			let Ok((entity, subject, _)) = subjects.get(contact.subject) else {
-				continue;
-			};
-			let Ok(transform) = transforms.compute_global_transform(entity) else {
-				continue;
-			};
-			let distance = transform.translation().distance(observer);
-			for &directive in &user.directives {
-				if !directive.matches(subject.layers, distance) {
-					continue;
-				}
-				merge_candidate(
-					&mut candidates,
-					ProbeCandidate::new(
-						entity,
-						directive,
-						subject.salience,
-						distance,
-						true,
-						subject.bounds.sample_count(),
-					),
-				);
-			}
-		}
+		merge_due_contacts(&user, now, observer, &subjects, &transforms, &mut candidates);
 
 		let mut ranked: Vec<SpotCandidate> =
 			candidates.values().map(|candidate| candidate.rank).collect();
-		rank_candidates(&mut ranked);
+		SpotCandidate::rank(&mut ranked);
 		let candidate_budget = band.scale_count(user.settings.candidate_budget);
 		let vision_samples = band.scale_count(user.settings.vision_samples);
-		apply_candidate_budget(&mut ranked, candidate_budget);
-		let grants = allocate_sample_budget(&ranked, candidate_budget, vision_samples);
+		SpotCandidate::apply_budget(&mut ranked, candidate_budget);
+		let grants =
+			SpotCandidate::allocate_sample_budget(&ranked, candidate_budget, vision_samples);
 
-		for (candidate, sample_budget) in ranked.into_iter().zip(grants) {
-			if sample_budget == 0 {
-				continue;
-			}
-			let Some(policy) = candidates.get(&candidate.subject) else {
-				continue;
-			};
-			let Ok((entity, subject, velocity)) = subjects.get(candidate.subject) else {
-				continue;
-			};
-			let Ok(transform) = transforms.compute_global_transform(entity) else {
-				continue;
-			};
-			let samples = subject.bounds.samples(observer, transform.translation());
-			if samples.is_empty() {
-				continue;
-			}
-			let sample_count =
-				sample_budget.min(subject.bounds.sample_count()).min(candidate.max_samples);
-			let sample_offset = user.contacts.get(&entity).map_or_else(
-				|| discovery_sample_cursor.wrapping_add(entity.to_bits() as usize) % samples.len(),
-				|contact| {
-					usize::try_from(contact.consecutive_failures).unwrap_or(usize::MAX)
-						% samples.len()
-				},
-			);
-			let mut visible_point = None;
-			let mut visible_head = None;
-			for index in 0..sample_count {
-				let sample = samples[(sample_offset + index) % samples.len()];
-				if !clear_segment(observer, sample.point, &spatial, &fixed_filter) {
-					continue;
-				}
-				if sample.feature.is_head() {
-					visible_head = visible_head.or(Some(sample.point));
-				} else {
-					visible_point = visible_point.or(Some(sample.point));
-				}
-			}
-			let visible_point = visible_point.or(visible_head);
-			if let Some(visible_point) = visible_point {
-				let velocity = velocity.map_or(Vec3::ZERO, |velocity| velocity.0);
-				match user.contacts.entry(entity) {
-					Entry::Vacant(entry) => {
-						entry.insert(SpottedContact::new(
-							entity,
-							transform.translation(),
-							velocity,
-							visible_point,
-							visible_head,
-							now,
-							policy.respot_interval_secs,
-						));
-					}
-					Entry::Occupied(mut entry) => entry.get_mut().note_success(
-						transform.translation(),
-						velocity,
-						visible_point,
-						visible_head,
-						now,
-						policy.respot_interval_secs,
-					),
-				}
-			} else if let Some(contact) = user.contacts.get_mut(&entity) {
-				contact.note_failure(now, policy.respot_interval_secs);
-			}
-		}
+		probe_candidate_visibility(
+			&mut user,
+			now,
+			observer,
+			discovery_sample_cursor,
+			&candidates,
+			ranked,
+			grants,
+			&spatial,
+			&fixed_filter,
+			&subjects,
+			&transforms,
+		);
 
 		// Reset only when discovery ran. A Far skip still stretches
 		// `next_discovery_at` and still merges due contacts, but must not wipe
 		// bake increments or `FAIRNESS_CAP` never fires in a Far-only due set.
 		if run_discovery {
 			if let Some(lod) = lod.as_deref_mut() {
-				lod.skips = 0;
+				if lod.skips != 0 {
+					lod.skips = 0;
+				}
 			}
 		}
 	}
@@ -403,11 +182,12 @@ pub fn observe_spotting(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::candidate::ProbeCandidate;
 	use avian3d::prelude::{Collider, PhysicsPlugins, RigidBody};
 	use intelligence_lod::{IntelligenceBand, IntelligenceLod, IntelligencePriority};
 	use spotting_intelligence::{
-		InterestLayers, SpotBounds, SpotDirective, SpottingHint, SpottingObserveLimits,
-		SpottingSettings,
+		InterestLayers, SpotBounds, SpotDirective, SpottedContact, SpottingHint,
+		SpottingObserveLimits, SpottingSettings,
 	};
 
 	fn observe_app() -> App {

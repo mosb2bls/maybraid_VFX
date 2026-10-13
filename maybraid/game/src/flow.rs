@@ -30,14 +30,12 @@ pub enum PlaySession {
 	#[default]
 	None,
 	Discovery,
-	Training,
 }
 
 impl PlaySession {
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Discovery | Self::None => "Discovery",
-			Self::Training => "Training Ground",
 		}
 	}
 }
@@ -46,8 +44,6 @@ impl PlaySession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomeRoute {
 	World { session: PlaySession },
-	/// Pick who plays the Training rounds before loading.
-	TrainingSetup,
 	Characters,
 	Settings,
 	Unimplemented,
@@ -57,7 +53,7 @@ impl HomeRoute {
 	pub fn from_choice(choice: HomeMenuChoice) -> Self {
 		match choice {
 			HomeMenuChoice::Discovery => Self::World { session: PlaySession::Discovery },
-			HomeMenuChoice::TrainingGround => Self::TrainingSetup,
+			HomeMenuChoice::TrainingGround => Self::Unimplemented,
 			HomeMenuChoice::Characters => Self::Characters,
 			HomeMenuChoice::Settings => Self::Settings,
 			HomeMenuChoice::Reliquary => match reliquary::route() {
@@ -82,11 +78,7 @@ impl PauseMenuRoute {
 			InGameMenuChoice::Leave => Self::Leave,
 			InGameMenuChoice::Settings => Self::Settings,
 			InGameMenuChoice::Character => Self::Character,
-			// The pause screen flips the next round's mode and the markers itself.
-			InGameMenuChoice::NextRound
-			| InGameMenuChoice::EnemyMarkers
-			| InGameMenuChoice::Records
-			| InGameMenuChoice::Help => Self::Stay,
+			InGameMenuChoice::Records | InGameMenuChoice::Help => Self::Stay,
 		}
 	}
 }
@@ -114,12 +106,11 @@ mod tests {
 	}
 
 	#[test]
-	fn training_picks_a_character_mode_first() {
+	fn training_ground_is_unimplemented() {
 		assert_eq!(
 			HomeRoute::from_choice(HomeMenuChoice::TrainingGround),
-			HomeRoute::TrainingSetup
+			HomeRoute::Unimplemented
 		);
-		assert_eq!(PauseMenuRoute::from_choice(InGameMenuChoice::NextRound), PauseMenuRoute::Stay);
 	}
 
 	#[test]

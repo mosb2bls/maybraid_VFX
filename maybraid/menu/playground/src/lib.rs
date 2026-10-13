@@ -25,9 +25,9 @@ pub use weapon_gallery::{request_show_weapons, WeaponGalleryPlugin, WeaponGaller
 
 use bevy::prelude::*;
 use camera_controls::look::{CameraLookConfig, CameraLookPlugin};
-use crozon_character_playground::camera;
-use crozon_character_ui_menus::MenuEvent;
-use crozon_characters::CharacterHostsPlugin;
+use character_creation_menus::MenuEvent;
+use characters::CharacterHostsPlugin;
+use characters_playground::camera;
 use game_commands::command::{CommandConsoleOutput, GameCommandPlugin};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::LodViewer;

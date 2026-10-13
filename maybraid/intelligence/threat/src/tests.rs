@@ -493,6 +493,39 @@ fn forget_does_not_run_every_frame_on_unscanned_far() -> anyhow::Result<()> {
 }
 
 #[test]
+fn settled_discover_leaves_knowledge_unchanged() -> anyhow::Result<()> {
+	let mut app = discover_app();
+	let observer = spawn_observer(
+		&mut app,
+		ThreatId(1),
+		ThreatIntelligenceUser::default(),
+		IntelligenceLod::missing(),
+	);
+	app.update();
+	if let Some(mut user) = app.world_mut().get_mut::<ThreatIntelligenceUser>(observer) {
+		user.next_forget_at = 100.0;
+		user.next_scan_at = 100.0;
+	}
+	let before = app
+		.world()
+		.entity(observer)
+		.get_change_ticks::<ThreatKnowledge>()
+		.ok_or_else(|| anyhow::anyhow!("missing knowledge"))?
+		.changed
+		.get();
+	app.update();
+	let after = app
+		.world()
+		.entity(observer)
+		.get_change_ticks::<ThreatKnowledge>()
+		.ok_or_else(|| anyhow::anyhow!("missing knowledge"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled discover rewrote knowledge: {before} -> {after}");
+	Ok(())
+}
+
+#[test]
 fn far_translation_under_quantum_does_not_reindex() -> anyhow::Result<()> {
 	let mut app = discover_app();
 	let subject = spawn_subject(
@@ -578,4 +611,50 @@ fn missing_lod_uses_near_move_quantum() -> anyhow::Result<()> {
 		.get_entity(subject)
 		.is_some_and(|record| record.position == Vec3::X * 2.0));
 	Ok(())
+}
+
+#[test]
+#[ignore]
+fn local_query_clone_timing() {
+	const SUBJECT_COUNT: usize = 128;
+	const SCANS: usize = 10_000;
+	const RADIUS: f32 = 80.0;
+
+	let mut registry = ThreatRegistry::default();
+	for index in 0..SUBJECT_COUNT {
+		let id = ThreatId(index as u64 + 1);
+		let angle = (index as f32 / SUBJECT_COUNT as f32) * core::f32::consts::TAU;
+		let position = Vec3::new(angle.cos() * 40.0, 0.0, angle.sin() * 40.0);
+		registry
+			.upsert(
+				Entity::from_bits(index as u64 + 1),
+				ThreatSubject::new(id),
+				&ffa_affiliations(id),
+				position,
+			)
+			.expect("upsert threat");
+	}
+
+	let clone_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		let records = registry.local(Vec3::ZERO, RADIUS);
+		std::hint::black_box(records);
+	}
+	let clone_elapsed = clone_start.elapsed();
+
+	let mut scratch = Vec::new();
+	let id_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		registry.collect_local(Vec3::ZERO, RADIUS, &mut scratch);
+		for id in &scratch {
+			std::hint::black_box(registry.get(*id));
+		}
+	}
+	let id_elapsed = id_start.elapsed();
+
+	eprintln!(
+		"local_query_clone_timing: {SUBJECT_COUNT} subjects × {SCANS} scans — clone local() {:?}, collect_local+get {:?}",
+		clone_elapsed,
+		id_elapsed,
+	);
 }

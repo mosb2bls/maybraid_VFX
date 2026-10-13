@@ -1,0 +1,33 @@
+[package]
+name = "furniture-playground"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[[bin]]
+name = "furniture-playground"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+bevy = { workspace = true }
+vegetation-shaders = { workspace = true }
+clap = { workspace = true }
+furniture-assemblies = { workspace = true }
+furniture-shaders = { workspace = true }
+game-commands = { workspace = true }
+material-ref = { workspace = true }
+lod = { workspace = true }
+lod-lazy-refs = { workspace = true }
+procedural-common = { workspace = true }
+building-components = { workspace = true }
+buildings = { workspace = true }
+scene-ref = { workspace = true }
+
+[lints]
+workspace = true

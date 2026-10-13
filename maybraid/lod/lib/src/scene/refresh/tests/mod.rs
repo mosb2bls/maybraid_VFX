@@ -12,11 +12,10 @@ use crate::scene::host::LodLevelSpawnRequest;
 use crate::scene::level::LodSceneLevel;
 use crate::scene::refresh::{
 	LodChunkFulfillBudget, LodCullProduceCache, LodCullProduceCadence, LodCullRegionCursor,
-	LodHostBounds, LodHostHasCullableRoots,
-	LodLevelRootPending, LodProduceCache, LodRefreshDomain, LodRefreshMembership, LodSceneCullAabb,
-	LodSceneCullProduceFillPlugin, LodSceneRefreshAabb, LodSceneRefreshChunkPlugin,
-	LodSceneRefreshLevel, LodSceneRefreshLevelsFillPlugin, LodSceneRefreshPlugin,
-	LodSceneRegionCullPlugin, LodViewer,
+	LodHostBounds, LodHostHasCullableRoots, LodLevelRootPending, LodProduceCache, LodRefreshDomain,
+	LodRefreshMembership, LodSceneCullAabb, LodSceneCullProduceFillPlugin, LodSceneRefreshAabb,
+	LodSceneRefreshChunkPlugin, LodSceneRefreshLevel, LodSceneRefreshLevelsFillPlugin,
+	LodSceneRefreshPlugin, LodSceneRegionCullPlugin, LodViewer,
 };
 
 use test_utils::{
@@ -376,8 +375,12 @@ fn cull_produce_lowers_stale_desired_and_enqueues_high() -> anyhow::Result<()> {
 fn cull_produce_lowers_and_walks_when_cullable_marker_is_absent() -> anyhow::Result<()> {
 	let mut app = app_cull_enqueue();
 	spawn_viewer(app.world_mut(), Vec3::new(100.0, 0.0, 0.0));
-	let (host, roots) =
-		spawn_host_with_roots(app.world_mut(), Vec3::ZERO, LodSceneLevel::High, &[LodSceneLevel::High]);
+	let (host, roots) = spawn_host_with_roots(
+		app.world_mut(),
+		Vec3::ZERO,
+		LodSceneLevel::High,
+		&[LodSceneLevel::High],
+	);
 	app.update();
 	assert!(
 		app.world().get::<LodHostHasCullableRoots>(host).is_none(),

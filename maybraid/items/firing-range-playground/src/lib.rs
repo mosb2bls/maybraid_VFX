@@ -23,11 +23,13 @@ pub use session::{FreeForAllBody, FreeForAllHost};
 use bevy::ecs::schedule::common_conditions::resource_exists;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
+use building_components::{apply_parent_confines, FurnitureWireframePlugin, LabelWireframePlugin};
+use building_physics::BuildingWalkColliderPlugin;
 use buildings_lod::FiringRangeBuildingsLodPlugin;
+use character_items::ItemRng;
+use character_ragdoll::{CharacterRagdollPlugin, CharacterRagdollSettings};
+use characters::CharacterHostsPlugin;
 use combat_hud::CombatHudPlugin;
-use crozon_character_items::ItemRng;
-use crozon_character_ragdoll::{CharacterRagdollPlugin, CharacterRagdollSettings};
-use crozon_characters::CharacterHostsPlugin;
 use diagnostics::FiringRangeDiagnosticsPlugin;
 use evasion_intelligence::{EvasionPlugin, EvasionSystems};
 use firearm_intelligence::{FirearmIntelligencePlugin, FirearmIntelligenceSystems};
@@ -53,10 +55,6 @@ use player::{
 	spawn_player_with_hidden_capsule, Npc, Player, PlayerLook, PlayerPlugin,
 };
 use player_camera::{spawn_follow_camera, PlayerCameraPlugin};
-use richmond_building_components::{
-	apply_parent_confines, FurnitureWireframePlugin, LabelWireframePlugin,
-};
-use richmond_building_physics::BuildingWalkColliderPlugin;
 use session::{AppliedSession, Civilian, LoadoutRng, RangeMode, RangeSession};
 use spotting_intelligence::SpottingSystems;
 use threat_intelligence::{ThreatIntelligencePlugin, ThreatSystems};
@@ -85,7 +83,14 @@ impl Plugin for FiringRangePlugin {
 			.add_plugins(PlayerPlugin)
 			.add_plugins(PlayerCameraPlugin)
 			.add_plugins(FirearmUserPlugin)
-			.add_plugins(CombatHudPlugin::default())
+			.add_plugins(CombatHudPlugin {
+				hit_markers: true,
+				directional_damage: true,
+				player_vitals: true,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
+				score: false,
+			})
 			.add_plugins(CharacterRagdollPlugin)
 			.add_plugins(FiringRangeDiagnosticsPlugin)
 			.add_plugins(FiringRangeBuildingsLodPlugin)
@@ -188,9 +193,6 @@ impl Plugin for FiringRangePlugin {
 					hit_debug::draw_dummy_hit_volumes,
 					apply_parent_confines.after(LodRefreshSystems::Cull),
 					ui::sync_command_status_text.before(game_commands::ui::update_debug_ui),
-					hud::sync_combat_hud_opponent_total
-						.before(combat_hud::CombatHudSystems::Health),
-					hud::sync_evasion_hud_status.before(combat_hud::CombatHudSystems::Health),
 					hud::sync_gun_stats,
 				),
 			)
@@ -209,7 +211,7 @@ impl Plugin for FiringRangePlugin {
 	}
 }
 
-/// Inserted by the game while Training Ground should be running free-for-all.
+/// Inserted by the host app while the free-for-all should be running.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct FreeForAllLive;
 

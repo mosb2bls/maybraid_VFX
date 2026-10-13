@@ -1,7 +1,7 @@
 //! Kinematic split so overlapping NPC capsules steer apart on XZ.
 
 use bevy::prelude::*;
-use crozon_characters::LocomotionCapsule;
+use characters::LocomotionCapsule;
 
 use crate::body::{CharacterController, MoveWish};
 use crate::identity::Npc;

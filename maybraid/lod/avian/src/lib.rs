@@ -5,8 +5,7 @@
 //! This crate still re-exports those plugins as [`AvianLodSceneRefreshPlugin`] /
 //! [`AvianLodSceneCullPlugin`] for the unused `avian_host!` wrappers.
 //!
-//! Generate and present id lookup stays on typed [`lod::gen::SpatialIndex`]
-//! resources.
+//! Generate and present id lookup stays on [`lod::hcsg::HcsgStorage`].
 
 mod layers;
 
@@ -20,7 +19,7 @@ use avian3d::prelude::{Collider, SpatialQuery, SpatialQueryFilter};
 use bevy::ecs::system::SystemParam;
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
-use lod::gen::SemanticLodScene;
+use lod::scene::SemanticLodScene;
 use lod::{LodSceneHost, LodSceneHostIndex, LodSceneRegionIndex};
 
 /// [`lod::LodSceneBoundsMarshaller`] for scene-host volumes ([`PhysicsInteractionLayer::Host`]).

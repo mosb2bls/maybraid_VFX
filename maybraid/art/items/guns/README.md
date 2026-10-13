@@ -82,7 +82,7 @@ Hand landmarks (`grip_point`, `trigger_point`) **are** that attachment pattern. 
 
 ## Lengthening a chain
 
-Non-uniform scale on an ancestor shears any rotated descendant ([character socket notes](../../../crozon/characters/CONTRIBUTING.md#socketing-scale-and-shear)). `body` still parents `barrel`, `grip`, and `grip_arm`, so **do not** `BoneScale::length` `body` to stretch the receiver if those children must stay unsheared.
+Non-uniform scale on an ancestor shears any rotated descendant ([character socket notes](../../../world/layers/mobs/characters/lib/CONTRIBUTING.md#socketing-scale-and-shear)). `body` still parents `barrel`, `grip`, and `grip_arm`, so **do not** `BoneScale::length` `body` to stretch the receiver if those children must stay unsheared.
 
 Lengthen a kit piece by scaling **that part's host**, or push child joints with [`BoneTranslation::length`](../../../rigs/src/pose.rs) and leave the parent bone unscaled.
 

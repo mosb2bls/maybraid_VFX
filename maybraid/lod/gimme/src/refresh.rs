@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use lod::gen::SemanticLodScene;
+use lod::scene::SemanticLodScene;
 use lod::{LodSceneRefreshPlugin, LodSceneRegionCullPlugin, LodViewer, PatchSceneBounds};
 
 use crate::{GimmeLodHostMarshaller, GimmeLodHostPlugin, GimmeLodSceneHostIndex};

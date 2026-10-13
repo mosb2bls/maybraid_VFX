@@ -16,11 +16,7 @@ impl InformationStrategy {
 		Self { topic_particle: None, focus_particle: None, front_topic: false }
 	}
 
-	pub fn apply(
-		self,
-		words: &mut Vec<SurfaceConstituent>,
-		information: &InformationStructure,
-	) {
+	pub fn apply(self, words: &mut Vec<SurfaceConstituent>, information: &InformationStructure) {
 		if let Some(topic) = information.topic {
 			let host = SemanticNode::Referent(topic);
 			if let Some(form) = self.topic_particle {

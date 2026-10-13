@@ -14,15 +14,17 @@ bevy = { workspace = true }
 camera-controls = { workspace = true }
 character-ui-menu = { workspace = true }
 clap = { workspace = true }
-crozon-character-playground = { workspace = true }
-crozon-character-items = { workspace = true }
-crozon-character-model-user = { workspace = true }
-crozon-character-persist = { workspace = true }
-crozon-character-ui-menus = { workspace = true }
-crozon-characters = { workspace = true }
-crozon-inventory-user = { workspace = true }
+characters-playground = { workspace = true }
+character-items = { workspace = true }
+character-model-user = { workspace = true }
+item-icons = { workspace = true }
+character-persist = { workspace = true }
+character-creation-menus = { workspace = true }
+characters = { workspace = true }
+character-inventory-user = { workspace = true }
 firearm-user = { workspace = true }
 firearms-components = { workspace = true }
+grenades = { workspace = true }
 game-commands = { workspace = true }
 lod = { workspace = true }
 maybraid-character-ui-menu-renderer = { workspace = true }
@@ -32,6 +34,9 @@ maybraid-menu-controller = { workspace = true }
 menu-components = { workspace = true }
 menu-screens = { workspace = true }
 player = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
 
 [lints]
 workspace = true

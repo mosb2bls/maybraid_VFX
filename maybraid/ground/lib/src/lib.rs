@@ -4,7 +4,7 @@
 //! this point?”, not “which hosts overlap this AABB?”. How colliders entered
 //! the world (authored terrain, generated meshes, props) is out of scope.
 //!
-//! Backends implement [`ElevationProbe`]. Character tilt (`crozon-character-motion`)
+//! Backends implement [`ElevationProbe`]. Character tilt (`character-motion`)
 //! is generic over that trait and must not import Durham or Avian types.
 
 pub mod probe;

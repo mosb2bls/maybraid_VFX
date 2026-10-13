@@ -2,8 +2,8 @@
 
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
-use crozon_character_model_user::{list_summaries, CharacterSummary};
-use crozon_character_persist::{load_active, CharacterId, SaveRoot};
+use character_model_user::{list_summaries, CharacterSummary};
+use character_persist::{load_active, CharacterId, SaveRoot};
 use maybraid_menu_controller::MenuController;
 use menu_components::info::description::TextMenuDescription;
 use menu_components::single_select::republish_menu_activate;
@@ -131,8 +131,8 @@ fn gallery_scene(
 #[cfg(test)]
 mod tests {
 	use super::{gallery_rows, gallery_selected_index, GalleryChoice};
-	use crozon_character_model_user::CharacterSummary;
-	use crozon_character_persist::CharacterId;
+	use character_model_user::CharacterSummary;
+	use character_persist::CharacterId;
 	use menu_components::MenuObjectiveKind;
 
 	#[test]

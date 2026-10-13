@@ -79,12 +79,17 @@ cargo build -p maybraid --release
 > 3. Open the Maybraid application from the Applications folder.
 >
 > **Windows**
-> 1. Drag the downloaded .exe file into the desired location.
-> 2. Open the Maybraid application from the desired location.
+> 1. Extract the downloaded zip. Keep `Maybraid.exe` next to the `assets/` folder.
+> 2. Install the [Visual C++ Redistributable 2015–2022 x64](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) if Windows reports a missing `VCRUNTIME140.dll`.
+> 3. Run `Maybraid.exe` from the extracted folder (any working directory is fine).
 >
 > **Linux**
-> 1. Drag the downloaded .AppImage file into the desired location.
-> 2. Open the Maybraid application from the desired location.
+> 1. Download `Maybraid-*-linux-x64.tar.xz` (not the `*-steam-linux-x64.tar.xz` archive) and extract it anywhere.
+> 2. Run `./maybraid` from the extracted folder. Keep it next to `assets/`.
+> 3. Requires glibc 2.31+ (Ubuntu 20.04, Debian 11, SteamOS 3, or newer), ALSA, udev, and a Vulkan driver. Saves go to `~/.local/share/maybraid/saves`.
+>
+> **Linux (Steam)**
+> The `*-steam-linux-x64.tar.xz` archive is for Steam depot staging only. Extracting it does not install Steam Linux Runtime 3.0. Steamworks must launch the game with **Steam Linux Runtime 3.0 (sniper)**.
 
 ### Expected FPS
 

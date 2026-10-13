@@ -1,0 +1,32 @@
+[package]
+name = "mob-scenes"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+character-items = { workspace = true }
+damage = { workspace = true }
+fleeing-intelligence = { workspace = true }
+journeying-intelligence = { workspace = true }
+maybraid-audio = { workspace = true }
+lod = { workspace = true }
+mob-characters = { workspace = true }
+mob-intelligence = { workspace = true }
+poi-intelligence = { workspace = true }
+routing-intelligence = { workspace = true }
+tether-intelligence = { workspace = true }
+threat-intelligence = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+npc-intelligence = { workspace = true }
+
+[lints]
+workspace = true

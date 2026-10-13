@@ -16,7 +16,12 @@ pub enum Marking {
 }
 
 impl Marking {
-	pub fn apply(self, words: &mut Vec<SurfaceConstituent>, domain: ParticleDomain, host: Option<SemanticNode>) {
+	pub fn apply(
+		self,
+		words: &mut Vec<SurfaceConstituent>,
+		domain: ParticleDomain,
+		host: Option<SemanticNode>,
+	) {
 		match self {
 			Self::Zero => {}
 			Self::Particle { form, before } => {
@@ -121,13 +126,25 @@ impl AdpositionStrategy {
 		match self {
 			Self::None => {}
 			Self::Preposition => {
-				Marking::Particle { form, before: true }.apply(words, ParticleDomain::Adposition, host);
+				Marking::Particle { form, before: true }.apply(
+					words,
+					ParticleDomain::Adposition,
+					host,
+				);
 			}
 			Self::Postposition => {
-				Marking::Particle { form, before: false }.apply(words, ParticleDomain::Adposition, host);
+				Marking::Particle { form, before: false }.apply(
+					words,
+					ParticleDomain::Adposition,
+					host,
+				);
 			}
 			Self::Circumposition => {
-				Marking::Particle { form, before: true }.apply(words, ParticleDomain::Adposition, host);
+				Marking::Particle { form, before: true }.apply(
+					words,
+					ParticleDomain::Adposition,
+					host,
+				);
 				Marking::Particle { form: "ni", before: false }.apply(
 					words,
 					ParticleDomain::Adposition,

@@ -12,12 +12,12 @@ rust-version = { workspace = true }
 [dependencies]
 avian3d = { workspace = true }
 bevy = { workspace = true }
-crozon-characters = { workspace = true }
-crozon-rigs = { workspace = true }
+characters = { workspace = true }
+character-rigs = { workspace = true }
 damage = { workspace = true }
-durham-terrain-models = { workspace = true }
+durham = { workspace = true }
 lod-avian = { workspace = true }
-malo-animations = { workspace = true }
+character-animations = { workspace = true }
 maybraid-audio = { workspace = true }
 maybraid-character-controller = { workspace = true }
 

@@ -9,14 +9,15 @@ use intelligence_lod::{IntelligenceBand, IntelligenceLod};
 use lod_avian::PhysicsInteractionLayer;
 use movement_intelligence::{
 	MovementIntelligence, MovementIntelligenceSystems, MovementLocation, MovementObjective,
-	ReplanMovement,
+	ReplanMovement, ReplanThreshold,
 };
 use spotting_intelligence::SpotSubject;
 use spotting_intelligence_avian::clear_segment;
 
 pub use candidate::{occupancy_at, pick_hide, HideCandidate, HideOccupant};
 
-const REFRESH_DISTANCE: f32 = 0.8;
+const REPLAN_THRESHOLD: ReplanThreshold =
+	ReplanThreshold { refresh_distance: 0.8, check_radius: false, check_vantage_weights: false };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HidingSettings {
@@ -125,7 +126,8 @@ pub fn write_hide_objectives(
 			hiding.driving = false;
 			commands.entity(entity).remove::<HideClaim>();
 			if was_driving && evasion.signal.is_idle() {
-				hold_in_place(entity, transform.translation, &mut movement, &mut commands);
+				movement.hold_at(transform.translation);
+				commands.entity(entity).remove::<ReplanMovement>();
 			}
 			continue;
 		}
@@ -133,7 +135,8 @@ pub fn write_hide_objectives(
 			if hiding.driving {
 				hiding.driving = false;
 				commands.entity(entity).remove::<HideClaim>();
-				hold_in_place(entity, transform.translation, &mut movement, &mut commands);
+				movement.hold_at(transform.translation);
+				commands.entity(entity).remove::<ReplanMovement>();
 			}
 			continue;
 		};
@@ -162,34 +165,12 @@ pub fn write_hide_objectives(
 		));
 		hiding.driving = true;
 		commands.entity(entity).insert(HideClaim { point });
-		if !should_replan(movement.objective, next) {
+		if !movement.objective.needs_replan(next, REPLAN_THRESHOLD) {
 			continue;
 		}
 		movement.objective = next;
 		commands.entity(entity).insert(ReplanMovement);
 	}
-}
-
-fn hold_in_place(
-	entity: Entity,
-	at: Vec3,
-	movement: &mut MovementIntelligence,
-	commands: &mut Commands,
-) {
-	movement.objective =
-		MovementObjective::Reach(MovementLocation::new(at, movement.ability.agent_radius));
-	movement.adopt_plan(Vec::new());
-	commands.entity(entity).remove::<ReplanMovement>();
-}
-
-fn should_replan(current: MovementObjective, next: MovementObjective) -> bool {
-	if std::mem::discriminant(&current) != std::mem::discriminant(&next) {
-		return true;
-	}
-	let a = current.location().point;
-	let b = next.location().point;
-	Vec2::new(a.x, a.z).distance(Vec2::new(b.x, b.z)) >= REFRESH_DISTANCE
-		|| (a.y - b.y).abs() >= REFRESH_DISTANCE
 }
 
 #[cfg(test)]

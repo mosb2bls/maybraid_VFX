@@ -6,15 +6,15 @@ use std::time::Duration;
 use avian3d::prelude::{LinearVelocity, Position};
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
-use chico_vegetation_on_terrain_playground::Player;
-use chico_vegetation_on_terrain_playground::player::{holding_elevation, player_spawn_point_at};
-use crozon_character_persist::{CharacterId, PersistError, SaveRoot};
-use durham_terrain_models::{TerrainCellLayout, WorldBaseTerrain, terrain_streaming_enabled};
+use character_persist::{CharacterId, PersistError, SaveRoot};
+use durham::{Durham, TerrainCellLayout, WorldBaseTerrain};
 use player_camera::FollowCamera;
 use serde::{Deserialize, Serialize};
+use terrain_layer_model::{terrain_streaming, TerrainStreaming};
+use world_player::player::{holding_elevation, player_spawn_point_at};
+use world_player::{ModePlayerPolicies, Player};
 
-use maybraid_game_mode_training_ground::TrainingGround;
-use terrain_layer_model::ActiveGenerationMode;
+use layer_stack::ActiveGenerationMode;
 
 use crate::{PlayerSpawnXz, WorldPlayerLoadout};
 
@@ -53,7 +53,7 @@ impl Plugin for PlayerPositionPlugin {
 				sync_waypoints_for_character,
 				retain_player_waypoints,
 				log_player_position
-					.run_if(terrain_streaming_enabled)
+					.run_if(terrain_streaming::<Durham>)
 					.run_if(on_timer(LOG_INTERVAL)),
 			)
 				.chain(),
@@ -100,6 +100,7 @@ pub fn resume_discovery_from_saved_waypoints(
 	save_root: Res<SaveRoot>,
 	loadout: Option<Res<WorldPlayerLoadout>>,
 	mode: Option<Res<State<ActiveGenerationMode>>>,
+	policies: Option<Res<ModePlayerPolicies>>,
 	layout: Res<TerrainCellLayout>,
 	base: Res<WorldBaseTerrain>,
 	mut waypoints: ResMut<PlayerPositionWaypoints>,
@@ -115,7 +116,7 @@ pub fn resume_discovery_from_saved_waypoints(
 	if spawn.0.is_some() {
 		return;
 	}
-	if mode.as_deref().is_some_and(|mode| mode.get().is::<TrainingGround>()) {
+	if !mode_keeps_waypoints(mode.as_deref(), policies.as_deref()) {
 		return;
 	}
 	let Some(id) = current_character_id(loadout.as_deref()) else {
@@ -219,15 +220,27 @@ fn log_player_position(players: Query<&Transform, With<Player>>) {
 	info!(target: "world.player", "position ({:.1}, {:.1}, {:.1})", p.x, p.y, p.z);
 }
 
+fn mode_keeps_waypoints(
+	mode: Option<&State<ActiveGenerationMode>>,
+	policies: Option<&ModePlayerPolicies>,
+) -> bool {
+	let Some(policies) = policies else {
+		return true;
+	};
+	let mode = mode.and_then(|mode| mode.get().mode_id());
+	policies.keeps_waypoints(mode)
+}
+
 fn retain_player_waypoints(
-	streaming: Res<durham_terrain_models::TerrainStreamingEnabled>,
+	streaming: Res<TerrainStreaming<Durham>>,
 	mode: Option<Res<State<ActiveGenerationMode>>>,
+	policies: Option<Res<ModePlayerPolicies>>,
 	save_root: Res<SaveRoot>,
 	loadout: Option<Res<WorldPlayerLoadout>>,
 	players: Query<&Transform, With<Player>>,
 	mut waypoints: ResMut<PlayerPositionWaypoints>,
 ) {
-	if !streaming.0 || mode.is_some_and(|mode| mode.get().is::<TrainingGround>()) {
+	if !streaming.enabled || !mode_keeps_waypoints(mode.as_deref(), policies.as_deref()) {
 		return;
 	}
 	let Ok(transform) = players.single() else {
@@ -314,8 +327,13 @@ fn save_waypoints(
 #[cfg(test)]
 mod tests {
 	use bevy::ecs::system::RunSystemOnce;
+	use layer_stack::GenerationMode;
 
 	use super::*;
+
+	struct QuietMode;
+
+	impl GenerationMode for QuietMode {}
 
 	#[test]
 	fn waypoints_keep_five_far_samples() {
@@ -332,24 +350,32 @@ mod tests {
 	}
 
 	#[test]
-	fn training_grounds_do_not_persist_a_pose() -> anyhow::Result<()> {
+	fn a_mode_that_drops_waypoints_does_not_persist_a_pose() -> anyhow::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let root = SaveRoot::at(dir.path());
 		let id = CharacterId(7);
 		let mut world = World::new();
 		world.insert_resource(root.clone());
-		world.insert_resource(durham_terrain_models::TerrainStreamingEnabled(true));
-		world.insert_resource(State::new(ActiveGenerationMode::of::<TrainingGround>()));
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		let mut policies = ModePlayerPolicies::default();
+		policies.register(
+			std::any::TypeId::of::<QuietMode>(),
+			world_player::ModePlayerPolicy {
+				home: Vec2::ZERO,
+				keep_waypoints: false,
+				respawn_ends_life: false,
+				pick_first_spawn: false,
+			},
+		);
+		world.insert_resource(policies);
+		world.insert_resource(State::new(ActiveGenerationMode::of::<QuietMode>()));
 		world.insert_resource(PlayerPositionWaypoints::default());
 		world.insert_resource(crate::WorldPlayerLoadout::new(
 			id.to_hex(),
-			crozon_characters::CharacterAppearance::default(),
-			crozon_character_items::Inventory::default(),
+			characters::CharacterAppearance::default(),
+			character_items::Inventory::default(),
 		));
-		world.spawn((
-			chico_vegetation_on_terrain_playground::Player,
-			Transform::from_xyz(3.0, 4.0, 5.0),
-		));
+		world.spawn((world_player::Player, Transform::from_xyz(3.0, 4.0, 5.0)));
 		world
 			.run_system_once(retain_player_waypoints)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -365,17 +391,14 @@ mod tests {
 		let id = CharacterId(9);
 		let mut world = World::new();
 		world.insert_resource(root.clone());
-		world.insert_resource(durham_terrain_models::TerrainStreamingEnabled(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(false));
 		world.insert_resource(PlayerPositionWaypoints::default());
 		world.insert_resource(crate::WorldPlayerLoadout::new(
 			id.to_hex(),
-			crozon_characters::CharacterAppearance::default(),
-			crozon_character_items::Inventory::default(),
+			characters::CharacterAppearance::default(),
+			character_items::Inventory::default(),
 		));
-		world.spawn((
-			chico_vegetation_on_terrain_playground::Player,
-			Transform::from_xyz(3.0, 4.0, 5.0),
-		));
+		world.spawn((world_player::Player, Transform::from_xyz(3.0, 4.0, 5.0)));
 		world
 			.run_system_once(retain_player_waypoints)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

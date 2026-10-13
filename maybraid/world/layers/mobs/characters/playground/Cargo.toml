@@ -1,0 +1,22 @@
+[package]
+name = "characters-playground"
+version = { workspace = true }
+edition  = { workspace = true }
+license  = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+camera-controls = { workspace = true }
+clap = { workspace = true }
+character-rigs = { workspace = true }
+characters = { workspace = true }
+game-commands = { workspace = true }
+character-animations = { workspace = true }
+
+[lints]
+workspace = true

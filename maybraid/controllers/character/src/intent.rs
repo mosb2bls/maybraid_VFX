@@ -31,6 +31,12 @@ pub enum CharacterIntent {
 	InGameMenu,
 	Inventory,
 	PowerUseItem,
+	/// Toggle the world overhead map. Keyboard **M** / Xbox **View** (pad Select).
+	ToggleMap,
+	/// Open the overhead map. Pad **D-Pad up**.
+	OpenMap,
+	/// Close the overhead map. Pad **D-Pad down**.
+	CloseMap,
 }
 
 impl CharacterIntent {
@@ -55,6 +61,9 @@ impl CharacterIntent {
 			Self::InGameMenu => "in-game-menu",
 			Self::Inventory => "inventory",
 			Self::PowerUseItem => "power-use-item",
+			Self::ToggleMap => "toggle-map",
+			Self::OpenMap => "open-map",
+			Self::CloseMap => "close-map",
 		}
 	}
 }

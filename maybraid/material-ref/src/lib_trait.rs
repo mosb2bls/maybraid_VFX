@@ -16,14 +16,14 @@ use crate::material_ref::MaterialRef;
 ///
 /// ```ignore
 /// #[derive(SystemParam)]
-/// pub struct ChicoMaterialLib<'w> {
-///     leaf: ResMut<'w, Assets<ChicoLeafMaterial>>,
-///     cache: ResMut<'w, MaterialRefCache<ChicoLeafMaterial>>,
+/// pub struct VegetationMaterialLib<'w> {
+///     leaf: ResMut<'w, Assets<LeafMaterial>>,
+///     cache: ResMut<'w, MaterialRefCache<LeafMaterial>>,
 /// }
 ///
-/// impl MaterialLib for ChicoMaterialLib<'_> {
+/// impl MaterialLib for VegetationMaterialLib<'_> {
 ///     fn try_fulfill(&mut self, entity: Entity, r: &MaterialRef, commands: &mut Commands) -> bool {
-///         // insert MeshMaterial3d::<ChicoLeafMaterial>(…) and return true, or false
+///         // insert MeshMaterial3d::<LeafMaterial>(…) and return true, or false
 ///     }
 /// }
 /// ```

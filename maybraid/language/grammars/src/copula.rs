@@ -1,6 +1,8 @@
 //! Copula realization. Classification and locative predications need not be verbs.
 
-use maybraid_language_core::{Clause, ParticleDomain, SemanticNode, SemanticRole, SurfaceConstituent};
+use maybraid_language_core::{
+	Clause, ParticleDomain, SemanticNode, SemanticRole, SurfaceConstituent,
+};
 
 /// How a grammar realizes non-verbal predication.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

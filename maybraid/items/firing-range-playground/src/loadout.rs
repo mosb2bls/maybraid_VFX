@@ -1,10 +1,10 @@
 //! Roll a generated clothing + firearm identity for a firing-range combatant.
 
-use crozon_character_items::{
+use character_items::{
 	realize_firearm_stats, CharacterSheet, FirearmMesh, FirearmSpec, FirearmStats, Inventory,
 	InventoryItem, ItemRng, STARTER_CLOTHING_COUNT,
 };
-use crozon_characters::species::braidman::BraidmanConfig;
+use characters::species::braidman::BraidmanConfig;
 use firearm_user::kit_from_spec;
 use firearms::FirearmKit;
 
@@ -52,7 +52,7 @@ fn appearance_from_inventory(inventory: &Inventory) -> BraidmanConfig {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crozon_character_items::{FirearmSight, ItemColor, ProjectileKind};
+	use character_items::{FirearmSight, ItemColor, ProjectileKind};
 	use firearms::{BarrelMesh, BodyMesh, GripMesh, SightMesh, TriggerBoxMesh};
 	use std::collections::BTreeSet;
 

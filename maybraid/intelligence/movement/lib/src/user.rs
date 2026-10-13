@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::ability::MovementAbility;
+use crate::ability::{MovementAbility, MovementBody};
 use crate::candidate::MovementCandidate;
 use crate::location::MovementLocation;
 use crate::objective::MovementObjective;
@@ -122,6 +122,19 @@ where
 			}
 		}
 		best.map(|(_, candidate)| candidate)
+	}
+}
+
+impl<I, A> MovementIntelligence<I, A>
+where
+	I: Send + Sync + 'static,
+	A: MovementBody + Send + Sync + 'static,
+{
+	/// Clear any active plan and hold at `at` using the mover's agent radius.
+	pub fn hold_at(&mut self, at: Vec3) {
+		self.objective =
+			MovementObjective::Reach(MovementLocation::new(at, self.ability.agent_radius()));
+		self.adopt_plan(Vec::new());
 	}
 }
 

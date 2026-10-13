@@ -1,0 +1,23 @@
+[package]
+name = "vfx-playground"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[[bin]]
+name = "vfx-playground"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true }
+clap = { workspace = true }
+game-commands = { workspace = true }
+maybraid-vfx = { workspace = true }
+
+[lints]
+workspace = true

@@ -53,7 +53,7 @@ impl MaterialLib for StandardMaterialLib<'_> {
 		commands: &mut Commands,
 	) -> bool {
 		let handle = self.resolve(material_ref);
-		commands.entity(entity).insert(MeshMaterial3d(handle));
+		commands.entity(entity).try_insert(MeshMaterial3d(handle));
 		true
 	}
 }

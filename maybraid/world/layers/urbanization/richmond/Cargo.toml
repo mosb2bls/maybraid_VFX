@@ -1,0 +1,41 @@
+[package]
+name = "richmond"
+version = { workspace = true }
+edition  = { workspace = true }
+license  = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+avian3d = { workspace = true }
+bevy = { workspace = true }
+terrain-shaders = { workspace = true }
+durham = { workspace = true }
+terrain-stamps = { workspace = true }
+lod = { workspace = true }
+lod-avian = { workspace = true }
+lod-gimme = { workspace = true }
+lod-lazy-refs = { workspace = true }
+layer-stack = { workspace = true }
+terrain-watersheds = { workspace = true }
+procedural-common = { workspace = true }
+render-item = { workspace = true }
+building-components = { workspace = true }
+building-physics = { workspace = true }
+building-shaders = { workspace = true }
+buildings = { workspace = true }
+urbanization-developments = { workspace = true }
+urbanization-cells = { workspace = true }
+material-ref = { workspace = true }
+scene-ref = { workspace = true }
+terrain-layer-model = { workspace = true }
+urbanization-layer-model = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+
+[lints]
+workspace = true

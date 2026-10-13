@@ -162,7 +162,9 @@ fn default_agent(
 }
 
 fn is_person_like(concept: &str) -> bool {
-	aliases(concept).iter().any(|alias| matches!(alias.as_str(), "speaker" | "listener" | "person"))
+	aliases(concept)
+		.iter()
+		.any(|alias| matches!(alias.as_str(), "speaker" | "listener" | "person"))
 }
 
 fn is_agent_role(role: &str) -> bool {
@@ -219,7 +221,8 @@ fn aliases(name: &str) -> Vec<String> {
 	let tokens: Vec<&str> = normalized.split('_').filter(|token| !token.is_empty()).collect();
 	let stripped = strip_leading_determiners(&tokens);
 	if stripped.len() <= 1 {
-		if let Some(mapped) = pronoun_aliases(stripped.first().copied().unwrap_or(normalized.as_str()))
+		if let Some(mapped) =
+			pronoun_aliases(stripped.first().copied().unwrap_or(normalized.as_str()))
 		{
 			return mapped;
 		}

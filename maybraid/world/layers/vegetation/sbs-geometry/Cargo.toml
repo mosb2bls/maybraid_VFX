@@ -1,0 +1,29 @@
+[package]
+name = "sbs-geometry"
+version = { workspace = true }
+edition  = { workspace = true }
+license  = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy_math = { workspace = true }
+clap = { workspace = true, optional = true }
+procedural-common = { workspace = true }
+bevy = { workspace = true, optional = true }
+render-item = { workspace = true, optional = true  }
+log = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+
+[features]
+default = [ "render" ]
+render = [ "dep:bevy", "dep:render-item" ]
+clap = [ "dep:clap", "procedural-common/clap" ]
+
+[lints]
+workspace = true

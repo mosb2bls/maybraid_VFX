@@ -42,7 +42,8 @@ pub use error::{LanguageError, LanguagePipelineError};
 pub use grammar::{
 	AffixPlacement, BoundaryKind, ClauseOrder, Grammar, GrammarInput, GrammaticalOutput,
 	GrammaticalRelation, IpaUtterance, LexicalPart, ModifierPlacement, ParticleDomain,
-	RelativePlacement, RoleParticles, SurfaceClause, SurfaceConstituent, SurfaceForm, SurfaceGrammar,
+	RelativePlacement, RoleParticles, SurfaceClause, SurfaceConstituent, SurfaceForm,
+	SurfaceGrammar,
 };
 pub use graph::{
 	ConceptEdge, GraphDelta, InMemoryLexicalGraph, LexicalContextGraph, LexicalContextGraphMut,
@@ -53,18 +54,19 @@ pub use lexicalizer::{
 	Lexicalizer, RootHeavyLexicalizer, GENERATOR_VERSION,
 };
 pub use marshall::{ConceptMarshaller, ConceptUse, DefaultMarshaller, SemanticNode};
+pub use output::{LexicalOutput, ResolvedConcept};
 pub use parse::{
 	DependencyDocument, DependencyRelation, DependencySentence, DependencyToken,
 	EnglishDependencyParser, MorphFeatures, TokenId, UniversalPos,
 };
-pub use semantic::{
-	EnglishSemanticMarshaller, PredicateFrame, PredicateFrameLexicon, RoleMapping, SemanticMarshaller,
-};
-pub use udpipe::{bundled_udpipe_path, UdpipeEnglishParser, BUNDLED_UDPIPE_FILE};
-pub use output::{LexicalOutput, ResolvedConcept};
 pub use poc::{poc_universe, PocLexicon};
 pub use profile::{Profile, Register};
+pub use semantic::{
+	EnglishSemanticMarshaller, PredicateFrame, PredicateFrameLexicon, RoleMapping,
+	SemanticMarshaller,
+};
 pub use term::{Ipa, Term, TermId, Usage};
+pub use udpipe::{bundled_udpipe_path, UdpipeEnglishParser, BUNDLED_UDPIPE_FILE};
 pub use utterance::{
 	Argument, Aspect, Clause, ClauseId, Definiteness, FocusTarget, InformationStructure, Modifier,
 	Mood, Number, Person, Polarity, Referent, ReferentId, SemanticRole, SemanticValue, Tense,

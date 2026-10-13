@@ -52,6 +52,21 @@ pub trait LodRefreshRegions: Send + Sync + 'static {
 	/// Region for a single driver. Must be cheap — no scene build.
 	fn lod_refresh_regions(&self, lod_ref: &LodRef) -> LodRefreshRegionsStatus;
 
+	/// Region this driver covers now, whether or not it just crossed a threshold.
+	///
+	/// Generation producers union this over every active driver, so a resting
+	/// driver keeps its coverage while another one moves. The default evaluates
+	/// [`Self::lod_refresh_regions`] as if the driver had arrived from nowhere;
+	/// override it when that is not the driver's current region.
+	fn lod_coverage(&self, lod_ref: &LodRef) -> Option<Aabb3d> {
+		let nowhere = Transform::from_translation(Vec3::INFINITY);
+		let arrived = LodRef { previous_transform: &nowhere, ..*lod_ref };
+		match self.lod_refresh_regions(&arrived) {
+			LodRefreshRegionsStatus::Changed(region) => Some(region),
+			LodRefreshRegionsStatus::Unchanged => None,
+		}
+	}
+
 	/// Fold many drivers into one max-extent AABB (or [`Unchanged`] / [`Empty`]).
 	fn lod_refresh_regions_for(
 		&self,

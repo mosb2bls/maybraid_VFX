@@ -15,12 +15,7 @@ pub enum NumberStrategy {
 }
 
 impl NumberStrategy {
-	pub fn apply(
-		self,
-		words: &mut Vec<SurfaceConstituent>,
-		number: Number,
-		host: SemanticNode,
-	) {
+	pub fn apply(self, words: &mut Vec<SurfaceConstituent>, number: Number, host: SemanticNode) {
 		if !matches!(number, Number::Plural | Number::Many) {
 			return;
 		}
@@ -106,9 +101,9 @@ pub fn place_modifiers(
 	linker: Option<&'static str>,
 ) -> Vec<SurfaceConstituent> {
 	let mut words = Vec::new();
-	let link = linker.filter(|_| !modifiers.is_empty()).map(|form| {
-		SurfaceConstituent::particle(form, ParticleDomain::NounPhrase)
-	});
+	let link = linker
+		.filter(|_| !modifiers.is_empty())
+		.map(|form| SurfaceConstituent::particle(form, ParticleDomain::NounPhrase));
 	match placement {
 		ModifierPlacement::BeforeNoun => {
 			words.extend(modifiers);

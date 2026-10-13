@@ -1,0 +1,26 @@
+[package]
+name = "furniture-assemblies"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+furniture-components = { workspace = true }
+material-ref = { workspace = true }
+furniture-shaders = { workspace = true }
+lod = { workspace = true }
+procedural-common = { workspace = true }
+building-components = { workspace = true }
+furniture-usage-areas = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+
+[lints]
+workspace = true

@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy_math::bounding::Aabb3d;
-use richmond_buildings::{ConnectingStairwell, MixedUseLesHallesStorey};
+use buildings::{ConnectingStairwell, MixedUseLesHallesStorey};
 
 /// One Les Halles storey volume in world space.
 #[derive(Component, Clone, Debug, PartialEq)]
@@ -234,8 +234,8 @@ fn transform_aabb(bounds: Aabb3d, world: Transform) -> Aabb3d {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use richmond_building_components::panels::PanelStyle;
-	use richmond_buildings::{StairwellKind, WellAabb, WellSide};
+	use building_components::panels::PanelStyle;
+	use buildings::{StairwellKind, WellAabb, WellSide};
 
 	#[test]
 	fn rectangular_well_polyline_rises() -> anyhow::Result<()> {

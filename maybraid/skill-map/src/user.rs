@@ -1,7 +1,7 @@
 //! Capsule install for Discover skill maps, following [`firearm_user::FirearmUser`].
 
 use bevy::prelude::*;
-use crozon_character_items::SkillMapSpec;
+use character_items::SkillMapSpec;
 
 use crate::cursor::{CURSOR_SPEED, FLICK_REGION, WATER_LOCK_SECS};
 

@@ -14,8 +14,8 @@ bevy = { workspace = true }
 bevy_math = { workspace = true }
 movement-intelligence = { workspace = true }
 movement-intelligence-avian = { workspace = true }
-richmond-buildings = { workspace = true }
-richmond-building-components = { workspace = true }
+buildings = { workspace = true }
+building-components = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

@@ -2,28 +2,42 @@
 
 use bevy::ecs::query::Has;
 use bevy::prelude::*;
-use chico_vegetation_on_terrain_playground::{Jumping as VegetationJumping, Player};
-use crozon_characters::{
+use characters::{
 	apply_terrain_pitch, ApplyTerrainPitch, CharacterHeading, SuspendTerrainPitch, TerrainPitch,
 };
 use ground_avian::AvianElevationProbe;
 use player::{CharacterController, Jumping};
+use world_player::{Jumping as VegetationJumping, Player};
 
 pub(crate) fn sync_suspend_terrain_pitch(
 	mut commands: Commands,
-	players: Query<(Entity, Has<VegetationJumping>, Has<Jumping>), With<Player>>,
-	npcs: Query<(Entity, Has<Jumping>), (With<CharacterController>, Without<Player>)>,
+	players: Query<
+		(Entity, Has<VegetationJumping>, Has<Jumping>, Has<SuspendTerrainPitch>),
+		With<Player>,
+	>,
+	npcs: Query<
+		(Entity, Has<Jumping>, Has<SuspendTerrainPitch>),
+		(With<CharacterController>, Without<Player>),
+	>,
 ) {
-	for (entity, jumping) in players
+	for (entity, jumping, has) in players
 		.iter()
-		.map(|(entity, vegetation, player)| (entity, vegetation || player))
+		.map(|(entity, vegetation, player, has)| (entity, vegetation || player, has))
 		.chain(npcs.iter())
 	{
-		if jumping {
+		set_suspend_marker(&mut commands, entity, jumping, has);
+	}
+}
+
+fn set_suspend_marker(commands: &mut Commands, entity: Entity, want: bool, has: bool) {
+	match (want, has) {
+		(true, false) => {
 			commands.entity(entity).insert(SuspendTerrainPitch);
-		} else {
+		}
+		(false, true) => {
 			commands.entity(entity).remove::<SuspendTerrainPitch>();
 		}
+		_ => {}
 	}
 }
 

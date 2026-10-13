@@ -15,9 +15,7 @@ mod user;
 use bevy::prelude::*;
 
 pub use bounds::{SpotBounds, SpotFeature, SpotSample};
-pub use candidate::{
-	allocate_sample_budget, apply_candidate_budget, rank_candidates, SpotCandidate,
-};
+pub use candidate::SpotCandidate;
 pub use contact::SpottedContact;
 pub use directive::{SpotContactView, SpotDirective};
 pub use layers::InterestLayers;

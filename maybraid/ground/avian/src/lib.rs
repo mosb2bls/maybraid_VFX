@@ -14,12 +14,11 @@ use bevy::math::{Dir3, Vec3};
 use ground::{ElevationProbe, GroundHit};
 use lod_avian::PhysicsInteractionLayer;
 
-/// Matches `crozon_character_motion::PROBE_LIFT`: pitch rays start this far
+/// Matches `character_motion::PROBE_LIFT`: pitch rays start this far
 /// above the body. Hits closer than this are canopy / solid-start volumes.
 pub const MIN_GROUND_DROP: f32 = 2.0;
 
-/// Grove tiles and overlapping High-band plants can stack several Fixed
-/// volumes on one plumb line. Walk past them to the trimesh.
+/// Grove tiles and overlapping High-band plants on one plumb line.
 const MAX_COLUMN_HITS: usize = 8;
 
 /// [`SystemParam`] Avian implementation of [`ElevationProbe`].
@@ -31,8 +30,43 @@ pub struct AvianElevationProbe<'w, 's> {
 	spatial: SpatialQuery<'w, 's>,
 }
 
-fn fixed_filter(exclude: impl IntoIterator<Item = Entity>) -> SpatialQueryFilter {
-	SpatialQueryFilter::from_mask(PhysicsInteractionLayer::Fixed).with_excluded_entities(exclude)
+/// The [`MAX_COLUMN_HITS`] nearest hits on one plumb line, sorted by distance.
+///
+/// One `ray_hits_callback` traversal fills this. It selects the same hit as
+/// casting the closest ray, excluding that collider, and repeating
+/// [`MAX_COLUMN_HITS`] times, without a traversal and an excluded-entity set
+/// insert per step.
+#[derive(Clone, Copy, Debug)]
+struct ColumnHits {
+	hits: [(f32, Entity, Vec3); MAX_COLUMN_HITS],
+	len: usize,
+}
+
+impl Default for ColumnHits {
+	fn default() -> Self {
+		Self { hits: [(f32::INFINITY, Entity::PLACEHOLDER, Vec3::ZERO); MAX_COLUMN_HITS], len: 0 }
+	}
+}
+
+impl ColumnHits {
+	fn push(&mut self, distance: f32, entity: Entity, normal: Vec3) {
+		if self.len == MAX_COLUMN_HITS {
+			if distance >= self.hits[MAX_COLUMN_HITS - 1].0 {
+				return;
+			}
+			self.len -= 1;
+		}
+		let at = self.hits[..self.len].partition_point(|&(d, _, _)| d <= distance);
+		self.hits.copy_within(at..self.len, at + 1);
+		self.hits[at] = (distance, entity, normal);
+		self.len += 1;
+	}
+
+	/// Lowest kept hit at least `min_drop` below the origin.
+	fn ground(&self, min_drop: f32) -> Option<(f32, Entity, Vec3)> {
+		let last = *self.hits[..self.len].last()?;
+		(last.0 >= min_drop).then_some(last)
+	}
 }
 
 impl ElevationProbe for AvianElevationProbe<'_, '_> {
@@ -45,25 +79,20 @@ impl ElevationProbe for AvianElevationProbe<'_, '_> {
 		if max_distance <= 0.0 {
 			return None;
 		}
-		let mut skipped: Vec<Entity> = exclude.to_vec();
-		let mut best: Option<GroundHit> = None;
-		for _ in 0..MAX_COLUMN_HITS {
-			let filter = fixed_filter(skipped.iter().copied());
-			let Some(hit) = self.spatial.cast_ray(origin, Dir3::NEG_Y, max_distance, true, &filter)
-			else {
-				break;
-			};
-			skipped.push(hit.entity);
-			if hit.distance < MIN_GROUND_DROP {
-				continue;
-			}
-			best = Some(GroundHit {
-				point: origin + Vec3::NEG_Y * hit.distance,
-				normal: hit.normal,
-				entity: hit.entity,
+		let filter = SpatialQueryFilter::from_mask(PhysicsInteractionLayer::Fixed);
+		let mut column = ColumnHits::default();
+		self.spatial
+			.ray_hits_callback(origin, Dir3::NEG_Y, max_distance, true, &filter, |hit| {
+				if !exclude.contains(&hit.entity) {
+					column.push(hit.distance, hit.entity, hit.normal);
+				}
+				true
 			});
-		}
-		best
+		column.ground(MIN_GROUND_DROP).map(|(distance, entity, normal)| GroundHit {
+			point: origin + Vec3::NEG_Y * distance,
+			normal,
+			entity,
+		})
 	}
 }
 
@@ -71,13 +100,59 @@ impl ElevationProbe for AvianElevationProbe<'_, '_> {
 mod tests {
 	use super::*;
 
-	/// Farthest (lowest) sample at least `min_drop` below the ray origin.
+	/// The former column walk: closest hit, exclude it, repeat
+	/// [`MAX_COLUMN_HITS`] times; the last kept hit past `min_drop` wins.
+	fn iterative_column_distance(distances: &[f32], min_drop: f32) -> Option<f32> {
+		let mut left: Vec<f32> = distances.to_vec();
+		let mut best = None;
+		for _ in 0..MAX_COLUMN_HITS {
+			let Some((index, distance)) =
+				left.iter().copied().enumerate().min_by(|a, b| a.1.total_cmp(&b.1))
+			else {
+				break;
+			};
+			left.swap_remove(index);
+			if distance >= min_drop {
+				best = Some(distance);
+			}
+		}
+		best
+	}
+
 	fn select_column_distance(distances: &[f32], min_drop: f32) -> Option<f32> {
-		distances
-			.iter()
-			.copied()
-			.filter(|distance| *distance >= min_drop)
-			.max_by(f32::total_cmp)
+		let mut column = ColumnHits::default();
+		for (i, distance) in distances.iter().enumerate() {
+			column.push(*distance, Entity::from_bits(i as u64 + 1), Vec3::Y);
+		}
+		column.ground(min_drop).map(|(distance, _, _)| distance)
+	}
+
+	#[test]
+	fn single_traversal_matches_iterative_column_walk() {
+		let mut state = 0x2545_f491_4f6c_dd1d_u64;
+		let mut unit = move || {
+			state ^= state << 13;
+			state ^= state >> 7;
+			state ^= state << 17;
+			(state >> 40) as f32 / (1_u32 << 24) as f32
+		};
+		for case in 0..2_000 {
+			let count = case % 14;
+			let distances: Vec<f32> = (0..count).map(|_| unit() * 12.0).collect();
+			assert_eq!(
+				select_column_distance(&distances, MIN_GROUND_DROP),
+				iterative_column_distance(&distances, MIN_GROUND_DROP),
+				"{distances:?}"
+			);
+		}
+	}
+
+	#[test]
+	fn column_keeps_only_the_nearest_hits() {
+		let mut distances: Vec<f32> = (0..MAX_COLUMN_HITS).map(|i| 0.1 * i as f32).collect();
+		distances.push(9.0);
+		assert_eq!(select_column_distance(&distances, MIN_GROUND_DROP), None);
+		assert_eq!(iterative_column_distance(&distances, MIN_GROUND_DROP), None);
 	}
 
 	#[test]

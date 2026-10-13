@@ -5,7 +5,7 @@ Bevy relationship onto the kit (`held`); [`HeldBy`](src/lib.rs) is the reverse
 index on the gun. Hold / aim knobs live on [`FirearmUserSettings`](src/lib.rs)
 (defaults match the firing-range bullpup).
 
-Pose and arm IK key off the user's [`CharacterRoot`](../../crozon/characters/src/member.rs)
+Pose and arm IK key off the user's [`CharacterRoot`](../../world/layers/mobs/characters/lib/src/member.rs)
 child, so an [`Npc`](../../player/src/identity.rs) holds the same way as the
 player. Pad fire and the world reticle stay on the followed [`Player`](../../player/src/identity.rs).
 The two-bone reach resolves humerus roll with a closed-form signed angle rather
@@ -26,7 +26,7 @@ stay the same as a held gun. Inspect does not rest-fit kit bones: that left
 off the receiver.
 
 [`live_weapon_from_stats`](src/weapon.rs) bakes catalog
-[`FirearmStats`](../../crozon/character-items/src/stats.rs) into the held
+[`FirearmStats`](../../world/layers/mobs/characters/items/src/stats.rs) into the held
 [`Weapon`](../firearms/src/projectiles.rs), payload, cadence, recoil
 strength, and ADS FOV. Each shot noisily kicks yaw and pitch inside a range scaled by that
 strength; the direction is hashed from the weapon identity and shot index so

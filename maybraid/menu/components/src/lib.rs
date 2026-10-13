@@ -32,10 +32,10 @@ pub use controls::{
 };
 pub use icons::{blink_animated_icons, spin_icons, AnimatedIcon, Icon, SpinningIcon};
 pub use info::{
-	set_brand_mode_title, set_description_for_menu, set_hint_for_menu, spawn_hud_text_card,
-	spawn_hud_text_card_label, spawn_menu_objective, BrandModeCorner, BrandModeLine,
-	BrandModeTitle, HudTextCard, MenuObjective, TextMenuDescription, TextMenuHint,
-	TextMenuHintLabel, BRAND_NAME, HUD_TEXT_CARD_FACE_PX,
+	set_brand_mode_title, set_description_for_menu, set_hint_for_menu, set_info_box_for_menu,
+	spawn_hud_text_card, spawn_hud_text_card_label, spawn_menu_objective, BrandModeCorner,
+	BrandModeLine, BrandModeTitle, HudTextCard, MenuInfoBox, MenuInfoBoxLabel, MenuObjective,
+	TextMenuDescription, TextMenuHint, TextMenuHintLabel, BRAND_NAME, HUD_TEXT_CARD_FACE_PX,
 };
 pub use loading::{
 	set_loading_explainer, set_loading_progress, sync_loading_bar_fill, LoadingBarFill,
@@ -44,26 +44,28 @@ pub use loading::{
 pub use single_select::{
 	apply_text_menu_nav, clear_menu_back_consumed, consume_screen_back,
 	emit_menu_activate_on_click, emit_menu_activate_on_enter, emit_menu_activate_on_nav,
-	emit_menu_focus, emit_screen_back_on_click, emit_screen_edit_on_click, navigate_text_menus,
-	republish_menu_activate, screen_back_scene, screen_edit_scene,
+	emit_menu_focus, emit_menu_step, emit_screen_back_on_click, emit_screen_edit_on_click,
+	navigate_text_menus, republish_menu_activate, screen_back_scene, screen_edit_scene,
 	scroll_text_cursor_selection_into_view, select_text_menu_item_on_over, sync_screen_edit_cursor,
 	sync_text_cursor_icons, sync_text_menu_item_colors, ButtonWithSubtext, KeyboardMenuNav,
 	MenuActivate, MenuBackConsumed, MenuFocus, MenuItemLocked, MenuObjectiveKind,
-	MenuObjectiveMarker, ScreenBack, ScreenBackPressed, ScreenEdit, ScreenEditPressed,
-	TextColumnAlign, TextColumnAnchor, TextCursorColumn, TextCursorMenu, TextCursorRow,
-	TextCursorScroll, TextCursorSlot, TextMenu, TextMenuColumn, TextMenuHeader, TextMenuInputLock,
-	TextMenuItem, TextMenuItemLabel,
+	MenuObjectiveMarker, MenuStep, MenuStepRow, MenuStepper, ScreenBack, ScreenBackPressed,
+	ScreenEdit, ScreenEditPressed, TextColumnAlign, TextColumnAnchor, TextCursorColumn,
+	TextCursorMenu, TextCursorRow, TextCursorScroll, TextCursorSlot, TextMenu, TextMenuColumn,
+	TextMenuHeader, TextMenuInputLock, TextMenuItem, TextMenuItemLabel,
 };
 pub use spin_reveal::{
 	SpinRevealCover, SpinRevealFace, SpinRevealPayload, SpinRevealSlot, SpinRevealViewport,
 	SPIN_REVEAL_SECS, SPIN_REVEAL_SLOT_SIZE, SPIN_REVEAL_TILE_HEIGHT, SPIN_REVEAL_TILE_WIDTH,
 };
 pub use theme::{
-	BARLOW_BLACK, BARLOW_REGULAR, BARLOW_SEMIBOLD, DESCRIPTION_PANE_LEFT_PERCENT, HEADER_FONT_SIZE,
-	ITEM_FONT_SIZE, LOADING_ICON_SIZE, MENU_CLEAR, OBJECTIVE_MARKER_FONT_SIZE,
-	PANEL_BLOCK_FONT_SIZE, PANEL_GROUP_FONT_SIZE, PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE,
-	PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_PURPLE, TEXT_SALMON,
-	TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS, TEXT_YELLOW_HOVER,
+	BARLOW_BLACK, BARLOW_REGULAR, BARLOW_SEMIBOLD, BONES_ICON, DESCRIPTION_PANE_LEFT_PERCENT,
+	HEADER_FONT_SIZE, ITEM_FONT_SIZE, LOADING_ICON_SIZE, MAP_ARROW_ICON, MAP_GROVE_ICON,
+	MAP_HOUSE_ICON, MAP_MOUNTAIN_ICON, MAP_TOWN_ICON, MAP_TREE_ICON, MAP_WATER_ICON, MENU_CLEAR,
+	NOTO_SANS_REGULAR, OBJECTIVE_MARKER_FONT_SIZE, PANEL_BLOCK_FONT_SIZE, PANEL_GROUP_FONT_SIZE,
+	PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP,
+	TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_PURPLE, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
+	TEXT_YELLOW_FAINT_FOCUS, TEXT_YELLOW_HOVER,
 };
 
 use bevy::prelude::*;
@@ -176,6 +178,7 @@ where
 		app.add_message::<E>()
 			.add_observer(emit_menu_activate_on_click::<E>)
 			.add_observer(emit_menu_activate_on_nav::<E>)
+			.add_observer(emit_menu_step::<E>)
 			.add_systems(
 				Update,
 				(

@@ -34,6 +34,10 @@ impl SpottingHint {
 		self.priorities.contains_key(&source)
 	}
 
+	pub fn priority_for(&self, source: SpottingHintSource) -> Option<i32> {
+		self.priorities.get(&source).copied()
+	}
+
 	pub fn set(&mut self, source: SpottingHintSource, priority: i32) {
 		self.priorities.insert(source, priority);
 	}
@@ -99,7 +103,21 @@ impl SpottingUser {
 			.set(SpottingHintSource::EXPLICIT, priority);
 	}
 
+	pub fn has_hint_from(
+		&self,
+		subject: Entity,
+		source: SpottingHintSource,
+		priority: i32,
+	) -> bool {
+		self.hints
+			.get(&subject)
+			.is_some_and(|hint| hint.priority_for(source) == Some(priority))
+	}
+
 	pub fn hint_from(&mut self, subject: Entity, source: SpottingHintSource, priority: i32) {
+		if self.has_hint_from(subject, source, priority) {
+			return;
+		}
 		self.hints.entry(subject).or_default().set(source, priority);
 	}
 
@@ -173,6 +191,18 @@ mod tests {
 		assert_eq!(user.advance_sample_cursor(), 0);
 		assert_eq!(user.advance_sample_cursor(), 1);
 		assert_eq!(user.advance_sample_cursor(), 2);
+	}
+
+	#[test]
+	fn hint_from_skips_an_identical_source_priority() {
+		let subject = Entity::from_bits(1);
+		let mut user = SpottingUser::default();
+		user.hint_from(subject, SpottingHintSource::THREAT, 5);
+		assert!(user.has_hint_from(subject, SpottingHintSource::THREAT, 5));
+		user.hint_from(subject, SpottingHintSource::THREAT, 5);
+		assert_eq!(user.hints.get(&subject).map(SpottingHint::priority), Some(5));
+		user.hint_from(subject, SpottingHintSource::THREAT, 8);
+		assert!(user.has_hint_from(subject, SpottingHintSource::THREAT, 8));
 	}
 
 	#[test]

@@ -20,14 +20,19 @@ use objc2_core_haptics::{
 	CHHapticEventTypeHapticContinuous, CHHapticPattern, CHHapticPatternPlayer,
 	CHHapticTimeImmediate,
 };
-use objc2_foundation::NSArray;
+use objc2_foundation::{ns_string, NSArray, NSString};
 use objc2_game_controller::{
 	GCController, GCControllerButtonInput, GCControllerDirectionPad, GCDevice, GCDeviceHaptics,
 	GCExtendedGamepad, GCHapticsLocality, GCHapticsLocalityDefault, GCHapticsLocalityHandles,
+	GCInputButtonOptions, GCInputButtonShare, GCSystemGestureState, GCXboxGamepad,
 };
 
-use super::value_changed;
 use crate::rumble::PadRumbleSystems;
+
+fn value_changed(previous: Option<f32>, value: f32) -> bool {
+	const EPS: f32 = 1e-4;
+	previous.is_none_or(|old| (old - value).abs() > EPS)
+}
 
 pub struct GameControllerPlugin;
 
@@ -66,6 +71,8 @@ struct PadState {
 	pulses: Vec<LivePulse>,
 	axes: HashMap<GamepadAxis, f32>,
 	buttons: HashMap<GamepadButton, f32>,
+	select: Option<MainThreadRc<GCControllerButtonInput>>,
+	logged_select: bool,
 }
 
 fn controller_id(controller: &GCController) -> usize {
@@ -146,6 +153,12 @@ fn sync_controller(
 				"pad_rumble: generic 'Controller' name is usually USB Xbox; Apple rumble often only works over Bluetooth"
 			);
 		}
+		let select = unsafe { select_button(controller, &extended) };
+		if let Some(select) = select.as_ref() {
+			unsafe {
+				claim_for_app(select);
+			}
+		}
 		PadState {
 			entity,
 			controller: MainThreadRc(controller.retain()),
@@ -153,6 +166,8 @@ fn sync_controller(
 			pulses: Vec::new(),
 			axes: HashMap::new(),
 			buttons: HashMap::new(),
+			select: select.map(MainThreadRc),
+			logged_select: false,
 		}
 	});
 	emit_extended(state, &extended, raw_events);
@@ -201,9 +216,7 @@ fn emit_extended(
 		emit_button(state, raw_events, GamepadButton::LeftTrigger2, &pad.leftTrigger());
 		emit_button(state, raw_events, GamepadButton::RightTrigger2, &pad.rightTrigger());
 		emit_button(state, raw_events, GamepadButton::Start, &pad.buttonMenu());
-		if let Some(options) = pad.buttonOptions() {
-			emit_button(state, raw_events, GamepadButton::Select, &options);
-		}
+		emit_select(state, pad, raw_events);
 		if let Some(home) = pad.buttonHome() {
 			emit_button(state, raw_events, GamepadButton::Mode, &home);
 		}
@@ -219,6 +232,101 @@ fn emit_extended(
 		emit_button(state, raw_events, GamepadButton::DPadLeft, &dpad.left());
 		emit_button(state, raw_events, GamepadButton::DPadRight, &dpad.right());
 	}
+}
+
+/// Xbox View (opposite Menu/Start). `buttonOptions` is optional and often nil on
+/// USB Xbox; macOS also binds Options to a screenshot gesture unless disabled.
+fn emit_select(
+	state: &mut PadState,
+	_pad: &GCExtendedGamepad,
+	raw_events: &mut MessageWriter<RawGamepadEvent>,
+) {
+	if !state.logged_select {
+		state.logged_select = true;
+		let name = controller_name(&state.controller.0);
+		match state.select.as_ref() {
+			Some(button) => {
+				let bound = unsafe { button.0.isBoundToSystemGesture() };
+				debug!("pad_select: {name} View/Options claimed bound_to_system={bound}");
+			}
+			None => {
+				let names = unsafe { physical_button_names(&state.controller.0) };
+				debug!("pad_select: {name} no View/Options/Share in profile buttons={names}");
+			}
+		}
+	}
+	let Some(select) = state.select.as_ref().map(|select| select.0.clone()) else {
+		return;
+	};
+	unsafe {
+		emit_button(state, raw_events, GamepadButton::Select, &select);
+	}
+}
+
+/// # Safety
+/// `controller` / `pad` must be a live connected pair.
+unsafe fn select_button(
+	controller: &GCController,
+	pad: &GCExtendedGamepad,
+) -> Option<Retained<GCControllerButtonInput>> {
+	if let Some(options) = unsafe { pad.buttonOptions() } {
+		return Some(options);
+	}
+	if let Some(options) = unsafe { profile_button(controller, GCInputButtonOptions) } {
+		return Some(options);
+	}
+	if let Some(options) = unsafe { profile_button_named(controller, ns_string!("Button Options")) }
+	{
+		return Some(options);
+	}
+	// USB Xbox sometimes exposes View only as Share. Prefer Options when present
+	// so the Series capture button stays a system screenshot.
+	if let Some(share) = unsafe { profile_button(controller, GCInputButtonShare) } {
+		return Some(share);
+	}
+	if let Some(share) = unsafe { profile_button_named(controller, ns_string!("Button Share")) } {
+		return Some(share);
+	}
+	if let Some(xbox) = pad.downcast_ref::<GCXboxGamepad>() {
+		return unsafe { xbox.buttonShare() };
+	}
+	None
+}
+
+/// # Safety
+/// `controller` must be a live `GCController`.
+unsafe fn profile_button(
+	controller: &GCController,
+	name: Option<&NSString>,
+) -> Option<Retained<GCControllerButtonInput>> {
+	unsafe { profile_button_named(controller, name?) }
+}
+
+/// # Safety
+/// `controller` must be a live `GCController`.
+unsafe fn profile_button_named(
+	controller: &GCController,
+	name: &NSString,
+) -> Option<Retained<GCControllerButtonInput>> {
+	let element = unsafe { controller.physicalInputProfile().objectForKeyedSubscript(name) }?;
+	element.downcast().ok()
+}
+
+/// # Safety
+/// `controller` must be a live `GCController`.
+unsafe fn physical_button_names(controller: &GCController) -> String {
+	let buttons = unsafe { controller.physicalInputProfile().buttons() };
+	let keys = buttons.allKeys();
+	(0..keys.count())
+		.map(|index| keys.objectAtIndex(index).to_string())
+		.collect::<Vec<_>>()
+		.join(",")
+}
+
+/// # Safety
+/// `input` must be a live button from a connected controller.
+unsafe fn claim_for_app(input: &GCControllerButtonInput) {
+	unsafe { input.setPreferredSystemGestureState(GCSystemGestureState::Disabled) };
 }
 
 /// # Safety
@@ -456,5 +564,28 @@ fn haptic_pattern(
 			err
 		})
 		.ok()
+	}
+}
+
+#[cfg(test)]
+mod value_changed_tests {
+	use super::value_changed;
+
+	#[test]
+	fn first_sample_always_emits() -> anyhow::Result<()> {
+		assert!(value_changed(None, 0.0));
+		Ok(())
+	}
+
+	#[test]
+	fn tiny_noise_is_ignored() -> anyhow::Result<()> {
+		assert!(!value_changed(Some(0.5), 0.5 + 1e-5));
+		Ok(())
+	}
+
+	#[test]
+	fn stick_deflection_emits() -> anyhow::Result<()> {
+		assert!(value_changed(Some(0.0), 0.2));
+		Ok(())
 	}
 }

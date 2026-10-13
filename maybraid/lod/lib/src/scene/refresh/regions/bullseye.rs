@@ -65,6 +65,11 @@ impl LodRefreshRegions for Bullseye {
 		}
 		LodRefreshRegionsStatus::Changed(self.outer_aabb(self.cell_center(current)))
 	}
+
+	fn lod_coverage(&self, lod_ref: &LodRef) -> Option<Aabb3d> {
+		let current = self.cell_index(lod_ref.current_transform.translation);
+		Some(self.outer_aabb(self.cell_center(current)))
+	}
 }
 
 #[cfg(test)]

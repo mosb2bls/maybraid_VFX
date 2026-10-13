@@ -88,12 +88,7 @@ pub enum SurfaceConstituent {
 
 impl SurfaceConstituent {
 	pub fn lexical(form: impl Into<String>, node: SemanticNode) -> Self {
-		Self::Lexical {
-			form: form.into(),
-			node,
-			relation: None,
-			part: LexicalPart::Whole,
-		}
+		Self::Lexical { form: form.into(), node, relation: None, part: LexicalPart::Whole }
 	}
 
 	pub fn particle(form: impl Into<String>, domain: ParticleDomain) -> Self {

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use crozon_characters::{CharacterRoot, HeadCapsule, HitCapsule, LocomotionCapsule};
+use characters::{CharacterRoot, HeadCapsule, HitCapsule, LocomotionCapsule};
 use lod_avian::PhysicsInteractionLayer;
 
 pub const HIT_VOLUME_NAME: &str = "hit-capsule";

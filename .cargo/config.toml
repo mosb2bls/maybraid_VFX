@@ -1,0 +1,9 @@
+# rustc 1.95 on this macOS rejects stripped proc-macro dylibs when a
+# regular crate does `pub use foo_derive` (`E0463`). Cargo still injects
+# `-C strip=debuginfo` into proc-macro units even if `[profile.release]
+# strip = "none"`. Last `-C strip` wins, so this must come through rustflags.
+[build]
+rustflags = ["-C", "strip=none"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "strip=none"]

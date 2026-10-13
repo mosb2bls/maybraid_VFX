@@ -81,9 +81,7 @@ pub(crate) fn apply_sky_mood(
 		fog.directional_light_color = Color::from(sun_fog);
 		// Night pulls the far plane in so distant terrain does not stay readable.
 		let day = mood.day_weight;
-		fog.falloff = FogFalloff::Linear {
-			start: 180.0 + 520.0 * day,
-			end: 1_100.0 + 3_400.0 * day,
-		};
+		fog.falloff =
+			FogFalloff::Linear { start: 180.0 + 520.0 * day, end: 1_100.0 + 3_400.0 * day };
 	}
 }

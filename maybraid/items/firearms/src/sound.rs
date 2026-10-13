@@ -7,7 +7,7 @@
 
 use bevy::prelude::*;
 use maybraid_audio::{
-	Audio, AudioBus, AudioClip, AudioVelocity, Mixer, SpatialEmitter, SpatialOneShot, listener,
+	listener, Audio, AudioBus, AudioClip, AudioVelocity, Mixer, SpatialEmitter, SpatialOneShot,
 };
 
 use firearms_components::AssetPath;
@@ -80,13 +80,23 @@ impl FirearmFireSounds {
 		listener: &GlobalTransform,
 		world: Vec3,
 		player: bool,
+		delay: f32,
+		duck: bool,
 	) {
 		let bus = if player { AudioBus::PlayerWeapon } else { AudioBus::Weapons };
+		if duck && player {
+			mixer.duck_player_shot();
+		}
 		audio.play_or_queue(
 			commands,
 			&self.fire,
 			clips,
-			SpatialOneShot::at(world).radius(FIRE_SPATIAL_RADIUS).gain(FIRE_VOLUME).bus(bus),
+			SpatialOneShot::at(world)
+				.radius(FIRE_SPATIAL_RADIUS)
+				.gain(FIRE_VOLUME)
+				.bus(bus)
+				.delay(delay)
+				.duck(false),
 			mixer,
 			listener,
 			"firearm-fire",
@@ -98,7 +108,9 @@ impl FirearmFireSounds {
 			SpatialOneShot::at(world)
 				.radius(HAMMER_SPATIAL_RADIUS)
 				.gain(HAMMER_VOLUME)
-				.bus(bus),
+				.bus(bus)
+				.delay(delay)
+				.duck(false),
 			mixer,
 			listener,
 			"firearm-hammer",

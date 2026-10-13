@@ -12,8 +12,8 @@ status() {
     fi
 }
 
-if [ -n "$PRE_COMMIT_DISABLE" ]; then
-    echo "Pre-commit hooks disabled. Skipping..."
+if [ "$PRE_COMMIT_ENABLE" != "true" ]; then
+    echo "Pre-commit hooks skipped (set PRE_COMMIT_ENABLE=true to run them)."
     exit 0
 fi
 

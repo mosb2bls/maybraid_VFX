@@ -41,13 +41,14 @@ pub use cull::{
 	named_band_progress, LodSceneCull, LodSceneCulls, NAMED_BANDS_NEAR_TO_FAR, OFFSET_BAND_DEPTH,
 };
 pub use host::{
-	hide_lod_tree, hide_lod_tree_world, host_shows_level_root, host_shows_level_root_world,
-	lod_host_scene, lod_host_scene_pending, lod_level_roots_entity, lod_root_is_shown,
-	lod_scene_host_or_ancestor_hidden, lod_scene_host_or_ancestor_hidden_world,
+	drain_lod_tree_vis, hide_lod_tree, hide_lod_tree_world, host_shows_level_root,
+	host_shows_level_root_world, lod_host_scene, lod_host_scene_pending, lod_level_roots_entity,
+	lod_root_is_shown, lod_scene_host_or_ancestor_hidden, lod_scene_host_or_ancestor_hidden_world,
 	lod_world_entity_is_shown, nested_host_parent_allows_refresh,
 	nested_host_parent_allows_refresh_world, parent_host_desired_or_high,
 	settle_lod_level_root_visibility, show_lod_tree, sync_lod_level_roots, LodLevelRoot,
 	LodLevelRootOverlap, LodLevelRoots, LodLevelSpawnRequest, LodSceneHost, LodSceneHostPlugin,
+	LodTreeVisBudget, LodTreeVisQueue,
 };
 pub use level::{LodSceneLevel, QuantizedDistance};
 pub use lod_scene::{LodScene, LodSceneStatus, SemanticLodScene, VisualLodScene};
@@ -58,15 +59,14 @@ pub use refresh::{
 	produce_lod_refresh_regions, refresh_lod_host_levels, sync_cullable_roots_marker,
 	sync_nested_refresh_allowed, update_lod_host_levels, Bullseye, LodCullMarkerPlugin,
 	LodCullProduceCache, LodCullProduceCadence, LodCullRegionCursor, LodCullRegions,
-	LodCullRegionsStatus, LodHostBounds,
-	LodHostHasCullableRoots, LodLevelProduceSystems, LodLevelProducer, LodNestedRefreshAllowed,
-	LodNestedRefreshBlocked, LodNestedRefreshSyncBudget, LodProduceCache, LodRefreshCorePlugin,
-	LodRefreshDomain, LodRefreshMembership, LodRefreshProductionPlugin, LodRefreshRegions,
-	LodRefreshRegionsError, LodRefreshRegionsStatus, LodRefreshSystems, LodSceneCullAabb,
-	LodSceneCullProduceFillPlugin, LodSceneCullRegion, LodSceneCullRegionPlugin,
-	LodSceneRefreshAabb, LodSceneRefreshEntitiesPlugin, LodSceneRefreshLevel,
-	LodSceneRefreshLevelsFillPlugin, LodSceneRefreshLevelsPlugin, LodSceneRefreshPlugin,
-	LodSceneRefreshRegion, LodSceneRefreshRegionPlugin, LodSceneRegionCullPlugin, LodViewer,
-	OpenLattice, Spotlight,
+	LodCullRegionsStatus, LodHostBounds, LodHostHasCullableRoots, LodLevelProduceSystems,
+	LodLevelProducer, LodNestedRefreshAllowed, LodNestedRefreshBlocked, LodNestedRefreshSyncBudget,
+	LodProduceCache, LodRefreshCorePlugin, LodRefreshDomain, LodRefreshMembership,
+	LodRefreshProductionPlugin, LodRefreshRegions, LodRefreshRegionsError, LodRefreshRegionsStatus,
+	LodRefreshSystems, LodSceneCullAabb, LodSceneCullProduceFillPlugin, LodSceneCullRegion,
+	LodSceneCullRegionPlugin, LodSceneRefreshAabb, LodSceneRefreshEntitiesPlugin,
+	LodSceneRefreshLevel, LodSceneRefreshLevelsFillPlugin, LodSceneRefreshLevelsPlugin,
+	LodSceneRefreshPlugin, LodSceneRefreshRegion, LodSceneRefreshRegionPlugin,
+	LodSceneRegionCullPlugin, LodViewer, OpenLattice, Spotlight,
 };
 pub use region_index::{LodSceneHostIndex, LodSceneRegionIndex};

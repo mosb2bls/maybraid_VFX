@@ -24,7 +24,7 @@ Related: [#800](https://github.com/ramate-io/maybraid/issues/800),
 | Cache present-cull keep ids | [`drain_lod_present_cull`](lod/lib/src/presentation/runtime.rs) rebuilds the keep [`HashSet`](https://doc.rust-lang.org/std/collections/struct.HashSet.html) only when the live keep AABB or [`SpatialIndex::membership_revision`](lod/lib/src/gen/spatial_index.rs) changes | Grove / canopy drains were paying `tracked_ids_for` + HashSet every frame (`last_30.csv` ~0.78 ms canopy + ~0.58 ms grove) while the ring was still. |
 | Consume cullable-root marker | Region enqueue still lowers a stale desired level, then walks roots only if the level just dropped or [`LodHostHasCullableRoots`](lod/lib/src/scene/refresh/cull_regions/markers.rs) is present. Mob full-scan cull filters on the marker. Drop unused [`LodProduceCache`](lod/lib/src/scene/refresh/levels/produce.rs) `hit_entities` and the unused per-region cull-hit `Vec`s | Marker was written every sync and never read. Cull fill also stored both a per-tile `Vec` and a union set; only the union is scheduled. |
 | Throttle scene-cull lattice | [`LodCullProduceCadence`](lod/lib/src/scene/refresh/cull_regions/cursor.rs) (vegetation: every 4 frames). Cursor does not advance on skipped ticks | Default OpenLattice is 1 km hole / 5 km outer / 500 m tiles → 112 cells. 1 tile/tick at 60 FPS is a ~1.9 s sweep and a cull-fill every frame (~0.78 ms). Every 4th frame is ~7.5 s and drops three of four fill ticks. |
-| Event-drive padded terrain | [`generate_urbanization_padded_terrain`](richmond/developments-on-terrain-playground/src/urbanization_stream.rs) / [`present_urbanization_padded_terrain`](richmond/developments-on-terrain-playground/src/urbanization_stream.rs) skip when keep AABB, store / terrain revision, and (for present) 8 m viewer quant are unchanged. Present reuses one tracked-id set | `last_30.csv` paid ~0.32 ms generate + ~0.55 ms present every frame. Dirty-pad invalidation still runs; a removed pad forces generate. |
+| Event-drive padded terrain | [`generate_urbanization_padded_terrain`](world/layers/urbanization/richmond-playground/src/urbanization_stream.rs) / [`present_urbanization_padded_terrain`](world/layers/urbanization/richmond-playground/src/urbanization_stream.rs) skip when keep AABB, store / terrain revision, and (for present) 8 m viewer quant are unchanged. Present reuses one tracked-id set | `last_30.csv` paid ~0.32 ms generate + ~0.55 ms present every frame. Dirty-pad invalidation still runs; a removed pad forces generate. |
 
 Crate layout after the split: [`lod`](lod/lib/) is the engine-agnostic runtime, [`lod-gimme`](lod/gimme/) owns the host index and refresh/cull plugins, [`lod-avian`](lod/avian/) keeps physics layers. Call sites use `gimme_host!`; unused `avian_host!` wrappers remain.
 
@@ -101,7 +101,7 @@ as an unused Avian Host query path. Refresh plugins do not install them.
 
 ### 3. Flatten High / Medium building kits
 
-**Status: done in this crate pass.** [`building_scene_chunks`](richmond/building-components/src/lib.rs) drains posed kits (weight 4, lazy) instead of a nested [`LodScene`](lod/lib/src/scene/lod_scene.rs) host per panel / partition / floor / …. Wizard’s Tower emit paths use the same flattened append. Fine-phase `PanelNode` plugins stay registered for leftover nested hosts.
+**Status: done in this crate pass.** [`building_scene_chunks`](world/layers/urbanization/buildings/components/src/lib.rs) drains posed kits (weight 4, lazy) instead of a nested [`LodScene`](lod/lib/src/scene/lod_scene.rs) host per panel / partition / floor / …. Wizard’s Tower emit paths use the same flattened append. Fine-phase `PanelNode` plugins stay registered for leftover nested hosts.
 
 ### 4. Shared cull fill
 
@@ -115,7 +115,7 @@ as an unused Avian Host query path. Refresh plugins do not install them.
 each building layout is a unique key → unique meshes × 1 instance. That is the
 unique-merge failure mode at building grain.
 
-Vegetation [`CollectionPresent::Merge`](chico/vegetation-components/src/foliage/present.rs)
+Vegetation [`CollectionPresent::Merge`](world/layers/vegetation/components/src/foliage/present.rs)
 is still the right merge: a **cacheable collection key** (cheap-balls / sticks),
 not “all stone rectangles on this tower.”
 
@@ -126,10 +126,11 @@ fill should stay ~0.65 ms. Stairs should remain visible at Medium.
 
 **Status: implemented in this crate pass.** Recapture `visibility_propagate`.
 
-Woody plants are already flattened posed kits under one plant host
-([`nest_flattened_plant_chunk`](chico/groves/src/grove/vc_compose.rs)) — not a
-host per frond / stick. Binning those hosts into quadrants is a different lever
-and is **not** this step.
+Woody plants are posed kits under the **grove tile** host
+([`nest_flattened_plant_chunk`](world/layers/vegetation/groves/src/grove/vc_compose.rs)) — not a
+host per tree, and not a host per frond / stick. Isolated `/show` still uses one
+plant host. Binning tiles into quadrants is a different lever and is **not**
+this step.
 
 The last-window vis cost is the **cardinality of plant/grove trees still in
 Bevy’s visibility walk**, including Hidden warm roots. Rewriting `Hidden` every
@@ -198,7 +199,7 @@ Do **not** unique-merge city walls further.
 - **Moving generate onto Gimme for FPS.** Generate drains are tiny in the late
   window. Produce is already Gimme. The remaining fill cost is snapshot
   collection + host set size.
-- **Caching stick compounds for frame time.** [`StickPhysicsAttached`](chico/forests/src/stick_physics.rs)
+- **Caching stick compounds for frame time.** [`StickPhysicsAttached`](world/layers/vegetation/chico/src/stick_physics.rs)
   already stamps once (budget 8 hosts/frame). Late `sync_stick_colliders` is
   ~60 µs. Hitch maxes are **presence** in Fixed (and parenting under a dirty
   `GlobalTransform`), not rebuild. Near-field physics is the lever, not a

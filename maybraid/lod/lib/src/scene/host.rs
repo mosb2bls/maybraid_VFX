@@ -1,5 +1,8 @@
 //! Runtime ECS hosts that switch LOD level roots without despawning the host.
 
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::query::{QueryData, QueryFilter};
 use bevy::math::bounding::Aabb3d;
@@ -36,9 +39,12 @@ pub fn lod_world_entity_is_shown(world: &World, entity: Entity) -> bool {
 
 /// Hide a warm LOD tree from default queries (visibility / extract / host index).
 ///
-/// [`Disabled`] is recursive: Bevy only disables the stamped entity, so children
-/// would still extract. Pending fulfill roots stay Hidden-only so new children
-/// still receive visibility propagate.
+/// Stamps [`Visibility::Hidden`], [`Disabled`], and the hide marker on `entity`
+/// immediately. Descendant [`Disabled`] is queued onto [`LodTreeVisQueue`] and
+/// drained by [`drain_lod_tree_vis`] (Bevy does not cascade [`Disabled`]).
+/// Without the queue (unit tests), descendants are stamped in this call.
+/// Pending fulfill roots stay Hidden-only so new children still receive
+/// visibility propagate.
 pub fn hide_lod_tree(commands: &mut Commands, entity: Entity) {
 	commands.queue(move |world: &mut World| hide_lod_tree_now(world, entity));
 }
@@ -55,7 +61,7 @@ pub fn hide_lod_tree_world(entity: &mut EntityWorldMut) {
 }
 
 fn hide_lod_tree_now(world: &mut World, root: Entity) {
-	let children: Vec<Entity> = {
+	let children = {
 		let Ok(mut entity) = world.get_entity_mut(root) else {
 			return;
 		};
@@ -65,12 +71,23 @@ fn hide_lod_tree_now(world: &mut World, root: Entity) {
 		}
 		let children = entity
 			.get::<Children>()
-			.map(|children| children.iter().collect())
+			.map(|c| c.iter().collect::<Vec<_>>())
 			.unwrap_or_default();
 		entity.insert((Visibility::Hidden, Disabled, LodTreeHideActive));
 		children
 	};
-	for child in children {
+	if children.is_empty() {
+		return;
+	}
+	if world.get_resource::<LodTreeVisQueue>().is_some() {
+		world.resource_mut::<LodTreeVisQueue>().enqueue_hide(root, children);
+		return;
+	}
+	hide_lod_tree_children_now(world, &children);
+}
+
+fn hide_lod_tree_children_now(world: &mut World, children: &[Entity]) {
+	for &child in children {
 		if let Ok(mut entity) = world.get_entity_mut(child) {
 			entity.insert_recursive::<Children>(Disabled);
 		}
@@ -103,7 +120,22 @@ fn show_lod_tree_now(world: &mut World, root: Entity) {
 		return;
 	}
 
-	let mut stack = vec![root];
+	world.entity_mut(root).remove::<(LodTreeHideActive, Disabled)>();
+	let children = world
+		.get::<Children>(root)
+		.map(|c| c.iter().collect::<Vec<_>>())
+		.unwrap_or_default();
+	if children.is_empty() {
+		return;
+	}
+	if world.get_resource::<LodTreeVisQueue>().is_some() {
+		world.resource_mut::<LodTreeVisQueue>().enqueue_show(root, children);
+		return;
+	}
+	show_lod_tree_descendants_now(world, root, children);
+}
+
+fn show_lod_tree_descendants_now(world: &mut World, root: Entity, mut stack: Vec<Entity>) {
 	while let Some(entity) = stack.pop() {
 		let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
 			continue;
@@ -111,17 +143,191 @@ fn show_lod_tree_now(world: &mut World, root: Entity) {
 		if entity != root && entity_mut.contains::<LodTreeHideActive>() {
 			continue;
 		}
-		let children: Vec<Entity> = entity_mut
+		let children = entity_mut
 			.get::<Children>()
-			.map(|children| children.iter().collect())
+			.map(|c| c.iter().collect::<Vec<_>>())
 			.unwrap_or_default();
-		if entity == root {
-			entity_mut.remove::<(LodTreeHideActive, Disabled)>();
-		} else {
-			entity_mut.remove::<Disabled>();
-		}
+		entity_mut.remove::<Disabled>();
 		stack.extend(children);
 	}
+}
+
+/// Per-frame target for recursive [`Disabled`] hide/show walks.
+///
+/// Root hide/show still stamps immediately (Hidden + root [`Disabled`], or
+/// Inherited + root enable). Descendant [`Disabled`] apply is drained by
+/// [`drain_lod_tree_vis`] so one grove tile cannot take 500 ms of ApplyDeferred.
+///
+/// [`Self::time_per_frame`] is checked **between** visits, not a hard cap: one
+/// node that copies a large [`Children`] list can still overrun (Tracy drain
+/// max ~6 ms against the 2 ms target). The initial root-child collect in
+/// hide/show is also outside the drain loop.
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LodTreeVisBudget {
+	/// Wall-clock **target** for [`drain_lod_tree_vis`]. Default 2 ms.
+	///
+	/// Checked after each visit; a single visit can exceed it.
+	pub time_per_frame: Duration,
+	/// Max entities visited this frame. Default 512.
+	pub entities_per_frame: u32,
+}
+
+impl Default for LodTreeVisBudget {
+	fn default() -> Self {
+		Self { time_per_frame: Duration::from_millis(2), entities_per_frame: 512 }
+	}
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LodTreeVisKind {
+	Hide,
+	Show,
+}
+
+struct LodTreeVisJob {
+	kind: LodTreeVisKind,
+	root: Entity,
+	stack: Vec<Entity>,
+}
+
+/// Remaining descendant [`Disabled`] work from hide/show.
+#[derive(Resource, Default)]
+pub struct LodTreeVisQueue {
+	shows: VecDeque<LodTreeVisJob>,
+	hides: VecDeque<LodTreeVisJob>,
+}
+
+impl LodTreeVisQueue {
+	fn enqueue_hide(&mut self, root: Entity, children: Vec<Entity>) {
+		self.cancel(root);
+		if !children.is_empty() {
+			self.hides.push_back(LodTreeVisJob {
+				kind: LodTreeVisKind::Hide,
+				root,
+				stack: children,
+			});
+		}
+	}
+
+	fn enqueue_show(&mut self, root: Entity, children: Vec<Entity>) {
+		self.cancel(root);
+		if !children.is_empty() {
+			self.shows.push_back(LodTreeVisJob {
+				kind: LodTreeVisKind::Show,
+				root,
+				stack: children,
+			});
+		}
+	}
+
+	fn cancel(&mut self, root: Entity) {
+		self.shows.retain(|job| job.root != root);
+		self.hides.retain(|job| job.root != root);
+	}
+
+	fn pop_visit(&mut self) -> Option<(LodTreeVisKind, Entity, Entity)> {
+		Self::pop_from(&mut self.shows).or_else(|| Self::pop_from(&mut self.hides))
+	}
+
+	fn pop_from(jobs: &mut VecDeque<LodTreeVisJob>) -> Option<(LodTreeVisKind, Entity, Entity)> {
+		while let Some(job) = jobs.front_mut() {
+			if let Some(entity) = job.stack.pop() {
+				let kind = job.kind;
+				let root = job.root;
+				if job.stack.is_empty() {
+					jobs.pop_front();
+				}
+				return Some((kind, root, entity));
+			}
+			jobs.pop_front();
+		}
+		None
+	}
+
+	fn push_children(&mut self, kind: LodTreeVisKind, root: Entity, children: Vec<Entity>) {
+		if children.is_empty() {
+			return;
+		}
+		let jobs = match kind {
+			LodTreeVisKind::Show => &mut self.shows,
+			LodTreeVisKind::Hide => &mut self.hides,
+		};
+		if let Some(front) = jobs.front_mut() {
+			if front.kind == kind && front.root == root {
+				front.stack.extend(children);
+				return;
+			}
+		}
+		jobs.push_front(LodTreeVisJob { kind, root, stack: children });
+	}
+}
+
+#[cfg(test)]
+impl LodTreeVisQueue {
+	fn is_empty(&self) -> bool {
+		self.shows.is_empty() && self.hides.is_empty()
+	}
+}
+
+/// Apply queued descendant [`Disabled`] stamps under [`LodTreeVisBudget`].
+///
+/// Shows drain first so a warm-swap band appears before leftover hides.
+pub fn drain_lod_tree_vis(world: &mut World) {
+	if world.get_resource::<LodTreeVisQueue>().is_none() {
+		return;
+	}
+	let budget = world.get_resource::<LodTreeVisBudget>().copied().unwrap_or_default();
+	let start = Instant::now();
+	let mut visited = 0u32;
+	loop {
+		if visited > 0
+			&& (visited >= budget.entities_per_frame.max(1)
+				|| start.elapsed() >= budget.time_per_frame)
+		{
+			break;
+		}
+		let Some((kind, root, entity)) = world.resource_mut::<LodTreeVisQueue>().pop_visit() else {
+			break;
+		};
+		let children = match kind {
+			LodTreeVisKind::Hide => hide_lod_tree_visit(world, root, entity),
+			LodTreeVisKind::Show => show_lod_tree_visit(world, root, entity),
+		};
+		if !children.is_empty() {
+			world.resource_mut::<LodTreeVisQueue>().push_children(kind, root, children);
+		}
+		visited += 1;
+	}
+}
+
+fn hide_lod_tree_visit(world: &mut World, root: Entity, entity: Entity) -> Vec<Entity> {
+	let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+		return Vec::new();
+	};
+	if entity != root && entity_mut.contains::<LodTreeHideActive>() {
+		return Vec::new();
+	}
+	let children = entity_mut
+		.get::<Children>()
+		.map(|c| c.iter().collect::<Vec<_>>())
+		.unwrap_or_default();
+	entity_mut.insert(Disabled);
+	children
+}
+
+fn show_lod_tree_visit(world: &mut World, root: Entity, entity: Entity) -> Vec<Entity> {
+	let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+		return Vec::new();
+	};
+	if entity != root && entity_mut.contains::<LodTreeHideActive>() {
+		return Vec::new();
+	}
+	let children = entity_mut
+		.get::<Children>()
+		.map(|c| c.iter().collect::<Vec<_>>())
+		.unwrap_or_default();
+	entity_mut.remove::<Disabled>();
+	children
 }
 
 /// True when this entity or an ancestor [`LodSceneHost`] is Hidden or [`Disabled`].
@@ -571,9 +777,8 @@ pub fn sync_lod_level_roots(
 			continue;
 		};
 
-		let child_ids: Vec<Entity> = root_children.iter().collect();
 		let mut found_desired = false;
-		for &child in &child_ids {
+		for child in root_children.iter() {
 			let Ok(root) = root_keys.get(child) else {
 				continue;
 			};
@@ -588,7 +793,7 @@ pub fn sync_lod_level_roots(
 		if apply_lod_level_root_visibility(
 			&mut commands,
 			desired,
-			&child_ids,
+			root_children,
 			&root_keys,
 			&pending,
 			&wants_cull,
@@ -639,11 +844,10 @@ pub fn settle_lod_level_root_visibility(
 		let Ok(root_children) = level_roots_heads.get(roots_entity) else {
 			continue;
 		};
-		let child_ids: Vec<Entity> = root_children.iter().collect();
 		if !apply_lod_level_root_visibility(
 			&mut commands,
 			*level,
-			&child_ids,
+			root_children,
 			&root_keys,
 			&pending,
 			&wants_cull,
@@ -811,5 +1015,161 @@ mod tests {
 		assert!(world
 			.get::<Visibility>(pending_root)
 			.is_some_and(|v| matches!(*v, Visibility::Hidden)));
+	}
+
+	fn tree_with_leaves(world: &mut World, leaves: usize) -> (Entity, Vec<Entity>) {
+		let leaf_ids: Vec<_> = (0..leaves).map(|_| world.spawn(MeshStandIn).id()).collect();
+		let root = world.spawn(Visibility::Inherited).id();
+		world.entity_mut(root).add_children(&leaf_ids);
+		(root, leaf_ids)
+	}
+
+	fn drain_until_empty(world: &mut World) {
+		for _ in 0..64 {
+			if world.resource::<LodTreeVisQueue>().is_empty() {
+				return;
+			}
+			drain_lod_tree_vis(world);
+		}
+		panic!("vis drain did not empty");
+	}
+
+	#[test]
+	fn hide_budget_spreads_descendant_disabled() {
+		let mut world = World::new();
+		world.init_resource::<LodTreeVisQueue>();
+		world.insert_resource(LodTreeVisBudget {
+			time_per_frame: Duration::from_secs(1),
+			entities_per_frame: 2,
+		});
+		let (root, leaves) = tree_with_leaves(&mut world, 6);
+		hide_lod_tree_now(&mut world, root);
+
+		assert!(world.get::<Disabled>(root).is_some());
+		assert!(world.get::<LodTreeHideActive>(root).is_some());
+		let disabled_after_hide =
+			leaves.iter().filter(|leaf| world.get::<Disabled>(**leaf).is_some()).count();
+		assert_eq!(disabled_after_hide, 0, "descendants wait for drain");
+
+		drain_lod_tree_vis(&mut world);
+		let disabled_after_one =
+			leaves.iter().filter(|leaf| world.get::<Disabled>(**leaf).is_some()).count();
+		assert_eq!(disabled_after_one, 2);
+
+		drain_until_empty(&mut world);
+		assert!(leaves.iter().all(|leaf| world.get::<Disabled>(*leaf).is_some()));
+	}
+
+	#[test]
+	fn show_budget_spreads_descendant_enable() {
+		let mut world = World::new();
+		world.init_resource::<LodTreeVisQueue>();
+		world.insert_resource(LodTreeVisBudget {
+			time_per_frame: Duration::from_secs(1),
+			entities_per_frame: 2,
+		});
+		let (root, leaves) = tree_with_leaves(&mut world, 6);
+		hide_lod_tree_now(&mut world, root);
+		drain_until_empty(&mut world);
+		assert!(leaves.iter().all(|leaf| world.get::<Disabled>(*leaf).is_some()));
+
+		show_lod_tree_now(&mut world, root);
+		assert!(world.get::<Disabled>(root).is_none());
+		let still_disabled =
+			leaves.iter().filter(|leaf| world.get::<Disabled>(**leaf).is_some()).count();
+		assert_eq!(still_disabled, 6, "descendants wait for drain");
+
+		drain_lod_tree_vis(&mut world);
+		let still_disabled =
+			leaves.iter().filter(|leaf| world.get::<Disabled>(**leaf).is_some()).count();
+		assert_eq!(still_disabled, 4);
+
+		drain_until_empty(&mut world);
+		assert!(leaves.iter().all(|leaf| world.get::<Disabled>(*leaf).is_none()));
+	}
+
+	#[test]
+	fn queued_show_cancels_pending_hide() {
+		let mut world = World::new();
+		world.init_resource::<LodTreeVisQueue>();
+		world.insert_resource(LodTreeVisBudget {
+			time_per_frame: Duration::from_secs(1),
+			entities_per_frame: 1,
+		});
+		let (root, leaves) = tree_with_leaves(&mut world, 4);
+		hide_lod_tree_now(&mut world, root);
+		show_lod_tree_now(&mut world, root);
+		drain_until_empty(&mut world);
+		assert!(world.get::<Disabled>(root).is_none());
+		assert!(leaves.iter().all(|leaf| world.get::<Disabled>(*leaf).is_none()));
+	}
+
+	#[test]
+	fn queued_hide_show_hide_converges_disabled() {
+		let mut world = World::new();
+		world.init_resource::<LodTreeVisQueue>();
+		world.insert_resource(LodTreeVisBudget {
+			time_per_frame: Duration::from_secs(1),
+			entities_per_frame: 2,
+		});
+		let (root, leaves) = tree_with_leaves(&mut world, 6);
+
+		hide_lod_tree_now(&mut world, root);
+		drain_lod_tree_vis(&mut world);
+		let disabled_after_hide =
+			leaves.iter().filter(|leaf| world.get::<Disabled>(**leaf).is_some()).count();
+		assert_eq!(disabled_after_hide, 2);
+
+		show_lod_tree_now(&mut world, root);
+		assert!(world.get::<Disabled>(root).is_none());
+		drain_lod_tree_vis(&mut world);
+		assert!(
+			!world.resource::<LodTreeVisQueue>().is_empty(),
+			"show drain is partial so leftover enable work remains"
+		);
+
+		hide_lod_tree_now(&mut world, root);
+		assert!(world.get::<Disabled>(root).is_some());
+		assert!(world.get::<LodTreeHideActive>(root).is_some());
+		drain_until_empty(&mut world);
+		assert!(leaves.iter().all(|leaf| world.get::<Disabled>(*leaf).is_some()));
+	}
+
+	#[test]
+	fn queued_show_prunes_nested_hidden_tree() {
+		let mut world = World::new();
+		world.init_resource::<LodTreeVisQueue>();
+		world.insert_resource(LodTreeVisBudget {
+			time_per_frame: Duration::from_secs(1),
+			entities_per_frame: 2,
+		});
+
+		let nested_leaf = world.spawn(MeshStandIn).id();
+		let nested_root = world.spawn(Visibility::Inherited).id();
+		world.entity_mut(nested_root).add_child(nested_leaf);
+		let shown_leaf = world.spawn(MeshStandIn).id();
+		let shown_root = world.spawn(Visibility::Inherited).id();
+		world.entity_mut(shown_root).add_child(shown_leaf);
+		let parent = world.spawn(Visibility::Inherited).id();
+		world.entity_mut(parent).add_children(&[nested_root, shown_root]);
+
+		hide_lod_tree_now(&mut world, nested_root);
+		drain_until_empty(&mut world);
+		hide_lod_tree_now(&mut world, parent);
+		drain_until_empty(&mut world);
+		show_lod_tree_now(&mut world, parent);
+		drain_until_empty(&mut world);
+
+		assert!(world.get::<Disabled>(parent).is_none());
+		assert!(world.get::<Disabled>(shown_root).is_none());
+		assert!(world.get::<Disabled>(shown_leaf).is_none());
+		assert!(world.get::<Disabled>(nested_root).is_some());
+		assert!(world.get::<Disabled>(nested_leaf).is_some());
+		assert!(world.get::<LodTreeHideActive>(nested_root).is_some());
+
+		show_lod_tree_now(&mut world, nested_root);
+		drain_until_empty(&mut world);
+		assert!(world.get::<Disabled>(nested_root).is_none());
+		assert!(world.get::<Disabled>(nested_leaf).is_none());
 	}
 }

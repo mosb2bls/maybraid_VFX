@@ -1,12 +1,15 @@
 //! Menu bind of the live skill-map view: same camera, tiles, and [`ViewportNode`].
 
-use bevy::camera::ScalingMode;
+use bevy::asset::RenderAssetUsages;
+use bevy::camera::{ClearColorConfig, RenderTarget, ScalingMode};
 use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 use bevy::ui::widget::ViewportNode;
-use crozon_character_items::SkillMapSpec;
+use character_items::SkillMapSpec;
 
-use crate::map::{authored_map, MapExtents, SkillKind, SkillMapId};
+use crate::map::{authored_map, authored_map_from_spec, MapExtents, SkillKind, SkillMapId};
 use crate::tile_material::SkillMapTileAssets;
+use crate::tiles::spawn_map_tiles_at;
 use crate::user::SkillMapMember;
 use crate::viewport::spawn_skill_map_view;
 
@@ -36,7 +39,10 @@ pub struct SkillMapCatalogPreview {
 	pub spec: SkillMapSpec,
 }
 
-fn catalog_world_span() -> f32 {
+/// First [`SkillMapId`] reserved for icon-cache paint booths (live `0`, menu `16`).
+pub const ICON_PAINT_ID_BASE: u32 = 8;
+
+pub(crate) fn catalog_world_span() -> f32 {
 	let extents = MapExtents::default();
 	extents.tile_size().x * extents.steps as f32
 }
@@ -47,6 +53,49 @@ fn catalog_projection() -> OrthographicProjection {
 	projection.scaling_mode = ScalingMode::Fixed { width: span, height: span };
 	projection.scale = 1.0;
 	projection
+}
+
+/// Off-screen `Camera2d` that paints authored tiles into a sized image.
+pub fn spawn_skill_map_paint_view(
+	commands: &mut Commands,
+	images: &mut Assets<Image>,
+	tiles: &SkillMapTileAssets,
+	spec: SkillMapSpec,
+	id: SkillMapId,
+	resolution: u32,
+	parent: Entity,
+) -> Handle<Image> {
+	let mut authored = authored_map_from_spec(spec);
+	authored.id = id;
+	let mut image = Image::new_uninit(
+		Extent3d { width: resolution.max(1), height: resolution.max(1), depth_or_array_layers: 1 },
+		TextureDimension::D2,
+		TextureFormat::Bgra8UnormSrgb,
+		RenderAssetUsages::RENDER_WORLD,
+	);
+	image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING
+		| TextureUsages::COPY_SRC
+		| TextureUsages::COPY_DST
+		| TextureUsages::RENDER_ATTACHMENT;
+	let image_handle = images.add(image);
+	commands.entity(parent).with_children(|booth| {
+		booth.spawn((
+			Name::new(format!("skill-map-paint-{}", spec.kind.label())),
+			Camera2d,
+			Camera {
+				order: -60 - id.0 as isize,
+				clear_color: ClearColorConfig::Custom(authored.kind.viewport_clear()),
+				..default()
+			},
+			RenderTarget::Image(image_handle.clone().into()),
+			Projection::Orthographic(catalog_projection()),
+			Transform::from_xyz(0.0, 0.0, 1.0),
+			id,
+			crate::map::render_layer(id),
+		));
+	});
+	spawn_map_tiles_at(commands, authored, None, tiles, Vec2::ZERO, Some(parent));
+	image_handle
 }
 
 /// Same [`spawn_skill_map_view`] path as play. Caller attaches [`ViewportNode`].
@@ -78,6 +127,41 @@ pub fn spawn_skill_map_catalog_preview(
 		(),
 	);
 	SkillMapCatalogPreview { host, camera: view.camera, image: view.image, spec }
+}
+
+/// Centered catalog PNG. Inventory no longer keeps a live map camera.
+pub fn spawn_skill_map_spin_reveal_image(
+	commands: &mut Commands,
+	image: Handle<Image>,
+	size: f32,
+) -> Entity {
+	commands
+		.spawn((
+			Name::new("skill-map-spin-reveal-hud"),
+			SkillMapSpinRevealHud,
+			Node {
+				position_type: PositionType::Absolute,
+				left: Val::Px(0.0),
+				right: Val::Px(0.0),
+				top: Val::Px(0.0),
+				bottom: Val::Px(0.0),
+				width: Val::Percent(100.0),
+				height: Val::Percent(100.0),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			Pickable::IGNORE,
+		))
+		.with_children(|center| {
+			center.spawn((
+				SkillMapSpinRevealHudView,
+				ImageNode::new(image),
+				Node { width: Val::Px(size), height: Val::Px(size), ..default() },
+				Pickable::IGNORE,
+			));
+		})
+		.id()
 }
 
 /// Centered root [`ViewportNode`], same attach as the live corner map.

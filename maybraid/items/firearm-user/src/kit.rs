@@ -1,6 +1,6 @@
 //! Catalog [`FirearmSpec`] → assembled [`FirearmKit`], with slot looks painted on.
 
-use crozon_character_items::{
+use character_items::{
 	FirearmBarrel, FirearmGrip, FirearmKitSpec, FirearmMesh, FirearmSight, FirearmSpec,
 	FirearmStock, FirearmTriggerBox, SlotLook,
 };
@@ -8,7 +8,7 @@ use firearms::{
 	BarrelMesh, BodyMesh, FirearmComponents, FirearmKit, GripMesh, Layers, PartNode, RigNode,
 	SightMesh, StockMesh, TriggerBoxMesh,
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use material_ref::MaterialRef;
 
 /// Painted inventory kit used by the world, range, mobs, and character-menu inspect.
@@ -25,6 +25,11 @@ pub struct GeneratedFirearm {
 impl GeneratedFirearm {
 	pub fn from_spec(spec: FirearmSpec) -> Self {
 		Self { spec, kit: kit_from_spec(spec) }
+	}
+
+	/// Capture / inspect pose: unused stock and barrel bones scale to zero.
+	pub fn icon_pose(self) -> firearms::FirearmPose {
+		self.kit.icon_pose()
 	}
 
 	fn look_material(look: SlotLook) -> MaterialRef {
@@ -118,8 +123,8 @@ impl FirearmComponents for GeneratedFirearm {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crozon_character_items::{FirearmMaterial, FirearmMesh, ItemColor};
-	use firearms::SocketRef;
+	use character_items::{FirearmMaterial, FirearmMesh, ItemColor};
+	use firearms::{SocketRef, StockMesh};
 
 	#[test]
 	fn kit_mapping_preserves_bullpup_concept_slots() {
@@ -152,6 +157,13 @@ mod tests {
 		let nodes = rolled.body_nodes_for_level(LodSceneLevel::High).flatten();
 		assert_eq!(nodes.len(), 1);
 		assert_eq!(nodes[0].material, GeneratedFirearm::look_material(spec.looks.body));
+	}
+
+	#[test]
+	fn icon_pose_collapses_empty_stock() {
+		let rolled = GeneratedFirearm::from_spec(FirearmSpec::from_mesh(FirearmMesh::Snailer));
+		assert_eq!(rolled.kit.stock, StockMesh::None);
+		assert_eq!(rolled.icon_pose().stock.length, 0.0);
 	}
 
 	#[test]

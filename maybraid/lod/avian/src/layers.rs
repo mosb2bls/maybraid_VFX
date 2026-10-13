@@ -11,8 +11,8 @@
 //! | [`PhysicsInteractionLayer::Fixed`] | Terrain / buildings | [`Animated`](PhysicsInteractionLayer::Animated) |
 //! | [`PhysicsInteractionLayer::Animated`] | Characters / movers | [`Fixed`](PhysicsInteractionLayer::Fixed) + [`Animated`](PhysicsInteractionLayer::Animated) |
 //!
-//! Generate / present ids use typed [`lod::gen::SpatialIndex`] resources, not
-//! Avian query volumes. Scene-host refresh uses Gimme, not Host colliders.
+//! Generate / present ids use [`lod::hcsg::HcsgStorage`], not Avian query
+//! volumes. Scene-host refresh uses Gimme, not Host colliders.
 
 use avian3d::prelude::{Collider, CollisionLayers, LayerMask, PhysicsLayer, SpatialQueryFilter};
 use bevy::math::bounding::Aabb3d;

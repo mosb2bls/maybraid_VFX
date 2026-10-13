@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::band::RoutingSettings;
-use crate::plan::{plan_route, FailedEdge, RoutePlan};
+use crate::plan::{FailedEdge, RoutePlan};
 use crate::probe::RouteProbe;
 
 /// Long-range corridor memory. Writes a nearby [`movement_intelligence::MovementObjective::Reach`]
@@ -49,7 +49,8 @@ impl RoutingIntelligenceUser {
 			return;
 		};
 		let previous = self.plan.clone();
-		self.plan = plan_route(from, goal, &self.settings, probe, Some(&previous), &self.failed);
+		self.plan =
+			RoutePlan::plan(from, goal, &self.settings, probe, Some(&previous), &self.failed);
 		self.hop = 0;
 		self.dirty = false;
 	}

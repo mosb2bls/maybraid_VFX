@@ -21,7 +21,7 @@ NPC mixer + personality (only while High is shown)
 
 Copy **forest / grove**, not “every NPC is a host.”
 
-- [`ChicoForest`](../../chico/forests/CONTRIBUTING.md) is **select-only** and
+- [`ChicoForest`](../../world/layers/vegetation/chico/CONTRIBUTING.md) is **select-only** and
   does not implement `LodScene`.
 - Groves are the hosts. High grows real plants; coarser bands keep the grove
   and drop expensive leaves.

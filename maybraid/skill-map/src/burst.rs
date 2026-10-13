@@ -13,7 +13,7 @@ use projectiles::{ProjectileContact, ProjectileSource};
 use bevy::prelude::*;
 
 use crate::user::SkillMapUser;
-use crate::{SkillKind, SkillMapEnabled, SkillMapEvent};
+use crate::{skill_map_dispatch_ready, SkillKind, SkillMapEnabled, SkillMapEvent};
 
 pub const ROCKADDER_RADIUS: f32 = 20.0;
 pub const ROCKADDER_DAMAGE: f32 = 32.0;
@@ -150,8 +150,7 @@ pub fn dispatch_rockadders(
 	mut events: MessageReader<SkillMapEvent>,
 	users: Query<(Entity, &GlobalTransform), With<SkillMapUser>>,
 ) {
-	if !enabled.0 {
-		for _ in events.read() {}
+	if !skill_map_dispatch_ready(&enabled, &mut events) {
 		return;
 	}
 	for event in events.read() {
@@ -182,8 +181,7 @@ pub fn dispatch_cosmos(
 	users: Query<(Entity, &GlobalTransform, Option<&GravityScale>), With<SkillMapUser>>,
 	mut velocities: Query<&mut LinearVelocity>,
 ) {
-	if !enabled.0 {
-		for _ in events.read() {}
+	if !skill_map_dispatch_ready(&enabled, &mut events) {
 		return;
 	}
 	let gravity = gravity.as_deref();

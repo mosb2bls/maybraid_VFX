@@ -1,0 +1,35 @@
+[package]
+name = "barking"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+chico = { workspace = true }
+layer-stack = { workspace = true }
+lod = { workspace = true }
+lod-gimme = { workspace = true }
+mob-characters = { workspace = true }
+mob-intelligence = { workspace = true }
+mob-layer-model = { workspace = true }
+mob-scenes = { workspace = true }
+procedural-common = { workspace = true }
+richmond = { workspace = true }
+terrain-layer-model = { workspace = true }
+urbanization-cells = { workspace = true }
+urbanization-layer-model = { workspace = true }
+vegetation-layer-model = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+durham = { workspace = true }
+mob-intelligence = { workspace = true }
+
+[lints]
+workspace = true

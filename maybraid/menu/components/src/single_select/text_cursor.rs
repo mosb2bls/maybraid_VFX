@@ -7,8 +7,8 @@ use bevy::text::{FontSourceTemplate, Justify};
 use crate::icons::maybraid::AnimatedIcon;
 
 use super::text_menu::{
-	MenuItemLocked, TextColumnAlign, TextColumnAnchor, TextMenu, TextMenuHeader, TextMenuItem,
-	TextMenuItemLabel,
+	MenuItemLocked, MenuStepper, TextColumnAlign, TextColumnAnchor, TextMenu, TextMenuHeader,
+	TextMenuItem, TextMenuItemLabel,
 };
 use crate::controls::scroll::{entity_is_under, reveal_item_in_viewport};
 use crate::controls::section::{ActiveOverlayKey, CursorRow};
@@ -41,6 +41,7 @@ pub struct TextCursorSlot;
 pub enum MenuObjectiveKind {
 	#[default]
 	ComingSoon,
+	TemporarilyRemoved,
 	StartHere,
 	NeedsCharacter,
 	Selected,
@@ -50,6 +51,7 @@ impl MenuObjectiveKind {
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::ComingSoon => "Coming Soon",
+			Self::TemporarilyRemoved => "Temporarily Removed",
 			Self::StartHere => "Start Here",
 			Self::NeedsCharacter => "Needs Character.",
 			Self::Selected => "Selected",
@@ -58,7 +60,7 @@ impl MenuObjectiveKind {
 
 	pub fn color(self) -> Color {
 		match self {
-			Self::ComingSoon => TEXT_PURPLE,
+			Self::ComingSoon | Self::TemporarilyRemoved => TEXT_PURPLE,
 			Self::StartHere => TEXT_LIME,
 			Self::NeedsCharacter => TEXT_SALMON,
 			Self::Selected => TEXT_LIME,
@@ -86,6 +88,8 @@ pub struct TextCursorRow<E> {
 	/// When `false`, the badge node is still spawned so a screen can show it later.
 	pub objective_visible: bool,
 	pub locked: bool,
+	/// Left/right change this row's value instead of moving the cursor.
+	pub stepper: bool,
 }
 
 impl<E> TextCursorRow<E> {
@@ -97,6 +101,7 @@ impl<E> TextCursorRow<E> {
 			objective: None,
 			objective_visible: true,
 			locked: false,
+			stepper: false,
 		}
 	}
 
@@ -121,6 +126,11 @@ impl<E> TextCursorRow<E> {
 
 	pub fn locked(mut self) -> Self {
 		self.locked = true;
+		self
+	}
+
+	pub fn stepper(mut self) -> Self {
+		self.stepper = true;
 		self
 	}
 }
@@ -310,6 +320,7 @@ impl<E: Component + Copy + Default + Unpin + Send + Sync + 'static> ButtonWithSu
 				TextColumnAlign::Start,
 				0,
 				false,
+				false,
 				None,
 				true,
 			),
@@ -449,6 +460,7 @@ where
 		align,
 		selected,
 		row.locked,
+		row.stepper,
 		row.objective,
 		row.objective_visible,
 	)];
@@ -501,6 +513,7 @@ fn cursor_item_scene<E>(
 	align: TextColumnAlign,
 	selected: usize,
 	locked: bool,
+	stepper: bool,
 	objective: Option<MenuObjectiveKind>,
 	objective_visible: bool,
 ) -> Box<dyn Scene>
@@ -530,6 +543,22 @@ where
 			template_value(item)
 			template_value(action)
 			MenuItemLocked
+			Node {
+				padding: UiRect::axes(px(0.0), px(2.0)),
+				flex_direction: FlexDirection::Row,
+				justify_content: justify_content,
+				align_items: AlignItems::Center,
+				column_gap: column_gap,
+			}
+			BackgroundColor(Color::NONE)
+			Children [ {children} ]
+		})
+	} else if stepper {
+		Box::new(bsn! {
+			Button
+			template_value(item)
+			template_value(action)
+			MenuStepper
 			Node {
 				padding: UiRect::axes(px(0.0), px(2.0)),
 				flex_direction: FlexDirection::Row,
@@ -804,10 +833,12 @@ mod tests {
 	#[test]
 	fn objective_kind_copy_and_color() {
 		assert_eq!(MenuObjectiveKind::ComingSoon.label(), "Coming Soon");
+		assert_eq!(MenuObjectiveKind::TemporarilyRemoved.label(), "Temporarily Removed");
 		assert_eq!(MenuObjectiveKind::StartHere.label(), "Start Here");
 		assert_eq!(MenuObjectiveKind::NeedsCharacter.label(), "Needs Character.");
 		assert_eq!(MenuObjectiveKind::Selected.label(), "Selected");
 		assert_eq!(MenuObjectiveKind::ComingSoon.color(), TEXT_PURPLE);
+		assert_eq!(MenuObjectiveKind::TemporarilyRemoved.color(), TEXT_PURPLE);
 		assert_eq!(MenuObjectiveKind::StartHere.color(), TEXT_LIME);
 		assert_eq!(MenuObjectiveKind::NeedsCharacter.color(), TEXT_SALMON);
 		assert_eq!(MenuObjectiveKind::Selected.color(), TEXT_LIME);
@@ -840,6 +871,13 @@ mod tests {
 		assert_eq!(row.subtext.as_deref(), Some("Braidman"));
 		assert_eq!(row.objective, Some(MenuObjectiveKind::StartHere));
 		assert!(!row.locked);
+		assert!(!row.stepper);
+	}
+
+	#[test]
+	fn stepper_marks_the_row() {
+		let row = TextCursorRow::new("Render Scale", RowAction::Go).stepper();
+		assert!(row.stepper);
 	}
 
 	#[test]

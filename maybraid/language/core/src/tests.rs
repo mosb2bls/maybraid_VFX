@@ -93,44 +93,33 @@ fn wordnet_resolves_lemmas_to_synsets_not_strings() -> anyhow::Result<()> {
 fn wordnet_reduces_inflected_verbs_to_citation_forms() -> anyhow::Result<()> {
 	let universe = poc_universe()?;
 	let strikes = universe.resolve_english("strikes");
-	assert!(
-		!strikes.is_empty(),
-		"strikes should reduce to WordNet strike"
-	);
+	assert!(!strikes.is_empty(), "strikes should reduce to WordNet strike");
 	let glosses: Vec<_> = strikes
 		.iter()
 		.filter_map(|id| universe.concept(*id))
 		.map(|c| c.primary_gloss().to_owned())
 		.collect();
 	assert!(glosses.iter().any(|g| g == "strike"));
-	assert!(
-		universe
-			.resolve_english("gives")
-			.iter()
-			.filter_map(|id| universe.concept(*id))
-			.any(|concept| concept.primary_gloss() == "give")
-	);
-	assert!(
-		universe
-			.resolve_english("struck")
-			.iter()
-			.filter_map(|id| universe.concept(*id))
-			.any(|concept| concept.primary_gloss() == "strike")
-	);
-	assert!(
-		universe
-			.resolve_english("children")
-			.iter()
-			.filter_map(|id| universe.concept(*id))
-			.any(|concept| concept.primary_gloss() == "child")
-	);
-	assert!(
-		universe
-			.resolve_english("went")
-			.iter()
-			.filter_map(|id| universe.concept(*id))
-			.any(|concept| concept.primary_gloss() == "go")
-	);
+	assert!(universe
+		.resolve_english("gives")
+		.iter()
+		.filter_map(|id| universe.concept(*id))
+		.any(|concept| concept.primary_gloss() == "give"));
+	assert!(universe
+		.resolve_english("struck")
+		.iter()
+		.filter_map(|id| universe.concept(*id))
+		.any(|concept| concept.primary_gloss() == "strike"));
+	assert!(universe
+		.resolve_english("children")
+		.iter()
+		.filter_map(|id| universe.concept(*id))
+		.any(|concept| concept.primary_gloss() == "child"));
+	assert!(universe
+		.resolve_english("went")
+		.iter()
+		.filter_map(|id| universe.concept(*id))
+		.any(|concept| concept.primary_gloss() == "go"));
 	Ok(())
 }
 
@@ -401,7 +390,8 @@ fn live_translate_negation_changes_ipa() -> anyhow::Result<()> {
 	let Ok(parser) = crate::udpipe::UdpipeEnglishParser::bundled() else {
 		return Ok(());
 	};
-	let universe = poc_universe()?.with_proper_names(["John", "Mary", "Alice", "speaker", "listener"]);
+	let universe =
+		poc_universe()?.with_proper_names(["John", "Mary", "Alice", "speaker", "listener"]);
 	let marshaller = EnglishSemanticMarshaller::default();
 	let grammar = SurfaceGrammar::compositional();
 	let realize = |text: &str| -> anyhow::Result<String> {

@@ -16,5 +16,5 @@ LT / right mouse is optic ADS: FOV uses the aim slot when present, otherwise
 [`FollowCamera::sight_fov`](src/lib.rs) (iron sights). Left bumper / middle
 mouse / C is the same pose with iron FOV only, so long optics stay usable in
 close combat. First-person face hide uses
-[`hide_socketed_parts`](../crozon/characters/src/member.rs) with
-[`CharacterPartSlot::hides_in_first_person`](../crozon/characters/src/assembly.rs).
+[`hide_socketed_parts`](../world/layers/mobs/characters/lib/src/member.rs) with
+[`CharacterPartSlot::hides_in_first_person`](../world/layers/mobs/characters/lib/src/assembly.rs).

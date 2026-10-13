@@ -5,8 +5,8 @@ use crate::{
 	choose_poi, drive_poi_goals, refresh_poi_goals, GlobalPoi, KnownPoi, LocalPoi, Poi,
 	PoiDiscoverLimits, PoiGoal, PoiGoalState, PoiGoalStatus, PoiId, PoiIntelligencePlugin,
 	PoiIntelligenceUser, PoiInterest, PoiInterests, PoiKind, PoiKnowledge, PoiLearningPolicy,
-	PoiObservation, PoiRegistry, PoiSource, PoiVisitPolicy, PoiVisitState, AGENT_SEPARATION,
-	DEFAULT_NEARBY_RADIUS,
+	PoiObservation, PoiRecord, PoiRegistry, PoiSource, PoiVisitPolicy, PoiVisitState,
+	AGENT_SEPARATION, DEFAULT_NEARBY_RADIUS,
 };
 use intelligence_lod::{IntelligenceBand, IntelligenceLod, IntelligencePriority};
 use movement_intelligence::MovementIntelligence;
@@ -64,6 +64,27 @@ fn weighted_nearby_choice_avoids_the_previous_poi() -> anyhow::Result<()> {
 		registry.choose_nearby(Vec3::ZERO, DEFAULT_NEARBY_RADIUS, &interests, &[PoiId(1)], 42);
 
 	assert_eq!(selected.map(|record| record.id), Some(PoiId(2)));
+	Ok(())
+}
+
+#[test]
+fn nearby_in_lists_local_and_global_outside_the_hole() -> anyhow::Result<()> {
+	let mut world = World::new();
+	let near = world.spawn_empty().id();
+	let mid = world.spawn_empty().id();
+	let global = world.spawn_empty().id();
+	let mut registry = PoiRegistry::default();
+	registry.upsert(near, Poi::new(PoiId(1), CAMP), Vec3::X * 10.0, true, false)?;
+	registry.upsert(mid, Poi::new(PoiId(2), CAMP), Vec3::X * 80.0, true, false)?;
+	registry.upsert(global, Poi::new(PoiId(3), CAMP), Vec3::Z * 90.0, false, true)?;
+	let interests = PoiInterests::one(CAMP);
+	let listed = registry.nearby_in(
+		Vec3::ZERO,
+		crate::NearbyQuery::nearest_beyond(DEFAULT_NEARBY_RADIUS, 60.0),
+		&interests,
+		&[PoiId(2)],
+	);
+	assert_eq!(listed.iter().map(|record| record.id).collect::<Vec<_>>(), [PoiId(3)]);
 	Ok(())
 }
 
@@ -424,6 +445,41 @@ fn far_skip_does_not_reset_skips() -> anyhow::Result<()> {
 }
 
 #[test]
+fn settled_discover_leaves_capped_learner_unchanged() -> anyhow::Result<()> {
+	let mut app = discover_app();
+	let learner = spawn_learner(
+		&mut app,
+		camp_learner(),
+		PoiKnowledge::default(),
+		IntelligenceLod::missing(),
+	);
+	app.update();
+	if let Some(mut user) = app.world_mut().get_mut::<PoiIntelligenceUser>(learner) {
+		user.learning_credit = user.policy.candidates_per_scan.max(1) as f32;
+		user.next_forget_at = 100.0;
+		user.next_local_scan_at = 100.0;
+		user.next_global_scan_at = 100.0;
+	}
+	let before = app
+		.world()
+		.entity(learner)
+		.get_change_ticks::<PoiIntelligenceUser>()
+		.ok_or_else(|| anyhow::anyhow!("missing learner"))?
+		.changed
+		.get();
+	app.update();
+	let after = app
+		.world()
+		.entity(learner)
+		.get_change_ticks::<PoiIntelligenceUser>()
+		.ok_or_else(|| anyhow::anyhow!("missing learner"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled discover rewrote learner: {before} -> {after}");
+	Ok(())
+}
+
+#[test]
 fn maintain_still_runs_on_far_we_do_not_scan() -> anyhow::Result<()> {
 	let mut app = discover_app();
 	app.insert_resource(PoiDiscoverLimits { max_scans_per_tick: 1 });
@@ -521,4 +577,105 @@ fn far_does_not_run_global_scan_even_when_fair() -> anyhow::Result<()> {
 		.get::<PoiKnowledge>(far)
 		.is_some_and(|knowledge| knowledge.get(global).is_none()));
 	Ok(())
+}
+
+#[test]
+#[ignore]
+fn local_query_clone_timing() {
+	const POI_COUNT: usize = 128;
+	const SCANS: usize = 10_000;
+	const RADIUS: f32 = 80.0;
+	let interests = PoiInterests::one(CAMP);
+
+	let mut registry = PoiRegistry::default();
+	for index in 0..POI_COUNT {
+		let id = PoiId(index as u64 + 1);
+		let angle = (index as f32 / POI_COUNT as f32) * core::f32::consts::TAU;
+		let position = Vec3::new(angle.cos() * 40.0, 0.0, angle.sin() * 40.0);
+		registry
+			.upsert(Entity::from_bits(index as u64 + 1), Poi::new(id, CAMP), position, true, false)
+			.expect("upsert poi");
+	}
+
+	let clone_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		let records = registry.local_matching(Vec3::ZERO, RADIUS, &interests);
+		std::hint::black_box(records);
+	}
+	let clone_elapsed = clone_start.elapsed();
+
+	let mut scratch = Vec::new();
+	let id_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		registry.collect_local_matching(Vec3::ZERO, RADIUS, &interests, &mut scratch);
+		for id in &scratch {
+			std::hint::black_box(registry.get(*id));
+		}
+	}
+	let id_elapsed = id_start.elapsed();
+
+	eprintln!(
+		"local_query_clone_timing: {POI_COUNT} pois × {SCANS} scans — clone local_matching() {:?}, collect_local_matching+get {:?}",
+		clone_elapsed,
+		id_elapsed,
+	);
+}
+
+#[test]
+#[ignore]
+fn choose_in_clone_timing() {
+	use crate::hash::unit_f32;
+	use crate::NearbyQuery;
+
+	const POI_COUNT: usize = 128;
+	const PICKS: usize = 10_000;
+	const RADIUS: f32 = 160.0;
+	let interests = PoiInterests::one(CAMP);
+	let query = NearbyQuery::weighted(RADIUS);
+	let excluded = [PoiId(1)];
+
+	let mut registry = PoiRegistry::default();
+	for index in 0..POI_COUNT {
+		let id = PoiId(index as u64 + 1);
+		let angle = (index as f32 / POI_COUNT as f32) * core::f32::consts::TAU;
+		let position = Vec3::new(angle.cos() * 80.0, 0.0, angle.sin() * 80.0);
+		let global = index % 8 == 0;
+		registry
+			.upsert(Entity::from_bits(index as u64 + 1), Poi::new(id, CAMP), position, true, global)
+			.expect("upsert poi");
+	}
+
+	let weight = |candidate: PoiRecord| {
+		let interest = interests.weight(candidate.kind).unwrap_or(0.0);
+		let proximity = 1.0 / (1.0 + Vec3::ZERO.distance(candidate.position) / RADIUS.max(1.0));
+		interest * candidate.salience.max(0.1) * proximity
+	};
+
+	let clone_start = std::time::Instant::now();
+	for seed in 0..PICKS {
+		let candidates = registry.nearby_in(Vec3::ZERO, query, &interests, &excluded);
+		let total: f32 = candidates.iter().copied().map(weight).sum();
+		let mut draw = unit_f32(seed as u64) * total;
+		for candidate in candidates {
+			draw -= weight(candidate);
+			if draw <= 0.0 {
+				std::hint::black_box(candidate);
+				break;
+			}
+		}
+	}
+	let clone_elapsed = clone_start.elapsed();
+
+	let id_start = std::time::Instant::now();
+	for seed in 0..PICKS {
+		let chosen = registry.choose_in(Vec3::ZERO, query, &interests, &excluded, seed as u64);
+		std::hint::black_box(chosen);
+	}
+	let id_elapsed = id_start.elapsed();
+
+	eprintln!(
+		"choose_in_clone_timing: {POI_COUNT} pois × {PICKS} picks — nearby_in+weighted {:?}, choose_in {:?}",
+		clone_elapsed,
+		id_elapsed,
+	);
 }

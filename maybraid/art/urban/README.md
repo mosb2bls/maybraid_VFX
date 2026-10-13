@@ -1,6 +1,6 @@
 # Urban art
 
-Blender sources for Richmond urbanization kits. Runtime GLBs mirror this layout under `maybraid/assets/urban/` (exported by the art pipeline). Path constants live in [`richmond-building-components` `assets.rs`](../../richmond/building-components/src/assets.rs).
+Blender sources for Richmond urbanization kits. Runtime GLBs mirror this layout under `maybraid/assets/urban/` (exported by the art pipeline). Path constants live in [`building-components` `assets.rs`](../../world/layers/urbanization/buildings/components/src/assets.rs).
 
 ## Two kit layers
 
@@ -77,5 +77,5 @@ Prefer `{name}_{high,mid,low}_res.blend` for resolution variants, with an option
 
 ## See also
 
-- [`richmond-building-components` README](../../richmond/building-components/README.md) — normalization spaces and IR
-- [`richmond-buildings` README](../../richmond/buildings/README.md) — higher-order authorship on top of kits
+- [`building-components` README](../../world/layers/urbanization/buildings/components/README.md) — normalization spaces and IR
+- [`buildings` README](../../world/layers/urbanization/buildings/lib/README.md) — higher-order authorship on top of kits

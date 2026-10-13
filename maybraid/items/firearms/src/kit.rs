@@ -2,9 +2,10 @@
 
 use firearms_components::assets::guns;
 use firearms_components::{FirearmComponents, Layers, PartNode, RigNode};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::parts::{BarrelMesh, BodyMesh, GripMesh, SightMesh, StockMesh, TriggerBoxMesh};
+use crate::pose::{BoneFit, FirearmPose};
 
 /// Assembled firearm: receiver + body, and whatever other slots are filled.
 ///
@@ -23,6 +24,15 @@ pub struct FirearmKit {
 impl FirearmKit {
 	pub fn body(body: BodyMesh) -> Self {
 		Self { body, ..Self::default() }
+	}
+
+	/// Collapse unused stock / barrel bones so icon extents ignore empty sockets.
+	pub fn icon_pose(self) -> FirearmPose {
+		FirearmPose {
+			barrel: BoneFit::collapsed_if(matches!(self.barrel, BarrelMesh::None)),
+			stock: BoneFit::collapsed_if(matches!(self.stock, StockMesh::None)),
+			..FirearmPose::default()
+		}
 	}
 
 	pub fn label(self) -> String {
@@ -82,6 +92,7 @@ impl FirearmComponents for FirearmKit {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::pose::BoneFit;
 	use firearms_components::{FirearmPartSlot, SocketRef};
 
 	#[test]
@@ -120,5 +131,20 @@ mod tests {
 		assert_eq!(barrels[0].slot, FirearmPartSlot::Barrel);
 		assert_eq!(barrels[0].socket, Some(SocketRef::bone("barrel")));
 		assert_eq!(barrels[0].scene.path, guns::LAZNARD_BARREL.as_str());
+	}
+
+	#[test]
+	fn icon_pose_collapses_absent_stock_and_barrel() {
+		let body_only = FirearmKit::body(BodyMesh::Snailer);
+		let pose = body_only.icon_pose();
+		assert_eq!(pose.barrel, BoneFit::COLLAPSED);
+		assert_eq!(pose.stock, BoneFit::COLLAPSED);
+		assert_eq!(pose.body, BoneFit::BIND);
+
+		let with_barrel =
+			FirearmKit { barrel: BarrelMesh::Bullpup, ..FirearmKit::body(BodyMesh::Silopup) };
+		let posed = with_barrel.icon_pose();
+		assert_eq!(posed.barrel, BoneFit::BIND);
+		assert_eq!(posed.stock, BoneFit::COLLAPSED);
 	}
 }

@@ -2,13 +2,14 @@ use avian3d::prelude::SpatialQuery;
 use bevy::prelude::*;
 use movement_intelligence::{
 	MovementIntelligence, MovementIntelligenceSystems, MovementLocation, MovementObjective,
-	ReplanMovement,
+	ReplanMovement, ReplanThreshold,
 };
 
 use crate::avian::AvianRouteProbe;
 use crate::user::RoutingIntelligenceUser;
 
-const REFRESH_DISTANCE: f32 = 1.2;
+const REPLAN_THRESHOLD: ReplanThreshold =
+	ReplanThreshold { refresh_distance: 1.2, check_radius: true, check_vantage_weights: false };
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RoutingSystems {
@@ -57,21 +58,10 @@ pub fn write_route_objectives(
 			hop,
 			routing.settings.arrival_radius.max(movement.ability.agent_radius),
 		));
-		if !should_replan(movement.objective, next) {
+		if !movement.objective.needs_replan(next, REPLAN_THRESHOLD) {
 			continue;
 		}
 		movement.objective = next;
 		commands.entity(entity).insert(ReplanMovement);
 	}
-}
-
-fn should_replan(current: MovementObjective, next: MovementObjective) -> bool {
-	if std::mem::discriminant(&current) != std::mem::discriminant(&next) {
-		return true;
-	}
-	let a = current.location().point;
-	let b = next.location().point;
-	Vec2::new(a.x, a.z).distance(Vec2::new(b.x, b.z)) >= REFRESH_DISTANCE
-		|| (a.y - b.y).abs() >= REFRESH_DISTANCE
-		|| (current.location().radius - next.location().radius).abs() > 0.05
 }

@@ -1,8 +1,8 @@
 //! Duel vs free-for-all session. FFA rebuilds the field from generated loadouts.
 
 use bevy::prelude::*;
-use crozon_character_items::{FirearmSpec, FirearmStats, ItemRng};
-use crozon_characters::{
+use character_items::{FirearmSpec, FirearmStats, ItemRng};
+use characters::{
 	species::{braidman::BraidmanConfig, spibmom::SpibmomConfig},
 	CharacterRecipe, CharacterRoot, LocomotionCapsule,
 };

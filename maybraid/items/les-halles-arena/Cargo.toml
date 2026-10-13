@@ -17,10 +17,10 @@ lod-avian = { workspace = true }
 movement-intelligence-richmond = { workspace = true }
 player = { workspace = true }
 procedural-common = { workspace = true }
-richmond-building-components = { workspace = true }
-richmond-building-physics = { workspace = true }
-richmond-buildings = { workspace = true }
-richmond-developments = { workspace = true }
+building-components = { workspace = true }
+building-physics = { workspace = true }
+buildings = { workspace = true }
+urbanization-developments = { workspace = true }
 
 [lints]
 workspace = true

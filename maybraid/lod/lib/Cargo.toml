@@ -11,11 +11,14 @@ rust-version = { workspace = true }
 
 [features]
 default = []
+## Blocking [`HcsgStorage`] reads for integration tests outside `lod`.
+test-support = []
 
 [dependencies]
 lod-cascade = { workspace = true }
 lod-cascade-system = { workspace = true }
 bevy = { workspace = true }
+gimme-core = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

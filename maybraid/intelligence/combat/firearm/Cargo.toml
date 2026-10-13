@@ -13,7 +13,7 @@ rust-version = { workspace = true }
 avian3d = { workspace = true }
 bevy = { workspace = true }
 combat-targeting = { workspace = true }
-crozon-characters = { workspace = true }
+characters = { workspace = true }
 damage = { workspace = true }
 firearm-user = { workspace = true }
 firearms = { workspace = true }

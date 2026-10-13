@@ -12,9 +12,9 @@ rust-version = { workspace = true }
 [dependencies]
 avian3d = { workspace = true }
 bevy = { workspace = true }
-crozon-character-items = { workspace = true }
-crozon-characters = { workspace = true }
-crozon-rigs = { workspace = true }
+character-items = { workspace = true }
+characters = { workspace = true }
+character-rigs = { workspace = true }
 damage = { workspace = true }
 firearms = { workspace = true }
 lod = { workspace = true }

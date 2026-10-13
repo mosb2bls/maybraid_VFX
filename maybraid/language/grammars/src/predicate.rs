@@ -8,7 +8,9 @@ use maybraid_language_core::{
 pub enum PredicateStrategy {
 	Simple,
 	/// Stem stays in the verb slot; particle is placed after the object.
-	Separable { particle: &'static str },
+	Separable {
+		particle: &'static str,
+	},
 }
 
 impl PredicateStrategy {
@@ -18,10 +20,7 @@ impl PredicateStrategy {
 		node: SemanticNode,
 	) -> (Vec<SurfaceConstituent>, Option<SurfaceConstituent>) {
 		match self {
-			Self::Simple => (
-				vec![SurfaceConstituent::lexical(form, node)],
-				None,
-			),
+			Self::Simple => (vec![SurfaceConstituent::lexical(form, node)], None),
 			Self::Separable { particle } => (
 				vec![SurfaceConstituent::Lexical {
 					form: form.to_owned(),
@@ -44,7 +43,9 @@ impl PredicateStrategy {
 pub enum SerialStrategy {
 	None,
 	/// Instrument is realized as an extra TAKE predicate: take knife cut meat.
-	InstrumentAsTake { take: &'static str },
+	InstrumentAsTake {
+		take: &'static str,
+	},
 }
 
 impl SerialStrategy {
@@ -52,19 +53,14 @@ impl SerialStrategy {
 		matches!(self, Self::InstrumentAsTake { .. }) && role == SemanticRole::Instrument
 	}
 
-	pub fn prefix(
-		self,
-		instrument: Vec<SurfaceConstituent>,
-	) -> Vec<SurfaceConstituent> {
+	pub fn prefix(self, instrument: Vec<SurfaceConstituent>) -> Vec<SurfaceConstituent> {
 		let Self::InstrumentAsTake { take } = self else {
 			return Vec::new();
 		};
 		if instrument.is_empty() {
 			return Vec::new();
 		}
-		let mut out = vec![
-			SurfaceConstituent::particle(take, ParticleDomain::Predicate),
-		];
+		let mut out = vec![SurfaceConstituent::particle(take, ParticleDomain::Predicate)];
 		out.extend(instrument);
 		out.push(SurfaceConstituent::Boundary { kind: BoundaryKind::Serial });
 		out

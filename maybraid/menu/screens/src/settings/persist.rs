@@ -1,17 +1,21 @@
 //! Machine-scoped `settings.json` plus `MAYBRAID_SHADOWS` overlay.
+//!
+//! `MAYBRAID_RENDER_SCALE` is parsed here for Settings copy, but does not rewrite
+//! the saved preference. The game applies it to live 3D and the readout.
 
 use std::collections::BTreeMap;
 use std::fs;
 
 use bevy::prelude::*;
-use crozon_character_persist::{PersistError, SaveRoot};
+use character_persist::{PersistError, SaveRoot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::catalog::{overlay_machine_fields, seed_device_class, DeviceClass};
+use super::catalog::{overlay_machine_fields, seed_device_class, DeviceClass, Preference};
 use super::{InGameSettings, InGameShadowQuality};
 
 pub const ENV_SHADOWS: &str = "MAYBRAID_SHADOWS";
+pub const ENV_RENDER_SCALE: &str = "MAYBRAID_RENDER_SCALE";
 const SETTINGS_VERSION: u32 = 1;
 
 /// Apply-once marker so a later adapter-info frame cannot re-seed over a loaded
@@ -63,6 +67,28 @@ pub fn apply_shadows_env(settings: &mut InGameSettings, raw: Option<&str>) {
 	}
 }
 
+/// Parse `MAYBRAID_RENDER_SCALE`. `auto` / empty → `None` (keep the saved preference).
+pub fn parse_render_scale_env(raw: Option<&str>) -> Option<f32> {
+	let Some(raw) = raw else {
+		return None;
+	};
+	let raw = raw.trim();
+	if raw.is_empty() || raw.eq_ignore_ascii_case("auto") {
+		return None;
+	}
+	match raw.parse::<f32>() {
+		Ok(value) if value.is_finite() => Some(value.clamp(0.5, 1.0)),
+		Ok(_) => {
+			eprintln!("[{ENV_RENDER_SCALE}] non-finite {raw:?} (use 0.5-1.0 or auto)");
+			None
+		}
+		Err(_) => {
+			eprintln!("[{ENV_RENDER_SCALE}] unknown {raw:?} (use 0.5-1.0 or auto)");
+			None
+		}
+	}
+}
+
 /// Device defaults, then Machine keys from disk. Env is applied separately so a
 /// capture overlay cannot rewrite the file.
 pub fn load_machine_settings(root: &SaveRoot, class: DeviceClass) -> InGameSettings {
@@ -88,15 +114,15 @@ fn read_settings_file(root: &SaveRoot) -> Option<SettingsFile> {
 	serde_json::from_str(&json).ok()
 }
 
-pub(super) fn write_machine_shadows(
+pub(super) fn write_machine_preference<P: Preference>(
 	machine: Option<&mut MachineSettings>,
-	shadows: InGameShadowQuality,
+	value: P::Value,
 	root: Option<&SaveRoot>,
 ) {
 	let Some(machine) = machine else {
 		return;
 	};
-	machine.0.shadows = shadows;
+	P::set(&mut machine.0, value);
 	let Some(root) = root else {
 		return;
 	};
@@ -158,14 +184,15 @@ pub(super) fn persist_machine_settings_on_exit(
 
 #[cfg(test)]
 mod tests {
-	use crozon_character_persist::SaveRoot;
+	use character_persist::SaveRoot;
 
 	use super::{
-		apply_seed, apply_shadows_env, load_machine_settings, parse_shadows_env,
-		save_machine_settings, write_machine_shadows, MachineSettings, ENV_SHADOWS,
+		apply_seed, apply_shadows_env, load_machine_settings, parse_render_scale_env,
+		parse_shadows_env, save_machine_settings, write_machine_preference, MachineSettings,
+		ENV_RENDER_SCALE, ENV_SHADOWS,
 	};
-	use crate::settings::catalog::DeviceClass;
-	use crate::settings::{InGameSettings, InGameShadowQuality};
+	use crate::settings::catalog::{DeviceClass, RenderScalePref, Shadows};
+	use crate::settings::{InGameRenderScale, InGameSettings, InGameShadowQuality};
 
 	fn write_fields(root: &SaveRoot, json: &str) {
 		root.ensure_dirs().expect("dirs");
@@ -182,6 +209,7 @@ mod tests {
 		let root = SaveRoot::at(dir.path());
 		let settings = load_machine_settings(&root, DeviceClass::Modest);
 		assert_eq!(settings.shadows, InGameShadowQuality::Off);
+		assert_eq!(settings.render_scale, InGameRenderScale::Auto);
 		assert!(!settings.mob_hud);
 	}
 
@@ -191,11 +219,16 @@ mod tests {
 		let root = SaveRoot::at(dir.path());
 		save_machine_settings(
 			&root,
-			&InGameSettings { shadows: InGameShadowQuality::Low, mob_hud: true },
+			&InGameSettings {
+				shadows: InGameShadowQuality::Low,
+				mob_hud: true,
+				render_scale: InGameRenderScale::Half,
+			},
 		)
 		.expect("save");
 		let loaded = load_machine_settings(&root, DeviceClass::Modest);
 		assert_eq!(loaded.shadows, InGameShadowQuality::Low);
+		assert_eq!(loaded.render_scale, InGameRenderScale::Half);
 		assert!(!loaded.mob_hud);
 
 		write_fields(&root, r#"{ "version": 1, "fields": { "shadows": "low", "mob_hud": true } }"#);
@@ -220,7 +253,11 @@ mod tests {
 		let root = SaveRoot::at(dir.path());
 		save_machine_settings(
 			&root,
-			&InGameSettings { shadows: InGameShadowQuality::Off, mob_hud: false },
+			&InGameSettings {
+				shadows: InGameShadowQuality::Off,
+				mob_hud: false,
+				render_scale: InGameRenderScale::Auto,
+			},
 		)
 		.expect("save");
 		let before = read_raw(&root);
@@ -244,12 +281,49 @@ mod tests {
 		assert_eq!(machine.shadows, InGameShadowQuality::Off);
 
 		let mut stored = MachineSettings(machine);
-		write_machine_shadows(Some(&mut stored), InGameShadowQuality::Low, Some(&root));
+		write_machine_preference::<Shadows>(
+			Some(&mut stored),
+			InGameShadowQuality::Low,
+			Some(&root),
+		);
 		assert_eq!(stored.0.shadows, InGameShadowQuality::Low);
 		assert!(read_raw(&root).contains("\"low\""));
 
 		assert!(apply_seed(true, Some(&root), None).is_none());
 		let (_, live) = apply_seed(false, Some(&root), None).expect("reload");
 		assert_eq!(live.shadows, InGameShadowQuality::Low);
+	}
+
+	#[test]
+	fn render_scale_round_trips_and_env_does_not_rewrite() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		save_machine_settings(
+			&root,
+			&InGameSettings {
+				shadows: InGameShadowQuality::Off,
+				mob_hud: false,
+				render_scale: InGameRenderScale::ThreeQuarter,
+			},
+		)?;
+		let loaded = load_machine_settings(&root, DeviceClass::Modest);
+		assert_eq!(loaded.render_scale, InGameRenderScale::ThreeQuarter);
+		let before = read_raw(&root);
+		assert_eq!(parse_render_scale_env(Some("0.75")), Some(0.75));
+		assert_eq!(parse_render_scale_env(Some("auto")), None);
+		assert_eq!(parse_render_scale_env(Some("0.1")), Some(0.5));
+		assert_eq!(ENV_RENDER_SCALE, "MAYBRAID_RENDER_SCALE");
+		assert_eq!(read_raw(&root), before);
+		assert!(before.contains("\"75\""));
+
+		let mut stored = MachineSettings(loaded);
+		write_machine_preference::<RenderScalePref>(
+			Some(&mut stored),
+			InGameRenderScale::Half,
+			Some(&root),
+		);
+		assert_eq!(stored.0.render_scale, InGameRenderScale::Half);
+		assert!(read_raw(&root).contains("\"50\""));
+		Ok(())
 	}
 }

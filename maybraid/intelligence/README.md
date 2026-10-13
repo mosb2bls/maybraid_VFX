@@ -10,7 +10,7 @@ Higher-order brains write objectives; lower-order crates field them.
 
 A higher-order system writes the objective and inserts [`ReplanMovement`](movement/lib/src/user.rs) when it wants a new plan. [`MovementIntelligenceLimits`](movement/lib/src/surface.rs) caps per-query sampling, how many markers start, and how many walk probes run in one frame. `Reach` / `EdgeOf` keep one candidate and may detour unless already on the disk; covering queries LOD by distance. Walk via length is leftover work capped by [`MovementAbility`](movement/lib/src/ability.rs) `path_segment`, not `max_step`. Budget and vantage *sampling* live on that sheet. Hide / sightline *policy* belongs on the writer (firearm movement, etc.).
 
-Walk colliders for Richmond IR live in [`richmond-building-physics`](../richmond/building-physics).
+Walk colliders for Richmond IR live in [`building-physics`](../world/layers/urbanization/buildings/physics).
 
 ## Spotting
 
@@ -82,4 +82,3 @@ rate, retention, candidate budget, and memory capacity remain independent contro
 
 - [`routing-intelligence`](routing) — hierarchical long-range corridors. Band segment lengths are per-user policy. Coarse chords are probed for buildings and cliffs; finer bands search along the committed corridor. The current fine hop is written as `Reach` for movement intelligence.
 - [`tether-intelligence`](tether) — stay inside a leash or within a two-radius stalking annulus around a live entity. The user is the installed brain (`enabled` is the higher-order grant); [`TetherMemory`](tether/src/memory.rs) survives uninstall. Close remaining work writes `Reach` / `EdgeOf`; far remaining work routes to the nearest allowed boundary.
-- [`routing-playground`](routing-playground) — Durham patch (models-playground survey camera, vegetation lighting, no groves). One NPC tethers or stalks the player; gizmos show coarse → fine corridors. `cargo run -p routing-playground --release`.

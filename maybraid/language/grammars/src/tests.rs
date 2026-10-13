@@ -2,8 +2,8 @@ use anyhow::Context;
 use maybraid_language_core::{
 	poc_universe, Clause, CompositionalLexicalizer, ConceptUniverse, EnglishSenseLookup,
 	FocusTarget, Grammar, InMemoryLexicalGraph, LexicalOutput, Modifier, PocLexicon, Polarity,
-	Profile, Referent, SemanticNode, SemanticRole, SemanticValue, SurfaceConstituent, SurfaceGrammar,
-	Tense, Utterance,
+	Profile, Referent, SemanticNode, SemanticRole, SemanticValue, SurfaceConstituent,
+	SurfaceGrammar, Tense, Utterance,
 };
 
 use crate::{
@@ -17,10 +17,7 @@ fn lex() -> anyhow::Result<(maybraid_language_core::WordNetConceptUniverse, PocL
 	Ok((universe, lex))
 }
 
-fn render(
-	utterance: Utterance,
-	universe: &impl ConceptUniverse,
-) -> LexicalOutput {
+fn render(utterance: Utterance, universe: &impl ConceptUniverse) -> LexicalOutput {
 	let mut graph = InMemoryLexicalGraph::new();
 	LexicalOutput::render(
 		utterance,
@@ -80,10 +77,7 @@ fn nominative_and_ergative_marking_differ() -> anyhow::Result<()> {
 		!na.iter().any(|word| word == "ek"),
 		"nominative-accusative should not use the ergative particle: {na:?}"
 	);
-	assert!(
-		ea.iter().any(|word| word == "ek"),
-		"ergative alignment should mark the agent: {ea:?}"
-	);
+	assert!(ea.iter().any(|word| word == "ek"), "ergative alignment should mark the agent: {ea:?}");
 	Ok(())
 }
 
@@ -192,12 +186,7 @@ fn topic_particle_fronts_the_topic() -> anyhow::Result<()> {
 	let output = render(utterance, &universe);
 	let realized = words(&output, particle_heavy_topic_prominent());
 	assert!(realized.iter().any(|word| word == "wa"), "topic particle: {realized:?}");
-	let john_ipa = output
-		.realization_of(lex.john)
-		.context("john term")?
-		.term
-		.ipa
-		.as_str();
+	let john_ipa = output.realization_of(lex.john).context("john term")?.term.ipa.as_str();
 	assert_eq!(realized.first().map(String::as_str), Some(john_ipa));
 	Ok(())
 }
@@ -280,10 +269,8 @@ fn alignment_enum_does_not_equate_agent_with_subject() {
 		maybraid_language_core::GrammaticalRelation::Oblique
 	);
 	assert_eq!(
-		Alignment::Neutral.case_for(
-			maybraid_language_core::GrammaticalRelation::Object,
-			SemanticRole::Theme
-		),
+		Alignment::Neutral
+			.case_for(maybraid_language_core::GrammaticalRelation::Object, SemanticRole::Theme),
 		crate::CaseLabel::Nominative
 	);
 }
@@ -362,18 +349,17 @@ fn inversion_fronts_the_predicate() -> anyhow::Result<()> {
 	let output = render(utterance, &universe);
 	let svo = words(&output, isolating_svo());
 	let inverted = words(&output, fusional_svo());
-	assert_eq!(inverted.first().map(String::as_str), Some("li"), "question particle first: {inverted:?}");
+	assert_eq!(
+		inverted.first().map(String::as_str),
+		Some("li"),
+		"question particle first: {inverted:?}"
+	);
 	assert_ne!(svo, inverted);
 	let give = output
 		.ipa_for(SemanticNode::Predicate(output.utterance.roots[0]))
 		.context("give ipa")?;
 	let verb_at = inverted.iter().position(|word| word == give).context("verb")?;
-	let john = output
-		.realization_of(lex.john)
-		.context("john")?
-		.term
-		.ipa
-		.as_str();
+	let john = output.realization_of(lex.john).context("john")?.term.ipa.as_str();
 	let john_at = inverted.iter().position(|word| word == john).context("john")?;
 	assert!(verb_at < john_at, "inverted V before S: {inverted:?}");
 	Ok(())
@@ -389,10 +375,7 @@ fn zero_copula_drops_the_predicate() -> anyhow::Result<()> {
 	let kept = words(&output, stative);
 	let obligatory = words(&output, fusional_svo());
 	assert!(kept.len() > zero.len(), "zero copula should drop the predicate: {zero:?} vs {kept:?}");
-	assert!(
-		obligatory.iter().any(|word| word == "est"),
-		"obligatory copula: {obligatory:?}"
-	);
+	assert!(obligatory.iter().any(|word| word == "est"), "obligatory copula: {obligatory:?}");
 	Ok(())
 }
 
@@ -401,10 +384,7 @@ fn locative_copula_is_not_classification() -> anyhow::Result<()> {
 	let (universe, lex) = lex()?;
 	let output = render(john_is_at_the_river(&lex), &universe);
 	let locative = words(&output, ergative_vso());
-	assert!(
-		locative.iter().any(|word| word == "ta"),
-		"locative copula: {locative:?}"
-	);
+	assert!(locative.iter().any(|word| word == "ta"), "locative copula: {locative:?}");
 	let classificational = words(&output, fusional_svo());
 	assert!(
 		classificational.iter().any(|word| word == "est"),

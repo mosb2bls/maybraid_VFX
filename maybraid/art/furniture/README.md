@@ -1,8 +1,8 @@
 # Furniture art
 
-Blender sources for painted furniture kits. Runtime GLBs mirror this layout under `maybraid/assets/furniture/`. Path constants live in [`furniture-components` `assets.rs`](../../furniture/components/src/assets.rs). Skip `.blend1`.
+Blender sources for painted furniture kits. Runtime GLBs mirror this layout under `maybraid/assets/furniture/`. Path constants live in [`furniture-components` `assets.rs`](../../world/layers/furnishing/components/src/assets.rs). Skip `.blend1`.
 
-Authored space is Blender \(Z\)-up. Engine remap is \((X,Y,Z)_{\text{Blender}} \mapsto (X,Z,Y)_{\text{engine}}\) — see [`kit_space.rs`](../../furniture/components/src/kit_space.rs). **\(+Y\) is the wall / back**; the room is \(−Y\).
+Authored space is Blender \(Z\)-up. Engine remap is \((X,Y,Z)_{\text{Blender}} \mapsto (X,Z,Y)_{\text{engine}}\) — see [`kit_space.rs`](../../world/layers/furnishing/components/src/kit_space.rs). **\(+Y\) is the wall / back**; the room is \(−Y\).
 
 | Convention | Bounds | Anchor |
 |---|---|---|

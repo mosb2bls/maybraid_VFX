@@ -1,68 +1,80 @@
 # Packaging
 
-Tree-first layouts for a signed Apple DMG, a Windows Intel zip, and a SteamOS
-tarball. Scripts copy these templates into `dist/` and fill the binary plus
-`maybraid/assets`.
+`nix develop` is the development shell. Release builds use each platform's
+native Rust toolchain (channel from `rust-toolchain.toml`) and do not go through
+Nix. The Nix dev shell points macOS at Nix's libiconv, which is why release
+binaries must be built outside it.
 
-```text
-packaging/
-  macos/Maybraid.app/     Info.plist, entitlements, empty MacOS + Resources
-  windows/Maybraid/       sidecar + DPI manifest
-  steamos/Maybraid/       .desktop + optional steam_appid.txt
-  scripts/                package-macos.sh / package-windows.sh / package-steamos.sh
-```
+| Platform | Compile | Package |
+|---|---|---|
+| macOS arm64 | `cargo` + Apple SDK, `MACOSX_DEPLOYMENT_TARGET=13.0` | `package-macos.sh` → DMG |
+| Linux x86_64 | `cargo` in the Steam Linux Runtime 3.0 (sniper) SDK | `package-linux.sh` → Steam + general `tar.xz` |
+| Windows x64 | `cargo` + MSVC | `package-windows.sh` → zip |
 
-## macOS (Developer ID + notarized DMG)
+Shared helpers: `version.sh` (artifact version, `--rust` for the channel),
+`validate.sh` (linked-library checks), `smoke.sh` (bounded startup from `/tmp`;
+it catches loader errors, not GPU problems).
+
+## macOS arm64
+
+Run from a normal terminal, not `nix develop`:
 
 ```bash
+MACOSX_DEPLOYMENT_TARGET=13.0 cargo build -p maybraid --release --locked
 packaging/scripts/package-macos.sh
-open dist/Maybraid.app
 ```
 
-Unsigned until `SIGN_IDENTITY` is set. After the Developer ID certificate is
-in your login keychain and `notarytool store-credentials maybraid-notary` has
-run:
+`13.0` matches `LSMinimumSystemVersion`. `validate.sh macho` rejects links to
+`/nix/store`, Homebrew, or `/usr/local`. Unsigned unless `SIGN_IDENTITY` is
+set; see `identity.local.example.md`.
+
+## Linux x86_64
+
+Build once inside the pinned sniper SDK (same digest as CI):
 
 ```bash
-SIGN_IDENTITY="Developer ID Application: Ramate LLC (TEAMID)" \
-NOTARY_PROFILE=maybraid-notary \
-  packaging/scripts/package-macos.sh
+docker run --rm -it -v "$PWD:/src" -w /src \
+  registry.gitlab.steamos.cloud/steamrt/sniper/sdk@sha256:1c33c507bc75d012e77df5727f93b0d5b8c3f7c8d4142ba5f7a16882cc92e014 \
+  bash -c 'curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain "$(packaging/version.sh --rust)" \
+    && . "$HOME/.cargo/env" \
+    && cargo build -p maybraid --release --locked \
+    && packaging/scripts/package-linux.sh'
 ```
 
-`SKIP_BUILD=1` reuses `target/release/maybraid`. `SKIP_NOTARY=1` signs only.
-Copy `identity.local.example.md` to `identity.local.md` for Team ID notes
-(gitignored).
+The same binary is packaged twice:
 
-The game reads `Contents/Resources/assets` and writes saves to
-`~/Library/Application Support/io.ramate.maybraid/saves`. A checkout still
-uses `maybraid/game/assets` and `.maybraid/saves`.
+- `Maybraid-<ver>-steam-linux-x64.tar.xz` is for Steam depot staging.
+  Steamworks must launch it with **Steam Linux Runtime 3.0 (sniper)**.
+  Extracting the archive does not install that runtime.
+- `Maybraid-<ver>-linux-x64.tar.xz` is the direct download. It needs glibc
+  2.31+ (Ubuntu 20.04, Debian 11, SteamOS 3, or newer), ALSA, udev, and a
+  Vulkan driver from the host.
 
-## Windows Intel / SteamOS
+`validate.sh elf` fails if the binary needs a glibc newer than 2.31 or points
+at `/nix/store`.
+
+## Windows x64
 
 ```bash
-# after the matching cargo build:
+cargo build -p maybraid --release --locked --target x86_64-pc-windows-msvc
 packaging/scripts/package-windows.sh
-packaging/scripts/package-steamos.sh
 ```
 
-No OS code signing in these scripts. Archive provenance: [minisign/README.md](minisign/README.md).
+Uses the dynamic MSVC CRT. Install the
+[VC++ 2015–2022 x64 redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
+if `VCRUNTIME140.dll` is missing.
 
 ## CI
 
-[`.github/workflows/package.yml`](../.github/workflows/package.yml) packs unsigned
-builds on `main`, on a published GitHub Release, on `workflow_dispatch`, and
-when a commit message contains `ci-action::package`. Tag pushes are not a
-trigger: publishing a release already fires `release`, and a same-ref tag
-`push` used to cancel that run before assets were uploaded.
-
-`main` and token runs upload Actions artifacts (14 days). A published release
-attaches the same files to that GitHub Release. Version is
-`workspace.package.version` plus a short SHA, or the release tag.
-
-## Overrides
+[`.github/workflows/package.yml`](../.github/workflows/package.yml) runs on
+`main`, published releases, `workflow_dispatch`, and `ci-action::package`. Each
+platform job runs the commands above. Published releases also get the
+artifacts attached.
 
 | Variable | Role |
 |---|---|
 | `MAYBRAID_ASSETS` | Bevy asset root |
-| `MAYBRAID_SAVES` | `SaveRoot` directory |
-| `MAYBRAID_PACKAGED` | Force user-data saves even from `cargo run` |
+| `MAYBRAID_SAVES` | Save directory |
+| `MAYBRAID_PACKAGED` | Force user-data saves |
+| `BINARY` | Override the binary a package script picks up |
+| `VERSION` | Override the artifact version |

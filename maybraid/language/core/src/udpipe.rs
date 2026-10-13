@@ -62,7 +62,9 @@ fn document_from_words(words: &[udpipe_rs::Word]) -> DependencyDocument {
 		if word.is_punct() && word.form == "_" {
 			continue;
 		}
-		if current_id.is_some() && current_id != Some(word.sentence_id) && !current.tokens.is_empty()
+		if current_id.is_some()
+			&& current_id != Some(word.sentence_id)
+			&& !current.tokens.is_empty()
 		{
 			sentences.push(std::mem::take(&mut current));
 		}
@@ -109,9 +111,10 @@ mod tests {
 
 	#[test]
 	fn missing_model_is_a_typed_error() -> Result<(), LanguageError> {
-		let error = UdpipeEnglishParser::from_path("/no/such/english-ewt.udpipe").err().ok_or_else(
-			|| LanguageError::DependencyParse("missing model should fail".to_owned()),
-		)?;
+		let error =
+			UdpipeEnglishParser::from_path("/no/such/english-ewt.udpipe").err().ok_or_else(
+				|| LanguageError::DependencyParse("missing model should fail".to_owned()),
+			)?;
 		assert!(matches!(error, LanguageError::UdpipeMissing { .. }));
 		Ok(())
 	}

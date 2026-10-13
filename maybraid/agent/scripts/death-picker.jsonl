@@ -1,0 +1,20 @@
+# Death → locked picker → confirm at a Discovery POI (self-lubikan path).
+# `player down` is agent-only (not a Playground `/` command).
+# Jump confirms the highlighted POI; events record picker open/close and Y.
+# Do not send `stats vsync`.
+
+{"cmd":"start","xz":[0,0]}
+
+{"cmd":"scenario","name":"death-picker-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":20}
+{"cmd":"console","line":"player down"}
+{"cmd":"wait","secs":5}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"death-picker-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"death-picker","mark":"start"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"death-picker","mark":"end"}
+{"cmd":"quit"}

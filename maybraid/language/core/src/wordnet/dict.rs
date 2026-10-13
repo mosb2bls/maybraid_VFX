@@ -74,7 +74,12 @@ impl WordNetDict {
 		let Some(wn_pos) = to_wn_pos(pos) else {
 			return Vec::new();
 		};
-		self.inner.synsets_for_lemma(wn_pos, lemma).iter().copied().map(from_synset_id).collect()
+		self.inner
+			.synsets_for_lemma(wn_pos, lemma)
+			.iter()
+			.copied()
+			.map(from_synset_id)
+			.collect()
 	}
 
 	pub fn sense(&self, lemma: &str, pos: Pos, sense: usize) -> Option<ConceptId> {

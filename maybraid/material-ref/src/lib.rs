@@ -177,6 +177,34 @@ mod tests {
 		Ok(())
 	}
 
+	#[test]
+	fn restamp_after_descendant_despawn_does_not_panic() -> anyhow::Result<()> {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<Mesh>()
+			.init_asset::<StandardMaterial>()
+			.init_resource::<StandardMaterialRefCache>()
+			.add_plugins(MaterialRefPlugin::<StandardMaterialLib<'_>>::default());
+
+		let mesh = app
+			.world_mut()
+			.resource_mut::<Assets<Mesh>>()
+			.add(Mesh::from(bevy::prelude::Cuboid::from_length(1.0)));
+		let root = app
+			.world_mut()
+			.spawn((MaterialRefRoot(MaterialRef::named("tuft")), PropagateToDescendants))
+			.id();
+		let child = app.world_mut().spawn((Mesh3d(mesh), ChildOf(root))).id();
+		app.update();
+		app.world_mut().entity_mut(child).despawn();
+		app.world_mut()
+			.entity_mut(root)
+			.insert(MaterialRefRoot(MaterialRef::named("bark")));
+		app.update();
+		assert!(app.world().get::<MaterialRefApplied>(root).is_some());
+		Ok(())
+	}
+
 	#[derive(bevy::ecs::system::SystemParam)]
 	struct NoopMaterialLib;
 

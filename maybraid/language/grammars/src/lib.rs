@@ -28,11 +28,11 @@ pub use linking::ClauseLinkStrategy;
 pub use marking::{AdpositionStrategy, CaseStrategy, Marking, PolarityStrategy, TamStrategy};
 pub use nominal::{DefinitenessStrategy, NumberStrategy};
 pub use predicate::{PredicateStrategy, SerialStrategy};
-pub use question::QuestionStrategy;
 pub use presets::{
 	agglutinative_sov, basic_compositional, ergative_vso, fusional_svo, isolating_svo,
 	particle_heavy_topic_prominent, separable_svo, serial_verb,
 };
+pub use question::QuestionStrategy;
 
 impl CompositeGrammar {
 	pub fn isolating_svo() -> Self {

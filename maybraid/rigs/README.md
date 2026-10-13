@@ -2,7 +2,7 @@
 
 Helpers for socketing and posing named armatures.
 
-Domain crates own recipes, skeleton catalogs (`crozon-rigs` humanoid tables, firearm kit slots), and the strings they put in [`RigKey`](src/bone_map.rs). This crate owns the runtime loop:
+Domain crates own recipes, skeleton catalogs (`character-rigs` humanoid tables, firearm kit slots), and the strings they put in [`RigKey`](src/bone_map.rs). This crate owns the runtime loop:
 
 1. **Membership** — nested hosts walk to [`AssemblyRoot`](src/member.rs)
 2. **Bone map** — [`RigRoot`](src/bone_map.rs) indexes named descendants, stopping at nested [`AssemblyHost`](src/member.rs)s

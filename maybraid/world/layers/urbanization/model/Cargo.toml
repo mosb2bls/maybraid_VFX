@@ -1,0 +1,22 @@
+[package]
+name = "urbanization-layer-model"
+version = { workspace = true }
+edition  = { workspace = true }
+license  = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+layer-stack = { workspace = true }
+bevy = { workspace = true }
+lod = { workspace = true }
+terrain-layer-model = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+
+[lints]
+workspace = true

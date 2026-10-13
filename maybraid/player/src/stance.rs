@@ -1,10 +1,10 @@
 //! Player squat / prone. Hulls, speed, and clips derive from this plus the rest capsule.
 
 use bevy::prelude::*;
-use crozon_characters::{CharacterRoot, LocomotionCapsule, TerrainPitch};
-use crozon_rigs::humanoid::LegSegmentLengths;
+use character_animations::animations::Squat;
+use character_rigs::humanoid::LegSegmentLengths;
+use characters::{CharacterRoot, LocomotionCapsule, TerrainPitch};
 use damage::HeadshotBand;
-use malo_animations::animations::Squat;
 
 use crate::body::{apply_locomotion_capsule, CharacterController, Jumping};
 
@@ -20,6 +20,16 @@ pub enum StanceKind {
 	Prone,
 }
 
+impl StanceKind {
+	/// Target squat depth once a stance change has finished blending.
+	pub fn squat_target(self) -> f32 {
+		match self {
+			Self::Stand => 0.0,
+			Self::Squat | Self::Prone => 1.0,
+		}
+	}
+}
+
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct CharacterStance {
 	pub kind: StanceKind,
@@ -29,7 +39,7 @@ pub struct CharacterStance {
 
 impl CharacterStance {
 	pub fn settled(kind: StanceKind) -> Self {
-		Self { kind, blend: 1.0 }
+		Self { kind, blend: kind.squat_target() }
 	}
 
 	pub fn speed_scale(self) -> f32 {
@@ -46,7 +56,11 @@ impl CharacterStance {
 			StanceKind::Squat => StanceKind::Stand,
 			StanceKind::Prone => StanceKind::Squat,
 		};
-		self.blend = 1.0;
+		self.blend = match self.kind {
+			StanceKind::Squat => 0.0,
+			StanceKind::Stand => 1.0,
+			StanceKind::Prone => 1.0,
+		};
 	}
 
 	pub fn change_prone(&mut self) {
@@ -56,7 +70,21 @@ impl CharacterStance {
 
 	pub fn stand(&mut self) {
 		self.kind = StanceKind::Stand;
-		self.blend = 1.0;
+		self.blend = 0.0;
+	}
+
+	/// True once the squat depth matches the target stance.
+	pub fn squat_settled(self) -> bool {
+		match self.kind {
+			StanceKind::Stand => self.blend <= 0.0,
+			StanceKind::Squat => self.blend >= 1.0,
+			StanceKind::Prone => true,
+		}
+	}
+
+	/// Target squat depth for the current stance kind.
+	pub fn squat_target(self) -> f32 {
+		self.kind.squat_target()
 	}
 
 	pub fn is_prone(self) -> bool {
@@ -65,7 +93,7 @@ impl CharacterStance {
 }
 
 pub fn squat_drop() -> f32 {
-	Squat::<()>::held().peak_vertical_drop(LegSegmentLengths::default())
+	Squat::held().peak_vertical_drop(LegSegmentLengths::default())
 }
 
 impl RestLocomotionCapsule {
@@ -74,6 +102,26 @@ impl RestLocomotionCapsule {
 			StanceKind::Stand => self.0,
 			StanceKind::Squat => self.0.squat(squat_drop()),
 			StanceKind::Prone => self.0.prone_motor(),
+		}
+	}
+}
+
+/// Ease squat depth toward the stance target so enter/exit uses [`SquatDescent`].
+pub(crate) fn advance_stance_blend(
+	time: Res<Time>,
+	mut stances: Query<&mut CharacterStance, With<CharacterController>>,
+) {
+	let dt = time.delta_secs();
+	for mut stance in &mut stances {
+		let target = stance.squat_target();
+		if stance.blend < target {
+			stance.blend = (stance.blend
+				+ dt * character_animations::animations::DEFAULT_DESCENT_SPEED)
+				.min(target);
+		} else if stance.blend > target {
+			stance.blend = (stance.blend
+				- dt * character_animations::animations::DEFAULT_DESCENT_SPEED)
+				.max(target);
 		}
 	}
 }
@@ -113,7 +161,7 @@ pub(crate) fn apply_stance_hulls(
 			StanceKind::Prone => {
 				if !rest.0.pronograde {
 					commands.entity(entity).insert(rest.0.prone_hit_capsule());
-					commands.entity(entity).remove::<crozon_characters::HeadCapsule>();
+					commands.entity(entity).remove::<characters::HeadCapsule>();
 				}
 				commands.entity(entity).remove::<HeadshotBand>();
 			}
@@ -162,7 +210,7 @@ mod tests {
 	use anyhow::{anyhow, Result};
 	use avian3d::prelude::{Collider, Sensor};
 	use bevy::ecs::system::RunSystemOnce;
-	use crozon_characters::HitCapsule;
+	use characters::HitCapsule;
 
 	#[test]
 	fn speed_scale_slows_squat_and_prone() {
@@ -366,7 +414,7 @@ mod tests {
 			.spawn((
 				CharacterRoot,
 				ChildOf(body),
-				TerrainPitch::new(crozon_characters::RigSkeletonKind::Humanoid, 0.22, 0.18),
+				TerrainPitch::new(characters::RigSkeletonKind::Humanoid, 0.22, 0.18),
 			))
 			.id();
 		app.update();
@@ -387,8 +435,8 @@ mod tests {
 	fn held_squat_drops_more_than_jump_windup() {
 		let lengths = LegSegmentLengths::default();
 		assert!(
-			Squat::<()>::held().peak_vertical_drop(lengths)
-				> Squat::<()>::default().peak_vertical_drop(lengths)
+			Squat::held().peak_vertical_drop(lengths)
+				> Squat::default().peak_vertical_drop(lengths)
 		);
 	}
 }

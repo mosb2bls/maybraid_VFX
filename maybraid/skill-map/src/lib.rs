@@ -13,6 +13,7 @@ mod effects;
 mod fireball_embers;
 mod fireball_material;
 mod fireball_trail;
+mod icon;
 mod map;
 mod preview;
 mod tile_material;
@@ -37,8 +38,9 @@ pub use effects::{
 };
 pub use map::{authored_map, authored_map_from_spec, authored_maps, SkillKind, SkillMapId};
 pub use preview::{
-	spawn_skill_map_catalog_preview, spawn_skill_map_spin_reveal_hud, SkillMapCatalogPreview,
-	SkillMapMenuPreview, SkillMapSpinRevealHud, SkillMapSpinRevealHudView, CATALOG_PREVIEW_PX,
+	spawn_skill_map_catalog_preview, spawn_skill_map_spin_reveal_hud,
+	spawn_skill_map_spin_reveal_image, SkillMapCatalogPreview, SkillMapMenuPreview,
+	SkillMapSpinRevealHud, SkillMapSpinRevealHudView, CATALOG_PREVIEW_PX,
 };
 pub use tile_material::{SkillMapTileAssets, SkillMapTileMaterialPlugin};
 pub use tiles::{classify_noise, TileKind};
@@ -68,6 +70,18 @@ pub enum SkillMapEvent {
 	Fail { user: Entity, map: SkillMapId },
 }
 
+/// Dispatch systems drain pending claims while the map is hidden.
+pub(crate) fn skill_map_dispatch_ready(
+	enabled: &SkillMapEnabled,
+	events: &mut MessageReader<SkillMapEvent>,
+) -> bool {
+	if enabled.0 {
+		return true;
+	}
+	for _ in events.read() {}
+	false
+}
+
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SkillMapSystems {
 	Spawn,
@@ -92,6 +106,8 @@ impl Plugin for SkillMapPlugin {
 			.add_systems(Startup, burst::setup_burst_assets)
 			.init_resource::<SkillMapEnabled>()
 			.init_resource::<controller::SkillMapController>()
+			.init_resource::<icon::SkillMapPaintSlots>()
+			.init_resource::<icon::SkillMapIconSubmitted>()
 			.add_message::<SkillMapEvent>()
 			.add_message::<controller::SkillMapFlick>()
 			.configure_sets(
@@ -105,6 +121,7 @@ impl Plugin for SkillMapPlugin {
 						.before(ThreatManagementSystems::Select),
 				),
 			)
+			.add_systems(Update, icon::realize_skill_map_capture_hosts)
 			.add_systems(Update, viewport::present_skill_maps.in_set(SkillMapSystems::Spawn))
 			.add_systems(
 				Update,
@@ -116,6 +133,7 @@ impl Plugin for SkillMapPlugin {
 					cursor::tick_flick_beads,
 					viewport::sync_viewport_chrome,
 					viewport::sync_firearm_chrome,
+					viewport::sync_grenade_chrome,
 					viewport::track_cursors,
 					viewport::tick_debraid,
 				)

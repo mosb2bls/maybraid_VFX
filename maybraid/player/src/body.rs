@@ -3,7 +3,7 @@
 use avian3d::prelude::*;
 use bevy::ecs::query::Has;
 use bevy::prelude::*;
-use crozon_characters::LocomotionCapsule;
+use characters::LocomotionCapsule;
 use lod_avian::PhysicsInteractionLayer;
 use std::f32::consts::PI;
 
@@ -34,7 +34,7 @@ impl Default for CharacterLocomotion {
 	}
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone, Copy, PartialEq)]
 pub struct MoveWish(pub Vec3);
 
 /// Last walkable contact plane. Default is world up (flat XZ heading).
@@ -174,7 +174,7 @@ pub fn tick_jump(
 	}
 }
 
-/// Leap sampler windows (must match `malo_animations::animations::leap`).
+/// Leap sampler windows (must match `character_animations::animations::leap`).
 const LEAP_TAKEOFF_END: f32 = 0.18;
 const LEAP_AIR_END: f32 = 0.72;
 

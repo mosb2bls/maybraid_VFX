@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy::text::Justify;
-use crozon_character_persist::SaveRoot;
+use character_persist::SaveRoot;
 use maybraid_character_ui_menu_renderer::OverlaySelectRoot;
 use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad, PadButton, VirtualPad};
 use menu_components::theme::{HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW};

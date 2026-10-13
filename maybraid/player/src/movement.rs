@@ -2,7 +2,7 @@
 
 use avian3d::prelude::LinearVelocity;
 use bevy::prelude::*;
-use crozon_characters::AnimId;
+use characters::AnimId;
 use maybraid_audio::{
 	Audio, AudioClip, AudioSystems, Mixer, MovementClip, MovementSounds, MovementState,
 };

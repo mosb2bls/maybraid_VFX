@@ -11,54 +11,56 @@ pub struct SpotCandidate {
 	pub max_samples: usize,
 }
 
-/// Sort candidates by directive priority, salience, distance, known-contact
-/// continuity, and finally stable entity identity.
-pub fn rank_candidates(candidates: &mut [SpotCandidate]) {
-	candidates.sort_by(|a, b| {
-		b.directive_priority
-			.cmp(&a.directive_priority)
-			.then_with(|| b.salience.total_cmp(&a.salience))
-			.then_with(|| a.distance.total_cmp(&b.distance))
-			.then_with(|| b.known.cmp(&a.known))
-			.then_with(|| a.subject.to_bits().cmp(&b.subject.to_bits()))
-	});
-}
+impl SpotCandidate {
+	/// Sort candidates by directive priority, salience, distance, known-contact
+	/// continuity, and finally stable entity identity.
+	pub fn rank(candidates: &mut [Self]) {
+		candidates.sort_by(|a, b| {
+			b.directive_priority
+				.cmp(&a.directive_priority)
+				.then_with(|| b.salience.total_cmp(&a.salience))
+				.then_with(|| a.distance.total_cmp(&b.distance))
+				.then_with(|| b.known.cmp(&a.known))
+				.then_with(|| a.subject.to_bits().cmp(&b.subject.to_bits()))
+		});
+	}
 
-/// Retain only the highest-ranked candidate slots.
-pub fn apply_candidate_budget(candidates: &mut Vec<SpotCandidate>, candidate_budget: usize) {
-	candidates.truncate(candidate_budget);
-}
+	/// Retain only the highest-ranked candidate slots.
+	pub fn apply_budget(candidates: &mut Vec<Self>, candidate_budget: usize) {
+		candidates.truncate(candidate_budget);
+	}
 
-/// Allocate a total sample budget over candidates in rank order.
-///
-/// Every candidate receives one sample before additional samples are
-/// distributed round-robin. Per-candidate limits are always respected.
-pub fn allocate_sample_budget(
-	candidates: &[SpotCandidate],
-	candidate_budget: usize,
-	vision_samples: usize,
-) -> Vec<usize> {
-	let candidate_count = candidates.len().min(candidate_budget);
-	let mut grants = vec![0; candidate_count];
-	let mut remaining = vision_samples;
-	while remaining > 0 {
-		let mut progressed = false;
-		for (grant, candidate) in grants.iter_mut().zip(candidates.iter()) {
-			if remaining == 0 {
+	/// Allocate a total sample budget over candidates in rank order.
+	///
+	/// Every candidate receives one sample before additional samples are
+	/// distributed round-robin. Per-candidate limits are always respected.
+	pub fn allocate_sample_budget(
+		candidates: &[Self],
+		candidate_budget: usize,
+		vision_samples: usize,
+	) -> Vec<usize> {
+		let candidate_count = candidates.len().min(candidate_budget);
+		let mut grants = vec![0; candidate_count];
+		let mut remaining = vision_samples;
+		while remaining > 0 {
+			let mut progressed = false;
+			for (grant, candidate) in grants.iter_mut().zip(candidates.iter()) {
+				if remaining == 0 {
+					break;
+				}
+				if *grant >= candidate.max_samples {
+					continue;
+				}
+				*grant += 1;
+				remaining -= 1;
+				progressed = true;
+			}
+			if !progressed {
 				break;
 			}
-			if *grant >= candidate.max_samples {
-				continue;
-			}
-			*grant += 1;
-			remaining -= 1;
-			progressed = true;
 		}
-		if !progressed {
-			break;
-		}
+		grants
 	}
-	grants
 }
 
 #[cfg(test)]
@@ -93,7 +95,7 @@ mod tests {
 			candidate(5, 2, 2.0, 5.0, true, 9),
 			candidate(6, 2, 2.0, 1.0, false, 9),
 		];
-		rank_candidates(&mut candidates);
+		SpotCandidate::rank(&mut candidates);
 		assert_eq!(
 			candidates.iter().map(|candidate| candidate.subject).collect::<Vec<_>>(),
 			vec![
@@ -115,8 +117,8 @@ mod tests {
 			candidate(2, 0, 0.0, 0.0, false, 4),
 			candidate(3, 0, 0.0, 0.0, false, 4),
 		];
-		assert_eq!(allocate_sample_budget(&candidates, 2, 5), vec![2, 3]);
-		assert_eq!(allocate_sample_budget(&candidates, 3, 2), vec![1, 1, 0]);
+		assert_eq!(SpotCandidate::allocate_sample_budget(&candidates, 2, 5), vec![2, 3]);
+		assert_eq!(SpotCandidate::allocate_sample_budget(&candidates, 3, 2), vec![1, 1, 0]);
 		Ok(())
 	}
 }
