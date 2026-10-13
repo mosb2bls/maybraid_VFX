@@ -1,9 +1,15 @@
 //! Poll Apple `GCController` into Bevy raw gamepad messages.
+//!
+//! Native GameController and Core Haptics objects live in thread-local storage on
+//! the main thread. ECS only tracks per-controller routing (entities and last
+//! input samples).
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ptr::from_ref;
 use std::time::Duration;
 
+use bevy::ecs::system::NonSendMarker;
 use bevy::input::gamepad::{
 	GamepadAxis, GamepadButton, GamepadConnection, GamepadConnectionEvent, GamepadRumbleIntensity,
 	GamepadRumbleRequest, RawGamepadAxisChangedEvent, RawGamepadButtonChangedEvent,
@@ -13,7 +19,7 @@ use bevy::input::InputSystems;
 use bevy::prelude::*;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, ProtocolObject};
-use objc2::{msg_send, AnyThread, Message};
+use objc2::{msg_send, AnyThread, MainThreadMarker, Message};
 use objc2_core_haptics::{
 	CHHapticDynamicParameter, CHHapticEngine, CHHapticEvent, CHHapticEventParameter,
 	CHHapticEventParameterIDHapticIntensity, CHHapticEventParameterIDHapticSharpness,
@@ -29,69 +35,117 @@ use objc2_game_controller::{
 
 use crate::rumble::PadRumbleSystems;
 
+thread_local! {
+	static NATIVE_PADS: RefCell<HashMap<usize, PadNativeState>> = RefCell::new(HashMap::new());
+}
+
+fn with_native_pads<R>(f: impl FnOnce(&mut HashMap<usize, PadNativeState>) -> R) -> R {
+	NATIVE_PADS.with(|cell| f(&mut *cell.borrow_mut()))
+}
+
 fn value_changed(previous: Option<f32>, value: f32) -> bool {
 	const EPS: f32 = 1e-4;
 	previous.is_none_or(|old| (old - value).abs() > EPS)
+}
+
+#[inline]
+fn assert_apple_main_thread() {
+	let _mtm = MainThreadMarker::new().expect("GameController backend must run on the main thread");
+	#[cfg(test)]
+	scheduling_tests::mark_main_thread();
 }
 
 pub struct GameControllerPlugin;
 
 impl Plugin for GameControllerPlugin {
 	fn build(&self, app: &mut App) {
-		app.init_resource::<GameControllerPads>()
-			.add_systems(PreStartup, (enable_background_events, poll_game_controllers).chain())
+		app.init_resource::<GameControllerRouting>()
+			.add_systems(
+				PreStartup,
+				(reset_gamecontroller_backend, enable_background_events, poll_game_controllers)
+					.chain(),
+			)
 			.add_systems(PreUpdate, poll_game_controllers.before(InputSystems))
-			.add_systems(PostUpdate, play_gamecontroller_rumble.in_set(PadRumbleSystems::Play));
+			.add_systems(PostUpdate, play_gamecontroller_rumble.in_set(PadRumbleSystems::Play))
+			.add_systems(Last, shutdown_gamecontroller_backend);
 	}
 }
 
+/// Sendable routing state: Bevy entities and last-reported stick/button samples.
 #[derive(Default, Resource)]
-struct GameControllerPads {
-	pads: HashMap<usize, PadState>,
+struct GameControllerRouting {
+	by_controller_id: HashMap<usize, PadInputState>,
+	entity_to_controller_id: HashMap<Entity, usize>,
 }
 
-/// GameController / Core Haptics objects are main-thread only. This plugin
-/// already polls on the Bevy thread that pumps CFRunLoop.
-struct MainThreadRc<T>(Retained<T>);
-
-// SAFETY: `GameControllerPlugin` systems run on the main thread that owns these
-// Objective-C objects. They are never sent to another thread.
-unsafe impl<T> Send for MainThreadRc<T> {}
-unsafe impl<T> Sync for MainThreadRc<T> {}
-
-struct LivePulse {
-	player: MainThreadRc<ProtocolObject<dyn CHHapticPatternPlayer>>,
-	until: f32,
-}
-
-struct PadState {
+struct PadInputState {
 	entity: Entity,
-	controller: MainThreadRc<GCController>,
-	engine: Option<MainThreadRc<CHHapticEngine>>,
-	pulses: Vec<LivePulse>,
 	axes: HashMap<GamepadAxis, f32>,
 	buttons: HashMap<GamepadButton, f32>,
-	select: Option<MainThreadRc<GCControllerButtonInput>>,
+}
+
+struct PadNativeState {
+	controller: Retained<GCController>,
+	engine: Option<Retained<CHHapticEngine>>,
+	pulses: Vec<LivePulse>,
+	select: Option<Retained<GCControllerButtonInput>>,
 	logged_select: bool,
+}
+
+struct LivePulse {
+	player: Retained<ProtocolObject<dyn CHHapticPatternPlayer>>,
+	until: f32,
 }
 
 fn controller_id(controller: &GCController) -> usize {
 	from_ref(controller) as usize
 }
 
-fn enable_background_events() {
-	// SAFETY: class method; Bevy runs this on the main thread that pumps CFRunLoop.
+fn reset_gamecontroller_backend(
+	_non_send: NonSendMarker,
+	mut routing: ResMut<GameControllerRouting>,
+) {
+	assert_apple_main_thread();
+	teardown_all_native_pads();
+	routing.by_controller_id.clear();
+	routing.entity_to_controller_id.clear();
+}
+
+fn shutdown_gamecontroller_backend(_non_send: NonSendMarker) {
+	assert_apple_main_thread();
+	teardown_all_native_pads();
+}
+
+fn teardown_all_native_pads() {
+	with_native_pads(|pads| {
+		for (_, mut state) in pads.drain() {
+			teardown_native_pad(&mut state);
+		}
+	});
+}
+
+fn teardown_native_pad(state: &mut PadNativeState) {
+	clear_pulses(state);
+	state.engine = None;
+	state.select = None;
+}
+
+fn enable_background_events(_non_send: NonSendMarker) {
+	assert_apple_main_thread();
+	// SAFETY: class method; must run on the main thread.
 	unsafe {
 		GCController::setShouldMonitorBackgroundEvents(true);
 	}
 }
 
 fn poll_game_controllers(
+	_non_send: NonSendMarker,
 	mut commands: Commands,
-	mut pads: ResMut<GameControllerPads>,
+	mut routing: ResMut<GameControllerRouting>,
 	mut connection_events: MessageWriter<GamepadConnectionEvent>,
 	mut raw_events: MessageWriter<RawGamepadEvent>,
 ) {
+	assert_apple_main_thread();
 	// SAFETY: `controllers()` is the GameController inventory for this process.
 	let controllers = unsafe { GCController::controllers() };
 	let mut seen = HashSet::new();
@@ -103,18 +157,29 @@ fn poll_game_controllers(
 			&controller,
 			id,
 			&mut commands,
-			&mut pads,
+			&mut routing,
 			&mut connection_events,
 			&mut raw_events,
 		);
 	}
 
-	let gone: Vec<usize> = pads.pads.keys().copied().filter(|id| !seen.contains(id)).collect();
+	let gone: Vec<usize> = routing
+		.by_controller_id
+		.keys()
+		.copied()
+		.filter(|id| !seen.contains(id))
+		.collect();
 	for id in gone {
-		let Some(state) = pads.pads.remove(&id) else {
+		let Some(input) = routing.by_controller_id.remove(&id) else {
 			continue;
 		};
-		let event = GamepadConnectionEvent::new(state.entity, GamepadConnection::Disconnected);
+		routing.entity_to_controller_id.remove(&input.entity);
+		with_native_pads(|pads| {
+			if let Some(mut native) = pads.remove(&id) {
+				teardown_native_pad(&mut native);
+			}
+		});
+		let event = GamepadConnectionEvent::new(input.entity, GamepadConnection::Disconnected);
 		connection_events.write(event.clone());
 		raw_events.write(event.into());
 	}
@@ -124,7 +189,7 @@ fn sync_controller(
 	controller: &GCController,
 	id: usize,
 	commands: &mut Commands,
-	pads: &mut GameControllerPads,
+	routing: &mut GameControllerRouting,
 	connection_events: &mut MessageWriter<GamepadConnectionEvent>,
 	raw_events: &mut MessageWriter<RawGamepadEvent>,
 ) {
@@ -132,7 +197,8 @@ fn sync_controller(
 	let Some(extended) = (unsafe { controller.extendedGamepad() }) else {
 		return;
 	};
-	let state = pads.pads.entry(id).or_insert_with(|| {
+	let is_new = !routing.by_controller_id.contains_key(&id);
+	if is_new {
 		let entity = commands.spawn_empty().id();
 		let event = GamepadConnectionEvent::new(
 			entity,
@@ -159,18 +225,31 @@ fn sync_controller(
 				claim_for_app(select);
 			}
 		}
-		PadState {
-			entity,
-			controller: MainThreadRc(controller.retain()),
-			engine: None,
-			pulses: Vec::new(),
-			axes: HashMap::new(),
-			buttons: HashMap::new(),
-			select: select.map(MainThreadRc),
-			logged_select: false,
-		}
+		routing.entity_to_controller_id.insert(entity, id);
+		routing
+			.by_controller_id
+			.insert(id, PadInputState { entity, axes: HashMap::new(), buttons: HashMap::new() });
+		with_native_pads(|pads| {
+			pads.insert(
+				id,
+				PadNativeState {
+					controller: controller.retain(),
+					engine: None,
+					pulses: Vec::new(),
+					select,
+					logged_select: false,
+				},
+			);
+		});
+	}
+	let input = routing
+		.by_controller_id
+		.get_mut(&id)
+		.expect("routing and native maps stay in sync for connected controllers");
+	with_native_pads(|pads| {
+		let native = pads.get_mut(&id).expect("native map matches routing");
+		emit_extended(input, native, controller, &extended, raw_events);
 	});
-	emit_extended(state, &extended, raw_events);
 }
 
 fn controller_name(controller: &GCController) -> String {
@@ -187,79 +266,83 @@ fn controller_name(controller: &GCController) -> String {
 }
 
 fn emit_extended(
-	state: &mut PadState,
+	input: &mut PadInputState,
+	native: &mut PadNativeState,
+	controller: &GCController,
 	pad: &GCExtendedGamepad,
 	raw_events: &mut MessageWriter<RawGamepadEvent>,
 ) {
 	// SAFETY: `pad` is the extended profile of a connected controller.
 	unsafe {
 		emit_stick(
-			state,
+			input,
 			raw_events,
 			GamepadAxis::LeftStickX,
 			GamepadAxis::LeftStickY,
 			&pad.leftThumbstick(),
 		);
 		emit_stick(
-			state,
+			input,
 			raw_events,
 			GamepadAxis::RightStickX,
 			GamepadAxis::RightStickY,
 			&pad.rightThumbstick(),
 		);
-		emit_button(state, raw_events, GamepadButton::South, &pad.buttonA());
-		emit_button(state, raw_events, GamepadButton::East, &pad.buttonB());
-		emit_button(state, raw_events, GamepadButton::West, &pad.buttonX());
-		emit_button(state, raw_events, GamepadButton::North, &pad.buttonY());
-		emit_button(state, raw_events, GamepadButton::LeftTrigger, &pad.leftShoulder());
-		emit_button(state, raw_events, GamepadButton::RightTrigger, &pad.rightShoulder());
-		emit_button(state, raw_events, GamepadButton::LeftTrigger2, &pad.leftTrigger());
-		emit_button(state, raw_events, GamepadButton::RightTrigger2, &pad.rightTrigger());
-		emit_button(state, raw_events, GamepadButton::Start, &pad.buttonMenu());
-		emit_select(state, pad, raw_events);
+		emit_button(input, raw_events, GamepadButton::South, &pad.buttonA());
+		emit_button(input, raw_events, GamepadButton::East, &pad.buttonB());
+		emit_button(input, raw_events, GamepadButton::West, &pad.buttonX());
+		emit_button(input, raw_events, GamepadButton::North, &pad.buttonY());
+		emit_button(input, raw_events, GamepadButton::LeftTrigger, &pad.leftShoulder());
+		emit_button(input, raw_events, GamepadButton::RightTrigger, &pad.rightShoulder());
+		emit_button(input, raw_events, GamepadButton::LeftTrigger2, &pad.leftTrigger());
+		emit_button(input, raw_events, GamepadButton::RightTrigger2, &pad.rightTrigger());
+		emit_button(input, raw_events, GamepadButton::Start, &pad.buttonMenu());
+		emit_select(input, native, controller, pad, raw_events);
 		if let Some(home) = pad.buttonHome() {
-			emit_button(state, raw_events, GamepadButton::Mode, &home);
+			emit_button(input, raw_events, GamepadButton::Mode, &home);
 		}
 		if let Some(click) = pad.leftThumbstickButton() {
-			emit_button(state, raw_events, GamepadButton::LeftThumb, &click);
+			emit_button(input, raw_events, GamepadButton::LeftThumb, &click);
 		}
 		if let Some(click) = pad.rightThumbstickButton() {
-			emit_button(state, raw_events, GamepadButton::RightThumb, &click);
+			emit_button(input, raw_events, GamepadButton::RightThumb, &click);
 		}
 		let dpad = pad.dpad();
-		emit_button(state, raw_events, GamepadButton::DPadUp, &dpad.up());
-		emit_button(state, raw_events, GamepadButton::DPadDown, &dpad.down());
-		emit_button(state, raw_events, GamepadButton::DPadLeft, &dpad.left());
-		emit_button(state, raw_events, GamepadButton::DPadRight, &dpad.right());
+		emit_button(input, raw_events, GamepadButton::DPadUp, &dpad.up());
+		emit_button(input, raw_events, GamepadButton::DPadDown, &dpad.down());
+		emit_button(input, raw_events, GamepadButton::DPadLeft, &dpad.left());
+		emit_button(input, raw_events, GamepadButton::DPadRight, &dpad.right());
 	}
 }
 
 /// Xbox View (opposite Menu/Start). `buttonOptions` is optional and often nil on
 /// USB Xbox; macOS also binds Options to a screenshot gesture unless disabled.
 fn emit_select(
-	state: &mut PadState,
+	input: &mut PadInputState,
+	native: &mut PadNativeState,
+	controller: &GCController,
 	_pad: &GCExtendedGamepad,
 	raw_events: &mut MessageWriter<RawGamepadEvent>,
 ) {
-	if !state.logged_select {
-		state.logged_select = true;
-		let name = controller_name(&state.controller.0);
-		match state.select.as_ref() {
+	if !native.logged_select {
+		native.logged_select = true;
+		let name = controller_name(controller);
+		match native.select.as_ref() {
 			Some(button) => {
-				let bound = unsafe { button.0.isBoundToSystemGesture() };
+				let bound = unsafe { button.isBoundToSystemGesture() };
 				debug!("pad_select: {name} View/Options claimed bound_to_system={bound}");
 			}
 			None => {
-				let names = unsafe { physical_button_names(&state.controller.0) };
+				let names = unsafe { physical_button_names(controller) };
 				debug!("pad_select: {name} no View/Options/Share in profile buttons={names}");
 			}
 		}
 	}
-	let Some(select) = state.select.as_ref().map(|select| select.0.clone()) else {
+	let Some(select) = native.select.as_ref().cloned() else {
 		return;
 	};
 	unsafe {
-		emit_button(state, raw_events, GamepadButton::Select, &select);
+		emit_button(input, raw_events, GamepadButton::Select, &select);
 	}
 }
 
@@ -332,108 +415,120 @@ unsafe fn claim_for_app(input: &GCControllerButtonInput) {
 /// # Safety
 /// `stick` must be a live direction pad from a connected `GCExtendedGamepad`.
 unsafe fn emit_stick(
-	state: &mut PadState,
+	input: &mut PadInputState,
 	raw_events: &mut MessageWriter<RawGamepadEvent>,
 	axis_x: GamepadAxis,
 	axis_y: GamepadAxis,
 	stick: &GCControllerDirectionPad,
 ) {
-	emit_axis(state, raw_events, axis_x, unsafe { stick.xAxis().value() });
-	emit_axis(state, raw_events, axis_y, unsafe { stick.yAxis().value() });
+	emit_axis(input, raw_events, axis_x, unsafe { stick.xAxis().value() });
+	emit_axis(input, raw_events, axis_y, unsafe { stick.yAxis().value() });
 }
 
 fn emit_axis(
-	state: &mut PadState,
+	input: &mut PadInputState,
 	raw_events: &mut MessageWriter<RawGamepadEvent>,
 	axis: GamepadAxis,
 	value: f32,
 ) {
-	if !value_changed(state.axes.get(&axis).copied(), value) {
+	if !value_changed(input.axes.get(&axis).copied(), value) {
 		return;
 	}
-	state.axes.insert(axis, value);
-	raw_events.write(RawGamepadAxisChangedEvent::new(state.entity, axis, value).into());
+	input.axes.insert(axis, value);
+	raw_events.write(RawGamepadAxisChangedEvent::new(input.entity, axis, value).into());
 }
 
 /// # Safety
 /// `input` must be a live button from a connected `GCExtendedGamepad`.
 unsafe fn emit_button(
-	state: &mut PadState,
+	input: &mut PadInputState,
 	raw_events: &mut MessageWriter<RawGamepadEvent>,
 	button: GamepadButton,
-	input: &GCControllerButtonInput,
+	input_button: &GCControllerButtonInput,
 ) {
-	let value = unsafe { input.value() };
-	if !value_changed(state.buttons.get(&button).copied(), value) {
+	let value = unsafe { input_button.value() };
+	if !value_changed(input.buttons.get(&button).copied(), value) {
 		return;
 	}
-	state.buttons.insert(button, value);
-	raw_events.write(RawGamepadButtonChangedEvent::new(state.entity, button, value).into());
+	input.buttons.insert(button, value);
+	raw_events.write(RawGamepadButtonChangedEvent::new(input.entity, button, value).into());
 }
 
 fn play_gamecontroller_rumble(
+	_non_send: NonSendMarker,
 	time: Res<Time>,
 	mut requests: MessageReader<GamepadRumbleRequest>,
-	mut pads: ResMut<GameControllerPads>,
+	routing: Res<GameControllerRouting>,
 ) {
+	assert_apple_main_thread();
 	let now = time.elapsed_secs();
-	for state in pads.pads.values_mut() {
-		expire_pulses(state, now);
-	}
+	with_native_pads(|pads| {
+		for state in pads.values_mut() {
+			expire_pulses(state, now);
+		}
+	});
 	for request in requests.read() {
 		match request {
 			GamepadRumbleRequest::Stop { gamepad } => {
-				if let Some(state) = pad_mut(&mut pads, *gamepad) {
-					clear_pulses(state);
-					state.engine = None;
-				}
+				let Some(id) = routing.entity_to_controller_id.get(gamepad).copied() else {
+					continue;
+				};
+				with_native_pads(|pads| {
+					if let Some(state) = pads.get_mut(&id) {
+						clear_pulses(state);
+						state.engine = None;
+					}
+				});
 			}
 			GamepadRumbleRequest::Add { gamepad, duration, intensity } => {
-				let Some(state) = pad_mut(&mut pads, *gamepad) else {
-					let known: Vec<Entity> = pads.pads.values().map(|state| state.entity).collect();
+				let Some(id) = routing.entity_to_controller_id.get(gamepad).copied() else {
+					let known: Vec<Entity> =
+						routing.by_controller_id.values().map(|state| state.entity).collect();
 					warn!("pad_rumble: no PadState for Gamepad {gamepad:?} (known {known:?})");
 					continue;
 				};
-				play_pulse(state, now, *intensity, *duration);
+				with_native_pads(|pads| {
+					let Some(state) = pads.get_mut(&id) else {
+						warn!("pad_rumble: missing native state for controller id {id}");
+						return;
+					};
+					play_pulse(state, now, *intensity, *duration);
+				});
 			}
 		}
 	}
 }
 
-fn expire_pulses(state: &mut PadState, now: f32) {
+fn expire_pulses(state: &mut PadNativeState, now: f32) {
 	let mut keep = Vec::new();
 	for pulse in state.pulses.drain(..) {
 		if now < pulse.until {
 			keep.push(pulse);
 			continue;
 		}
-		let _ = unsafe { pulse.player.0.stopAtTime_error(CHHapticTimeImmediate) };
+		let _ = unsafe { pulse.player.stopAtTime_error(CHHapticTimeImmediate) };
 	}
 	state.pulses = keep;
 }
 
-fn clear_pulses(state: &mut PadState) {
+fn clear_pulses(state: &mut PadNativeState) {
 	for pulse in state.pulses.drain(..) {
-		let _ = unsafe { pulse.player.0.stopAtTime_error(CHHapticTimeImmediate) };
+		let _ = unsafe { pulse.player.stopAtTime_error(CHHapticTimeImmediate) };
 	}
 }
 
-fn pad_mut(pads: &mut GameControllerPads, gamepad: Entity) -> Option<&mut PadState> {
-	pads.pads.values_mut().find(|state| state.entity == gamepad)
-}
-
-fn ensure_engine(state: &mut PadState) -> Option<Retained<CHHapticEngine>> {
+fn ensure_engine(state: &mut PadNativeState) -> Option<Retained<CHHapticEngine>> {
 	if let Some(engine) = &state.engine {
-		return Some(engine.0.clone());
+		return Some(engine.clone());
 	}
-	let engine = start_engine(&state.controller.0)?;
-	state.engine = Some(MainThreadRc(engine.clone()));
+	let engine = start_engine(&state.controller)?;
+	state.engine = Some(engine.clone());
 	Some(engine)
 }
 
 fn start_engine(controller: &GCController) -> Option<Retained<CHHapticEngine>> {
 	let name = controller_name(controller);
-	// SAFETY: `controller` is a live `GCController` retained on `PadState`.
+	// SAFETY: `controller` is a live `GCController` retained on the main thread.
 	let Some(haptics) = (unsafe { controller.haptics() }) else {
 		warn!("pad_rumble: {name} has no GCDevice.haptics (USB Xbox on Mac often nil)");
 		return None;
@@ -482,12 +577,12 @@ fn create_engine_at(
 }
 
 fn play_pulse(
-	state: &mut PadState,
+	state: &mut PadNativeState,
 	now: f32,
 	intensity: GamepadRumbleIntensity,
 	duration: Duration,
 ) {
-	let name = controller_name(&state.controller.0);
+	let name = controller_name(&state.controller);
 	let Some(engine) = ensure_engine(state) else {
 		warn!("pad_rumble: no haptic engine for {name}");
 		return;
@@ -524,7 +619,7 @@ fn play_pulse(
 	debug!(
 		"pad_rumble: {name} play ok duration={duration:?} intensity={haptic_intensity:.2} sharpness={sharpness:.2} live_until={until:.3}"
 	);
-	state.pulses.push(LivePulse { player: MainThreadRc(player), until });
+	state.pulses.push(LivePulse { player, until });
 }
 
 fn haptic_pattern(
@@ -564,6 +659,171 @@ fn haptic_pattern(
 			err
 		})
 		.ok()
+	}
+}
+
+#[cfg(test)]
+mod scheduling_tests {
+	use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+	use bevy::ecs::schedule::{MainThreadExecutor, MultiThreadedExecutor};
+	use bevy::input::InputPlugin;
+	use bevy::prelude::*;
+	use bevy::tasks::{block_on, ComputeTaskPool};
+
+	use super::{
+		enable_background_events, play_gamecontroller_rumble, poll_game_controllers,
+		reset_gamecontroller_backend, shutdown_gamecontroller_backend, GameControllerPlugin,
+		GameControllerRouting,
+	};
+	use bevy::ecs::system::{IntoSystem, SystemInput};
+
+	pub static BACKEND_MAIN_THREAD: AtomicBool = AtomicBool::new(false);
+	static WORKER_TOUCHED: AtomicUsize = AtomicUsize::new(0);
+
+	pub fn mark_main_thread() {
+		BACKEND_MAIN_THREAD.store(true, Ordering::SeqCst);
+	}
+
+	fn touch_worker_counter() {
+		WORKER_TOUCHED.fetch_add(1, Ordering::SeqCst);
+	}
+
+	fn on_pthread_main() -> bool {
+		extern "C" {
+			fn pthread_main_np() -> i32;
+		}
+		// SAFETY: documented thread-local query on Apple/Darwin.
+		unsafe { pthread_main_np() == 1 }
+	}
+
+	fn native_system_names(schedule: &Schedule) -> Vec<String> {
+		schedule
+			.systems()
+			.map(|systems| {
+				systems
+					.filter_map(|(_key, system)| {
+						let name = system.name().to_string();
+						if name.contains("poll_game_controllers")
+							|| name.contains("enable_background_events")
+							|| name.contains("play_gamecontroller_rumble")
+							|| name.contains("reset_gamecontroller_backend")
+							|| name.contains("shutdown_gamecontroller_backend")
+						{
+							Some(name)
+						} else {
+							None
+						}
+					})
+					.collect()
+			})
+			.unwrap_or_default()
+	}
+
+	fn assert_initialized_system_is_non_send<M, I, O, S>(world: &mut World, label: &str, system: S)
+	where
+		I: SystemInput,
+		S: IntoSystem<I, O, M>,
+	{
+		let mut system = IntoSystem::into_system(system);
+		system.initialize(world);
+		assert!(
+			!system.is_send(),
+			"{label} must carry NonSendMarker so the multithreaded executor keeps it off worker threads"
+		);
+	}
+
+	#[test]
+	fn registered_native_systems_are_non_send() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, InputPlugin));
+		app.add_plugins(GameControllerPlugin);
+		app.finish();
+		let world = app.world_mut();
+		world.init_resource::<GameControllerRouting>();
+		assert_initialized_system_is_non_send(
+			world,
+			"reset_gamecontroller_backend",
+			reset_gamecontroller_backend,
+		);
+		assert_initialized_system_is_non_send(
+			world,
+			"enable_background_events",
+			enable_background_events,
+		);
+		assert_initialized_system_is_non_send(
+			world,
+			"poll_game_controllers",
+			poll_game_controllers,
+		);
+		assert_initialized_system_is_non_send(
+			world,
+			"play_gamecontroller_rumble",
+			play_gamecontroller_rumble,
+		);
+		assert_initialized_system_is_non_send(
+			world,
+			"shutdown_gamecontroller_backend",
+			shutdown_gamecontroller_backend,
+		);
+	}
+
+	#[test]
+	fn native_systems_run_on_main_thread_with_multithreaded_executor() -> anyhow::Result<()> {
+		if !on_pthread_main() {
+			eprintln!(
+				"skip native_systems_run_on_main_thread_with_multithreaded_executor: libtest worker is not the process main thread"
+			);
+			return Ok(());
+		}
+
+		BACKEND_MAIN_THREAD.store(false, Ordering::SeqCst);
+		WORKER_TOUCHED.store(0, Ordering::SeqCst);
+
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, InputPlugin));
+		app.insert_resource(MainThreadExecutor::new());
+		let multithreaded = |schedule: &mut Schedule| {
+			schedule.set_executor(MultiThreadedExecutor::new());
+		};
+		app.edit_schedule(PreStartup, multithreaded);
+		app.edit_schedule(PreUpdate, multithreaded);
+		app.edit_schedule(Update, multithreaded);
+		app.edit_schedule(PostUpdate, multithreaded);
+		app.edit_schedule(Last, multithreaded);
+		app.add_systems(Update, touch_worker_counter);
+		app.add_plugins(GameControllerPlugin);
+
+		app.update();
+		app.update();
+
+		block_on(async {
+			ComputeTaskPool::get()
+				.spawn(async {
+					touch_worker_counter();
+				})
+				.await;
+		});
+
+		let native_names: Vec<String> = app
+			.world()
+			.resource::<Schedules>()
+			.get(PreStartup)
+			.map(|schedule| native_system_names(schedule))
+			.unwrap_or_default();
+		assert!(
+			!native_names.is_empty(),
+			"PreStartup should register GameController systems: {native_names:?}"
+		);
+		assert!(
+			BACKEND_MAIN_THREAD.load(Ordering::SeqCst),
+			"GameController systems did not assert main-thread execution"
+		);
+		assert!(
+			WORKER_TOUCHED.load(Ordering::SeqCst) > 0,
+			"expected at least one Update system on the compute pool"
+		);
+		Ok(())
 	}
 }
 
