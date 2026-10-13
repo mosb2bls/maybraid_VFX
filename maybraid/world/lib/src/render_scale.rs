@@ -2,8 +2,10 @@
 //!
 //! Replaces the legacy render scale system. Styles render at characteristic resolutions
 //! (preserving aspect ratio) and apply effects during presentation:
-//! - **Native**: native resolution, no treatment, drawn direct to the window. Default.
-//! - **Sharp** (~1920×1080): untreated 1080p offscreen, linear present, height-fit
+//! - **Native**: native resolution, no treatment, drawn direct to the window.
+//!   Default on stronger machines (and when no host signal says otherwise).
+//! - **Sharp** (~1920×1080): untreated 1080p offscreen, linear present, height-fit.
+//!   First-run default on weaker machines; see [`device_tier`].
 //! - **Impressionist** (~700×394): painterly softening, tighter wash than Watercolor
 //! - **Watercolor** (~1280×720): full-strength painterly wash, more source detail
 //! - **Retro** (~540×304): nearest-neighbor, performance
@@ -12,6 +14,7 @@
 //!
 //! UI stays on the window-sized present camera. HUD, menus, and text remain at native resolution.
 
+pub mod device_tier;
 mod presentation;
 mod target;
 pub mod visual_style;
@@ -20,6 +23,10 @@ pub use presentation::PresentationMaterialsPlugin;
 
 use bevy::prelude::*;
 
+pub use device_tier::{
+	parse_device_tier_env, pick_default_visual_style, window_above_1080p, AdapterKind, DeviceTier,
+	VisualStyleAutoReason, VisualStylePick, VisualStyleSignals, DEVICE_TIER_ENV,
+};
 pub use target::{map_render_to_window, map_window_to_render};
 pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
 
