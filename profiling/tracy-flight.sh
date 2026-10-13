@@ -108,15 +108,11 @@ if ! kill -0 "$cap_pid" 2>/dev/null; then
 fi
 
 export MAYBRAID_VSYNC=off
-start_at_args=()
+game_args=(--agent-script "$script" --agent-events "$events_jsonl" --agent-quit)
 if [[ "${MAYBRAID_NO_START_AT:-}" != 1 ]]; then
-	start_at_args=(--start-at=0,0)
+	game_args=(--start-at=0,0 "${game_args[@]}")
 fi
-"$bin" "${start_at_args[@]}" \
-	--agent-script "$script" \
-	--agent-events "$events_jsonl" \
-	--agent-quit \
-	>"${base}-game.log" 2>&1 &
+"$bin" "${game_args[@]}" >"${base}-game.log" 2>&1 &
 game_pid=$!
 
 elapsed=0
