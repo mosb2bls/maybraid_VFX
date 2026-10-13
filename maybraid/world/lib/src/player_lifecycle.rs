@@ -17,15 +17,15 @@ use player::{CameraFollow, Player as MaybraidPlayer, PlayerUse};
 use player_camera::{CameraController, FollowCamera};
 use poi_intelligence::{
 	place_nearby, NearbyFallback, NearbyQuery, PoiId, PoiInterest, PoiInterests, PoiKind,
-	PoiRegistry, PoiSystems,
+	PoiRecord, PoiRegistry, PoiSystems,
 };
 use spotting_intelligence::SpotSubject;
 use threat_intelligence::{Affiliations, ThreatSubject};
 use world_player::{
 	player_position_above_surface, player_spawn_point_at, spawn_player_body, surface_or_hold_at,
 	AwaitingTerrainSurface, CharacterLocomotion, CharacterSpecies, ModePlayerPolicies, MoveWish,
-	Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet, PlayerSpawnXz, RequestSetCharacter,
-	RequestSetCharacterAppearance, RespawnOrigin,
+	OffTerrainAnchor, Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet, PlayerSpawnXz,
+	RequestSetCharacter, RequestSetCharacterAppearance, RespawnOrigin,
 };
 
 use layer_stack::ActiveGenerationMode;
@@ -102,9 +102,11 @@ pub struct WorldPlayerRespawnState {
 	first_spawn_offered: bool,
 }
 
-/// Clear the first-life offer so the next world load can pick again.
+/// Clear per-session spawn latches so the next world load (or character) can pick again.
 pub fn reset_first_spawn_offer(mut state: ResMut<WorldPlayerRespawnState>) {
 	state.first_spawn_offered = false;
+	state.last_poi = None;
+	state.pending = None;
 }
 
 /// Discovery map picker confirmed a POI, or `None` for the fallback ring.
@@ -503,6 +505,7 @@ fn respawn_world_player(
 			origin,
 			now,
 			player_position_above_surface(death_at),
+			false,
 		);
 		return;
 	}
@@ -525,17 +528,18 @@ fn respawn_world_player(
 	let placed = choice.poi.and_then(|id| registry.get(id).copied());
 	close_respawn_map(&mut map);
 	state.pending = None;
-	let position = match placed {
+	let spawn = match placed {
 		Some(record) => {
 			state.last_poi = Some(record.id);
-			player_spawn_point_at(
-				record.position.xz(),
-				surface_or_hold_at(&surface, record.position.xz()),
-			)
+			spawn_pose_for_chosen_poi(&record, &surface)
 		}
-		None => {
-			player_spawn_point_at(fallback_at.xz(), surface_or_hold_at(&surface, fallback_at.xz()))
-		}
+		None => ChosenPoiSpawn {
+			position: player_spawn_point_at(
+				fallback_at.xz(),
+				surface_or_hold_at(&surface, fallback_at.xz()),
+			),
+			interior: false,
+		},
 	};
 	finish_world_player_spawn(
 		&mut commands,
@@ -545,7 +549,8 @@ fn respawn_world_player(
 		loadout.as_deref(),
 		origin,
 		now,
-		position,
+		spawn.position,
+		spawn.interior,
 	);
 }
 
@@ -749,12 +754,18 @@ fn finish_world_player_spawn(
 	origin: RespawnOrigin,
 	now: Option<std::any::TypeId>,
 	position: Vec3,
+	interior: bool,
 ) {
 	let player = spawn_player_body(commands, meshes, materials, locomotion, position);
 	// First-drop hold: snap teleports onto composed height and waits for a
 	// local trimesh. Without this marker, gravity can turn on while the body
 	// is still sitting on a base-noise or death-pose Y under the mesh.
+	// Interior rooms keep their authored floor Y; terrain snap would pull the
+	// capsule under the storey into the building volume.
 	commands.entity(player).insert(AwaitingTerrainSurface);
+	if interior {
+		commands.entity(player).insert(OffTerrainAnchor { translation: position });
+	}
 	crate::control::apply_world_player_motor(commands, player);
 	if let Some(loadout) = loadout {
 		if !origin.ends_life(now) {
@@ -791,6 +802,33 @@ fn default_player_respawn_interests() -> PoiInterests {
 
 fn is_building_poi(kind: PoiKind) -> bool {
 	kind == LOCAL_POI || kind == URBAN_POI || kind == SALOON_POI
+}
+
+/// House / storey / lounge pins live inside a building. Urban settlement pins
+/// stay outdoor even when the registry marks them local.
+fn is_interior_building_poi(record: &PoiRecord) -> bool {
+	record.local && (record.kind == LOCAL_POI || record.kind == SALOON_POI)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ChosenPoiSpawn {
+	position: Vec3,
+	interior: bool,
+}
+
+/// Local interiors keep the POI floor. Outdoor pins snap to composed terrain.
+fn spawn_pose_for_chosen_poi(record: &PoiRecord, surface: &DurhamSurface) -> ChosenPoiSpawn {
+	if is_interior_building_poi(record) {
+		ChosenPoiSpawn { position: player_position_above_surface(record.position), interior: true }
+	} else {
+		ChosenPoiSpawn {
+			position: player_spawn_point_at(
+				record.position.xz(),
+				surface_or_hold_at(surface, record.position.xz()),
+			),
+			interior: false,
+		}
+	}
 }
 
 fn prefer_building_poi_ids(ids: &[PoiId], registry: &PoiRegistry, death_at: Vec3) -> Vec<PoiId> {
@@ -1346,6 +1384,58 @@ mod tests {
 	}
 
 	#[test]
+	fn discovery_respawn_keeps_an_interior_poi_floor() -> anyhow::Result<()> {
+		let mut world = discovery_respawn_world(0.2);
+		let poi = world.spawn_empty().id();
+		let floor = Vec3::new(80.0, 12.0, 5.0);
+		world.resource_mut::<PoiRegistry>().upsert(
+			poi,
+			poi_intelligence::Poi::new(PoiId(1), LOCAL_POI).with_arrival_radius(4.0),
+			floor,
+			true,
+			false,
+		)?;
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.write_message(PlayerChoseRespawnPoi { poi: Some(PoiId(1)) });
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+		let mut bodies = world.query_filtered::<
+			(&Transform, Has<AwaitingTerrainSurface>, Has<OffTerrainAnchor>),
+			With<VegetationPlayer>,
+		>();
+		let (body, awaiting, anchored) = bodies.single(&world)?;
+		assert_eq!(body.translation, player_position_above_surface(floor));
+		assert!(awaiting);
+		assert!(anchored);
+		Ok(())
+	}
+
+	#[test]
+	fn local_rooms_are_interior_and_urban_pins_are_not() {
+		let room = PoiRecord {
+			id: PoiId(1),
+			entity: Entity::from_bits(1),
+			kind: LOCAL_POI,
+			position: Vec3::new(8.0, 12.0, 3.0),
+			arrival_radius: 4.0,
+			salience: 1.0,
+			local: true,
+			global: false,
+		};
+		let lounge = PoiRecord { kind: SALOON_POI, ..room };
+		let urban = PoiRecord { kind: URBAN_POI, ..room };
+		let grove = PoiRecord { kind: VEGETATION_POI, local: false, global: true, ..room };
+		assert!(is_interior_building_poi(&room));
+		assert!(is_interior_building_poi(&lounge));
+		assert!(!is_interior_building_poi(&urban));
+		assert!(!is_interior_building_poi(&grove));
+	}
+
+	#[test]
 	fn discovery_respawn_waits_until_the_player_picks() -> anyhow::Result<()> {
 		let mut world = discovery_respawn_world(0.2);
 		world
@@ -1735,11 +1825,32 @@ mod tests {
 	#[test]
 	fn reset_first_spawn_offer_clears_the_session_flag() -> anyhow::Result<()> {
 		let mut world = World::new();
-		world.insert_resource(WorldPlayerRespawnState { first_spawn_offered: true, ..default() });
+		world.insert_resource(WorldPlayerRespawnState {
+			first_spawn_offered: true,
+			last_poi: Some(PoiId(9)),
+			pending: Some(PendingPlayerRespawn {
+				timer: Timer::from_seconds(0.0, TimerMode::Once),
+				death_at: Vec3::ZERO,
+				origin: RespawnOrigin::began(None, false),
+				candidates: Vec::new(),
+				highlighted: None,
+				highlighted_at: None,
+				map_opened: false,
+				stick_resting: true,
+				first_life: true,
+				fallback_at: Vec3::ZERO,
+				registry_revision: 0,
+				picker_nearby_scratch: Vec::new(),
+			}),
+			..default()
+		});
 		world
 			.run_system_once(reset_first_spawn_offer)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert!(!world.resource::<WorldPlayerRespawnState>().first_spawn_offered);
+		let state = world.resource::<WorldPlayerRespawnState>();
+		assert!(!state.first_spawn_offered);
+		assert!(state.last_poi.is_none());
+		assert!(state.pending.is_none());
 		Ok(())
 	}
 
