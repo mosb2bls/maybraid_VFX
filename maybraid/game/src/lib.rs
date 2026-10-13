@@ -22,9 +22,9 @@ use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	parse_visual_style_env, reset_first_spawn_offer, resume_discovery_from_saved_waypoints, Durham,
 	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
-	TerrainStreaming, VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMobHudEnabled,
-	WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady,
-	WorldSurfaceSet, VISUAL_STYLE_ENV,
+	TerrainStreaming, VisualStyle, VisualStyleSetting, WorldGameplayEnabled, WorldMenuShell,
+	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, VISUAL_STYLE_ENV,
 };
 use menu_components::{
 	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
@@ -49,6 +49,7 @@ impl Plugin for GamePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(WorldPlugin::game())
 			.insert_resource(WorldGameplayEnabled(false))
+			.insert_resource(WorldMenuShell(true))
 			.insert_resource(InventoryEditCameraFollow(false))
 			.insert_resource(PlayerPhysicsEnabled(false))
 			.insert_resource(TerrainStreaming::<Durham>::new(false))
