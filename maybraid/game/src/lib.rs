@@ -31,13 +31,12 @@ use maybraid_world::{
 	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
-	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-	TextMenuSystems, MENU_CLEAR,
+	consume_screen_back, MenuModalStack, ScreenBackPressed, TextMenuSystems, MENU_CLEAR,
 };
 use menu_playground::{
-	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterLeavePrompt,
-	CharacterMenuState, CharacterModalMode, CharacterPreviewPlugin, CharacterScreen,
-	CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
+	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState,
+	CharacterPreviewPlugin, CharacterScreen, CharacterScreenPlugin, CharacterSessionPlugin,
+	EditingCharacter, RequestEditCharacter,
 };
 use menu_screens::{
 	apply_unsaved_visual_style_default, cancel_pending_create, request_show_gallery,
@@ -472,16 +471,14 @@ fn visual_style_readout(
 fn home_settings_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
 	screens: Query<(), With<InGameSettingsScreen>>,
 ) {
 	if screens.is_empty() {
 		return;
 	}
-	if !consume_screen_back(nav.as_ref(), &overlay, modal.is_open(), &consumed, &mut backs) {
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	request_show_home(&mut commands);
@@ -490,11 +487,7 @@ fn home_settings_back(
 fn pause_menu_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	prompt: Res<CharacterLeavePrompt>,
-	mode: Res<CharacterModalMode>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
 	settings: Query<(), With<InGameSettingsScreen>>,
 	character: Query<(), With<CharacterScreen>>,
@@ -502,13 +495,7 @@ fn pause_menu_back(
 	if settings.is_empty() && character.is_empty() {
 		return;
 	}
-	if !consume_screen_back(
-		nav.as_ref(),
-		&overlay,
-		modal.is_open() || prompt.is_open() || (!character.is_empty() && mode.blocks_leave()),
-		&consumed,
-		&mut backs,
-	) {
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	commands.remove_resource::<CharacterEditorReturn>();
@@ -537,23 +524,13 @@ fn character_back(
 	mut route: ShellRoute,
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	prompt: Res<CharacterLeavePrompt>,
-	mode: Res<CharacterModalMode>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
 	character: Query<(), With<CharacterScreen>>,
 	spin: Query<(), With<SpinRevealScreen>>,
 	gallery: Query<(), With<GalleryScreen>>,
 ) {
-	if !consume_screen_back(
-		nav.as_ref(),
-		&overlay,
-		modal.is_open() || prompt.is_open() || (!character.is_empty() && mode.blocks_leave()),
-		&consumed,
-		&mut backs,
-	) {
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	if !character.is_empty() {

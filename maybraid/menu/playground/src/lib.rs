@@ -15,7 +15,7 @@ pub use character::{
 };
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use game_commands::command::PendingStartupCommand;
-pub use leave_prompt::{CharacterLeavePrompt, CharacterModalMode};
+pub use leave_prompt::CharacterLeavePrompt;
 pub use preview::{CharacterPreviewLight, CharacterPreviewPlugin, CharacterPreviewRoot};
 pub use session::{
 	leave_character_editor, save_editing_character, ActiveCharacter, CharacterEditorReturn,
@@ -34,10 +34,7 @@ use lod::LodViewer;
 use maybraid_character_ui_menu_renderer::CharacterMenuEvent;
 use maybraid_input::{MenuNavPad, VirtualPadPlugin};
 use maybraid_menu_controller::MenuControllerPlugin;
-use menu_components::{
-	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-	TextMenuSystems,
-};
+use menu_components::{consume_screen_back, MenuModalStack, ScreenBackPressed, TextMenuSystems};
 use menu_screens::{
 	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
 	request_show_in_game_settings, CreateCharacterPlugin, GalleryChoice, GalleryScreen,
@@ -194,11 +191,7 @@ fn echo_gallery_choice(
 fn editor_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	prompt: Res<CharacterLeavePrompt>,
-	mode: Res<CharacterModalMode>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
 	return_to: Option<Res<crate::CharacterEditorReturn>>,
 	character: Query<(), With<CharacterScreen>>,
@@ -207,13 +200,7 @@ fn editor_back(
 	weapons: Query<(), With<WeaponGalleryScreen>>,
 	settings: Query<(), With<InGameSettingsScreen>>,
 ) {
-	if !consume_screen_back(
-		&nav,
-		&overlay,
-		modal.is_open() || prompt.is_open() || (!character.is_empty() && mode.blocks_leave()),
-		&consumed,
-		&mut backs,
-	) {
+	if !consume_screen_back(&nav, &stack, &mut backs) {
 		return;
 	}
 	if !settings.is_empty() {
