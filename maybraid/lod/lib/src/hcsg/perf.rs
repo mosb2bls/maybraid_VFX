@@ -10,6 +10,8 @@ use std::time::Instant;
 use bevy::math::bounding::Aabb3d;
 use bevy::math::{DVec3, Vec3};
 
+use std::sync::Arc;
+
 use crate::gen::tests::test_utils::cell;
 use crate::gen::{Id, OriginalId, Version};
 
@@ -242,5 +244,56 @@ fn perf_worker_generate_cache_hits() {
 		ENTRIES,
 		elapsed,
 		elapsed / calls as u32
+	);
+}
+
+/// Presentation spawns one host per published id; each [`HcsgStorage::try_entry`]
+/// re-resolves the typed store through the registry lock.
+#[test]
+#[ignore]
+fn perf_presentation_try_entries() {
+	const STORE_ENTRIES: usize = 8_000;
+	const BATCH: usize = 32;
+	const ROUNDS: usize = 50_000;
+
+	let storage = HcsgStorage::default();
+	let mut batch_ids = Vec::with_capacity(BATCH);
+	for i in 0..STORE_ENTRIES {
+		let id = Id::from_cell(cell(i as f32 * 64.0));
+		if i < BATCH {
+			batch_ids.push(id);
+		}
+		storage.publish(id, Arc::new(i as u32), cell(i as f32 * 64.0));
+	}
+
+	let per_entry_started = Instant::now();
+	for _ in 0..ROUNDS {
+		for id in &batch_ids {
+			let _ = storage.try_entry::<u32>(*id).unwrap();
+		}
+	}
+	let per_entry = per_entry_started.elapsed();
+
+	let batch_started = Instant::now();
+	for _ in 0..ROUNDS {
+		let _ = storage.try_entries::<u32>(&batch_ids).unwrap();
+	}
+	let batch = batch_started.elapsed();
+
+	let per_entry_calls = ROUNDS * BATCH;
+	eprintln!(
+		"perf_presentation_try_entries: {} rounds × {} ids ({per_entry_calls} lookups)",
+		ROUNDS,
+		BATCH,
+	);
+	eprintln!(
+		"  try_entry loop: {:?} ({:.1?} per lookup)",
+		per_entry,
+		per_entry / per_entry_calls as u32
+	);
+	eprintln!(
+		"  try_entries batch: {:?} ({:.1?} per lookup)",
+		batch,
+		batch / per_entry_calls as u32
 	);
 }

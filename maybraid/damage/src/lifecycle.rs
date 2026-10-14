@@ -43,7 +43,9 @@ pub fn mark_downed(
 		if already_downed.contains(death.entity) {
 			continue;
 		}
-		let mut entity = commands.entity(death.entity);
+		let Ok(mut entity) = commands.get_entity(death.entity) else {
+			continue;
+		};
 		entity.try_insert(Downed { source: death.source, point: death.point, at: now });
 		if queued.get(death.entity).is_err() {
 			entity.try_insert(DespawnAfter::seconds(DEFAULT_CORPSE_SECS));
@@ -68,7 +70,9 @@ pub fn down_zero_health(
 			continue;
 		}
 		died.write(Died { entity, source: None, point: Vec3::ZERO });
-		let mut commands = commands.entity(entity);
+		let Ok(mut commands) = commands.get_entity(entity) else {
+			continue;
+		};
 		commands.try_insert(Downed { source: None, point: Vec3::ZERO, at: now });
 		if queued.get(entity).is_err() {
 			commands.try_insert(DespawnAfter::seconds(DEFAULT_CORPSE_SECS));
@@ -82,7 +86,9 @@ pub fn ensure_downed_have_despawn(
 	downed: Query<Entity, (With<Downed>, Without<DespawnAfter>)>,
 ) {
 	for entity in &downed {
-		commands.entity(entity).try_insert(DespawnAfter::seconds(DEFAULT_CORPSE_SECS));
+		if let Ok(mut commands) = commands.get_entity(entity) {
+			commands.try_insert(DespawnAfter::seconds(DEFAULT_CORPSE_SECS));
+		}
 	}
 }
 
@@ -95,7 +101,9 @@ pub fn tick_queued_despawns(
 	for (entity, mut despawn) in &mut queued {
 		despawn.0.tick(time.delta());
 		if despawn.0.is_finished() {
-			commands.entity(entity).try_despawn();
+			if let Ok(mut entity) = commands.get_entity(entity) {
+				entity.try_despawn();
+			}
 		}
 	}
 }
@@ -177,6 +185,48 @@ mod tests {
 		app.update();
 		assert_eq!(app.world().get::<Health>(entity).map(|health| health.current), Some(0.0));
 		assert!(app.world().entities().contains(entity));
+	}
+
+	#[test]
+	fn burst_kill_in_one_frame_downs_once_and_ignores_overkill() {
+		use crate::{apply_hits, DamageApplied, Health, Hit};
+
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.add_message::<Hit>()
+			.add_message::<DamageApplied>()
+			.add_message::<Died>()
+			.add_systems(
+				Update,
+				(apply_hits, mark_downed, down_zero_health, ensure_downed_have_despawn).chain(),
+			);
+		let entity = app.world_mut().spawn(Health::from_max(12.0)).id();
+		for index in 0..6 {
+			app.world_mut().write_message(Hit {
+				target: entity,
+				source: None,
+				amount: 5.0,
+				point: Vec3::new(index as f32, 1.5, 0.0),
+				allow_self: false,
+			});
+		}
+		app.update();
+		assert_eq!(app.world().get::<Health>(entity).map(|health| health.current), Some(0.0));
+		assert!(app.world().get::<Downed>(entity).is_some());
+		assert!(app.world().get::<DespawnAfter>(entity).is_some());
+		assert!(app.world().entities().contains(entity));
+	}
+
+	#[test]
+	fn mark_downed_skips_a_despawned_victim() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.add_message::<Died>()
+			.add_systems(Update, mark_downed);
+		let entity = app.world_mut().spawn_empty().id();
+		app.world_mut().write_message(Died { entity, source: None, point: Vec3::ZERO });
+		app.world_mut().despawn(entity);
+		app.update();
 	}
 
 	#[test]

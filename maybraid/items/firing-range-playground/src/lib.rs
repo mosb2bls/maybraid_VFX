@@ -559,7 +559,7 @@ fn spawn_reticle_system(
 }
 
 fn gate_pad(focus: Res<TextEntryFocus>, mut enabled: ResMut<PadGameplayEnabled>) {
-	enabled.0 = !focus.0;
+	enabled.set_text(!focus.0);
 }
 
 fn setup_lighting(mut commands: Commands) {
