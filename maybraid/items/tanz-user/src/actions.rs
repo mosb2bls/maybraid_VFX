@@ -83,7 +83,7 @@ pub fn forward_dash() -> TanzDefinition {
 		input: strong_sector(Vec2::Y, TanzButton::None),
 		action: TanzAction::Move { local: Vec2::Y },
 		timing: MOVE_TIMING,
-		clip: AnimClip::leap(),
+		clip: AnimClip::power_dash(),
 	}
 }
 
@@ -105,11 +105,17 @@ mod tests {
 	}
 
 	#[test]
-	fn movement_tanzes_use_leap() -> anyhow::Result<()> {
+	fn strafe_tanzes_use_leap() -> anyhow::Result<()> {
 		assert_eq!(left_strafe().clip.id(), AnimClip::leap().id());
 		assert_eq!(right_strafe().clip.id(), AnimClip::leap().id());
-		assert_eq!(forward_dash().clip.id(), AnimClip::leap().id());
 		assert_eq!(left_strafe().action, TanzAction::Move { local: Vec2::NEG_X });
+		Ok(())
+	}
+
+	#[test]
+	fn forward_dash_uses_power_dash() -> anyhow::Result<()> {
+		assert_eq!(forward_dash().clip.id(), AnimClip::power_dash().id());
+		assert_eq!(forward_dash().action, TanzAction::Move { local: Vec2::Y });
 		Ok(())
 	}
 }
