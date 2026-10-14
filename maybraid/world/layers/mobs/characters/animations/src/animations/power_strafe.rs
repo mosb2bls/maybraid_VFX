@@ -145,6 +145,8 @@ impl PowerStrafe {
 		HAND_ROLL * self.side.sign() * self.stance_amount(progress)
 	}
 
+	/// Lateral slide in documented character space (+X right), matching Tanz
+	/// `MoveWish` at look yaw 0 (`left_strafe` → −X, `right_strafe` → +X).
 	pub fn armature_translation(&self, progress: f32) -> Vec3 {
 		let slide = self.slide_amount(progress);
 		let drop = self.stance_amount(progress);
@@ -169,5 +171,26 @@ mod tests {
 		assert!(strafe.stance_amount(0.0) < 0.05);
 		assert!(strafe.stance_amount(0.5) > 0.95);
 		assert!(strafe.stance_amount(1.0) < 0.05);
+	}
+
+	#[test]
+	fn armature_offset_is_zero_at_end_and_smooth_over_recovery_window() {
+		use character_rigs::Side;
+
+		const FPS: f32 = 60.0;
+		const RECOVERY_WINDOW: f32 = 0.38;
+		let strafe = PowerStrafe::new(Side::Left);
+		let start = 1.0 - RECOVERY_WINDOW;
+		let steps = (RECOVERY_WINDOW * FPS).round() as u32;
+		let mut max_delta = 0.0f32;
+		let mut prev = strafe.armature_translation(start);
+		for step in 1..=steps {
+			let progress = start + RECOVERY_WINDOW * step as f32 / steps as f32;
+			let next = strafe.armature_translation(progress);
+			max_delta = max_delta.max((next - prev).length());
+			prev = next;
+		}
+		assert!(prev.length_squared() < 1e-10, "offset at progress 1: {prev:?}");
+		assert!(max_delta < 0.02, "max 60 Hz step delta {max_delta} in recovery tail");
 	}
 }

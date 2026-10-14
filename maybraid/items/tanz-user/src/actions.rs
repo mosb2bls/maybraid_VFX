@@ -113,4 +113,13 @@ mod tests {
 		assert_eq!(left_strafe().action, TanzAction::Move { local: Vec2::NEG_X });
 		Ok(())
 	}
+
+	#[test]
+	fn strafe_move_wish_is_lateral_body_x_at_identity_yaw() -> anyhow::Result<()> {
+		use crate::look_wish;
+
+		assert_eq!(look_wish(0.0, Vec2::NEG_X), Vec3::NEG_X);
+		assert_eq!(look_wish(0.0, Vec2::X), Vec3::X);
+		Ok(())
+	}
 }
