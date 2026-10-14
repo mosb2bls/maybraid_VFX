@@ -3,13 +3,12 @@
 use bevy::prelude::*;
 use bevy::text::Justify;
 use character_persist::SaveRoot;
-use maybraid_character_ui_menu_renderer::OverlaySelectRoot;
 use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad, PadButton, VirtualPad};
 use menu_components::theme::{HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW};
 use menu_components::{
-	clear_menu_back_consumed, emit_short_text_submit_on_confirm, spawn_hud_action, spawn_hud_text,
-	ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu, MenuBackConsumed,
-	ScreenBackPressed, ShortTextModal, ShortTextModalRoot, TextMenuInputLock, TextMenuSystems,
+	emit_short_text_submit_on_confirm, spawn_hud_action, spawn_hud_text, HudFonts, HudMenu,
+	HudMenuItem, HudOverlayMenu, MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer,
+	MenuModalStack, MenuModalSystems, ScreenBackPressed, TextMenuSystems,
 };
 
 use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
@@ -41,48 +40,16 @@ pub struct CharacterLeavePrompt {
 	pub opened_this_frame: bool,
 }
 
-/// Character create/edit is covered by a name modal, catalog, or leave card.
-/// Start/Back that went down in that mode do not bubble onto the HUD after
-/// the popup closes — the same press must not open a leave prompt.
-#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct CharacterModalMode {
-	pub active: bool,
-	start_from_modal: bool,
-	back_from_modal: bool,
-}
-
-impl CharacterModalMode {
-	pub fn blocks_leave(&self) -> bool {
-		self.active || self.start_from_modal || self.back_from_modal
-	}
-
-	pub fn tick(&mut self, active: bool, start_down: bool, back_down: bool) {
-		self.active = active;
-		self.start_from_modal = latch_modal_button(self.start_from_modal, active, start_down);
-		self.back_from_modal = latch_modal_button(self.back_from_modal, active, back_down);
-	}
-}
-
-/// Keep a modal's Start/Back until release so a late `just_pressed` cannot
-/// land on the HUD after submit closes the popup.
-pub fn latch_modal_button(armed: bool, modal: bool, down: bool) -> bool {
-	if !down {
-		false
-	} else if modal {
-		true
-	} else {
-		armed
-	}
-}
-
 impl CharacterLeavePrompt {
 	pub fn is_open(&self) -> bool {
 		self.kind.is_some()
 	}
 
-	pub fn open(&mut self, kind: CharacterLeaveKind) {
+	pub fn open(&mut self, kind: CharacterLeaveKind, stack: &mut MenuModalStack) {
 		self.kind = Some(kind);
 		self.opened_this_frame = true;
+		stack.open(MenuModalLayer::CHARACTER_LEAVE);
+		stack.mark_consumed();
 	}
 }
 
@@ -106,15 +73,14 @@ pub struct CharacterLeavePromptPlugin;
 impl Plugin for CharacterLeavePromptPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<CharacterLeavePrompt>()
-			.init_resource::<CharacterModalMode>()
 			.add_observer(on_leave_prompt_click)
 			.add_observer(on_leave_prompt_nav)
+			.add_systems(Update, close_leave_on_modal_dismiss.in_set(MenuModalSystems::Apply))
 			.add_systems(
 				Update,
-				(refresh_character_modal_mode, intercept_character_leave_edges)
-					.chain()
+				intercept_character_leave_edges
 					.in_set(TextMenuSystems::InputLock)
-					.after(clear_menu_back_consumed)
+					.after(MenuModalSystems::Apply)
 					.after(emit_short_text_submit_on_confirm),
 			)
 			.add_systems(
@@ -147,82 +113,28 @@ pub fn character_leave_edge(
 	None
 }
 
-fn character_screen_modal(
-	lock: bool,
-	overlay: bool,
-	modal_open: bool,
-	modal_dismissed: bool,
-	short_text_root: bool,
-	catalog: bool,
-	overlay_menu: bool,
-	leave_prompt: bool,
-) -> bool {
-	lock || overlay
-		|| modal_open
-		|| modal_dismissed
-		|| short_text_root
-		|| catalog
-		|| overlay_menu
-		|| leave_prompt
-}
-
-fn refresh_character_modal_mode(
-	mut mode: ResMut<CharacterModalMode>,
-	prompt: Res<CharacterLeavePrompt>,
-	pad: Option<Res<VirtualPad>>,
-	nav: Res<MenuNavPad>,
-	lock: Res<TextMenuInputLock>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	screens: Query<(), With<CharacterScreen>>,
-	short_text_roots: Query<(), With<ShortTextModalRoot>>,
-	catalogs: Query<(), With<OverlaySelectRoot>>,
-	overlay_menus: Query<(), (With<HudOverlayMenu>, Without<CharacterLeavePromptMenu>)>,
-) {
-	let active = !screens.is_empty()
-		&& character_screen_modal(
-			lock.0,
-			overlay.0.is_some(),
-			modal.is_open(),
-			modal.dismissed,
-			!short_text_roots.is_empty(),
-			!catalogs.is_empty(),
-			!overlay_menus.is_empty(),
-			prompt.is_open(),
-		);
-	let start_down = pad.as_deref().is_some_and(|pad| pad.pressed(PadButton::Start));
-	let back_down = pad.as_deref().is_some_and(|pad| pad.pressed(PadButton::B))
-		|| nav.just_pressed(MenuNav::Back);
-	mode.tick(active, start_down, back_down);
-}
-
 fn intercept_character_leave_edges(
 	mut prompt: ResMut<CharacterLeavePrompt>,
-	mut consumed: ResMut<MenuBackConsumed>,
+	mut stack: ResMut<MenuModalStack>,
 	mut nav: ResMut<MenuNavPad>,
 	pad: Option<Res<VirtualPad>>,
-	mode: Res<CharacterModalMode>,
 	screens: Query<(), With<CharacterScreen>>,
 	mut backs: MessageReader<ScreenBackPressed>,
 ) {
 	prompt.opened_this_frame = false;
 	let back_click = backs.read().next().is_some();
-	let Some(kind) = character_leave_edge(
-		!screens.is_empty(),
-		mode.blocks_leave(),
-		false,
-		pad.is_some_and(|pad| pad.just_pressed(PadButton::Start)),
-		back_click || nav.just_pressed(MenuNav::Back),
-	) else {
+	let start = pad.is_some_and(|pad| pad.just_pressed(PadButton::Start));
+	let back = back_click || nav.just_pressed(MenuNav::Back);
+	let hold = if start { stack.blocks_screen_select() } else { stack.blocks_screen_back() };
+	let Some(kind) = character_leave_edge(!screens.is_empty(), hold, false, start, back) else {
 		return;
 	};
-	prompt.open(kind);
+	prompt.open(kind, &mut stack);
 	match kind {
 		CharacterLeaveKind::Save | CharacterLeaveKind::SaveFailed => {
 			nav.events.retain(|event| *event != MenuNav::Select);
 		}
 		CharacterLeaveKind::Discard => {
-			consumed.0 = true;
 			nav.events.retain(|event| *event != MenuNav::Back);
 		}
 	}
@@ -231,12 +143,29 @@ fn intercept_character_leave_edges(
 fn close_leave_prompt_without_character(
 	screens: Query<(), With<CharacterScreen>>,
 	mut prompt: ResMut<CharacterLeavePrompt>,
+	mut stack: ResMut<MenuModalStack>,
 	roots: Query<Entity, With<CharacterLeavePromptRoot>>,
 	mut commands: Commands,
 ) {
 	if screens.is_empty() && prompt.is_open() {
-		close_leave_prompt(&mut prompt, &roots, &mut commands);
+		close_leave_prompt(&mut prompt, &mut stack, &roots, &mut commands);
 	}
+}
+
+fn close_leave_on_modal_dismiss(
+	mut dismiss: MessageReader<MenuModalDismiss>,
+	mut prompt: ResMut<CharacterLeavePrompt>,
+	mut stack: ResMut<MenuModalStack>,
+	roots: Query<Entity, With<CharacterLeavePromptRoot>>,
+	mut commands: Commands,
+) {
+	if prompt.opened_this_frame {
+		return;
+	}
+	if !dismiss.read().any(|event| event.is(MenuModalId::CHARACTER_LEAVE)) {
+		return;
+	}
+	close_leave_prompt(&mut prompt, &mut stack, &roots, &mut commands);
 }
 
 fn sync_character_leave_prompt(
@@ -277,6 +206,7 @@ fn spawn_leave_prompt(
 		.spawn((
 			CharacterLeavePromptRoot,
 			CharacterLeavePromptKind(kind),
+			MenuModal::CHARACTER_LEAVE,
 			Node {
 				position_type: PositionType::Absolute,
 				left: Val::Px(0.0),
@@ -378,6 +308,7 @@ fn on_leave_prompt_click(
 	mut menu_state: ResMut<CharacterMenuState>,
 	return_to: Option<Res<CharacterEditorReturn>>,
 	mut prompt: ResMut<CharacterLeavePrompt>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	if pointer_target(&click, &child_of, |entity| confirms.contains(entity)).is_some() {
@@ -385,6 +316,7 @@ fn on_leave_prompt_click(
 		apply_leave_prompt(
 			LeavePromptAction::Confirm,
 			&mut prompt,
+			&mut stack,
 			&roots,
 			&save_root,
 			editing.as_deref(),
@@ -400,6 +332,7 @@ fn on_leave_prompt_click(
 		apply_leave_prompt(
 			LeavePromptAction::Dismiss,
 			&mut prompt,
+			&mut stack,
 			&roots,
 			&save_root,
 			editing.as_deref(),
@@ -421,7 +354,7 @@ fn on_leave_prompt_nav(
 	mut menu_state: ResMut<CharacterMenuState>,
 	return_to: Option<Res<CharacterEditorReturn>>,
 	mut prompt: ResMut<CharacterLeavePrompt>,
-	mut consumed: ResMut<MenuBackConsumed>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	let Ok(menu) = menus.get(impulse.entity) else {
@@ -438,11 +371,12 @@ fn on_leave_prompt_nav(
 				LeavePromptAction::Dismiss
 			};
 			if action == LeavePromptAction::Dismiss {
-				consumed.0 = true;
+				stack.mark_consumed();
 			}
 			apply_leave_prompt(
 				action,
 				&mut prompt,
+				&mut stack,
 				&roots,
 				&save_root,
 				editing.as_deref(),
@@ -456,10 +390,11 @@ fn on_leave_prompt_nav(
 			if prompt.opened_this_frame {
 				return;
 			}
-			consumed.0 = true;
+			stack.mark_consumed();
 			apply_leave_prompt(
 				LeavePromptAction::Dismiss,
 				&mut prompt,
+				&mut stack,
 				&roots,
 				&save_root,
 				editing.as_deref(),
@@ -483,6 +418,7 @@ enum LeavePromptAction {
 fn apply_leave_prompt(
 	action: LeavePromptAction,
 	prompt: &mut CharacterLeavePrompt,
+	stack: &mut MenuModalStack,
 	roots: &Query<Entity, With<CharacterLeavePromptRoot>>,
 	save_root: &SaveRoot,
 	editing: Option<&EditingCharacter>,
@@ -492,7 +428,7 @@ fn apply_leave_prompt(
 	commands: &mut Commands,
 ) {
 	if action == LeavePromptAction::Dismiss {
-		close_leave_prompt(prompt, roots, commands);
+		close_leave_prompt(prompt, stack, roots, commands);
 		return;
 	}
 	let Some(kind) = prompt.kind else {
@@ -517,17 +453,19 @@ fn apply_leave_prompt(
 	} else if let Some(baseline) = baseline {
 		baseline.restore_into(&mut menu_state.0);
 	}
-	close_leave_prompt(prompt, roots, commands);
+	close_leave_prompt(prompt, stack, roots, commands);
 	leave_character_editor(commands, return_to);
 }
 
 fn close_leave_prompt(
 	prompt: &mut CharacterLeavePrompt,
+	stack: &mut MenuModalStack,
 	roots: &Query<Entity, With<CharacterLeavePromptRoot>>,
 	commands: &mut Commands,
 ) {
 	prompt.kind = None;
 	prompt.opened_this_frame = false;
+	stack.close(MenuModalId::CHARACTER_LEAVE);
 	for entity in roots.iter() {
 		commands.entity(entity).try_despawn();
 	}
@@ -551,18 +489,22 @@ fn pointer_target(
 #[cfg(test)]
 mod tests {
 	use super::{
-		character_leave_edge, character_screen_modal, latch_modal_button, CharacterLeaveKind,
-		CharacterLeavePrompt, CharacterLeavePromptMenu, CharacterModalMode,
+		character_leave_edge, close_leave_on_modal_dismiss, intercept_character_leave_edges,
+		CharacterLeaveKind, CharacterLeavePrompt, CharacterLeavePromptMenu,
 	};
 	use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
 	use crate::session::{
 		finish_character_editor_exit, CharacterEditorExit, CharacterEditorReturn, EditingCharacter,
 	};
+	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
 	use character_items::Inventory;
 	use character_persist::{CharacterId, SaveRoot};
-	use maybraid_input::{MenuNav, MenuNavImpulse};
-	use menu_components::{HudMenu, MenuBackConsumed};
+	use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad};
+	use menu_components::{
+		consume_menu_modal_back, consume_screen_back, HudMenu, MenuModalDismiss, MenuModalId,
+		MenuModalLayer, MenuModalStack, ScreenBackPressed,
+	};
 	use menu_screens::{InGameScreen, MenuScreen, RequestShowInGame};
 
 	#[test]
@@ -597,34 +539,89 @@ mod tests {
 	}
 
 	#[test]
-	fn name_modal_or_catalog_is_screen_modal_mode() {
-		assert!(character_screen_modal(false, false, true, false, false, false, false, false));
-		assert!(character_screen_modal(false, false, false, true, false, false, false, false));
-		assert!(character_screen_modal(false, false, false, false, true, false, false, false));
-		assert!(character_screen_modal(false, true, false, false, false, false, false, false));
-		assert!(character_screen_modal(false, false, false, false, false, true, false, false));
-		assert!(!character_screen_modal(false, false, false, false, false, false, false, false));
+	fn start_from_a_modal_does_not_bubble_after_submit() {
+		let mut stack = MenuModalStack::default();
+		stack.open(MenuModalLayer::SHORT_TEXT);
+		stack.tick_buttons(false, true);
+		assert!(stack.blocks_screen_select());
+		stack.close(MenuModalId::SHORT_TEXT);
+		stack.begin_frame();
+		stack.tick_buttons(false, true);
+		assert!(stack.blocks_screen_select());
+		assert_eq!(
+			character_leave_edge(true, stack.blocks_screen_select(), false, true, false),
+			None
+		);
+		stack.tick_buttons(false, false);
+		assert!(!stack.blocks_screen_select());
+		assert_eq!(
+			character_leave_edge(true, stack.blocks_screen_select(), false, true, false),
+			Some(CharacterLeaveKind::Save)
+		);
+	}
+
+	fn leave_world(open_keyboard: bool) -> World {
+		let mut world = World::new();
+		world.init_resource::<CharacterLeavePrompt>();
+		world.init_resource::<MenuModalStack>();
+		world.init_resource::<MenuNavPad>();
+		world.init_resource::<ButtonInput<KeyCode>>();
+		world.init_resource::<Messages<MenuModalDismiss>>();
+		world.init_resource::<Messages<ScreenBackPressed>>();
+		world.spawn(CharacterScreen);
+		if open_keyboard {
+			world.resource_mut::<MenuModalStack>().open(MenuModalLayer::SHORT_TEXT);
+		}
+		world.resource_mut::<MenuNavPad>().events.push(MenuNav::Back);
+		world
 	}
 
 	#[test]
-	fn start_from_a_modal_does_not_bubble_after_submit() {
-		assert!(latch_modal_button(false, true, true));
-		assert!(latch_modal_button(true, false, true));
-		assert!(!latch_modal_button(true, false, false));
-		assert!(!latch_modal_button(false, false, true));
-
-		let mut mode = CharacterModalMode::default();
-		mode.tick(true, true, false);
-		assert!(mode.blocks_leave());
-		mode.tick(false, true, false);
-		assert!(mode.blocks_leave());
-		assert_eq!(character_leave_edge(true, mode.blocks_leave(), false, true, false), None);
-		mode.tick(false, false, false);
-		assert!(!mode.blocks_leave());
+	fn keyboard_back_does_not_open_the_leave_prompt() {
+		let mut world = leave_world(true);
+		world.run_system_once(consume_menu_modal_back).expect("consume");
+		world.run_system_once(intercept_character_leave_edges).expect("intercept");
+		assert!(!world.resource::<CharacterLeavePrompt>().is_open());
 		assert_eq!(
-			character_leave_edge(true, mode.blocks_leave(), false, true, false),
-			Some(CharacterLeaveKind::Save)
+			world
+				.run_system_once(|mut dismiss: MessageReader<MenuModalDismiss>| {
+					dismiss.read().next().map(|event| event.id)
+				})
+				.expect("dismiss"),
+			Some(MenuModalId::SHORT_TEXT)
 		);
+		let left = world
+			.run_system_once(
+				|nav: Res<MenuNavPad>,
+				 stack: Res<MenuModalStack>,
+				 mut backs: MessageReader<ScreenBackPressed>| {
+					consume_screen_back(&nav, &stack, &mut backs)
+				},
+			)
+			.expect("screen back");
+		assert!(!left);
+	}
+
+	#[test]
+	fn leave_prompt_back_closes_the_card_and_does_not_exit() {
+		let mut world = leave_world(false);
+		world.resource_mut::<CharacterLeavePrompt>().kind = Some(CharacterLeaveKind::Discard);
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::CHARACTER_LEAVE);
+		world.run_system_once(consume_menu_modal_back).expect("consume");
+		world.run_system_once(close_leave_on_modal_dismiss).expect("close");
+		world.run_system_once(intercept_character_leave_edges).expect("intercept");
+		assert!(!world.resource::<CharacterLeavePrompt>().is_open());
+		assert!(!world.resource::<MenuModalStack>().contains(MenuModalId::CHARACTER_LEAVE));
+		let left = world
+			.run_system_once(
+				|nav: Res<MenuNavPad>,
+				 stack: Res<MenuModalStack>,
+				 mut backs: MessageReader<ScreenBackPressed>| {
+					consume_screen_back(&nav, &stack, &mut backs)
+				},
+			)
+			.expect("screen back");
+		assert!(!left);
 	}
 
 	fn scratch_root() -> SaveRoot {
@@ -678,7 +675,7 @@ mod tests {
 			.insert_resource(EditingCharacter { id: CharacterId(11) })
 			.insert_resource(CharacterEditorReturn::InGame)
 			.init_resource::<CharacterLeavePrompt>()
-			.init_resource::<MenuBackConsumed>()
+			.init_resource::<MenuModalStack>()
 			.add_observer(super::on_leave_prompt_nav)
 			.add_systems(
 				Update,
@@ -693,9 +690,13 @@ mod tests {
 	}
 
 	fn open_discard_prompt(app: &mut App) -> Entity {
-		let mut prompt = app.world_mut().resource_mut::<CharacterLeavePrompt>();
-		prompt.open(CharacterLeaveKind::Discard);
-		prompt.opened_this_frame = false;
+		{
+			let world = app.world_mut();
+			let mut prompt = world.resource_mut::<CharacterLeavePrompt>();
+			prompt.kind = Some(CharacterLeaveKind::Discard);
+			prompt.opened_this_frame = false;
+			world.resource_mut::<MenuModalStack>().open(MenuModalLayer::CHARACTER_LEAVE);
+		}
 		app.world_mut().spawn((CharacterLeavePromptMenu, HudMenu::new(2))).id()
 	}
 

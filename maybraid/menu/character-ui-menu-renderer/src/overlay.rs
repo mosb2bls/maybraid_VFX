@@ -8,7 +8,8 @@ use crate::sink::{MaybraidMenuSink, MenuSink, MenuThumbnailContext, RenderContex
 use crate::widgets::CloseOverlaySelect;
 use crate::MenuJustify;
 use menu_components::{
-	spawn_header_line, spawn_text_button, HudFonts, PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP,
+	spawn_header_line, spawn_text_button, HudFonts, MenuModal, PANEL_HEADER_FONT_SIZE,
+	PANEL_ROW_GAP,
 };
 
 /// Catalog nodes that can show a selected name on a header.
@@ -209,6 +210,7 @@ pub fn spawn_overlay_shell(
 	parent
 		.spawn((
 			crate::widgets::OverlaySelectRoot,
+			MenuModal::OVERLAY_SELECT,
 			Node {
 				position_type: PositionType::Absolute,
 				left: Val::Px(0.0),
