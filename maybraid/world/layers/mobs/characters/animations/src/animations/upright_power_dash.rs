@@ -19,6 +19,8 @@ pub struct UprightPowerDash {
 	pub(crate) arm_reach: f32,
 	pub(crate) slide_knee: f32,
 	pub(crate) slide_lean: f32,
+	pub(crate) hip_abduct: f32,
+	pub(crate) windup_knee: f32,
 }
 
 impl Default for UprightPowerDash {
@@ -27,14 +29,16 @@ impl Default for UprightPowerDash {
 			jab: Jab::default(),
 			drive: 1.0,
 			slide: 1.0,
-			lead_stride: 1.05,
-			trail_stride: 0.72,
-			lunge_knee_lead: 1.35,
-			lunge_knee_trail: 0.55,
-			lunge_lean: 0.42,
-			arm_reach: 0.65,
-			slide_knee: 1.05,
-			slide_lean: 0.38,
+			lead_stride: 1.18,
+			trail_stride: 0.62,
+			lunge_knee_lead: 1.48,
+			lunge_knee_trail: 0.42,
+			lunge_lean: 0.28,
+			arm_reach: 0.95,
+			slide_knee: 1.18,
+			slide_lean: 0.62,
+			hip_abduct: 0.26,
+			windup_knee: 1.02,
 		}
 	}
 }
@@ -59,6 +63,8 @@ impl UprightPowerDash {
 			arm_reach: template.arm_reach * drive_scale,
 			slide_knee: template.slide_knee,
 			slide_lean: template.slide_lean,
+			hip_abduct: template.hip_abduct,
+			windup_knee: template.windup_knee,
 		}
 	}
 }

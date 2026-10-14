@@ -66,13 +66,82 @@ const POSES: &[IconPose] = &[
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
 		progress: 0.42,
-		eye: Vec3::new(2.6, 1.45, 2.8),
+		eye: Vec3::new(2.6, 1.15, 2.8),
 	},
 ];
+
+/// Key PowerDash beats for review screenshots (not converted to icons).
+const DASH_POSES: &[IconPose] = &[
+	IconPose {
+		filename: "power_dash_00_idle.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.0,
+		eye: Vec3::new(2.6, 1.35, 2.8),
+	},
+	IconPose {
+		filename: "power_dash_10_windup.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.10,
+		eye: Vec3::new(2.6, 1.15, 2.8),
+	},
+	IconPose {
+		filename: "power_dash_20_chamber.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.20,
+		eye: Vec3::new(2.6, 1.10, 2.8),
+	},
+	IconPose {
+		filename: "power_dash_35_stomp.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.35,
+		eye: Vec3::new(2.8, 0.95, 2.6),
+	},
+	IconPose {
+		filename: "power_dash_50_strike.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.50,
+		eye: Vec3::new(2.8, 0.95, 2.6),
+	},
+	IconPose {
+		filename: "power_dash_65_dash.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.65,
+		eye: Vec3::new(3.2, 0.85, 1.6),
+	},
+	IconPose {
+		filename: "power_dash_80_hold.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.80,
+		eye: Vec3::new(3.2, 0.85, 1.6),
+	},
+	IconPose {
+		filename: "power_dash_100_settle.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 1.0,
+		eye: Vec3::new(2.6, 1.25, 2.8),
+	},
+];
+
+#[derive(Clone, Args)]
+#[command(rename_all = "kebab-case")]
+pub struct CapturePowerDashPosesArgs {
+	/// Directory for raw playground screenshots of PowerDash keyframes.
+	#[arg(long)]
+	pub out_dir: PathBuf,
+}
 
 #[derive(Resource)]
 pub struct TanzIconCapture {
 	out_dir: PathBuf,
+	poses: &'static [IconPose],
 	index: usize,
 	phase: CapturePhase,
 }
@@ -87,8 +156,26 @@ enum CapturePhase {
 
 impl TanzIconCapture {
 	pub fn new(out_dir: PathBuf) -> Self {
-		Self { out_dir, index: 0, phase: CapturePhase::Pose }
+		Self { out_dir, poses: POSES, index: 0, phase: CapturePhase::Pose }
 	}
+
+	pub fn power_dash_poses(out_dir: PathBuf) -> Self {
+		Self { out_dir, poses: DASH_POSES, index: 0, phase: CapturePhase::Pose }
+	}
+}
+
+pub fn start_power_dash_pose_capture(commands: &mut Commands, args: CapturePowerDashPosesArgs) {
+	let out_dir = args.out_dir;
+	commands.queue(move |world: &mut World| {
+		if let Some(mut visible) = world.get_resource_mut::<GameCommandDrawerVisible>() {
+			visible.0 = false;
+		}
+		world.insert_resource(ClearColor(CAPTURE_CLEAR));
+		if let Err(error) = std::fs::create_dir_all(&out_dir) {
+			error!("power dash pose capture: create {}: {error}", out_dir.display());
+		}
+		world.insert_resource(TanzIconCapture::power_dash_poses(out_dir));
+	});
 }
 
 pub fn start_tanz_icon_capture(commands: &mut Commands, args: CaptureTanzIconsArgs) {
@@ -113,12 +200,12 @@ pub fn drive_tanz_icon_capture(
 	mut capture: ResMut<TanzIconCapture>,
 	mut exit: MessageWriter<AppExit>,
 ) {
-	if capture.index >= POSES.len() {
+	if capture.index >= capture.poses.len() {
 		info!("tanz icon capture: finished {}", capture.out_dir.display());
 		exit.write(AppExit::Success);
 		return;
 	}
-	let pose = POSES[capture.index];
+	let pose = capture.poses[capture.index];
 	let path = capture.out_dir.join(pose.filename);
 	let now = time.elapsed_secs();
 	match capture.phase {

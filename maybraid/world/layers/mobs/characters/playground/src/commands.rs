@@ -7,7 +7,7 @@ pub use character::Character;
 use clap::Parser;
 use game_commands::command::{CommandScript, GameCommand};
 
-use crate::capture::CaptureTanzIconsArgs;
+use crate::capture::{CapturePowerDashPosesArgs, CaptureTanzIconsArgs};
 
 pub const PLAYGROUND_CLI_NAME: &str = "characters-playground";
 pub type Script = CommandScript<PlaygroundCommand>;
@@ -27,6 +27,8 @@ pub enum PlaygroundCommand {
 	Character(Character),
 	/// Pose the default nude Braidman at each starter Tanz and screenshot.
 	CaptureTanzIcons(CaptureTanzIconsArgs),
+	/// Screenshot PowerDash keyframes (wind-up, stomp, strike, dash, settle).
+	CapturePowerDashPoses(CapturePowerDashPosesArgs),
 }
 
 impl PlaygroundCommand {
@@ -46,6 +48,10 @@ impl PlaygroundCommand {
 			PlaygroundCommand::CaptureTanzIcons(args) => {
 				crate::capture::start_tanz_icon_capture(commands, args);
 				*console = String::from("capturing tanz icons");
+			}
+			PlaygroundCommand::CapturePowerDashPoses(args) => {
+				crate::capture::start_power_dash_pose_capture(commands, args);
+				*console = String::from("capturing power dash poses");
 			}
 		}
 	}

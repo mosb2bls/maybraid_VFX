@@ -20,8 +20,8 @@ Starter Tanzes store a Bevy asset path on [`TanzDefinition::icon`]:
 Those PNGs are 128×128 white silhouettes with transparency, captured from a
 base nude Braidman (`BraidmanConfig::default_preview()`, no clothing / hair)
 in `characters-playground` under lavapipe. Poses are the readable clip beats:
-salute hold (`jab` 0.36), strafe slide peak (`power-strafe` 0.48), dash lunge
-(`power-dash` 0.42).
+salute hold (`jab` 0.36), strafe slide peak (`power-strafe` 0.48), dash
+stomp/strike (`power-dash` 0.42).
 
 ### Regenerate
 
