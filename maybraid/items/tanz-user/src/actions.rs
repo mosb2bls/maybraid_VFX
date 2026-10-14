@@ -63,7 +63,7 @@ pub fn left_strafe() -> TanzDefinition {
 		input: strong_sector(Vec2::NEG_X, TanzButton::None),
 		action: TanzAction::Move { local: Vec2::NEG_X },
 		timing: MOVE_TIMING,
-		clip: AnimClip::leap(),
+		clip: AnimClip::power_strafe_left(),
 	}
 }
 
@@ -73,7 +73,7 @@ pub fn right_strafe() -> TanzDefinition {
 		input: strong_sector(Vec2::X, TanzButton::None),
 		action: TanzAction::Move { local: Vec2::X },
 		timing: MOVE_TIMING,
-		clip: AnimClip::leap(),
+		clip: AnimClip::power_strafe_right(),
 	}
 }
 
@@ -105,9 +105,10 @@ mod tests {
 	}
 
 	#[test]
-	fn movement_tanzes_use_leap() -> anyhow::Result<()> {
-		assert_eq!(left_strafe().clip.id(), AnimClip::leap().id());
-		assert_eq!(right_strafe().clip.id(), AnimClip::leap().id());
+	fn strafe_tanzes_use_power_strafe_with_matching_side() -> anyhow::Result<()> {
+		assert_eq!(left_strafe().clip, AnimClip::power_strafe_left());
+		assert_eq!(right_strafe().clip, AnimClip::power_strafe_right());
+		assert_eq!(left_strafe().clip.id(), right_strafe().clip.id());
 		assert_eq!(forward_dash().clip.id(), AnimClip::leap().id());
 		assert_eq!(left_strafe().action, TanzAction::Move { local: Vec2::NEG_X });
 		Ok(())
