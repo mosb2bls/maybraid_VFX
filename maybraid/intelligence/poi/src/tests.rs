@@ -616,107 +616,173 @@ fn local_query_clone_timing() {
 
 	eprintln!(
 		"local_query_clone_timing: {POI_COUNT} pois × {SCANS} scans — clone local_matching() {:?}, collect_local_matching+get {:?}",
-		clone_elapsed,
-		id_elapsed,
+		clone_elapsed, id_elapsed,
 	);
 }
 
 #[test]
-fn collect_matching_in_xz_tile_matches_matching_in_xz_tile() -> anyhow::Result<()> {
-	let mut registry = PoiRegistry::default();
-	registry.upsert(
-		Entity::from_bits(1),
-		Poi::new(PoiId(1), CAMP),
-		Vec3::new(40.0, 0.0, 40.0),
-		true,
-		false,
-	)?;
-	registry.upsert(
-		Entity::from_bits(2),
-		Poi::new(PoiId(2), CAMP),
-		Vec3::new(400.0, 0.0, 400.0),
-		false,
-		true,
-	)?;
-	let interests = PoiInterests::one(CAMP);
-	let tile = IVec2::ZERO;
-	let records = registry.matching_in_xz_tile(tile, 256.0, 0.0, &interests);
-	let mut ids = Vec::new();
-	registry.collect_matching_in_xz_tile(tile, 256.0, 0.0, &interests, &mut ids);
-	assert_eq!(
-		records.iter().map(|record| record.id).collect::<Vec<_>>(),
-		ids,
+fn catalog_scheme_resolves_only_the_queried_tile() -> anyhow::Result<()> {
+	use crate::{collect_matching_in_xz_tile, Catalog, PoiCatalog, PoiEntry};
+	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
+
+	let storage = HcsgStorage::default();
+	storage.seed(
+		PoiCatalog {
+			entries: vec![
+				PoiEntry {
+					id: PoiId(1),
+					kind: CAMP,
+					position: Vec3::new(40.0, 0.0, 40.0),
+					arrival_radius: 1.0,
+					salience: 1.0,
+					local: true,
+					global: false,
+				},
+				PoiEntry {
+					id: PoiId(2),
+					kind: CAMP,
+					position: Vec3::new(400.0, 0.0, 400.0),
+					arrival_radius: 1.0,
+					salience: 1.0,
+					local: false,
+					global: true,
+				},
+			],
+		},
+		universal_bounds(),
 	);
+	let mut cx = GenerationContext::new(&storage);
+	let interests = PoiInterests::one(CAMP);
+	let mut ids = Vec::new();
+	collect_matching_in_xz_tile::<Catalog>(&mut cx, IVec2::ZERO, 256.0, 0.0, &interests, &mut ids);
+	assert_eq!(ids.iter().map(|poi| poi.id).collect::<Vec<_>>(), [PoiId(1)]);
+	collect_matching_in_xz_tile::<Catalog>(
+		&mut cx,
+		IVec2::new(1, 1),
+		256.0,
+		0.0,
+		&interests,
+		&mut ids,
+	);
+	assert_eq!(ids.iter().map(|poi| poi.id).collect::<Vec<_>>(), [PoiId(2)]);
+	Ok(())
+}
+
+#[test]
+fn grid_scheme_tile_lookup_is_one_origin_id() -> anyhow::Result<()> {
+	use crate::{collect_matching_in_xz_tile, xz_tile_region, GridTiles, PoiOrigin, GRID_KIND};
+	use lod::hcsg::{GenerationContext, HcsgStorage};
+
+	let storage = HcsgStorage::default();
+	let mut cx = GenerationContext::new(&storage);
+	let region = xz_tile_region(IVec2::new(3, -2), 256.0, 0.0).expect("finite tile");
+	let origins = GridTiles::original_ids_for(&mut cx, region);
+	assert_eq!(origins.len(), 1);
+	let interests = PoiInterests::one(GRID_KIND);
+	let mut pois = Vec::new();
+	collect_matching_in_xz_tile::<GridTiles>(
+		&mut cx,
+		IVec2::new(3, -2),
+		256.0,
+		0.0,
+		&interests,
+		&mut pois,
+	);
+	assert_eq!(pois.len(), 1);
+	assert_eq!(GridTiles::original_ids_for(&mut cx, region).len(), 1);
 	Ok(())
 }
 
 #[test]
 #[ignore]
-fn xz_tile_matching_clone_timing() {
+fn xz_tile_scheme_timing() {
+	use crate::{collect_matching_in_xz_tile, Catalog, GridTiles, PoiCatalog, PoiEntry, GRID_KIND};
+	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
+
 	const GLOBAL_COUNT: usize = 512;
 	const SCANS: usize = 5_000;
 	const TILE_SIZE: f32 = 256.0;
-	let interests = PoiInterests::one(CAMP);
 	let tile = IVec2::ZERO;
 	let on_tile = |position: Vec3| (position.xz() / TILE_SIZE).floor().as_ivec2() == tile;
 
-	let mut registry = PoiRegistry::default();
+	let mut globals = Vec::with_capacity(GLOBAL_COUNT + 1);
 	for index in 0..GLOBAL_COUNT {
-		let id = PoiId(index as u64 + 1);
 		let angle = (index as f32 / GLOBAL_COUNT as f32) * core::f32::consts::TAU;
-		let position = Vec3::new(angle.cos() * 4_000.0, 0.0, angle.sin() * 4_000.0);
-		registry
-			.upsert(Entity::from_bits(index as u64 + 1), Poi::new(id, CAMP), position, true, true)
-			.expect("upsert poi");
+		globals.push(PoiEntry {
+			id: PoiId(index as u64 + 1),
+			kind: CAMP,
+			position: Vec3::new(angle.cos() * 4_000.0, 0.0, angle.sin() * 4_000.0),
+			arrival_radius: 1.0,
+			salience: 1.0,
+			local: true,
+			global: true,
+		});
 	}
-	registry
-		.upsert(
-			Entity::from_bits(GLOBAL_COUNT as u64 + 1),
-			Poi::new(PoiId(GLOBAL_COUNT as u64 + 1), CAMP),
-			Vec3::new(32.0, 0.0, 32.0),
-			true,
-			true,
-		)
-		.expect("tile-local poi");
+	globals.push(PoiEntry {
+		id: PoiId(GLOBAL_COUNT as u64 + 1),
+		kind: CAMP,
+		position: Vec3::new(32.0, 0.0, 32.0),
+		arrival_radius: 1.0,
+		salience: 1.0,
+		local: true,
+		global: true,
+	});
 
-	let clone_start = std::time::Instant::now();
+	let scan_start = std::time::Instant::now();
 	for _ in 0..SCANS {
-		let records = registry
-			.global_matching(&interests)
-			.into_iter()
-			.filter(|record| on_tile(record.position))
-			.collect::<Vec<_>>();
-		std::hint::black_box(records);
-	}
-	let clone_elapsed = clone_start.elapsed();
-
-	let mut global_ids = Vec::new();
-	let global_id_start = std::time::Instant::now();
-	for _ in 0..SCANS {
-		registry.collect_global_matching(&interests, &mut global_ids);
-		let matches = global_ids
-			.iter()
-			.filter(|id| registry.get(**id).is_some_and(|record| on_tile(record.position)))
-			.count();
+		let matches = globals.iter().filter(|entry| on_tile(entry.position)).count();
 		std::hint::black_box(matches);
 	}
-	let global_id_elapsed = global_id_start.elapsed();
+	let scan_elapsed = scan_start.elapsed();
 
+	let catalog = HcsgStorage::default();
+	catalog.seed(PoiCatalog { entries: globals.clone() }, universal_bounds());
+	let mut cx = GenerationContext::new(&catalog);
+	let interests = PoiInterests::one(CAMP);
 	let mut scratch = Vec::new();
-	let tile_start = std::time::Instant::now();
+	collect_matching_in_xz_tile::<Catalog>(&mut cx, tile, TILE_SIZE, 0.0, &interests, &mut scratch);
+	let catalog_start = std::time::Instant::now();
 	for _ in 0..SCANS {
-		registry.collect_matching_in_xz_tile(tile, TILE_SIZE, 0.0, &interests, &mut scratch);
-		for id in &scratch {
-			std::hint::black_box(registry.get(*id));
-		}
+		collect_matching_in_xz_tile::<Catalog>(
+			&mut cx,
+			tile,
+			TILE_SIZE,
+			0.0,
+			&interests,
+			&mut scratch,
+		);
+		std::hint::black_box(scratch.len());
 	}
-	let tile_elapsed = tile_start.elapsed();
+	let catalog_elapsed = catalog_start.elapsed();
+
+	let grid = HcsgStorage::default();
+	let mut grid_cx = GenerationContext::new(&grid);
+	let grid_interests = PoiInterests::one(GRID_KIND);
+	collect_matching_in_xz_tile::<GridTiles>(
+		&mut grid_cx,
+		tile,
+		TILE_SIZE,
+		0.0,
+		&grid_interests,
+		&mut scratch,
+	);
+	let grid_start = std::time::Instant::now();
+	for _ in 0..SCANS {
+		collect_matching_in_xz_tile::<GridTiles>(
+			&mut grid_cx,
+			tile,
+			TILE_SIZE,
+			0.0,
+			&grid_interests,
+			&mut scratch,
+		);
+		std::hint::black_box(scratch.len());
+	}
+	let grid_elapsed = grid_start.elapsed();
 
 	eprintln!(
-		"xz_tile_matching_clone_timing: {GLOBAL_COUNT} globals + 1 on-tile × {SCANS} probes — global_matching+filter {:?}, collect_global_matching+filter {:?}, collect_matching_in_xz_tile {:?}",
-		clone_elapsed,
-		global_id_elapsed,
-		tile_elapsed,
+		"xz_tile_scheme_timing: {GLOBAL_COUNT} globals + 1 on-tile × {SCANS} probes — global list scan {:?}, Catalog get_or_generate_in {:?}, GridTiles get_or_generate_in {:?}",
+		scan_elapsed, catalog_elapsed, grid_elapsed,
 	);
 }
 
@@ -774,7 +840,6 @@ fn choose_in_clone_timing() {
 
 	eprintln!(
 		"choose_in_clone_timing: {POI_COUNT} pois × {PICKS} picks — nearby_in+weighted {:?}, choose_in {:?}",
-		clone_elapsed,
-		id_elapsed,
+		clone_elapsed, id_elapsed,
 	);
 }

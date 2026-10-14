@@ -1,5 +1,9 @@
 //! Hierarchical world POIs over streamed Chico and Richmond scenes.
 
+mod hcsg;
+
+pub use hcsg::{GrovePois, PlacePois, UrbanPois, WorldPoiTiles};
+
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
@@ -8,7 +12,8 @@ use chico::ChicoGroveHost;
 use lod::LodScene;
 use mob_characters::{LOCAL_POI, SALOON_POI, URBAN_POI, VEGETATION_POI};
 use poi_intelligence::{
-	GlobalPoi, LocalPoi, Poi, PoiId, PoiIntelligencePlugin, PoiKind, PoiRegistry, PoiSystems,
+	DistantTilePoiLookup, GlobalPoi, LocalPoi, Poi, PoiId, PoiIntelligencePlugin, PoiKind,
+	PoiRegistry, PoiSystems,
 };
 use richmond::{DiscoverablePlace, DiscoverablePlaceLabel};
 use urbanization_layer_model::UrbanSetting;
@@ -82,6 +87,7 @@ impl Plugin for WorldPoiPlugin {
 		}
 		app.init_resource::<WorldPoiDiscoveryBudget>()
 			.init_resource::<WorldPoiDiscoveryState>()
+			.insert_resource(DistantTilePoiLookup::new(hcsg::WorldPoiTiles))
 			.configure_sets(
 				Update,
 				(WorldPoiSystems::Collect, WorldPoiSystems::Discover)
@@ -104,6 +110,7 @@ impl Plugin for WorldPoiPlugin {
 					.chain()
 					.in_set(WorldPoiSystems::Discover),
 			);
+		hcsg::register_world_poi_generation(app);
 	}
 }
 
@@ -217,7 +224,7 @@ fn queue_place(
 	});
 }
 
-fn place_kind(label: DiscoverablePlaceLabel) -> PoiKind {
+pub(super) fn place_kind(label: DiscoverablePlaceLabel) -> PoiKind {
 	match label {
 		DiscoverablePlaceLabel::Stall
 		| DiscoverablePlaceLabel::Lounge

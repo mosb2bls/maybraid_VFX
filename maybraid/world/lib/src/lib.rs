@@ -75,7 +75,10 @@ pub use player_lifecycle::{
 pub use player_position::{
 	resume_discovery_from_saved_waypoints, PlayerPositionPlugin, PlayerPositionWaypoints,
 };
-pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
+pub use poi::{
+	GrovePois, PlacePois, UrbanPois, WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems,
+	WorldPoiTiles,
+};
 pub use render_scale::{
 	host_memory_bytes, map_render_to_window, map_window_to_render, parse_device_tier_env,
 	parse_force_offscreen_env, parse_meminfo_total_bytes, parse_presentation_treatment_env,
