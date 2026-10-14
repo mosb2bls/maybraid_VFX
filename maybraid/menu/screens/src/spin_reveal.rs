@@ -13,11 +13,12 @@ use menu_components::{
 };
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::MenuScreen;
 
 /// Queue a spin-and-reveal spawn. Pair with [`SpinRevealItems`].
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowSpinReveal;
 
 /// Items to reveal, in order.
@@ -82,26 +83,29 @@ impl Plugin for SpinRevealScreenPlugin {
 			.add_message::<SpinRevealFinished>()
 			.add_systems(
 				Update,
-				(apply_show_spin_reveal, tick_spin_reveal, finish_spin_reveal, rebuild_spin_reveal)
+				(tick_spin_reveal, finish_spin_reveal, rebuild_spin_reveal)
 					.chain()
 					.in_set(SpinRevealSystems::Apply),
 			);
+		add_menu_show_systems(app, apply_show_spin_reveal);
 	}
 }
 
 fn apply_show_spin_reveal(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowSpinReveal>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowSpinReveal>>,
+	screens: MenuScreens,
 	items: Option<Res<SpinRevealItems>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
-	if items.is_none() {
+	let Some(items) = items else {
 		return;
-	}
-	commands.insert_resource(SpinRevealPhase::start());
+	};
+	let mut phase = SpinRevealPhase::start();
+	spawn_spin_card(&mut commands, &items, &mut phase);
+	commands.insert_resource(phase);
 }
 
 fn tick_spin_reveal(time: Res<Time>, mut phase: Option<ResMut<SpinRevealPhase>>) {
@@ -118,6 +122,9 @@ fn tick_spin_reveal(time: Res<Time>, mut phase: Option<ResMut<SpinRevealPhase>>)
 	}
 }
 
+/// Swap the live card for the next spin / reveal. Once another screen has
+/// replaced the reveal there is no card to swap, so the phase ends instead of
+/// painting a reveal over the new screen.
 fn rebuild_spin_reveal(
 	mut commands: Commands,
 	items: Option<Res<SpinRevealItems>>,
@@ -130,14 +137,23 @@ fn rebuild_spin_reveal(
 	if !phase.dirty {
 		return;
 	}
+	if screens.is_empty() {
+		commands.remove_resource::<SpinRevealPhase>();
+		commands.remove_resource::<SpinRevealCurrent>();
+		return;
+	}
 	let Some(items) = items else {
 		return;
 	};
 	for entity in &screens {
 		commands.entity(entity).try_despawn();
 	}
+	spawn_spin_card(&mut commands, &items, phase);
+}
+
+fn spawn_spin_card(commands: &mut Commands, items: &SpinRevealItems, phase: &mut SpinRevealPhase) {
+	phase.dirty = false;
 	if items.0.is_empty() {
-		phase.dirty = false;
 		return;
 	}
 	let index = phase.index.min(items.0.len().saturating_sub(1));
@@ -146,7 +162,6 @@ fn rebuild_spin_reveal(
 	let action = action_copy(&items.0[index], revealed, index + 1 >= total, index, total);
 	commands.insert_resource(SpinRevealCurrent { item: items.0[index].clone(), revealed });
 	commands.spawn_scene(spin_scene(&items.0[index], revealed, action));
-	phase.dirty = false;
 }
 
 fn action_copy(
@@ -314,6 +329,30 @@ mod tests {
 		let left = world.query::<&SpinRevealScreen>().iter(&world).count();
 		if left != 0 {
 			return Err(format!("empty reveal should despawn leftover screens, left {left}").into());
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn a_replaced_reveal_ends_instead_of_respawning() -> Result<(), Box<dyn std::error::Error>> {
+		use character_items::{ClothingMaterial, ClothingMesh, InventoryItem, ItemColor};
+
+		let mut world = World::new();
+		world.insert_resource(SpinRevealItems(vec![InventoryItem::clothing(
+			ClothingMesh::Pants,
+			ClothingMaterial::Cloth,
+			ItemColor::Red,
+		)]));
+		world.insert_resource(SpinRevealPhase::start());
+		world
+			.run_system_once(rebuild_spin_reveal)
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		if world.query::<&SpinRevealScreen>().iter(&world).count() != 0 {
+			return Err("a reveal with no live card must not spawn one".into());
+		}
+		if world.get_resource::<SpinRevealPhase>().is_some() {
+			return Err("the phase should end once the reveal is gone".into());
 		}
 		Ok(())
 	}

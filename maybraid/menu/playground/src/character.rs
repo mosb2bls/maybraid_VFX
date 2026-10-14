@@ -26,7 +26,8 @@ use menu_components::{
 	SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use menu_screens::{
-	take_menu_show_request, MenuScreen, SpinRevealCurrent, SpinRevealItems, SpinRevealScreen,
+	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealCurrent,
+	SpinRevealItems, SpinRevealScreen,
 };
 
 use crate::leave_prompt::CharacterLeavePromptPlugin;
@@ -36,6 +37,7 @@ const PANEL_HEIGHT_PERCENT: f32 = 82.0;
 
 /// Queue a character-panel spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowCharacter;
 
 /// Marker on the spawned character-panel root.
@@ -182,23 +184,19 @@ impl Plugin for CharacterScreenPlugin {
 			.add_systems(Update, discover_menu_item_icons.in_set(ItemIconSystems::Discover))
 			.add_systems(
 				Update,
-				(
-					apply_show_character,
-					sync_character_ui,
-					sync_overlay_select,
-					sync_spin_reveal_item_icon,
-				)
+				(sync_character_ui, sync_overlay_select, sync_spin_reveal_item_icon)
 					.chain()
 					.in_set(CharacterHudSystems::Sync),
 			);
+		add_menu_show_systems(app, apply_show_character);
 	}
 }
 
 fn apply_show_character(
 	mut commands: Commands,
 	asset_server: Res<AssetServer>,
-	requests: Query<Entity, With<RequestShowCharacter>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowCharacter>>,
+	screens: MenuScreens,
 	menu_state: Res<CharacterMenuState>,
 	baseline: Option<Res<CharacterEditBaseline>>,
 	mut sync_state: ResMut<CharacterUiSyncState>,
@@ -207,7 +205,7 @@ fn apply_show_character(
 	mut active_overlay: ResMut<ActiveOverlayKey>,
 	icons: Option<Res<ItemIconCache>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	overlay.open = None;

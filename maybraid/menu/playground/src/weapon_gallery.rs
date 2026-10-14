@@ -16,7 +16,9 @@ use lod::lod_ref::LodRef;
 use lod::scene::LodScene;
 use maybraid_menu_controller::MenuController;
 use menu_components::{screen_back_scene, BrandModeLine};
-use menu_screens::{add_menu_input, take_menu_show_request, MenuScreen};
+use menu_screens::{
+	add_menu_input, add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest,
+};
 use player::PlayerLook;
 
 use crate::preview::spawn_firearm;
@@ -28,6 +30,7 @@ const SPACING_Z: f32 = 1.8;
 
 /// Queue a generated-weapon gallery spawn.
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowWeapons;
 
 /// Marker on the spawned weapon-gallery HUD root.
@@ -48,10 +51,10 @@ pub struct WeaponGalleryPlugin;
 impl Plugin for WeaponGalleryPlugin {
 	fn build(&self, app: &mut App) {
 		add_menu_input(app);
+		add_menu_show_systems(app, apply_show_weapons);
 		app.add_systems(
 			Update,
 			(
-				apply_show_weapons,
 				despawn_weapon_gallery_items,
 				sync_weapon_gallery_look,
 				stamp_holding_arms,
@@ -64,12 +67,12 @@ impl Plugin for WeaponGalleryPlugin {
 
 fn apply_show_weapons(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowWeapons>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowWeapons>>,
+	screens: MenuScreens,
 	items: Query<Entity, With<WeaponGalleryItem>>,
 	mut cameras: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	for entity in &items {

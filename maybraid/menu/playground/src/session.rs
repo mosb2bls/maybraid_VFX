@@ -12,7 +12,7 @@ use menu_components::info::description::{set_description_for_menu, TextMenuDescr
 use menu_components::{MenuActivate, MenuObjectiveMarker, ScreenEditPressed};
 use menu_screens::{
 	request_show_create_character_id, request_show_gallery, request_show_in_game,
-	CreateCharacterReady, GalleryChoice, GalleryScreen, GalleryScreenPlugin,
+	CreateCharacterReady, GalleryChoice, GalleryScreen, GalleryScreenPlugin, MenuScreenSystems,
 };
 
 use crate::character::{
@@ -94,9 +94,9 @@ impl Plugin for CharacterSessionPlugin {
 					open_create_character_hud,
 					sync_gallery_active_caption,
 					sync_gallery_selected_tag,
-					finish_character_editor_exit,
 				),
-			);
+			)
+			.add_systems(PostUpdate, finish_character_editor_exit.after(MenuScreenSystems::Show));
 	}
 }
 
@@ -107,7 +107,7 @@ type SessionQuery<'w, 's> = Query<
 	With<CharacterSession>,
 >;
 
-/// Set while Back / save-and-exit is tearing down the HUD. Cleared once
+/// Set while the editor HUD is being torn down. Cleared once
 /// [`CharacterScreen`] is gone so [`CharacterEditorReturn`] can stay live
 /// until then — dropping it earlier makes preview / pause look treat the
 /// still-open in-game editor as a gallery spawn and panic on dead entities.
@@ -159,6 +159,12 @@ pub fn leave_character_editor(commands: &mut Commands, return_to: Option<Charact
 		Some(return_to) => return_to.request_leave(commands),
 		None => request_show_gallery(commands),
 	}
+	end_character_editor(commands);
+}
+
+/// Drop the editing session once the HUD is gone, without routing to another
+/// screen. For hosts that tear the menu down themselves (unpause, leave world).
+pub fn end_character_editor(commands: &mut Commands) {
 	commands.insert_resource(CharacterEditorExit);
 }
 
@@ -359,6 +365,7 @@ fn open_saved_editor(
 	};
 	commands.insert_resource(EditingCharacter { id });
 	commands.insert_resource(return_to);
+	commands.remove_resource::<CharacterEditorExit>();
 	spawn_session(
 		commands,
 		sessions,
@@ -384,6 +391,7 @@ fn open_create_character_hud(
 	let inventory = Inventory::with_starter_outfit(ready.items.clone());
 	commands.insert_resource(EditingCharacter { id: ready.id });
 	commands.remove_resource::<CharacterEditBaseline>();
+	commands.remove_resource::<CharacterEditorExit>();
 	spawn_session(
 		&mut commands,
 		&sessions,
