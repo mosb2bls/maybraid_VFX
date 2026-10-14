@@ -30,8 +30,8 @@ pub struct Busy;
 ///
 /// ## Reads
 ///
-/// Frame and main-thread code must use [`Self::try_entry`], [`Self::try_overlapping`],
-/// and [`Self::try_membership_revision`]. They return [`Busy`] while the worker
+/// Frame and main-thread code must use [`Self::try_entry`], [`Self::try_entries`],
+/// [`Self::try_overlapping`], and [`Self::try_membership_revision`]. They return [`Busy`] while the worker
 /// or eviction sweep holds a store lock.
 ///
 /// Blocking reads ([`Self::get`], [`Self::entry`], [`Self::overlapping`],
