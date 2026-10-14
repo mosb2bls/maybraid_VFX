@@ -8,7 +8,7 @@ use damage::{DamageSystems, DespawnAfter, Downed};
 use durham::DurhamSurface;
 use firearm_user::FirearmUser;
 use firearms::WeaponTrigger;
-use grenade_user::GrenadeUser;
+use grenade_user::{GrenadeUser, GrenadeUserSystems};
 use lubikans::LubikanOwner;
 use maybraid_character_controller::CharacterIntent;
 use maybraid_input::{PadButton, VirtualPad};
@@ -144,7 +144,8 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 				PostUpdate,
 				queue_downed_world_player
 					.after(DamageSystems::Down)
-					.after(CharacterRagdollSystems::Handoff),
+					.after(CharacterRagdollSystems::Handoff)
+					.after(GrenadeUserSystems::Interrupt),
 			)
 			.add_systems(
 				Update,
@@ -1045,8 +1046,7 @@ mod tests {
 
 		eprintln!(
 			"respawn_picker_refresh_timing: {POI_COUNT} pois × {REFRESHES} refreshes — nearby_in+prefer_records {:?}, collect+prefer_building_poi_ids {:?}",
-			clone_elapsed,
-			id_elapsed,
+			clone_elapsed, id_elapsed,
 		);
 	}
 

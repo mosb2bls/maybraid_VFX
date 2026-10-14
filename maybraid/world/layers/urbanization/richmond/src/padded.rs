@@ -208,11 +208,7 @@ impl<G: RichmondGround> hcsg::GenerationScheme for PaddedTerrain<G> {
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
 		let cell = cx.get_or_generate::<G::Cell>(id)?;
 		let bounds = GroundCell::bounds(cell.as_ref());
-		let developments: Vec<_> = cx
-			.original_ids_for::<RichmondDevelopment<G>>(bounds)
-			.into_iter()
-			.filter_map(|OriginalId(id)| cx.get_or_generate::<RichmondDevelopment<G>>(id))
-			.collect();
+		let developments = cx.get_or_generate_in::<RichmondDevelopment<G>>(bounds);
 		let pads = RichmondDevelopment::merge_pads(bounds, developments.iter().map(Arc::as_ref));
 		Some((Self::new(cell.as_ref().compose_pads(&pads)), bounds))
 	}

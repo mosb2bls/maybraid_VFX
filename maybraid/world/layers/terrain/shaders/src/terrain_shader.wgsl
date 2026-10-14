@@ -1539,14 +1539,15 @@ fn fragment(
 
 
         //-------------------------------------------------
-        // POM displaced color lookup
+        // POM cavity
+        //
+        // March for cavity and relief normal only — do
+        // not resample the world-space palette at q.
+        // Default band wavelengths are 10 m–100 km, while
+        // a hit moves at most CRACK_DEPTH_M / 0.06 ≈ 3 m.
+        // On plateaus the offset is zero, so a second
+        // ground_color_at would be an exact duplicate.
         //-------------------------------------------------
-
-        let hit_palette =
-            ground_color_at(
-                q
-                + WORLD_COLOR_SHIFT
-            );
 
         let cavity =
             mix(
@@ -1556,7 +1557,7 @@ fn fragment(
             );
 
         let hit_ground =
-            hit_palette
+            base_palette
             * base_color.rgb
             * cavity;
 

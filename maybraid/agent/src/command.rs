@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Script API version. Bump when a command is added or its meaning changes;
 /// record each bump in `maybraid/agent/README.md`.
-pub const SCRIPT_API_VERSION: u32 = 4;
+pub const SCRIPT_API_VERSION: u32 = 5;
 
 const DEFAULT_GOTO_TIMEOUT: f32 = 30.0;
 const DEFAULT_GOTO_RADIUS: f32 = 3.0;
@@ -141,8 +141,9 @@ pub enum AgentCommand {
 	},
 	/// Existing `/` console line (`stats vsync`, `sky noon`, …).
 	Console { line: String },
-	/// Set visual style presentation mode. Accepts `impressionist`, `watercolor`,
-	/// `sharp`, `retro`, `antediluvian`, or `pre_post_modern`.
+	/// Set visual style presentation mode. Accepts `native`, `sharp` (1080p
+	/// offscreen), `impressionist`, `watercolor`, `retro`, `antediluvian`, or
+	/// `pre_post_modern`.
 	VisualStyle { style: String },
 	/// Scenario marker (also a Tracy message when Tracy is enabled).
 	Scenario { name: String, mark: ScenarioMark },
@@ -265,6 +266,9 @@ mod tests {
 			AgentCommand::parse_line(r#"{"cmd":"visual_style","style":"impressionist"}"#)
 				.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(visual_style, AgentCommand::VisualStyle { style: "impressionist".into() });
+		let native = AgentCommand::parse_line(r#"{"cmd":"visual_style","style":"native"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(native, AgentCommand::VisualStyle { style: "native".into() });
 		Ok(())
 	}
 

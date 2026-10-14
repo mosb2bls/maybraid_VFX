@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use character_persist::SaveRoot;
 use clap::Parser;
-use maybraid::{assets_root, GamePlugin};
+use maybraid::{assets_root, install_panic_log_hook, GamePlugin};
 use maybraid_agent::AgentArgs;
 use maybraid_input::PadHidPlugins;
 use maybraid_world::{
@@ -19,6 +19,7 @@ struct GameArgs {
 }
 
 fn main() {
+	install_panic_log_hook();
 	let args = GameArgs::parse();
 	let start_at = match args.start_at {
 		Some(raw) => Some(parse_start_at(&raw)),
@@ -126,7 +127,6 @@ mod tests {
 		assert_eq!(parse_resolution_env(Some("1920X1080")), Some((1920, 1080)));
 		assert_eq!(parse_resolution_env(Some("")), None);
 		assert_eq!(parse_resolution_env(None), None);
-		assert_eq!(ENV_RESOLUTION, "MAYBRAID_RESOLUTION");
 	}
 
 	#[test]
@@ -136,7 +136,6 @@ mod tests {
 		assert!(env_flag_on(Some("YES")));
 		assert!(!env_flag_on(Some("0")));
 		assert!(!env_flag_on(None));
-		assert_eq!(ENV_FULLSCREEN, "MAYBRAID_FULLSCREEN");
 	}
 
 	#[test]

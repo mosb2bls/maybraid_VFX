@@ -4,19 +4,22 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::time::Instant;
 
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::math::bounding::{Aabb3d, IntersectsVolume};
 use bevy::math::Vec3;
 use bevy::prelude::{
 	Allow, App, Commands, CommandsSceneExt, Component, Entity, IntoScheduleConfigs, Local,
-	MessageReader, Plugin, Query, Res, Transform, Update, With,
+	MessageReader, Plugin, Res, Transform, Update, Visibility, With, World,
 };
 
 use super::node_store::StoredEntry;
 use crate::gen::{Id, Version};
 use crate::lod_ref::LodRef;
-use crate::scene::{add_lod_refresh_chunk_for, lod_host_scene_pending, SemanticLodScene};
+use crate::scene::{
+	add_lod_refresh_chunk_for, lod_host_scene_pending, LodChunkFulfillBudget, SemanticLodScene,
+};
 
 use super::bounds::{HcsgClass, HcsgRegions};
 use super::context::GenerationScheme;
@@ -73,7 +76,8 @@ impl<T> Default for Presented<T> {
 
 /// Each frame: replace the subscription if `C`'s regions changed, spawn hosts
 /// for newly published ids, and retire hosts that touch none of the regions.
-/// Retired hosts despawn in `Last` ([`RetiredHost`]).
+/// Retired hosts hide immediately and despawn in `Last` under
+/// [`LodChunkFulfillBudget`] ([`RetiredHost`]).
 ///
 /// Across an epoch, hosts keep showing the previous session until its values
 /// are replaced by version. Once the new session's subscription is done,
@@ -135,26 +139,29 @@ impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
 			Err(Busy) => return,
 		};
 		let mut read_all = true;
-		for id in published.ids {
-			let Ok(entry) = storage.try_entry::<T>(id) else {
-				read_all = false;
-				break;
-			};
+		let entries = match storage.try_entries::<T>(&published.ids) {
+			Ok(entries) => entries,
+			Err(Busy) => return,
+		};
+		if entries.len() < published.ids.len() {
+			read_all = false;
+		}
+		for (id, entry) in published.ids.iter().zip(entries) {
 			self.cursor += 1;
 			let Some(entry) = entry else {
 				continue;
 			};
-			if let Some(host) = self.hosts.get_mut(&id).filter(|host| host.version == entry.version)
+			if let Some(host) = self.hosts.get_mut(id).filter(|host| host.version == entry.version)
 			{
 				host.session = self.session;
 				continue;
 			}
-			if let Some(stale) = self.hosts.remove(&id) {
+			if let Some(stale) = self.hosts.remove(id) {
 				retire_host(commands, stale.entity);
 			}
 			let (bounds, version) = (entry.bounds, entry.version);
-			let entity = spawn_host(commands, id, entry, self.focus);
-			self.hosts.insert(id, Host { entity, bounds, version, session: self.session });
+			let entity = spawn_host(commands, *id, entry, self.focus);
+			self.hosts.insert(*id, Host { entity, bounds, version, session: self.session });
 			self.retired_against = None;
 		}
 		if read_all && published.done && self.sweep_pending {
@@ -186,21 +193,51 @@ impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
 	}
 }
 
-/// A host presentation has let go of. It despawns in `Last`, so commands other
-/// systems queue on it, or on what it spawned, through `PostUpdate` still land.
+/// A host presentation has let go of.
+///
+/// Retire stamps [`Visibility::Hidden`] so leftover trees do not extract while
+/// they wait. Actual recursive despawn happens in `Last` under
+/// [`LodChunkFulfillBudget::retired_host_despawns_per_frame`] and
+/// [`LodChunkFulfillBudget::retired_host_time_per_frame`], so commands other
+/// systems queue on the host through `PostUpdate` still land. Leave must not
+/// retire a whole cascade on one frame — that was 120–146 ms in the
+/// 2026-10-13 character-switch captures ([#1247](https://github.com/ramate-io/maybraid/issues/1247)).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct RetiredHost;
 
 fn retire_host(commands: &mut Commands, entity: Entity) {
-	commands.entity(entity).try_insert(RetiredHost);
+	commands.entity(entity).try_insert((RetiredHost, Visibility::Hidden));
 }
 
-pub(super) fn despawn_retired_hosts(
-	retired: Query<Entity, (With<RetiredHost>, Allow<Disabled>)>,
-	mut commands: Commands,
-) {
-	for entity in &retired {
-		commands.entity(entity).try_despawn();
+/// Recursive-despawn a budgeted prefix of [`RetiredHost`]s.
+///
+/// Exclusive so the wall-clock stop measures real [`World::despawn`] cost, not
+/// command-queue time. The first host always runs (one grove tree can exceed
+/// the clock); further hosts stop when the count or time budget is exhausted.
+pub(super) fn despawn_retired_hosts(world: &mut World) {
+	let budget = world.get_resource::<LodChunkFulfillBudget>().copied().unwrap_or_default();
+	let cap = budget.retired_host_despawns_per_frame();
+	let time_budget = budget.retired_host_time_per_frame();
+
+	let entities: Vec<Entity> = {
+		let mut query = world.query_filtered::<Entity, (With<RetiredHost>, Allow<Disabled>)>();
+		query.iter(world).collect()
+	};
+	if entities.is_empty() {
+		return;
+	}
+
+	let start = Instant::now();
+	let mut despawned = 0u32;
+	for entity in entities {
+		if despawned >= cap {
+			break;
+		}
+		if despawned > 0 && start.elapsed() >= time_budget {
+			break;
+		}
+		world.despawn(entity);
+		despawned += 1;
 	}
 }
 
@@ -265,5 +302,53 @@ where
 		}
 		app.add_message::<HcsgRegions<C>>()
 			.add_systems(Update, presentation::<C, T>.in_set(HcsgSystems));
+	}
+}
+
+#[cfg(test)]
+mod despawn_budget_tests {
+	use super::*;
+	use crate::scene::LodChunkFulfillBudget;
+
+	fn leftover(world: &mut World) -> Vec<Entity> {
+		world.query_filtered::<Entity, With<RetiredHost>>().iter(world).collect()
+	}
+
+	#[test]
+	fn despawn_retired_hosts_caps_at_cull_root_budget() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(LodChunkFulfillBudget {
+			cull_root_despawns_per_frame: 2,
+			..LodChunkFulfillBudget::default()
+		});
+		world.spawn(RetiredHost);
+		world.spawn(RetiredHost);
+		world.spawn(RetiredHost);
+
+		despawn_retired_hosts(&mut world);
+		assert_eq!(leftover(&mut world).len(), 1, "default cull-root cap is two hosts");
+
+		despawn_retired_hosts(&mut world);
+		assert!(leftover(&mut world).is_empty(), "the next Last finishes the leftover");
+		Ok(())
+	}
+
+	#[test]
+	fn despawn_retired_hosts_still_progresses_when_cull_cap_is_zero() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(LodChunkFulfillBudget {
+			cull_root_despawns_per_frame: 0,
+			..LodChunkFulfillBudget::default()
+		});
+		world.spawn(RetiredHost);
+		world.spawn(RetiredHost);
+
+		despawn_retired_hosts(&mut world);
+		assert_eq!(
+			leftover(&mut world).len(),
+			1,
+			"a zeroed cull cap still despawns one retired host"
+		);
+		Ok(())
 	}
 }

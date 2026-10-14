@@ -142,13 +142,12 @@ impl GenerationContext {
     pub fn get_or_generate_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<Arc<T>>;
     /// Like `get_or_generate_in`, but `None` if any origin doesn't build.
     pub fn get_or_generate_all_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Option<Vec<Arc<T>>>;
-    pub fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id>;
 }
 ```
 
 `get_or_generate` looks the value up, and if it is missing, builds it (recursively resolving that value's dependencies) and publishes it before returning. The context tracks which `(TypeId, Id)` pairs it is currently generating, and treats a repeat as a cycle (`None`).
 
-Region pulls read origins only, never whatever happens to be stored in the region, so a value doesn't depend on which of its neighbors the worker built first.
+Region pulls read origins only, never whatever happens to be stored in the region, so a value doesn't depend on which of its neighbors the worker built first. [`GenerationContext`] does not expose spatial store queries; schemes discover through `original_ids_for` and dependencies through `get` / `get_or_generate`.
 
 The worker builds its context with a staleness check (`GenerationContext::with_stale`). Once the subscription is cancelled, the context generates nothing more and drops whatever it just built instead of publishing it. The final check happens under the store's write lock (`HcsgStorage::publish_unless`), so a value finished just as its session ends either lands before that session's stores are cleared or is dropped.
 
@@ -362,7 +361,7 @@ Each frame:
 4. **Sweep.** Once a new session's subscription is read through to `done`, retire every host that session did not publish. A new session leaves no value behind, so this is the only time presentation retires by what was published.
 5. **Retire.** Retire any host whose entry bounds intersect none of the regions, along with its owned scene subtree. Within a session, retirement depends only on bounds, never on what discovery returned. Hosts are only rechecked when the regions change or new hosts were spawned.
 
-Retiring marks the host `RetiredHost`. The runtime despawns retired hosts in `Last`, so commands other systems queue for the host through `PostUpdate` still land.
+Retiring marks the host `RetiredHost` and hides it (`Visibility::Hidden`) so leftover trees do not extract while they wait. The runtime recursive-despawns a budgeted prefix in `Last` — [`LodChunkFulfillBudget::retired_host_despawns_per_frame`] (the cull-root cap, at least one) and [`LodChunkFulfillBudget::retired_host_time_per_frame`] (the exclusive drain clock) — so commands other systems queue for the host through `PostUpdate` still land, and Leave cannot retire a whole cascade on one frame.
 
 Notes:
 - When the subscription is replaced, existing hosts stay. Ids the new subscription publishes that are already in `hosts` are skipped.
