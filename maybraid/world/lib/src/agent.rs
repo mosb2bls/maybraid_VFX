@@ -7,8 +7,8 @@ use damage::{Health, Hit};
 use durham::{CascadeChunk, DurhamSurface, WorldBaseTerrain};
 use maybraid_agent::{
 	read_script_commands, take_leading_start, AgentArgs, AgentButton, AgentCommand, AgentEvent,
-	AgentEventBody, CommandStatus, EventSink, LineInbox, PadIntent, Playback, TickEffect, TickView,
-	SCRIPT_API_VERSION,
+	AgentEventBody, CommandStatus, EventSink, LineInbox, MenuObservation, PadIntent, Playback,
+	TickEffect, TickView, SCRIPT_API_VERSION,
 };
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
 use mob_characters::CharacterSceneRecipe;
@@ -42,6 +42,12 @@ impl AgentDrive {
 	}
 }
 
+/// Bevy-free menu snapshot filled by the game crate. World stays free of menu types.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct AgentMenuState {
+	pub observation: MenuObservation,
+}
+
 #[derive(Resource)]
 struct AgentRuntime {
 	playback: Playback,
@@ -57,6 +63,7 @@ struct AgentRuntime {
 	load_error: Option<String>,
 	ready_timeout: f32,
 	sample_period: f32,
+	last_menu: MenuObservation,
 }
 
 pub(crate) struct WorldAgentPlugin;
@@ -108,6 +115,7 @@ impl Plugin for WorldAgentPlugin {
 			});
 
 		app.insert_resource(PadOverlay::default())
+			.init_resource::<AgentMenuState>()
 			.insert_resource(AgentRuntime {
 				playback,
 				sink,
@@ -122,6 +130,7 @@ impl Plugin for WorldAgentPlugin {
 				load_error,
 				ready_timeout: drive.ready_timeout,
 				sample_period: drive.sample_period,
+				last_menu: MenuObservation::default(),
 			})
 			.add_systems(
 				PreUpdate,
@@ -141,7 +150,8 @@ impl Plugin for WorldAgentPlugin {
 					agent_maybe_quit,
 				)
 					.chain(),
-			);
+			)
+			.add_systems(Last, agent_emit_menu_churn);
 	}
 }
 
@@ -213,6 +223,8 @@ fn agent_sync_ready(
 	mut runtime: ResMut<AgentRuntime>,
 	gameplay: Res<WorldGameplayEnabled>,
 	surface: Res<WorldSurfaceReady>,
+	menu: Res<AgentMenuState>,
+	spawn: Res<PlayerSpawnXz>,
 	time: Res<Time>,
 ) {
 	if runtime.ready {
@@ -237,12 +249,13 @@ fn agent_sync_ready(
 	}
 	let elapsed = time.elapsed_secs();
 	let surface_ready = gameplay.0 && surface.0;
+	let menu_ready = spawn.0.is_none() && menu.observation.menu_ready;
 	let timed_out = elapsed >= runtime.ready_timeout;
-	if !surface_ready && !timed_out {
+	if !surface_ready && !menu_ready && !timed_out {
 		return;
 	}
 	runtime.ready = true;
-	let detail = if surface_ready { "surface" } else { "timeout" };
+	let detail = ready_detail(surface_ready, menu_ready);
 	emit(
 		&runtime.sink,
 		AgentEvent {
@@ -256,6 +269,7 @@ fn agent_sync_ready(
 fn agent_tick_playback(
 	mut runtime: ResMut<AgentRuntime>,
 	mut overlay: ResMut<PadOverlay>,
+	menu: Res<AgentMenuState>,
 	time: Res<Time>,
 	motors: Query<&Transform, With<MotorPlayer>>,
 	vegetation: Query<&Transform, (With<VegetationPlayer>, Without<MotorPlayer>)>,
@@ -273,6 +287,7 @@ fn agent_tick_playback(
 			[xz.x, xz.y]
 		}),
 		yaw: cameras.single().ok().map(|camera| camera.yaw).unwrap_or(0.0),
+		menu: menu.observation.clone(),
 	};
 	let tick = runtime.playback.tick(time.delta_secs(), &view);
 	runtime.last_intent = tick.intent.clone();
@@ -349,6 +364,77 @@ fn agent_tick_playback(
 	if tick.idle && runtime.quit_when_idle && runtime.inbox.is_none() {
 		runtime.quit = true;
 	}
+}
+
+fn ready_detail(surface_ready: bool, menu_ready: bool) -> &'static str {
+	if surface_ready {
+		"surface"
+	} else if menu_ready {
+		"menu"
+	} else {
+		"timeout"
+	}
+}
+
+fn agent_emit_menu_churn(
+	mut runtime: ResMut<AgentRuntime>,
+	menu: Res<AgentMenuState>,
+	time: Res<Time>,
+) {
+	let current = menu.observation.clone();
+	let last = runtime.last_menu.clone();
+	let t = time.elapsed_secs();
+	let frame = runtime.frame;
+	if current.screen != last.screen {
+		emit(
+			&runtime.sink,
+			AgentEvent { t, frame, body: AgentEventBody::Screen { name: current.screen.clone() } },
+		);
+	}
+	if current.modal != last.modal {
+		emit(
+			&runtime.sink,
+			AgentEvent { t, frame, body: AgentEventBody::Modal { name: current.modal.clone() } },
+		);
+	}
+	if current.focus_changed(&last) {
+		if let Some(row) = current.focus_row {
+			emit(
+				&runtime.sink,
+				AgentEvent {
+					t,
+					frame,
+					body: AgentEventBody::Focus {
+						screen: current.screen.clone(),
+						row,
+						label: current.focus_label.clone(),
+					},
+				},
+			);
+		}
+	}
+	if !current.flow.is_empty() && (current.flow != last.flow || current.pause != last.pause) {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Flow {
+					flow: current.flow.clone(),
+					pause: current.pause.clone(),
+				},
+			},
+		);
+	}
+	for detail in &current.invariants {
+		if !last.invariants.contains(detail) {
+			emit(
+				&runtime.sink,
+				AgentEvent { t, frame, body: AgentEventBody::Invariant { detail: detail.clone() } },
+			);
+		}
+	}
+	runtime.last_menu = current;
 }
 
 fn apply_intent(overlay: &mut PadOverlay, intent: &PadIntent) {
@@ -764,5 +850,12 @@ mod tests {
 		let mut overlay = PadOverlay::default();
 		apply_intent(&mut overlay, &PadIntent { move_stick: [0.0, 1.0], ..PadIntent::default() });
 		assert_eq!(overlay.move_stick, Vec2::Y);
+	}
+
+	#[test]
+	fn ready_prefers_surface_then_menu() {
+		assert_eq!(ready_detail(true, true), "surface");
+		assert_eq!(ready_detail(false, true), "menu");
+		assert_eq!(ready_detail(false, false), "timeout");
 	}
 }

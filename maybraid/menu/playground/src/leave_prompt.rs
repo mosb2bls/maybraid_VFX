@@ -80,6 +80,16 @@ impl CharacterLeavePrompt {
 		self.kind.is_some()
 	}
 
+	/// Script/event name for the open leave card, if any.
+	pub fn agent_kind_name(self) -> Option<&'static str> {
+		match self.kind {
+			Some(CharacterLeaveKind::Save) => Some("save"),
+			Some(CharacterLeaveKind::SaveFailed) => Some("save_failed"),
+			Some(CharacterLeaveKind::Discard) => Some("discard"),
+			None => None,
+		}
+	}
+
 	pub fn open(&mut self, kind: CharacterLeaveKind) {
 		self.kind = Some(kind);
 		self.opened_this_frame = true;

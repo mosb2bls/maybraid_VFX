@@ -40,7 +40,7 @@ mod world_layers;
 
 pub use world_furnished::WorldFurnished;
 
-pub use agent::AgentDrive;
+pub use agent::{AgentDrive, AgentMenuState};
 #[cfg(feature = "debug-commands")]
 pub use commands::{
 	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
