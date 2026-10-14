@@ -98,7 +98,7 @@ roster_for_script() {
 		return
 	fi
 	case "$name" in
-		menu-create-back-mid-spin | menu-mash-home-*) echo empty ;;
+		menu-create-back-mid-spin | menu-mash-home-* | menu-home-*) echo empty ;;
 		*) echo one ;;
 	esac
 }
@@ -106,7 +106,7 @@ roster_for_script() {
 uses_start_at() {
 	local name="$1"
 	case "$name" in
-		menu-create-back-mid-spin | menu-mash-home-*) return 1 ;;
+		menu-create-back-mid-spin | menu-mash-home-* | menu-home-*) return 1 ;;
 		*) return 0 ;;
 	esac
 }
@@ -189,7 +189,11 @@ timeout_for() {
 }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/maybraid-menu-playtest.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+if [[ -z "${MAYBRAID_PLAYTEST_KEEP:-}" ]]; then
+	trap 'rm -rf "$work"' EXIT
+else
+	echo "keeping playtest dir $work"
+fi
 
 pass=0
 fail=0
