@@ -50,38 +50,62 @@ pub enum WaterRegime {
 	Float,
 }
 
-pub fn submersion_fraction(feet_y: f32, height: f32, surface: f32) -> f32 {
-	if height <= 1e-4 {
-		return 0.0;
-	}
-	((surface - feet_y) / height).clamp(0.0, 1.0)
+/// Capsule hull height and foot elevation sampled against a wet column.
+#[derive(Debug, Clone, Copy)]
+struct CapsuleWaterSample {
+	feet_y: f32,
+	height: f32,
 }
 
-/// Capsule-center rest pose for draft `d` (head out when `d ≈ 0.55`).
-pub fn equilibrium_center(surface: f32, draft: f32, height: f32) -> f32 {
-	surface - (draft - 0.5) * height
+impl CapsuleWaterSample {
+	fn from_capsule(transform: &Transform, hull: &LocomotionCapsule) -> Self {
+		let height = hull.half_height() * 2.0;
+		let feet_y = transform.translation.y - hull.half_height();
+		Self { feet_y, height }
+	}
+
+	#[cfg(test)]
+	fn new(feet_y: f32, height: f32) -> Self {
+		Self { feet_y, height }
+	}
+
+	fn submersion_fraction(self, surface: f32) -> f32 {
+		if self.height <= 1e-4 {
+			return 0.0;
+		}
+		((surface - self.feet_y) / self.height).clamp(0.0, 1.0)
+	}
+
+	/// Capsule-center rest pose for draft `d` (head out when `d ≈ 0.55`).
+	fn equilibrium_center(self, surface: f32, draft: f32) -> f32 {
+		surface - (draft - 0.5) * self.height
+	}
+
+	fn regime(self, column: Option<WaterColumn>) -> WaterRegime {
+		let Some(column) = column else {
+			return WaterRegime::Dry;
+		};
+		let submersion = self.submersion_fraction(column.surface);
+		if submersion <= 0.0 {
+			return WaterRegime::Dry;
+		}
+		let y_eq = self.equilibrium_center(column.surface, FLOAT_DRAFT);
+		let feet_eq = y_eq - self.height * 0.5;
+		let chest_deep = submersion + 1e-4 >= FLOAT_DRAFT;
+		if column.depth() < WADE_MAX_DEPTH || !chest_deep || feet_eq < column.bed - 1e-4 {
+			WaterRegime::Wade
+		} else {
+			WaterRegime::Float
+		}
+	}
 }
 
-pub fn water_regime(column: Option<WaterColumn>, feet_y: f32, height: f32) -> WaterRegime {
-	let Some(column) = column else {
-		return WaterRegime::Dry;
-	};
-	let submersion = submersion_fraction(feet_y, height, column.surface);
-	if submersion <= 0.0 {
-		return WaterRegime::Dry;
-	}
-	let y_eq = equilibrium_center(column.surface, FLOAT_DRAFT, height);
-	let feet_eq = y_eq - height * 0.5;
-	let chest_deep = submersion + 1e-4 >= FLOAT_DRAFT;
-	if column.depth() < WADE_MAX_DEPTH || !chest_deep || feet_eq < column.bed - 1e-4 {
-		WaterRegime::Wade
-	} else {
-		WaterRegime::Float
-	}
-}
+struct FloatSpring;
 
-pub fn spring_vertical_accel(y: f32, vy: f32, y_eq: f32) -> f32 {
-	SPRING_K * (y_eq - y) - SPRING_C * vy
+impl FloatSpring {
+	fn vertical_accel(y: f32, vy: f32, y_eq: f32) -> f32 {
+		SPRING_K * (y_eq - y) - SPRING_C * vy
+	}
 }
 
 pub(crate) fn swim_speed() -> f32 {
@@ -120,15 +144,13 @@ pub(crate) fn apply_buoyancy(
 	for (entity, transform, hull, mut velocity, grounded, gravity_scale, jumping) in
 		&mut controllers
 	{
-		let height = hull.half_height() * 2.0;
-		let feet_y = transform.translation.y - hull.half_height();
+		let sample = CapsuleWaterSample::from_capsule(transform, hull);
 		let column = match surface.water_column_at(transform.translation.xz()) {
 			Ok(column) => column,
 			Err(_) => continue,
 		};
-		let submersion =
-			column.map(|c| submersion_fraction(feet_y, height, c.surface)).unwrap_or(0.0);
-		match water_regime(column, feet_y, height) {
+		let submersion = column.map(|c| sample.submersion_fraction(c.surface)).unwrap_or(0.0);
+		match sample.regime(column) {
 			WaterRegime::Dry => {
 				commands.entity(entity).remove::<(Buoyant, Wading)>();
 			}
@@ -140,9 +162,9 @@ pub(crate) fn apply_buoyancy(
 			WaterRegime::Float => {
 				let column = column.expect("float requires a wet column");
 				if !jumping.is_some_and(Jumping::airborne) {
-					let y_eq = equilibrium_center(column.surface, FLOAT_DRAFT, height);
+					let y_eq = sample.equilibrium_center(column.surface, FLOAT_DRAFT);
 					let scale = gravity_scale.map(|s| s.0).unwrap_or(1.25);
-					let ay = spring_vertical_accel(transform.translation.y, velocity.y, y_eq)
+					let ay = FloatSpring::vertical_accel(transform.translation.y, velocity.y, y_eq)
 						+ g * scale;
 					velocity.y += ay * dt;
 					damp_xz(&mut velocity, FLOAT_XZ_DRAG, dt);
@@ -197,16 +219,16 @@ mod tests {
 
 	#[test]
 	fn dry_column_is_dry() {
-		let height = humanoid_height();
-		assert_eq!(water_regime(None, 10.0, height), WaterRegime::Dry);
+		let sample = CapsuleWaterSample::new(10.0, humanoid_height());
+		assert_eq!(sample.regime(None), WaterRegime::Dry);
 	}
 
 	#[test]
 	fn ankle_deep_stream_is_wade() {
-		let height = humanoid_height();
+		let sample = CapsuleWaterSample::new(10.0, humanoid_height());
 		let column = WaterColumn { surface: 10.4, bed: 10.0 };
 		assert!(column.depth() < WADE_MAX_DEPTH);
-		assert_eq!(water_regime(Some(column), 10.0, height), WaterRegime::Wade);
+		assert_eq!(sample.regime(Some(column)), WaterRegime::Wade);
 	}
 
 	#[test]
@@ -215,9 +237,10 @@ mod tests {
 		let bed = 10.0;
 		let surface = bed + 0.2;
 		let column = WaterColumn { surface, bed };
-		let y_eq = equilibrium_center(surface, FLOAT_DRAFT, height);
+		let sample = CapsuleWaterSample::new(bed, height);
+		let y_eq = sample.equilibrium_center(surface, FLOAT_DRAFT);
 		assert!(y_eq - height * 0.5 < bed);
-		assert_eq!(water_regime(Some(column), bed, height), WaterRegime::Wade);
+		assert_eq!(sample.regime(Some(column)), WaterRegime::Wade);
 	}
 
 	#[test]
@@ -226,29 +249,31 @@ mod tests {
 		let bed = 10.0;
 		let surface = bed + 3.0;
 		let column = WaterColumn { surface, bed };
-		let y_eq = equilibrium_center(surface, FLOAT_DRAFT, height);
+		let y_eq = CapsuleWaterSample::new(0.0, height).equilibrium_center(surface, FLOAT_DRAFT);
 		let feet = y_eq - height * 0.5;
-		assert_eq!(water_regime(Some(column), feet, height), WaterRegime::Float);
+		let sample = CapsuleWaterSample::new(feet, height);
+		assert_eq!(sample.regime(Some(column)), WaterRegime::Float);
 	}
 
 	#[test]
 	fn equilibrium_tracks_graded_surface() {
 		let height = humanoid_height();
-		let west = equilibrium_center(30.0, FLOAT_DRAFT, height);
-		let east = equilibrium_center(34.0, FLOAT_DRAFT, height);
+		let sample = CapsuleWaterSample::new(0.0, height);
+		let west = sample.equilibrium_center(30.0, FLOAT_DRAFT);
+		let east = sample.equilibrium_center(34.0, FLOAT_DRAFT);
 		assert!((east - west - 4.0).abs() < 1e-4);
 	}
 
 	#[test]
 	fn chest_deep_rest_settles_near_equilibrium() {
-		let height = humanoid_height();
+		let sample = CapsuleWaterSample::new(0.0, humanoid_height());
 		let surface = 20.0;
-		let y_eq = equilibrium_center(surface, FLOAT_DRAFT, height);
+		let y_eq = sample.equilibrium_center(surface, FLOAT_DRAFT);
 		let mut y = surface;
 		let mut vy = 0.0;
 		let dt = 1.0 / 60.0;
 		for _ in 0..180 {
-			vy += spring_vertical_accel(y, vy, y_eq) * dt;
+			vy += FloatSpring::vertical_accel(y, vy, y_eq) * dt;
 			y += vy * dt;
 		}
 		assert!((y - y_eq).abs() < 0.05, "settled {y} vs {y_eq}");
@@ -256,15 +281,15 @@ mod tests {
 
 	#[test]
 	fn drop_in_overshoots_then_settles() {
-		let height = humanoid_height();
+		let sample = CapsuleWaterSample::new(0.0, humanoid_height());
 		let surface = 20.0;
-		let y_eq = equilibrium_center(surface, FLOAT_DRAFT, height);
+		let y_eq = sample.equilibrium_center(surface, FLOAT_DRAFT);
 		let mut y = surface + 1.0;
 		let mut vy = -8.0;
 		let dt = 1.0 / 60.0;
 		let mut went_below = false;
 		for _ in 0..240 {
-			vy += spring_vertical_accel(y, vy, y_eq) * dt;
+			vy += FloatSpring::vertical_accel(y, vy, y_eq) * dt;
 			y += vy * dt;
 			if y < y_eq {
 				went_below = true;
