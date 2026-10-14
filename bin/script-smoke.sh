@@ -230,6 +230,12 @@ fi
 if [[ -n "$reason" ]]; then
 	echo "FAIL  $name  ($reason)"
 	echo "      events=$events log=$log"
+	if [[ -s "$log" ]]; then
+		echo "------ game.log (head) ------"
+		head -n 40 "$log"
+		echo "------ game.log (tail) ------"
+		tail -n 40 "$log"
+	fi
 	if [[ -n "${MAYBRAID_SMOKE_COPY_LOGS:-}" ]]; then
 		mkdir -p "$MAYBRAID_SMOKE_COPY_LOGS"
 		cp -f "$events" "$log" "$MAYBRAID_SMOKE_COPY_LOGS/" 2>/dev/null || true

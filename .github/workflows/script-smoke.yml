@@ -25,13 +25,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Enable Nix Flakes
+      - name: Install link deps
         run: |
-          mkdir -p ~/.config/nix
-          echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential pkg-config clang g++ \
+            libasound2-dev libudev-dev libwayland-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libx11-dev libxcb1-dev
 
       - name: Read Rust toolchain channel
         id: rust_toolchain
@@ -43,12 +44,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: nix-${{ steps.rust_toolchain.outputs.channel }}-script-smoke
+          shared-key: ubuntu-${{ steps.rust_toolchain.outputs.channel }}-script-smoke
           cache-all-crates: true
           cache-on-failure: true
 
+      # Native Ubuntu link, not `nix develop`: a Nix-built ELF has a
+      # /nix/store interpreter and exits 127 on the lavapipe runners.
       - name: Build release maybraid
-        run: nix develop . --command cargo build -p maybraid --release --locked
+        run: cargo build -p maybraid --release --locked
 
       - uses: actions/upload-artifact@v4
         with:
@@ -82,6 +85,7 @@ jobs:
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             xvfb mesa-vulkan-drivers vulkan-tools \
+            libasound2 libudev1 libx11-6 \
             libxkbcommon0 libxkbcommon-x11-0 libwayland-client0
 
       - name: Run smoke ${{ matrix.script }}
@@ -90,6 +94,8 @@ jobs:
           MAYBRAID_SMOKE_COPY_LOGS: ${{ github.workspace }}/smoke-logs
         run: |
           chmod +x "$MAYBRAID_BIN" bin/script-smoke.sh
+          file "$MAYBRAID_BIN"
+          ldd "$MAYBRAID_BIN" | head -40
           icd=""
           for candidate in \
             /usr/share/vulkan/icd.d/lvp_icd.x86_64.json \

@@ -28,7 +28,7 @@ token.
 | Token | When it runs extra work | What it does |
 |---|---|---|
 | `ci-action::package` | Commit message contains the token (also `main`, published releases, and `workflow_dispatch` when that workflow is present) | Unsigned macOS DMG, Windows zip, Linux Steam depot, and general Linux tarball. Artifacts on the Actions run; Release assets only for a published GitHub Release. |
-| Script Smoke | Every push / `pull_request` / `workflow_dispatch` ([`script-smoke.yml`](../script-smoke.yml)) | Builds the real release `maybraid` once, then a matrix runs `smoke-*.jsonl` on Xvfb + lavapipe. See [`bin/script-smoke.sh`](../../bin/script-smoke.sh) and the [agent README](../../maybraid/agent/README.md). |
+| Script Smoke | Every push / `pull_request` / `workflow_dispatch` ([`script-smoke.yml`](../script-smoke.yml)) | Ubuntu `cargo build -p maybraid --release` (not Nix — the ELF must run on the lavapipe runner), then a matrix runs `smoke-*.jsonl` on Xvfb + lavapipe. See [`bin/script-smoke.sh`](../../bin/script-smoke.sh) and the [agent README](../../maybraid/agent/README.md). |
 
 Label cleanup on a non-`main` branch still uses the older
 `debug(ci:labels:deletion)` string in [LABELS.md](../LABELS.md), not a
