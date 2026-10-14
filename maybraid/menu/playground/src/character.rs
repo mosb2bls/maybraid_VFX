@@ -5,30 +5,25 @@ use character_creation_menus::{CharacterMenu, MenuEvent};
 use character_items::Inventory;
 use character_ui_menu::{AssetThumbnailDisplay, MenuComponent};
 use item_icons::{
-	request_inventory_icons, CaptureClient, ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery,
-	ItemIconPlugin, ItemIconSystems,
+	CaptureClient, ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery, ItemIconPlugin,
+	ItemIconSystems, request_inventory_icons,
 };
 use maybraid_character_ui_menu_renderer::{
-	find_overlay_node, overlay_closes_on_pick, render_overlay_body, spawn_overlay_shell,
 	CharacterHudSystems, CharacterMenuEvent, MaybraidCharacterMenuRendererPlugin, MaybraidMenuSink,
 	MenuButton, MenuJustify, MenuSink, MenuThumbnailContext, OverlayClose, OverlayOpen,
-	OverlaySelectRoot, OverlaySelectViewport, RenderContext,
+	OverlaySelectRoot, OverlaySelectViewport, RenderContext, find_overlay_node,
+	overlay_closes_on_pick, render_overlay_body, spawn_overlay_shell,
 };
 use maybraid_menu_controller::MenuController;
-use maybraid_skill_map::{
-	spawn_skill_map_spin_reveal_image, SkillMapSpinRevealHud, SkillMapSpinRevealHudView,
-	SkillMapTileMaterialPlugin,
-};
+use maybraid_skill_map::{SkillMapSpinRevealHud, SkillMapTileMaterialPlugin};
 use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
 use menu_components::{
-	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
-	HudOverlayMenu, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer, MenuModalStack,
-	ScreenBack, ShortTextChange, PANEL_ROW_GAP, SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW,
-	TEXT_YELLOW_FAINT,
+	ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu, MenuActivate, MenuFocus,
+	MenuModalId, MenuModalLayer, MenuModalStack, PANEL_ROW_GAP, ScreenBack, ShortTextChange,
+	TEXT_YELLOW, TEXT_YELLOW_FAINT, spawn_corner_action, spawn_scroll_pane,
 };
 use menu_screens::{
-	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealCurrent,
-	SpinRevealItems, SpinRevealScreen,
+	MenuScreen, MenuScreens, MenuShowRequest, SpinRevealItems, add_menu_show_systems,
 };
 
 use crate::drop_prompt::CharacterDropPromptPlugin;
@@ -571,36 +566,11 @@ fn discover_menu_item_icons(
 	}
 }
 
-/// Bind the shaded catalog PNG for the current starter item. The live inspect
-/// mesh is not spawned on this screen — that pair stacked two item views.
-fn sync_spin_reveal_item_icon(
-	mut commands: Commands,
-	spin: Option<Res<SpinRevealCurrent>>,
-	spin_screens: Query<(), With<SpinRevealScreen>>,
-	icons: Option<Res<ItemIconCache>>,
-	mut hosts: Query<&mut Visibility, With<SkillMapSpinRevealHud>>,
-	mut views: Query<&mut ImageNode, With<SkillMapSpinRevealHudView>>,
-) {
-	let wanted = (!spin_screens.is_empty())
-		.then_some(spin.as_deref())
-		.flatten()
-		.filter(|spin| spin.revealed)
-		.and_then(|spin| icons.as_ref().and_then(|cache| cache.shaded_for_item(&spin.item)));
-	let Some(image) = wanted else {
-		for mut visibility in &mut hosts {
-			*visibility = Visibility::Hidden;
-		}
-		return;
-	};
-	if hosts.is_empty() {
-		spawn_skill_map_spin_reveal_image(&mut commands, image, SPIN_REVEAL_SLOT_SIZE);
-		return;
-	}
+/// The grant gallery paints every item on the screen. Hide the old single-item
+/// catalog PNG so it cannot stack over the grid.
+fn sync_spin_reveal_item_icon(mut hosts: Query<&mut Visibility, With<SkillMapSpinRevealHud>>) {
 	for mut visibility in &mut hosts {
-		*visibility = Visibility::Inherited;
-	}
-	for mut node in &mut views {
-		node.image = image.clone();
+		*visibility = Visibility::Hidden;
 	}
 }
 
@@ -701,7 +671,7 @@ fn on_short_text_change(
 
 #[cfg(test)]
 mod tests {
-	use super::{save_chrome, CharacterEditBaseline};
+	use super::{CharacterEditBaseline, save_chrome};
 	use character_creation_menus::CharacterMenu;
 	use character_items::Inventory;
 
@@ -753,30 +723,18 @@ mod tests {
 	}
 
 	#[test]
-	fn spin_reveal_shows_the_shaded_clothing_png() -> anyhow::Result<()> {
-		use super::{sync_spin_reveal_item_icon, SkillMapSpinRevealHudView};
+	fn spin_reveal_does_not_spawn_a_single_item_png() -> anyhow::Result<()> {
+		use super::sync_spin_reveal_item_icon;
 		use bevy::ecs::system::RunSystemOnce;
 		use bevy::prelude::World;
-		use character_items::{ClothingMaterial, ClothingMesh, InventoryItem, ItemColor};
-		use item_icons::{CaptureId, ItemIconCache};
-		use menu_screens::{SpinRevealCurrent, SpinRevealScreen};
-
-		let item =
-			InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Red);
-		let label =
-			item.capture_id_label().ok_or_else(|| anyhow::anyhow!("clothing capture id"))?;
-		let mut cache = ItemIconCache::default();
-		cache.insert_shaded(CaptureId::new(label), bevy::prelude::Handle::default());
+		use maybraid_skill_map::SkillMapSpinRevealHudView;
 
 		let mut world = World::new();
-		world.spawn(SpinRevealScreen);
-		world.insert_resource(SpinRevealCurrent { item, revealed: true });
-		world.insert_resource(cache);
 		world.run_system_once(sync_spin_reveal_item_icon).expect("sync");
 		world.flush();
 		let count = world.query::<&SkillMapSpinRevealHudView>().iter(&world).count();
-		if count != 1 {
-			anyhow::bail!("revealed clothing should spawn the catalog PNG slot, got {count}");
+		if count != 0 {
+			anyhow::bail!("the grant gallery must not spawn the old single-item PNG, got {count}");
 		}
 		Ok(())
 	}

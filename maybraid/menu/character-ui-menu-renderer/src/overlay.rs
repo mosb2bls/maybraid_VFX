@@ -4,12 +4,12 @@
 use bevy::prelude::*;
 use character_ui_menu::{MenuNode, SelectGroup};
 
+use crate::MenuJustify;
 use crate::sink::{MaybraidMenuSink, MenuSink, MenuThumbnailContext, RenderContext};
 use crate::widgets::CloseOverlaySelect;
-use crate::MenuJustify;
 use menu_components::{
-	spawn_header_line, spawn_text_button, HudFonts, MenuModal, PANEL_HEADER_FONT_SIZE,
-	PANEL_ROW_GAP,
+	HudFonts, MenuModal, PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP, spawn_header_line,
+	spawn_text_button,
 };
 
 /// Catalog nodes that can show a selected name on a header.
@@ -118,6 +118,7 @@ fn find_in_node<'a, E>(node: &'a MenuNode<E>, key: &str) -> Option<&'a MenuNode<
 
 pub fn overlay_summary_value<E>(node: &MenuNode<E>) -> String {
 	match node {
+		MenuNode::Section { label: "Inventory", children } => inventory_section_preview(children),
 		MenuNode::Section { children, .. } => primary_select(children)
 			.map(overlay_summary_value)
 			.unwrap_or_else(|| labeled_values_preview(children)),
@@ -135,7 +136,7 @@ pub fn overlay_summary_value<E>(node: &MenuNode<E>) -> String {
 		}
 		MenuNode::GridCatalog { label, choices, .. } => {
 			let count = choices.iter().filter(|choice| choice.selected).count();
-			if *label == "Weapons" || *label == "Skill Maps" {
+			if matches!(*label, "Weapons" | "Skill Maps" | "Tools") {
 				format!("{count} queued")
 			} else {
 				format!("{count} worn")
@@ -284,13 +285,41 @@ pub fn spawn_overlay_shell(
 }
 
 /// Overlay interiors are the sink with catalogs painted inline.
+///
+/// A root [`MenuNode::Section`] unwraps so the overlay chrome can own the
+/// title; nested sections paint their own headers (Inventory → Clothing /
+/// Tools / Skill Maps / Lubikan).
 pub fn render_overlay_body<E: Copy + Send + Sync + 'static, C: MenuThumbnailContext>(
 	node: &MenuNode<E>,
 	parent: &mut ChildSpawnerCommands,
 	context: &mut RenderContext<'_, C>,
 	justify: MenuJustify,
 ) {
-	MaybraidMenuSink::overlay(justify).render_node(node, parent, context);
+	let sink = MaybraidMenuSink::overlay(justify);
+	match node {
+		MenuNode::Section { children, .. } => sink.render_nodes(children, parent, context),
+		other => sink.render_node(other, parent, context),
+	}
+}
+
+fn inventory_section_preview<E>(children: &[MenuNode<E>]) -> String {
+	let mut count = 0usize;
+	for node in flatten_nodes(children) {
+		count += match node {
+			MenuNode::Section { children, .. } => flatten_nodes(children)
+				.into_iter()
+				.map(|inner| match inner {
+					MenuNode::GridCatalog { choices, .. } => choices.len(),
+					MenuNode::LabeledValue { .. } => 1,
+					_ => 0,
+				})
+				.sum(),
+			MenuNode::GridCatalog { choices, .. } => choices.len(),
+			MenuNode::LabeledValue { .. } => 1,
+			_ => 0,
+		};
+	}
+	if count == 0 { String::from("empty") } else { format!("{count} items") }
 }
 
 #[cfg(test)]
@@ -323,11 +352,13 @@ mod tests {
 		};
 		assert!(!is_picker_only(&section));
 		assert!(!overlay_closes_on_pick(&section));
-		assert!(primary_select(match &section {
-			MenuNode::Section { children, .. } => children,
-			_ => unreachable!(),
-		})
-		.is_some());
+		assert!(
+			primary_select(match &section {
+				MenuNode::Section { children, .. } => children,
+				_ => unreachable!(),
+			})
+			.is_some()
+		);
 	}
 
 	#[test]
@@ -357,5 +388,48 @@ mod tests {
 			find_overlay_node(&tree, "Head"),
 			Some(MenuNode::Section { label: "Head", .. })
 		));
+	}
+
+	#[test]
+	fn inventory_header_counts_nested_catalogs() {
+		use character_ui_menu::GridCatalogChoice;
+
+		let choice = |label: &str| GridCatalogChoice {
+			label: label.to_string(),
+			detail: String::new(),
+			path: "",
+			thumbnail_camera: character_ui_menu::ThumbnailCamera::DEFAULT,
+			preview: PreviewColor::WHITE,
+			image_key: None,
+			selected: false,
+			rank: None,
+			event: 0u8,
+		};
+		let node = MenuNode::<u8>::Section {
+			label: "Inventory",
+			children: vec![
+				MenuNode::Section {
+					label: "Clothing",
+					children: vec![MenuNode::grid_catalog("Clothing", 6, [choice("coat")])],
+				},
+				MenuNode::Section {
+					label: "Tools",
+					children: vec![MenuNode::grid_catalog(
+						"Tools",
+						3,
+						[choice("gun"), choice("nade")],
+					)],
+				},
+				MenuNode::Section {
+					label: "Lubikan",
+					children: vec![MenuNode::labeled_value("Self", "Always equipped")],
+				},
+			],
+		};
+		assert_eq!(overlay_summary_value(&node), "4 items");
+		assert_eq!(
+			overlay_summary_value(&MenuNode::grid_catalog("Tools", 3, [choice("gun")])),
+			"0 queued"
+		);
 	}
 }

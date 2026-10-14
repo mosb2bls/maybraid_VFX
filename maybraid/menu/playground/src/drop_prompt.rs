@@ -1,9 +1,9 @@
 //! Thin confirm for dropping a focused catalog item.
 //!
-//! Catalog tiles still toggle on A. Pad **X** / keyboard **X** or **E** on a
-//! Clothing, Weapons, or Skill Maps overlay asks to drop that bag index.
+//! Catalog tiles still toggle on A. Pad **X** / keyboard **X** or **E** on the
+//! Inventory overlay asks to drop that bag index.
 //! [`character_items::Inventory::try_drop`] does the mutation; this file only
-//! prompts. A follow-up inventory modal can call the same event.
+//! prompts. Section headers and the read-only Lubikan row have no bag index.
 
 use bevy::prelude::*;
 use bevy::text::Justify;
@@ -13,9 +13,9 @@ use maybraid_character_ui_menu_renderer::{CharacterMenuEvent, MenuButton, Overla
 use maybraid_input::{MenuNav, MenuNavImpulse, PadButton, VirtualPad};
 use menu_components::theme::{HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW};
 use menu_components::{
-	spawn_hud_action, spawn_hud_text, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
-	HudOverlayMenu, MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer, MenuModalStack,
-	MenuModalSystems, TextMenuInputLock, TextMenuSystems,
+	ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu, MenuModal, MenuModalDismiss,
+	MenuModalId, MenuModalLayer, MenuModalStack, MenuModalSystems, TextMenuInputLock,
+	TextMenuSystems, spawn_hud_action, spawn_hud_text,
 };
 
 use crate::character::{
@@ -85,9 +85,9 @@ impl Plugin for CharacterDropPromptPlugin {
 	}
 }
 
-/// Clothing / Weapons / Skill Maps overlay + X, and no prompt already open.
+/// Inventory overlay + X, and no prompt already open.
 pub fn catalog_drop_edge(overlay: Option<&str>, prompt_open: bool, x: bool) -> bool {
-	x && !prompt_open && matches!(overlay, Some("Clothing" | "Weapons" | "Skill Maps"))
+	x && !prompt_open && matches!(overlay, Some("Inventory"))
 }
 
 pub fn drop_index_from_event(event: MenuEvent) -> Option<usize> {
@@ -485,7 +485,7 @@ fn pointer_target(
 #[cfg(test)]
 mod tests {
 	use super::{
-		apply_drop_inventory, catalog_drop_edge, drop_index_from_event, CharacterDropPrompt,
+		CharacterDropPrompt, apply_drop_inventory, catalog_drop_edge, drop_index_from_event,
 	};
 	use crate::character::{CharacterMenuState, CharacterUiSyncState, OverlayUiSyncState};
 	use bevy::ecs::system::RunSystemOnce;
@@ -499,12 +499,12 @@ mod tests {
 
 	#[test]
 	fn only_inventory_catalogs_offer_drop() {
-		assert!(catalog_drop_edge(Some("Weapons"), false, true));
-		assert!(catalog_drop_edge(Some("Clothing"), false, true));
-		assert!(catalog_drop_edge(Some("Skill Maps"), false, true));
+		assert!(catalog_drop_edge(Some("Inventory"), false, true));
+		assert!(!catalog_drop_edge(Some("Clothing"), false, true));
+		assert!(!catalog_drop_edge(Some("Weapons"), false, true));
 		assert!(!catalog_drop_edge(Some("Loadout"), false, true));
-		assert!(!catalog_drop_edge(Some("Weapons"), true, true));
-		assert!(!catalog_drop_edge(Some("Weapons"), false, false));
+		assert!(!catalog_drop_edge(Some("Inventory"), true, true));
+		assert!(!catalog_drop_edge(Some("Inventory"), false, false));
 		assert!(!catalog_drop_edge(None, false, true));
 	}
 

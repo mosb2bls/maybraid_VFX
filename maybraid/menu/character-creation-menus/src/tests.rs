@@ -5,10 +5,36 @@ use characters::species::{
 };
 
 use crate::{
+	MenuEvent,
 	character::{CharacterMenu, ConceptSpecies},
 	characters::{braidman::BraidmanMenu, brodler::BrodlerMenu, tuberwaber::TuberwaberMenu},
-	MenuEvent,
 };
+
+fn inventory_section<'a>(
+	nodes: &'a [MenuNode<MenuEvent>],
+) -> anyhow::Result<&'a MenuNode<MenuEvent>> {
+	nodes
+		.iter()
+		.find(|node| matches!(node, MenuNode::Section { label: "Inventory", .. }))
+		.ok_or_else(|| anyhow::anyhow!("expected a top-level Inventory section"))
+}
+
+fn inventory_child<'a>(
+	nodes: &'a [MenuNode<MenuEvent>],
+	label: &str,
+) -> anyhow::Result<&'a MenuNode<MenuEvent>> {
+	let MenuNode::Section { children, .. } = inventory_section(nodes)? else {
+		anyhow::bail!("Inventory must be a Section");
+	};
+	for child in children {
+		if let MenuNode::Section { label: child_label, children } = child {
+			if *child_label == label {
+				return children.first().ok_or_else(|| anyhow::anyhow!("{label} section is empty"));
+			}
+		}
+	}
+	anyhow::bail!("expected Inventory child {label}")
+}
 
 #[test]
 fn braidman_config_round_trip() -> anyhow::Result<()> {
@@ -515,12 +541,9 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	let expected_key = items[3].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.menu_nodes();
-	let weapons = nodes.iter().find_map(|node| match node {
-		MenuNode::Section { label: "Weapons", children } => children.first(),
-		_ => None,
-	});
-	let Some(MenuNode::GridCatalog { max_selected, choices, .. }) = weapons else {
-		anyhow::bail!("expected a top-level Weapons GridCatalog");
+	let tools = inventory_child(&nodes, "Tools")?;
+	let MenuNode::GridCatalog { max_selected, choices, .. } = tools else {
+		anyhow::bail!("expected Inventory Tools to lower to a GridCatalog");
 	};
 	assert_eq!(*max_selected, WEAPON_QUEUE_LIMIT);
 	assert_eq!(choices.len(), 2);
@@ -530,7 +553,8 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	assert_eq!(choices[0].label, expected_name);
 	assert_eq!(choices[0].image_key, expected_key);
 	assert!(!choices[0].detail.is_empty());
-	assert!(menu.overlay_editable("Weapons"));
+	assert!(menu.overlay_editable("Inventory"));
+	assert!(menu.overlay_editable("Tools"));
 	assert!(menu.apply(MenuEvent::ToggleInventory(3)));
 	let inventory = menu.inventory.as_ref().expect("create inventory");
 	assert_eq!(inventory.weapons, vec![4]);
@@ -541,7 +565,7 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 
 #[test]
 fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
-	use character_items::{InventoryItem, SkillMapKind, SkillMapSpec, SKILL_MAP_QUEUE_LIMIT};
+	use character_items::{InventoryItem, SKILL_MAP_QUEUE_LIMIT, SkillMapKind, SkillMapSpec};
 
 	let items = vec![
 		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
@@ -551,12 +575,9 @@ fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	let expected_key = items[0].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.menu_nodes();
-	let skills = nodes.iter().find_map(|node| match node {
-		MenuNode::Section { label: "Skill Maps", children } => children.first(),
-		_ => None,
-	});
-	let Some(MenuNode::GridCatalog { max_selected, choices, .. }) = skills else {
-		anyhow::bail!("expected a top-level Skill Maps GridCatalog");
+	let skills = inventory_child(&nodes, "Skill Maps")?;
+	let MenuNode::GridCatalog { max_selected, choices, .. } = skills else {
+		anyhow::bail!("expected Inventory Skill Maps to lower to a GridCatalog");
 	};
 	assert_eq!(*max_selected, SKILL_MAP_QUEUE_LIMIT);
 	assert_eq!(choices.len(), 2);
@@ -566,10 +587,87 @@ fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	assert_ne!(choices[0].preview, character_ui_menu::PreviewColor::WHITE);
 	assert_ne!(choices[0].preview, choices[1].preview);
 	assert_eq!(choices[0].image_key, expected_key);
+	assert!(menu.overlay_editable("Inventory"));
 	assert!(menu.overlay_editable("Skill Maps"));
 	assert!(menu.apply(MenuEvent::ToggleInventory(0)));
 	let inventory = menu.inventory.as_ref().expect("create inventory");
 	assert_eq!(inventory.skills, vec![1]);
+	Ok(())
+}
+
+#[test]
+fn create_menu_inventory_is_one_section_with_four_headers() -> anyhow::Result<()> {
+	use character_items::{
+		ClothingMaterial, ClothingMesh, FirearmMesh, InventoryItem, ItemColor, SkillMapKind,
+		SkillMapSpec,
+	};
+
+	let items = vec![
+		InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Red),
+		InventoryItem::firearm(FirearmMesh::Bullpup),
+		InventoryItem::standard_grenade(),
+		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
+	];
+	let grenade_name = items[2].name();
+	let menu = CharacterMenu::for_create(items);
+	let nodes = menu.menu_nodes();
+	let MenuNode::Section { label: "Inventory", children } = inventory_section(&nodes)? else {
+		anyhow::bail!("Inventory must be a Section");
+	};
+	let labels: Vec<_> = children
+		.iter()
+		.filter_map(|node| match node {
+			MenuNode::Section { label, .. } => Some(*label),
+			_ => None,
+		})
+		.collect();
+	assert_eq!(labels, ["Clothing", "Tools", "Skill Maps", "Lubikan"]);
+	assert!(
+		nodes
+			.iter()
+			.all(|node| !matches!(node, MenuNode::Section { label: "Weapons" | "Skill Maps", .. }))
+	);
+	let MenuNode::SectionSelect { children: species, .. } = &nodes[1] else {
+		anyhow::bail!("expected species SectionSelect");
+	};
+	assert!(
+		species
+			.iter()
+			.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. }))
+	);
+	let tools = inventory_child(&nodes, "Tools")?;
+	let MenuNode::GridCatalog { choices, .. } = tools else {
+		anyhow::bail!("Tools must be a GridCatalog");
+	};
+	assert_eq!(choices.len(), 2);
+	assert_eq!(choices[1].label, grenade_name);
+	let lubikan = inventory_child(&nodes, "Lubikan")?;
+	let MenuNode::LabeledValue { label, value } = lubikan else {
+		anyhow::bail!("Lubikan must be a read-only labeled value");
+	};
+	assert_eq!(label, "Self");
+	assert_eq!(value, "Always equipped");
+	Ok(())
+}
+
+#[test]
+fn appearance_only_menu_keeps_clothing_under_species() -> anyhow::Result<()> {
+	let menu = CharacterMenu::default();
+	assert!(menu.inventory.is_none());
+	let nodes = menu.menu_nodes();
+	assert!(
+		nodes
+			.iter()
+			.all(|node| !matches!(node, MenuNode::Section { label: "Inventory", .. }))
+	);
+	let MenuNode::SectionSelect { children, .. } = &nodes[1] else {
+		anyhow::bail!("expected species SectionSelect");
+	};
+	assert!(
+		children
+			.iter()
+			.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. }))
+	);
 	Ok(())
 }
 
@@ -663,18 +761,29 @@ fn saved_menu_locks_body_and_keeps_inventory() -> anyhow::Result<()> {
 	let MenuNode::SectionSelect { children, .. } = &nodes[1] else {
 		anyhow::bail!("expected species SectionSelect so body attributes stay visible");
 	};
-	assert!(children
-		.iter()
-		.any(|node| matches!(node, MenuNode::Section { label: "Body", .. })));
-	assert!(children
-		.iter()
-		.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. })));
+	assert!(
+		children
+			.iter()
+			.any(|node| matches!(node, MenuNode::Section { label: "Body", .. }))
+	);
+	assert!(
+		children
+			.iter()
+			.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. }))
+	);
+	assert!(
+		nodes
+			.iter()
+			.any(|node| matches!(node, MenuNode::Section { label: "Inventory", .. }))
+	);
 	assert!(nodes.iter().all(|node| !matches!(node, MenuNode::Action { .. })));
 	assert!(!menu.overlay_editable("Species"));
 	assert!(!menu.overlay_editable("Body"));
+	assert!(menu.overlay_editable("Inventory"));
 	assert!(menu.overlay_editable("Clothing"));
-	assert!(menu.overlay_editable("Weapons"));
+	assert!(menu.overlay_editable("Tools"));
 	assert!(menu.overlay_editable("Skill Maps"));
+	assert!(menu.overlay_editable("Lubikan"));
 	assert!(menu.overlay_editable("Loadout"));
 	assert!(!menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Brodler)));
 	assert_eq!(menu.species.value, ConceptSpecies::Braidman);

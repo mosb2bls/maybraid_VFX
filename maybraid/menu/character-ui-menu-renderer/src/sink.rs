@@ -6,12 +6,12 @@ use character_ui_menu::{
 	StatCard, StatTone, SwatchChoice, ThumbnailRequest,
 };
 use menu_components::{
-	spawn_asset_tile, spawn_grid_catalog_tile, spawn_group_label, spawn_hud_action,
+	CursorRow, HudFonts, HudMenu, HudMenuItem, PANEL_BLOCK_FONT_SIZE, PANEL_HEADER_FONT_SIZE,
+	PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, ShortTextField, ShortTextKey,
+	TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT, spawn_asset_tile,
+	spawn_grid_catalog_tile, spawn_group_label, spawn_header_line, spawn_hud_action,
 	spawn_hud_plain, spawn_hud_text, spawn_labeled_row, spawn_section_header,
 	spawn_short_text_button, spawn_stepper, spawn_swatch, spawn_swatch_row, spawn_tile_grid,
-	HudFonts, HudMenu, HudMenuItem, ShortTextField, ShortTextKey, PANEL_BLOCK_FONT_SIZE,
-	PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, TEXT_LIGHT_BLUE, TEXT_LIME,
-	TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 
 use crate::justify::MenuJustify;
@@ -81,8 +81,13 @@ impl<T> RenderContext<'_, T> {
 
 	pub fn header_color(&self, label: &str) -> Color {
 		if self.lock_appearance
-			&& !matches!(label, "Clothing" | "Weapons" | "Skill Maps" | "Loadout")
-		{
+			&& !matches!(
+				label,
+				"Inventory"
+					| "Clothing" | "Weapons"
+					| "Tools" | "Skill Maps"
+					| "Lubikan" | "Loadout"
+			) {
 			TEXT_YELLOW_FAINT
 		} else {
 			TEXT_YELLOW
@@ -90,11 +95,7 @@ impl<T> RenderContext<'_, T> {
 	}
 
 	pub fn face_color(&self) -> Color {
-		if self.interactive {
-			TEXT_YELLOW
-		} else {
-			TEXT_YELLOW_FAINT
-		}
+		if self.interactive { TEXT_YELLOW } else { TEXT_YELLOW_FAINT }
 	}
 }
 
@@ -422,6 +423,39 @@ impl MaybraidMenuSink {
 		});
 	}
 
+	fn interior_section_header<C>(
+		&self,
+		parent: &mut ChildSpawnerCommands,
+		context: &mut RenderContext<'_, C>,
+		label: &'static str,
+	) {
+		parent
+			.spawn((
+				Button,
+				CursorRow,
+				context.stamp_hud_item(),
+				Node {
+					width: Val::Percent(100.0),
+					padding: UiRect::axes(Val::Px(0.0), Val::Px(4.0)),
+					flex_direction: FlexDirection::Row,
+					justify_content: self.justify.content(),
+					align_items: AlignItems::Center,
+					..default()
+				},
+				BackgroundColor(Color::NONE),
+			))
+			.with_children(|row| {
+				spawn_header_line(
+					row,
+					context.fonts,
+					label,
+					None,
+					PANEL_HEADER_FONT_SIZE,
+					TEXT_YELLOW,
+				);
+			});
+	}
+
 	fn section<E: Copy + Send + Sync + 'static, C: MenuThumbnailContext>(
 		&self,
 		label: &'static str,
@@ -430,6 +464,7 @@ impl MaybraidMenuSink {
 		context: &mut RenderContext<'_, C>,
 	) {
 		if self.interior {
+			self.interior_section_header(parent, context, label);
 			self.render_nodes(children, parent, context);
 			return;
 		}
