@@ -88,54 +88,28 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn discovery_enters_world() {
-		assert_eq!(
-			HomeRoute::from_choice(HomeMenuChoice::Discovery),
-			HomeRoute::World { session: PlaySession::Discovery }
-		);
+	fn home_menu_choices_map_to_executable_routes() {
+		for (choice, want) in [
+			(HomeMenuChoice::Discovery, HomeRoute::World { session: PlaySession::Discovery }),
+			(HomeMenuChoice::TrainingGround, HomeRoute::Unimplemented),
+			(HomeMenuChoice::Characters, HomeRoute::Characters),
+			(HomeMenuChoice::Settings, HomeRoute::Settings),
+			(HomeMenuChoice::Reliquary, HomeRoute::Unimplemented),
+		] {
+			assert_eq!(HomeRoute::from_choice(choice), want, "{choice:?}");
+		}
 	}
 
 	#[test]
-	fn reliquary_is_unimplemented() {
-		assert_eq!(HomeRoute::from_choice(HomeMenuChoice::Reliquary), HomeRoute::Unimplemented);
-	}
-
-	#[test]
-	fn characters_is_its_own_shell() {
-		assert_eq!(HomeRoute::from_choice(HomeMenuChoice::Characters), HomeRoute::Characters);
-	}
-
-	#[test]
-	fn training_ground_is_unimplemented() {
-		assert_eq!(
-			HomeRoute::from_choice(HomeMenuChoice::TrainingGround),
-			HomeRoute::Unimplemented
-		);
-	}
-
-	#[test]
-	fn settings_opens_the_shared_settings_screen() {
-		assert_eq!(HomeRoute::from_choice(HomeMenuChoice::Settings), HomeRoute::Settings);
-	}
-
-	#[test]
-	fn pause_settings_opens_settings() {
-		assert_eq!(
-			PauseMenuRoute::from_choice(InGameMenuChoice::Settings),
-			PauseMenuRoute::Settings
-		);
-	}
-
-	#[test]
-	fn pause_leave_returns_home() {
-		assert_eq!(PauseMenuRoute::from_choice(InGameMenuChoice::Leave), PauseMenuRoute::Leave);
-	}
-
-	#[test]
-	fn pause_character_opens_the_editor() {
-		assert_eq!(
-			PauseMenuRoute::from_choice(InGameMenuChoice::Character),
-			PauseMenuRoute::Character
-		);
+	fn pause_menu_choices_map_to_executable_routes() {
+		for (choice, want) in [
+			(InGameMenuChoice::Leave, PauseMenuRoute::Leave),
+			(InGameMenuChoice::Settings, PauseMenuRoute::Settings),
+			(InGameMenuChoice::Character, PauseMenuRoute::Character),
+			(InGameMenuChoice::Records, PauseMenuRoute::Stay),
+			(InGameMenuChoice::Help, PauseMenuRoute::Stay),
+		] {
+			assert_eq!(PauseMenuRoute::from_choice(choice), want, "{choice:?}");
+		}
 	}
 }
