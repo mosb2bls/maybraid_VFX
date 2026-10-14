@@ -85,6 +85,10 @@ pub struct MenuMatcher {
 	pub flow: Option<String>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pause: Option<String>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub focus_row: Option<u32>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub focus_label: Option<String>,
 }
 
 impl MenuMatcher {
@@ -109,6 +113,16 @@ impl MenuMatcher {
 				return false;
 			}
 		}
+		if let Some(row) = self.focus_row {
+			if observed.focus_row != Some(row) {
+				return false;
+			}
+		}
+		if let Some(label) = &self.focus_label {
+			if observed.focus_label.as_deref() != Some(label.as_str()) {
+				return false;
+			}
+		}
 		true
 	}
 
@@ -125,6 +139,12 @@ impl MenuMatcher {
 		}
 		if let Some(pause) = &self.pause {
 			parts.push(format!("pause={pause}"));
+		}
+		if let Some(row) = self.focus_row {
+			parts.push(format!("focus_row={row}"));
+		}
+		if let Some(label) = &self.focus_label {
+			parts.push(format!("focus_label={label}"));
 		}
 		if parts.is_empty() {
 			"any".into()
@@ -209,6 +229,31 @@ mod tests {
 		};
 		assert!(matcher.matches(&closed));
 		assert!(!matcher.matches(&open));
+		Ok(())
+	}
+
+	#[test]
+	fn focus_label_and_row_match() -> anyhow::Result<()> {
+		let matcher: MenuMatcher =
+			serde_json::from_str(r#"{"screen":"home","focus_label":"Characters"}"#)?;
+		assert_eq!(matcher.focus_label.as_deref(), Some("Characters"));
+		let characters = MenuObservation {
+			screen: "home".into(),
+			focus_row: Some(2),
+			focus_label: Some("Characters".into()),
+			..MenuObservation::default()
+		};
+		let reliquary = MenuObservation {
+			screen: "home".into(),
+			focus_row: Some(1),
+			focus_label: Some("Reliquary".into()),
+			..MenuObservation::default()
+		};
+		assert!(matcher.matches(&characters));
+		assert!(!matcher.matches(&reliquary));
+		let by_row: MenuMatcher = serde_json::from_str(r#"{"focus_row":2}"#)?;
+		assert!(by_row.matches(&characters));
+		assert!(!by_row.matches(&reliquary));
 		Ok(())
 	}
 

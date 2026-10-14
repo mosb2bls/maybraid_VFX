@@ -90,6 +90,8 @@ pub struct Playback {
 	queue: VecDeque<Scheduled>,
 	active: Option<Active>,
 	next_id: u32,
+	/// After a digital press, the next tick must release so `just_pressed` can fire again.
+	need_release: bool,
 }
 
 impl Playback {
@@ -120,9 +122,15 @@ impl Playback {
 		let mut effects = Vec::new();
 		let mut intent = PadIntent::default();
 		let mut instants = 0;
+		let releasing = self.need_release;
+		self.need_release = false;
 
 		loop {
 			if self.active.is_none() {
+				if releasing {
+					// Keep the pad up for one frame so the next press edges.
+					break;
+				}
 				if instants >= MAX_INSTANTS_PER_TICK {
 					break;
 				}
@@ -131,6 +139,11 @@ impl Playback {
 				};
 				effects.push(TickEffect::Started { id: next.id, cmd: next.command.label() });
 				if start_command(next, view, &mut self.active, &mut effects, &mut intent) {
+					if failed(&effects) {
+						self.queue.clear();
+						self.active = None;
+						break;
+					}
 					instants += 1;
 					continue;
 				}
@@ -139,18 +152,26 @@ impl Playback {
 			let Some(active) = self.active.take() else {
 				break;
 			};
-			match step_active(active, dt, view, &mut intent, &mut effects) {
+			match step_active(active, dt, view, &mut intent, &mut effects, releasing) {
 				Step::Continue(next) => {
 					self.active = Some(next);
 					break;
 				}
 				Step::Done { leftover } => {
+					if failed(&effects) {
+						self.queue.clear();
+						break;
+					}
 					dt = leftover;
 					if dt <= 0.0 && self.queue.is_empty() {
 						break;
 					}
 				}
 			}
+		}
+
+		if !intent.buttons.is_empty() {
+			self.need_release = true;
 		}
 
 		Tick { idle: self.is_idle(), intent, effects }
@@ -160,6 +181,10 @@ impl Playback {
 enum Step {
 	Continue(Active),
 	Done { leftover: f32 },
+}
+
+fn failed(effects: &[TickEffect]) -> bool {
+	effects.iter().any(|effect| matches!(effect, TickEffect::Failed { .. }))
 }
 
 /// Returns `true` when the command finished in the same tick (instant / press).
@@ -197,7 +222,9 @@ fn start_command(
 		command @ AgentCommand::Press { .. } => {
 			*intent = PadIntent::press_many(&command.press_buttons());
 			effects.push(TickEffect::Finished { id, cmd: label });
-			true
+			// Consume the frame. Leftover `dt` must not start the next `press`
+			// (or eat a short `wait` and then press again) on a fat tick.
+			false
 		}
 		AgentCommand::WaitFor { matcher, timeout } => {
 			*active = Some(Active::WaitFor { id, matcher, remaining: timeout.max(0.0) });
@@ -263,6 +290,7 @@ fn step_active(
 	view: &TickView,
 	intent: &mut PadIntent,
 	effects: &mut Vec<TickEffect>,
+	releasing: bool,
 ) -> Step {
 	match active {
 		Active::Wait { id, remaining } => {
@@ -354,7 +382,7 @@ fn step_active(
 			}
 		}
 		Active::Mash { id, buttons, interval, remaining, cooldown, mut rng } => {
-			let fire = cooldown <= 0.0;
+			let fire = cooldown <= 0.0 && !releasing;
 			if fire {
 				*intent = PadIntent::press_many(&mash_press(&mut rng, &buttons));
 			}
@@ -653,6 +681,25 @@ mod tests {
 		let tick = playback.tick(0.016, &TickView::default());
 		assert_eq!(tick.intent.buttons, vec![AgentButton::Jump, AgentButton::Menu]);
 		assert!(tick.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn press_consumes_leftover_dt() -> anyhow::Result<()> {
+		let mut playback = Playback::from_commands([
+			AgentCommand::Wait { secs: 0.1 },
+			AgentCommand::press(AgentButton::DpadDown),
+			AgentCommand::Wait { secs: 0.1 },
+			AgentCommand::press(AgentButton::DpadDown),
+		]);
+		let first = playback.tick(1.0, &TickView::default());
+		assert_eq!(first.intent.buttons, vec![AgentButton::DpadDown]);
+		assert!(!first.idle);
+		let release = playback.tick(1.0, &TickView::default());
+		assert!(release.intent.buttons.is_empty());
+		assert!(!release.idle);
+		let second = playback.tick(1.0, &TickView::default());
+		assert_eq!(second.intent.buttons, vec![AgentButton::DpadDown]);
 		Ok(())
 	}
 

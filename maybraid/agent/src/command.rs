@@ -130,6 +130,8 @@ pub enum AgentCommand {
 	///
 	/// `button` is the original single-press form. `buttons` presses several
 	/// in the same frame (chords). Both may be set; they are unioned.
+	/// Playback consumes the frame so leftover `dt` cannot start the next
+	/// command on the same tick.
 	Press {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		button: Option<AgentButton>,
@@ -333,6 +335,16 @@ mod tests {
 		assert!(matches!(
 			&expect,
 			AgentCommand::Expect { matcher } if matcher.pause.as_deref() == Some("playing")
+		));
+		let focus = AgentCommand::parse_line(
+			r#"{"cmd":"wait_for","screen":"home","focus_label":"Characters","timeout":3}"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(matches!(
+			&focus,
+			AgentCommand::WaitFor { matcher, .. }
+				if matcher.screen.as_deref() == Some("home")
+					&& matcher.focus_label.as_deref() == Some("Characters")
 		));
 		assert!(!expect.is_duration());
 		let mash = AgentCommand::parse_line(

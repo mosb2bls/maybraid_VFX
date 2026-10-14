@@ -340,11 +340,14 @@ They need menu control and observation that world gameplay scripts do not:
 to Home and becomes ready when the first menu screen is up (`ready` detail
 `menu`). See the [agent README](maybraid/agent/README.md#script-api-version).
 
-Write a new script by copying a `menu-*.jsonl` neighbor. Put a `wait` of a
-couple of frames between pad presses so two `press` commands do not land on
-the same tick. Prefer `wait_for` / `expect` over long `wait`s. Put `mash`
-seeds in the filename (`menu-mash-home-42.jsonl`) so a failure names the
-reproduction seed.
+Write a new script by copying a `menu-*.jsonl` neighbor. Each `press`
+consumes its frame and the next tick releases the pad so `just_pressed`
+can fire again (fat software-renderer frames used to hold the same button
+across two commands). Still settle briefly after `wait_for` before the
+first press so the menu can take input. Prefer `wait_for` / `expect` over
+long `wait`s (`focus_label` is the reliable way to land on Characters
+rather than the locked Reliquary row). Put `mash` seeds in the filename
+(`menu-mash-home-42.jsonl`) so a failure names the reproduction seed.
 
 Check that a script parses with `cargo test -p maybraid-agent`. Run the suite
 against throwaway saves:

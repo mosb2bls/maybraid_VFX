@@ -322,19 +322,22 @@ fn agent_tick_playback(
 					},
 				},
 			),
-			TickEffect::Failed { id, cmd, detail } => emit(
-				&runtime.sink,
-				AgentEvent {
-					t,
-					frame,
-					body: AgentEventBody::Command {
-						id,
-						status: CommandStatus::Failed,
-						cmd,
-						detail: Some(detail),
+			TickEffect::Failed { id, cmd, detail } => {
+				emit(
+					&runtime.sink,
+					AgentEvent {
+						t,
+						frame,
+						body: AgentEventBody::Command {
+							id,
+							status: CommandStatus::Failed,
+							cmd,
+							detail: Some(detail),
+						},
 					},
-				},
-			),
+				);
+				runtime.quit = true;
+			}
 			TickEffect::Instant { id, command } => {
 				if matches!(command, AgentCommand::Quit) {
 					runtime.quit = true;

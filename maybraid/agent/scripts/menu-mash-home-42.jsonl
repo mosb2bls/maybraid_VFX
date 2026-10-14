@@ -2,5 +2,6 @@
 # No --start-at. Empty roster is a good starting set.
 
 {"cmd":"wait_for","screen":"home","timeout":15}
+{"cmd":"wait","secs":0.4}
 {"cmd":"mash","buttons":["confirm","back","start","dpad_up","dpad_down","dpad_left","dpad_right"],"rate_hz":15,"secs":60,"seed":42}
 {"cmd":"quit"}

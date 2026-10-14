@@ -43,7 +43,7 @@ with `"cmd"`.
 | `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
 | `press` | `button` and/or `buttons` | one frame; `buttons` is a same-frame chord |
 | `wait` | `secs` | idle |
-| `wait_for` | `screen`, `modal`, `flow`, `pause`, `timeout` (default 10) | idle until the snapshot matches; fails with `detail` on timeout |
+| `wait_for` | `screen`, `modal`, `flow`, `pause`, `focus_row`, `focus_label`, `timeout` (default 10) | idle until the snapshot matches; fails with `detail` on timeout |
 | `expect` | same matcher as `wait_for` | instant; `failed` on mismatch |
 | `mash` | `buttons`, `rate_hz` (default 15), `secs`, `seed` | seeded random presses and chords |
 | `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
@@ -113,7 +113,7 @@ published outside the repo (Traces releases) state the version they target.
 | 3 | `visual_style` — set presentation mode (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) |
 | 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
 | 5 | `visual_style` adds `native` (direct window). `sharp` is now untreated 1080p offscreen (height-fit); v4 `sharp` was today's Native |
-| 6 | Menu playtests: Home boot ready (`detail: "menu"`), `confirm` / `back` / `start` aliases, `press.buttons` chords, `wait_for` / `expect` / `mash`, and `screen` / `modal` / `focus` / `flow` / `invariant` events |
+| 6 | Menu playtests: Home boot ready (`detail: "menu"`), `confirm` / `back` / `start` aliases, `press.buttons` chords, `wait_for` / `expect` / `mash` (including `focus_row` / `focus_label`), and `screen` / `modal` / `focus` / `flow` / `invariant` events |
 
 ## Events
 

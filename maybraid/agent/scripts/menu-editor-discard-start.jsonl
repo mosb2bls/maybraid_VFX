@@ -3,9 +3,11 @@
 # Run with --start-at and a one-character fixture roster.
 
 {"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"wait","secs":0.3}
 {"cmd":"press","button":"start"}
 {"cmd":"wait_for","screen":"in_game","timeout":10}
 {"cmd":"wait","secs":0.2}
+{"cmd":"wait_for","screen":"in_game","focus_label":"Character","timeout":3}
 {"cmd":"press","button":"confirm"}
 {"cmd":"wait_for","screen":"character","timeout":15}
 {"cmd":"wait","secs":0.2}
