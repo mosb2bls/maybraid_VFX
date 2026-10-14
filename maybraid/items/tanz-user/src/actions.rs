@@ -63,7 +63,7 @@ pub fn left_strafe() -> TanzDefinition {
 		input: strong_sector(Vec2::NEG_X, TanzButton::None),
 		action: TanzAction::Move { local: Vec2::NEG_X },
 		timing: MOVE_TIMING,
-		clip: AnimClip::leap(),
+		clip: AnimClip::power_strafe_left(),
 	}
 }
 
@@ -73,7 +73,7 @@ pub fn right_strafe() -> TanzDefinition {
 		input: strong_sector(Vec2::X, TanzButton::None),
 		action: TanzAction::Move { local: Vec2::X },
 		timing: MOVE_TIMING,
-		clip: AnimClip::leap(),
+		clip: AnimClip::power_strafe_right(),
 	}
 }
 
@@ -105,9 +105,10 @@ mod tests {
 	}
 
 	#[test]
-	fn strafe_tanzes_use_leap() -> anyhow::Result<()> {
-		assert_eq!(left_strafe().clip.id(), AnimClip::leap().id());
-		assert_eq!(right_strafe().clip.id(), AnimClip::leap().id());
+	fn strafe_tanzes_use_power_strafe_with_matching_side() -> anyhow::Result<()> {
+		assert_eq!(left_strafe().clip, AnimClip::power_strafe_left());
+		assert_eq!(right_strafe().clip, AnimClip::power_strafe_right());
+		assert_eq!(left_strafe().clip.id(), right_strafe().clip.id());
 		assert_eq!(left_strafe().action, TanzAction::Move { local: Vec2::NEG_X });
 		Ok(())
 	}
@@ -176,6 +177,15 @@ mod tests {
 			JOG_SPEED,
 		);
 		assert!(distance > 0.7 && distance < 1.1, "unexpected travel {distance}");
+		Ok(())
+	}
+
+	#[test]
+	fn strafe_move_wish_is_lateral_body_x_at_identity_yaw() -> anyhow::Result<()> {
+		use crate::look_wish;
+
+		assert_eq!(look_wish(0.0, Vec2::NEG_X), Vec3::NEG_X);
+		assert_eq!(look_wish(0.0, Vec2::X), Vec3::X);
 		Ok(())
 	}
 }

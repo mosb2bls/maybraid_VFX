@@ -48,6 +48,7 @@ pub enum AnimId {
 	Soaring,
 	Flapping,
 	Jab,
+	PowerStrafe,
 	Squat,
 	SquatDescent,
 	Prone,
@@ -72,6 +73,7 @@ impl AnimId {
 			Self::Soaring => 1.0,
 			Self::Flapping => 1.0,
 			Self::Jab => JAB_CYCLE_SPEED,
+			Self::PowerStrafe => 1.0,
 			Self::Squat => 1.0,
 			Self::SquatDescent => DEFAULT_DESCENT_SPEED,
 			Self::Prone => 1.0,
@@ -186,6 +188,18 @@ pub struct JabParams {
 	pub target: bevy::prelude::Vec3,
 }
 
+/// Untyped power-strafe knobs ([`PowerStrafe`](character_animations::animations::PowerStrafe) is rig-generic).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PowerStrafeParams {
+	pub side: Side,
+}
+
+impl Default for PowerStrafeParams {
+	fn default() -> Self {
+		Self { side: Side::Right }
+	}
+}
+
 impl Default for JabParams {
 	fn default() -> Self {
 		Self { side: Side::Right, backswing: DEFAULT_BACKSWING, target: DEFAULT_JAB_TARGET }
@@ -210,6 +224,7 @@ pub enum AnimClip {
 	Soaring(Soaring),
 	Flapping(Flapping),
 	Jab(JabParams),
+	PowerStrafe(PowerStrafeParams),
 	Squat,
 	SquatDescent,
 	Prone,
@@ -234,6 +249,7 @@ impl AnimClip {
 			Self::Soaring(_) => AnimId::Soaring,
 			Self::Flapping(_) => AnimId::Flapping,
 			Self::Jab(_) => AnimId::Jab,
+			Self::PowerStrafe(_) => AnimId::PowerStrafe,
 			Self::Squat => AnimId::Squat,
 			Self::SquatDescent => AnimId::SquatDescent,
 			Self::Prone => AnimId::Prone,
@@ -302,6 +318,18 @@ impl AnimClip {
 		Self::Jab(JabParams::default())
 	}
 
+	pub fn power_strafe(side: Side) -> Self {
+		Self::PowerStrafe(PowerStrafeParams { side })
+	}
+
+	pub fn power_strafe_left() -> Self {
+		Self::power_strafe(Side::Left)
+	}
+
+	pub fn power_strafe_right() -> Self {
+		Self::power_strafe(Side::Right)
+	}
+
 	pub fn squat() -> Self {
 		Self::Squat
 	}
@@ -345,6 +373,7 @@ impl AnimClip {
 			| Self::Leap(_)
 			| Self::PowerDash(_)
 			| Self::TwoFootedTuckedFlip(_)
+			| Self::PowerStrafe(_)
 			| Self::Squat
 			| Self::SquatDescent
 			| Self::Prone => ClipTimePolicy::Clamp { duration: 1.0 },

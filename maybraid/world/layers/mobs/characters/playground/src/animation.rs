@@ -25,12 +25,13 @@ pub enum AnimationMode {
 	Soaring,
 	Flapping,
 	Jab,
+	PowerStrafe,
 	Prone,
 }
 
 impl AnimationMode {
 	pub const fn uses_side(self) -> bool {
-		matches!(self, Self::Jab)
+		matches!(self, Self::Jab | Self::PowerStrafe)
 	}
 
 	pub const fn label(self) -> &'static str {
@@ -49,6 +50,7 @@ impl AnimationMode {
 			Self::Soaring => "soaring",
 			Self::Flapping => "flapping",
 			Self::Jab => "jab",
+			Self::PowerStrafe => "power-strafe",
 			Self::Prone => "prone",
 		}
 	}
@@ -72,6 +74,7 @@ impl AnimationMode {
 				backswing: DEFAULT_BACKSWING,
 				target: DEFAULT_JAB_TARGET,
 			}),
+			Self::PowerStrafe => AnimClip::power_strafe(side),
 			Self::Prone => AnimClip::prone(),
 		}
 	}

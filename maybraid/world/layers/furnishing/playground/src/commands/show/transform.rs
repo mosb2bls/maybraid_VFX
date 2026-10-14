@@ -1,6 +1,7 @@
 //! Shared transform flags flattened onto `/show` leaf commands.
 
 use bevy::prelude::*;
+use procedural_common::parse_vec3_csv;
 
 #[derive(Clone, clap::Args)]
 #[command(rename_all = "kebab-case")]
@@ -32,27 +33,5 @@ impl ShowTransform {
 		Transform::from_translation(self.translate)
 			.with_rotation(rot)
 			.with_scale(self.scale)
-	}
-}
-
-pub fn parse_vec3_csv(s: &str) -> Result<Vec3, String> {
-	let parts: Vec<_> = s.split(',').collect();
-	if parts.len() != 3 {
-		return Err(format!("expected x,y,z got {s:?}"));
-	}
-	let x: f32 = parts[0].trim().parse().map_err(|e| format!("x: {e}"))?;
-	let y: f32 = parts[1].trim().parse().map_err(|e| format!("y: {e}"))?;
-	let z: f32 = parts[2].trim().parse().map_err(|e| format!("z: {e}"))?;
-	Ok(Vec3::new(x, y, z))
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn parse_vec3_csv_accepts_negatives() -> Result<(), String> {
-		assert_eq!(parse_vec3_csv("-1,0.5,2")?, Vec3::new(-1.0, 0.5, 2.0));
-		Ok(())
 	}
 }

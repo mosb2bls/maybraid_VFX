@@ -10,13 +10,24 @@ use durham::{
 	WatershedConfigs,
 };
 use lod::gen::Id;
-use lod::hcsg::{HcsgRegions, HcsgRestartRequest, HcsgStorage};
+use std::time::Duration;
+
+use lod::hcsg::{HcsgDemand, HcsgRegions, HcsgRestartRequest, HcsgStorage};
 use lod::LodViewer;
 use maybraid_game_mode_discover::InDiscovery;
 use maybraid_world::WorldLayersPlugin;
 use terrain_layer_model::TerrainStreaming;
 
 type NearRing = InDiscovery<StreamRing<NearStream>>;
+
+fn wait_hcsg_idle(app: &App) -> anyhow::Result<()> {
+	let demand = app.world().resource::<HcsgDemand>();
+	anyhow::ensure!(
+		demand.wait_idle(Duration::from_secs(10)),
+		"hcsg worker did not finish within 10s"
+	);
+	Ok(())
+}
 
 fn assert_durham_roots_seeded(storage: &HcsgStorage) -> anyhow::Result<()> {
 	let universal = Id::Universal;
@@ -79,6 +90,7 @@ fn discovery_seeds_its_session_and_streams_only_when_enabled() -> anyhow::Result
 		.spawn((LodViewer, Transform::from_translation(Vec3::new(40.0, 0.0, 40.0))));
 	app.insert_resource(TerrainStreaming::<Durham>::new(false));
 	app.update();
+	wait_hcsg_idle(&app)?;
 
 	let storage = app.world().resource::<HcsgStorage>().clone();
 	assert_durham_roots_seeded(&storage)?;
@@ -86,6 +98,7 @@ fn discovery_seeds_its_session_and_streams_only_when_enabled() -> anyhow::Result
 
 	app.world_mut().resource_mut::<HcsgRestartRequest>().request();
 	app.update();
+	wait_hcsg_idle(&app)?;
 	assert_durham_roots_seeded(app.world().resource::<HcsgStorage>())?;
 
 	app.insert_resource(TerrainStreaming::<Durham>::new(true));
