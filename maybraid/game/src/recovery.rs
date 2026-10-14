@@ -3,7 +3,8 @@
 //! The fallback handler has no World access. It logs, appends `errors.log`,
 //! and pushes a [`RecoveryRequest`] into a static inbox. [`RecoverySystems`]
 //! in [`First`] drains that inbox and routes with the same helpers live
-//! navigation uses ([`MenuScreens::clear`], [`end_character_editor`]).
+//! navigation uses ([`MenuScreens::clear`], [`end_character_editor`],
+//! [`MenuModalStack::clear`]).
 
 use crate::flow::{GameFlow, PlaySession, WorldPause};
 use crate::panic_log::{append_error_log, error_log_path};
@@ -13,6 +14,7 @@ use bevy::ecs::error::{BevyError, ErrorContext, Severity};
 use bevy::prelude::*;
 use character_persist::SaveRoot;
 use maybraid_world::AgentDrive;
+use menu_components::MenuModalStack;
 use menu_playground::{end_character_editor, CharacterLeavePrompt};
 use menu_screens::{cancel_pending_create, MenuScreens};
 use std::collections::VecDeque;
@@ -309,6 +311,7 @@ fn apply_recovery(
 	flow: Res<State<GameFlow>>,
 	mut next_pause: Option<ResMut<NextState<WorldPause>>>,
 	mut prompt: Option<ResMut<CharacterLeavePrompt>>,
+	mut stack: Option<ResMut<MenuModalStack>>,
 	mut history: ResMut<RecoveryHistory>,
 	mut apply: ResMut<RecoveryApply>,
 	agent: Option<Res<AgentDrive>>,
@@ -338,7 +341,7 @@ fn apply_recovery(
 	let flow = *flow.get();
 	let destination = recovery_destination(flow, escalate);
 	apply.in_progress = true;
-	tear_down_shell(&mut commands, &screens, prompt.as_deref_mut());
+	tear_down_shell(&mut commands, &screens, stack.as_deref_mut(), prompt.as_deref_mut());
 	match destination {
 		RecoveryDestination::World => {
 			if let Some(next) = next_pause.as_mut() {
@@ -366,13 +369,23 @@ fn apply_recovery(
 fn tear_down_shell(
 	commands: &mut Commands,
 	screens: &MenuScreens,
+	stack: Option<&mut MenuModalStack>,
 	prompt: Option<&mut CharacterLeavePrompt>,
 ) {
 	screens.clear(commands);
 	end_character_editor(commands);
 	cancel_pending_create(commands);
-	if let Some(prompt) = prompt {
-		prompt.close();
+	match (prompt, stack) {
+		(Some(prompt), Some(stack)) => {
+			prompt.close(stack);
+			stack.clear();
+		}
+		(Some(prompt), None) => {
+			prompt.kind = None;
+			prompt.opened_this_frame = false;
+		}
+		(None, Some(stack)) => stack.clear(),
+		(None, None) => {}
 	}
 }
 
@@ -428,6 +441,7 @@ mod tests {
 	use crate::flow::GameFlow;
 	use bevy::state::app::StatesPlugin;
 	use layer_stack::ActiveGenerationMode;
+	use menu_components::{MenuModalLayer, MenuModalStack};
 	use menu_screens::{request_show_in_game, MenuScreen, MenuShowRequest};
 	use std::sync::Mutex;
 	use std::time::Instant;
@@ -452,6 +466,8 @@ mod tests {
 			.init_state::<GameFlow>()
 			.add_sub_state::<WorldPause>()
 			.init_resource::<PlaySession>()
+			.init_resource::<MenuModalStack>()
+			.init_resource::<CharacterLeavePrompt>()
 			.insert_resource(NextState::<ActiveGenerationMode>::Unchanged);
 		if flow != GameFlow::Home {
 			app.world_mut().resource_mut::<NextState<GameFlow>>().set(flow);
@@ -524,6 +540,11 @@ mod tests {
 		request_show_in_game(&mut commands);
 		app.world_mut().spawn(MenuScreen);
 		app.world_mut().insert_resource(menu_playground::CharacterEditorReturn::InGame);
+		{
+			let mut stack = app.world_mut().resource_mut::<MenuModalStack>();
+			stack.open(MenuModalLayer::CHARACTER_LEAVE);
+			stack.open(MenuModalLayer::SHORT_TEXT);
+		}
 		app.world_mut().flush();
 		trigger_missing_insert(&mut app);
 		let last = run_until_recovery(&mut app);
@@ -538,6 +559,12 @@ mod tests {
 			let mut requests = world.query::<&MenuShowRequest>();
 			anyhow::ensure!(requests.iter(world).count() == 0);
 		}
+		{
+			let stack = app.world().resource::<MenuModalStack>();
+			anyhow::ensure!(!stack.is_open(), "modal stack {stack:?}");
+			anyhow::ensure!(!stack.blocks_screen_back());
+		}
+		anyhow::ensure!(!app.world().resource::<CharacterLeavePrompt>().is_open());
 		// `end_character_editor` marks the session; `finish_character_editor_exit`
 		// drops Return once CharacterScreen is gone (same frame in the full app).
 		let pause = app.world().resource::<State<WorldPause>>();

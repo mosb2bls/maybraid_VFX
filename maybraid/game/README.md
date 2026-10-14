@@ -50,7 +50,7 @@ Bevy 0.19 routes failed commands, `Result` systems, observers, run conditions, a
 
 | State when the error happened | Destination |
 |---|---|
-| `GameFlow::World` | The active game: menus and pending show requests are cleared (`MenuScreens::clear`), any character editor session ends (`end_character_editor`), and `WorldPause::Playing` is set |
+| `GameFlow::World` | The active game: menus and pending show requests are cleared (`MenuScreens::clear`), any character editor session ends (`end_character_editor`), open menu modals drop (`MenuModalStack::clear`), and `WorldPause::Playing` is set |
 | `GameFlow::Home` / `GameFlow::Characters` | Home (same-state `set` re-runs `OnExit` / `OnEnter` in 0.19) |
 | `GameFlow::LoadingWorld` | Home, after the loading shell tears down |
 

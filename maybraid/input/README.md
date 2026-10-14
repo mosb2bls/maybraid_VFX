@@ -17,20 +17,27 @@ event. Chords are queries. Text / IME stays on Bevy `KeyboardInput`.
 
 | Field | Source |
 |---|---|
-| `move_stick` | Left stick, WASD / arrows |
+| `move_stick` | Left stick, WASD / arrows (gameplay map) |
 | `look_stick` | Right stick (camera-space) + mouse delta |
 | `trigger_focus` / `trigger_fire` | LT / RT, digital after threshold |
 | `dpad` | Hat + arrow keys |
 | `buttons` | Xbox-letter face (`South` → A) |
 | `keys` | Full physical `KeyCode` overlay |
 
-Default keyboard faces: Space → A, Shift → L3 (sprint), Escape → B (menu Back;
-character tap squat / hold prone when no menu is focused), Enter → Start,
-Tab → Select, C → left bumper (iron ADS), E / X → X (interact).
+Default keyboard faces (gameplay map): Space → A, Shift → L3 (sprint), Escape → B
+(menu Back; character tap squat / hold prone when no menu is focused). **B** is
+not a Back key — it types. Enter → Start, Tab → Select, C → left bumper
+(iron ADS), E / X → X (interact). WASD walks; arrows walk and also feed the
+D-Pad.
+
+While a menu is focused or a text modal is open, [`KeyboardPadMap::Menu`] maps
+only arrows (D-Pad), Escape (Back), and Enter (Start) so letter keys can type.
+Gamepad left stick still navigates menus.
 
 Gameplay systems should read sticks / buttons. `keys` is the escape hatch
-(`/`, F1, chords). Set [`PadGameplayEnabled`] to `false` while text is focused
-so analog and pad buttons clear; the key overlay remains.
+(`/`, F1, chords). [`PadGameplayEnabled`] has separate text and menu lanes;
+hosts write one lane each. The pad is off only when a lane suppresses it. The
+key overlay remains.
 
 ## Schedule
 
