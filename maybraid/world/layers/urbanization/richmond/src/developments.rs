@@ -23,7 +23,7 @@ use crate::artifact::BuiltDevelopment;
 use crate::config::DevelopmentConfig;
 use crate::ground::{GroundCells, RichmondGround};
 use crate::pad::{cell_center_xz, PadComplex};
-use crate::storage::{column_bounds, overlaps_xz_strictly};
+use crate::storage::overlaps_xz_strictly;
 
 use site::{AuthoredCourtyard, DevelopmentKind, DevelopmentSite};
 
