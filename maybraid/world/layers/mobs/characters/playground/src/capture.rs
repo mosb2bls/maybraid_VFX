@@ -36,6 +36,7 @@ struct IconPose {
 	/// Mailbox seconds; Tanz clips clamp to `[0, 1]`.
 	progress: f32,
 	eye: Vec3,
+	look_at: Vec3,
 }
 
 /// Readable beats: salute hold, strafe slide peak, dash lunge.
@@ -46,6 +47,7 @@ const POSES: &[IconPose] = &[
 		side: Side::Right,
 		progress: 0.36,
 		eye: Vec3::new(2.2, 1.5, 2.4),
+		look_at: Vec3::new(0.0, 1.0, 0.0),
 	},
 	IconPose {
 		filename: "left_strafe.png",
@@ -53,6 +55,7 @@ const POSES: &[IconPose] = &[
 		side: Side::Left,
 		progress: 0.48,
 		eye: Vec3::new(3.4, 1.15, 0.15),
+		look_at: Vec3::new(0.0, 1.0, 0.0),
 	},
 	IconPose {
 		filename: "right_strafe.png",
@@ -60,73 +63,103 @@ const POSES: &[IconPose] = &[
 		side: Side::Right,
 		progress: 0.48,
 		eye: Vec3::new(-3.4, 1.15, 0.15),
+		look_at: Vec3::new(0.0, 1.0, 0.0),
 	},
 	IconPose {
 		filename: "forward_dash.png",
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
-		progress: 0.42,
-		eye: Vec3::new(2.6, 1.15, 2.8),
+		progress: 0.50,
+		eye: Vec3::new(2.7, 0.55, 2.8),
+		look_at: Vec3::new(0.0, 0.10, 0.25),
 	},
 ];
 
-/// Key PowerDash beats for review screenshots (not converted to icons).
+const DASH_SIDE_EYE: Vec3 = Vec3::new(3.3, 0.35, 0.40);
+const DASH_Q3_EYE: Vec3 = Vec3::new(2.6, 0.50, 2.7);
+const DASH_LOOK: Vec3 = Vec3::new(0.0, 0.05, 0.25);
+
+/// Key PowerDash beats: side and three-quarter, full body including feet.
 const DASH_POSES: &[IconPose] = &[
 	IconPose {
-		filename: "power_dash_00_idle.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.0,
-		eye: Vec3::new(2.6, 1.35, 2.8),
-	},
-	IconPose {
-		filename: "power_dash_10_windup.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.10,
-		eye: Vec3::new(2.6, 1.15, 2.8),
-	},
-	IconPose {
-		filename: "power_dash_20_chamber.png",
+		filename: "power_dash_20_chamber_side.png",
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
 		progress: 0.20,
-		eye: Vec3::new(2.6, 1.10, 2.8),
+		eye: DASH_SIDE_EYE,
+		look_at: DASH_LOOK,
 	},
 	IconPose {
-		filename: "power_dash_35_stomp.png",
+		filename: "power_dash_20_chamber_3q.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.20,
+		eye: DASH_Q3_EYE,
+		look_at: DASH_LOOK,
+	},
+	IconPose {
+		filename: "power_dash_35_stomp_side.png",
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
 		progress: 0.35,
-		eye: Vec3::new(2.8, 0.95, 2.6),
+		eye: DASH_SIDE_EYE,
+		look_at: DASH_LOOK,
 	},
 	IconPose {
-		filename: "power_dash_50_strike.png",
+		filename: "power_dash_35_stomp_3q.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.35,
+		eye: DASH_Q3_EYE,
+		look_at: DASH_LOOK,
+	},
+	IconPose {
+		filename: "power_dash_50_strike_side.png",
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
 		progress: 0.50,
-		eye: Vec3::new(2.8, 0.95, 2.6),
+		eye: DASH_SIDE_EYE,
+		look_at: DASH_LOOK,
 	},
 	IconPose {
-		filename: "power_dash_65_dash.png",
+		filename: "power_dash_50_strike_3q.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 0.50,
+		eye: DASH_Q3_EYE,
+		look_at: DASH_LOOK,
+	},
+	IconPose {
+		filename: "power_dash_65_dash_side.png",
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
 		progress: 0.65,
-		eye: Vec3::new(3.2, 0.85, 1.6),
+		eye: DASH_SIDE_EYE,
+		look_at: DASH_LOOK,
 	},
 	IconPose {
-		filename: "power_dash_80_hold.png",
+		filename: "power_dash_65_dash_3q.png",
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
-		progress: 0.80,
-		eye: Vec3::new(3.2, 0.85, 1.6),
+		progress: 0.65,
+		eye: DASH_Q3_EYE,
+		look_at: DASH_LOOK,
 	},
 	IconPose {
-		filename: "power_dash_100_settle.png",
+		filename: "power_dash_100_settle_side.png",
 		animation: AnimationMode::PowerDash,
 		side: Side::Right,
 		progress: 1.0,
-		eye: Vec3::new(2.6, 1.25, 2.8),
+		eye: DASH_SIDE_EYE,
+		look_at: DASH_LOOK,
+	},
+	IconPose {
+		filename: "power_dash_100_settle_3q.png",
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress: 1.0,
+		eye: DASH_Q3_EYE,
+		look_at: DASH_LOOK,
 	},
 ];
 
@@ -164,6 +197,23 @@ impl TanzIconCapture {
 	}
 }
 
+/// Ground disc at rest-foot height so review shots show planted feet and floor.
+fn spawn_review_floor(world: &mut World) {
+	let mesh = {
+		let mut meshes = world.resource_mut::<Assets<Mesh>>();
+		meshes.add(Plane3d::default().mesh().size(16.0, 16.0))
+	};
+	let material = {
+		let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+		materials.add(StandardMaterial {
+			base_color: Color::srgb(0.40, 0.36, 0.30),
+			perceptual_roughness: 0.92,
+			..default()
+		})
+	};
+	world.spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::from_xyz(0.0, -1.52, 0.0)));
+}
+
 pub fn start_power_dash_pose_capture(commands: &mut Commands, args: CapturePowerDashPosesArgs) {
 	let out_dir = args.out_dir;
 	commands.queue(move |world: &mut World| {
@@ -174,6 +224,7 @@ pub fn start_power_dash_pose_capture(commands: &mut Commands, args: CapturePower
 		if let Err(error) = std::fs::create_dir_all(&out_dir) {
 			error!("power dash pose capture: create {}: {error}", out_dir.display());
 		}
+		spawn_review_floor(world);
 		world.insert_resource(TanzIconCapture::power_dash_poses(out_dir));
 	});
 }
@@ -268,7 +319,7 @@ fn apply_pose(commands: &mut Commands, pose: IconPose) {
 		}
 		let mut cameras = world.query::<(&mut Transform, &mut CameraController)>();
 		if let Some((mut transform, mut controller)) = cameras.iter_mut(world).next() {
-			orient_camera(&mut transform, &mut controller, pose.eye, Vec3::new(0.0, 1.0, 0.0));
+			orient_camera(&mut transform, &mut controller, pose.eye, pose.look_at);
 		}
 	});
 }
