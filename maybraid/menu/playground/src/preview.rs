@@ -376,7 +376,7 @@ fn sync_preview(
 	}
 
 	if !spin_screens.is_empty() {
-		// Starter gallery paints the granted bag on the HUD. A live inspect
+		// Starter Kit paints the granted bag on the HUD. A live inspect
 		// mesh plus camera would stack on those tiles.
 		clear_preview(&mut commands, &mut sync, &mut pending, &roots);
 		if let Some(spin) = spin {

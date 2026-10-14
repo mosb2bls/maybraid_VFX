@@ -6,12 +6,12 @@
 
 use character_items::{
 	CharacterSheet, ClothingColor, ClothingMaterial, ClothingMaterialChoice, ClothingMesh,
-	Inventory, InventoryItem, InventorySlot, ItemColor, WORN_CLOTHING_LIMIT,
+	Inventory, InventoryItem, ItemColor, WORN_CLOTHING_LIMIT,
 };
 use character_ui_menu::{
 	AssetChoice, AssetOption, AssetSingleSelect, CameraFocus, GridCatalogChoice, ItemRow,
 	MenuComponent, MenuNode, MultiSelect, PreviewColor, SelectGroup, SingleSelect, StatCard,
-	StatLine, SwatchChoice, SwatchSingleSelect, ThumbnailCamera,
+	StatLine, SwatchChoice, SwatchSingleSelect,
 };
 use characters::ConceptAnimation;
 
@@ -243,92 +243,17 @@ pub(crate) fn clothing_menu_from_inventory(inventory: &Inventory) -> ClothingMen
 	menu
 }
 
-pub(crate) const INVENTORY_LABEL: &str = "Inventory";
-pub(crate) const TOOLS_LABEL: &str = "Tools";
-pub(crate) const LUBIKAN_LABEL: &str = "Lubikan";
-
 /// Overlay / header keys that stay editable after appearance lock.
 pub(crate) fn inventory_overlay_key(key: &str) -> bool {
 	matches!(
 		key,
-		"Inventory" | "Clothing" | "Weapons" | "Tools" | "Skill Maps" | "Lubikan" | "Loadout"
-	)
-}
-
-/// One Inventory section: Clothing, Tools (firearms + grenades), Skill Maps, Lubikan.
-pub(crate) fn inventory_section(
-	inventory: &Inventory,
-	clothing: &ClothingMenu,
-) -> MenuNode<MenuEvent> {
-	let owned = clothing.owned.as_deref().unwrap_or(&inventory.items);
-	MenuNode::section(
-		INVENTORY_LABEL,
-		MenuNode::fragment([
-			MenuNode::section("Clothing", inventory_catalog(clothing, owned)),
-			MenuNode::section(TOOLS_LABEL, tools_catalog(inventory)),
-			MenuNode::section("Skill Maps", skills_catalog(inventory)),
-			lubikan_section(),
-		]),
-	)
-}
-
-pub(crate) fn tools_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
-	MenuNode::grid_catalog(
-		TOOLS_LABEL,
-		InventorySlot::Weapons.capacity(),
-		inventory.items.iter().enumerate().filter_map(|(index, item)| {
-			if item.firearm_mesh().is_none() && item.grenade_spec().is_none() {
-				return None;
-			}
-			let rank = inventory.rank(index);
-			let (path, thumbnail_camera) = match item.firearm_mesh() {
-				Some(mesh) => {
-					let asset = mesh.asset();
-					(asset.path, asset.thumbnail_camera)
-				}
-				None => (item.path(), ThumbnailCamera::DEFAULT),
-			};
-			Some(GridCatalogChoice {
-				label: item.name(),
-				detail: item.catalog_detail(),
-				path,
-				thumbnail_camera,
-				preview: PreviewColor::WHITE,
-				image_key: item.icon_catalog_key(),
-				selected: rank.is_some(),
-				rank,
-				event: MenuEvent::ToggleInventory(index),
-			})
-		}),
-	)
-}
-
-/// Lubikans are not bag items. Show the always-present Self account read-only
-/// until a host-owned action exists.
-pub(crate) fn lubikan_section() -> MenuNode<MenuEvent> {
-	MenuNode::section(LUBIKAN_LABEL, MenuNode::labeled_value("Self", "Always equipped"))
-}
-
-pub(crate) fn skills_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
-	MenuNode::grid_catalog(
-		InventorySlot::Skills.label(),
-		InventorySlot::Skills.capacity(),
-		inventory.items.iter().enumerate().filter_map(|(index, item)| {
-			let spec = item.skill_map_spec()?;
-			let [red, green, blue] = spec.kind.preview_srgb();
-			let rank = inventory.rank(index);
-			Some(GridCatalogChoice {
-				label: item.name(),
-				detail: item.catalog_detail(),
-				path: item.path(),
-				thumbnail_camera: ThumbnailCamera::DEFAULT,
-				preview: PreviewColor::srgb(red, green, blue),
-				image_key: item.icon_catalog_key(),
-				selected: rank.is_some(),
-				rank,
-				event: MenuEvent::ToggleInventory(index),
-			})
-		}),
+		"Inventory"
+			| "Starter Kit"
+			| "Clothing"
+			| "Weapons"
+			| "Tools" | "Skill Maps"
+			| "Lubikan"
+			| "Loadout"
 	)
 }
 

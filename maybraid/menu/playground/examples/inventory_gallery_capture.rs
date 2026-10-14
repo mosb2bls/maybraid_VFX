@@ -1,8 +1,7 @@
-//! Headless capture of character-generation inventory and the character menu.
+//! Headless capture of the shared inventory layout (Starter Kit + modal).
 //!
 //! ```bash
 //! INVENTORY_GALLERY_CAPTURE_DIR=/tmp/inventory-gallery \
-//!   INVENTORY_GALLERY_CAPTURE_TAG=before \
 //!   VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
 //!   WGPU_BACKEND=vk \
 //!   xvfb-run -a cargo run -p menu-playground --example inventory_gallery_capture
@@ -13,24 +12,15 @@ use std::time::Duration;
 
 use bevy::audio::AudioPlugin;
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{Capturing, Screenshot, save_to_disk};
-use character_creation_menus::{CharacterMenu, MenuEvent};
-use character_items::{
-	ClothingMaterial, ClothingMesh, FirearmMesh, InventoryItem, ItemColor, SkillMapKind,
-	SkillMapSpec,
-};
-use character_ui_menu::{AssetThumbnailDisplay, MenuComponent, MenuNode};
+use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
+use character_creation_menus::{overflow_inventory_items, CharacterMenu, InventoryLayout};
+use character_ui_menu::MenuComponent;
 use maybraid_character_ui_menu_renderer::{
-	MaybraidMenuSink, MenuJustify, MenuSink, NoThumbnails, RenderContext, find_overlay_node,
-	render_overlay_body, spawn_overlay_shell,
+	fill_inventory_layout, find_overlay_node, spawn_overlay_shell, spawn_starter_kit_shell,
+	NoThumbnails,
 };
-use menu_components::theme::{
-	HEADER_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW, TEXT_YELLOW_FAINT,
-};
-use menu_components::{
-	HudFonts, HudMenu, HudMenuItem, spawn_grid_catalog_tile, spawn_hud_action, spawn_hud_text,
-	spawn_tile_grid,
-};
+use menu_components::theme::TEXT_YELLOW;
+use menu_components::{spawn_hud_action, HudFonts, HudMenuItem, HudScrollViewport};
 use menu_screens::SpinRevealScreen;
 
 fn assets_path() -> PathBuf {
@@ -43,8 +33,8 @@ fn main() {
 			DefaultPlugins
 				.set(WindowPlugin {
 					primary_window: Some(Window {
-						title: "Inventory gallery capture".into(),
-						resolution: (960, 1080).into(),
+						title: "Inventory layout capture".into(),
+						resolution: (960, 720).into(),
 						..default()
 					}),
 					..default()
@@ -54,18 +44,14 @@ fn main() {
 		)
 		.insert_resource(ClearColor(Color::srgb(0.07, 0.08, 0.10)))
 		.insert_resource(CaptureDir(shot_dir()))
-		.insert_resource(CaptureTag(shot_tag()))
 		.init_resource::<CaptureShots>()
 		.add_systems(Startup, setup)
-		.add_systems(Update, (capture_scene, advance_after_shot).chain())
+		.add_systems(Update, (apply_capture_scroll, capture_scene, advance_after_shot).chain())
 		.run();
 }
 
 #[derive(Resource)]
 struct CaptureDir(PathBuf);
-
-#[derive(Resource)]
-struct CaptureTag(String);
 
 #[derive(Resource, Default)]
 struct CaptureShots {
@@ -77,28 +63,35 @@ struct CaptureShots {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum CaptureScene {
 	#[default]
-	Grant,
-	Menu,
-	Modal,
+	GrantTop,
+	GrantScrolled,
+	ModalTop,
+	ModalScrolled,
 	Done,
 }
 
 impl CaptureScene {
 	fn next(self) -> Self {
 		match self {
-			Self::Grant => Self::Menu,
-			Self::Menu => Self::Modal,
-			Self::Modal | Self::Done => Self::Done,
+			Self::GrantTop => Self::GrantScrolled,
+			Self::GrantScrolled => Self::ModalTop,
+			Self::ModalTop => Self::ModalScrolled,
+			Self::ModalScrolled | Self::Done => Self::Done,
 		}
 	}
 
 	fn file_stem(self) -> &'static str {
 		match self {
-			Self::Grant => "01-character-generation-gallery",
-			Self::Menu => "02-character-menu-inventory-entry",
-			Self::Modal => "03-inventory-modal-headers",
+			Self::GrantTop => "starter_kit_top",
+			Self::GrantScrolled => "starter_kit_scrolled",
+			Self::ModalTop => "inventory_modal_top",
+			Self::ModalScrolled => "inventory_modal_scrolled",
 			Self::Done => "done",
 		}
+	}
+
+	fn scrolled(self) -> bool {
+		matches!(self, Self::GrantScrolled | Self::ModalScrolled)
 	}
 }
 
@@ -108,24 +101,8 @@ fn shot_dir() -> PathBuf {
 		.unwrap_or_else(|| PathBuf::from("/tmp/inventory-gallery"))
 }
 
-fn shot_tag() -> String {
-	std::env::var("INVENTORY_GALLERY_CAPTURE_TAG").unwrap_or_else(|_| "shot".into())
-}
-
-fn sample_items() -> Vec<InventoryItem> {
-	vec![
-		InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Red),
-		InventoryItem::clothing(ClothingMesh::TankTop, ClothingMaterial::Hawaiian, ItemColor::Blue),
-		InventoryItem::clothing(ClothingMesh::Robe, ClothingMaterial::Cloth, ItemColor::Natural),
-		InventoryItem::firearm(FirearmMesh::Bullpup),
-		InventoryItem::firearm(FirearmMesh::Reltor),
-		InventoryItem::standard_grenade(),
-		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
-	]
-}
-
 fn sample_menu() -> CharacterMenu {
-	let mut menu = CharacterMenu::for_create(sample_items());
+	let mut menu = CharacterMenu::for_create(overflow_inventory_items());
 	menu.name = String::from("Misty");
 	menu
 }
@@ -141,7 +118,9 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>, dir: Res<CaptureDir>)
 }
 
 fn spawn_grant_scene(commands: &mut Commands, fonts: &HudFonts) {
-	let items = sample_items();
+	let layout = InventoryLayout::starter_kit(overflow_inventory_items());
+	let mut viewport = Entity::PLACEHOLDER;
+	let mut footer = Entity::PLACEHOLDER;
 	commands
 		.spawn((
 			CaptureRoot,
@@ -150,282 +129,45 @@ fn spawn_grant_scene(commands: &mut Commands, fonts: &HudFonts) {
 				width: Val::Percent(100.0),
 				height: Val::Percent(100.0),
 				flex_direction: FlexDirection::Column,
-				justify_content: JustifyContent::Center,
-				align_items: AlignItems::Center,
-				row_gap: Val::Px(18.0),
-				padding: UiRect::all(Val::Px(32.0)),
 				..default()
 			},
 			BackgroundColor(Color::srgb(0.04, 0.05, 0.07)),
 		))
 		.with_children(|root| {
-			if capture_before() {
-				spawn_sequential_card(root, fonts, &items[0], items.len());
-			} else {
-				spawn_all_item_gallery(root, fonts, &items);
-			}
-		});
-}
-
-fn capture_before() -> bool {
-	std::env::var("INVENTORY_GALLERY_CAPTURE_TAG").ok().as_deref() == Some("before")
-}
-
-fn spawn_sequential_card(
-	root: &mut ChildSpawnerCommands,
-	fonts: &HudFonts,
-	item: &InventoryItem,
-	total: usize,
-) {
-	spawn_hud_text(
-		root,
-		fonts.header(HEADER_FONT_SIZE * 0.42),
-		&item.name(),
-		TEXT_YELLOW,
-		bevy::text::Justify::Center,
-	);
-	if !item.catalog_detail().is_empty() {
-		spawn_hud_text(
-			root,
-			fonts.item(PANEL_LABEL_FONT_SIZE),
-			&item.catalog_detail(),
-			TEXT_YELLOW_FAINT,
-			bevy::text::Justify::Center,
-		);
-	}
-	spawn_hud_text(
-		root,
-		fonts.item(PANEL_LABEL_FONT_SIZE),
-		&format!("Clothing Item (1/{total})"),
-		TEXT_YELLOW_FAINT,
-		bevy::text::Justify::Center,
-	);
-	spawn_hud_action(
-		root,
-		fonts,
-		"Next",
-		JustifyContent::Center,
-		HudMenuItem { index: 0, menu: Entity::PLACEHOLDER },
-	);
-}
-
-fn spawn_all_item_gallery(
-	root: &mut ChildSpawnerCommands,
-	fonts: &HudFonts,
-	items: &[InventoryItem],
-) {
-	spawn_hud_text(
-		root,
-		fonts.header(HEADER_FONT_SIZE * 0.42),
-		"Inventory",
-		TEXT_YELLOW,
-		bevy::text::Justify::Center,
-	);
-	spawn_tile_grid(root, JustifyContent::Center, |grid| {
-		for item in items {
-			spawn_grid_catalog_tile(
-				grid,
-				fonts,
-				&item.name(),
-				&item.catalog_detail(),
-				false,
-				None,
-				None,
-				None,
-				None,
-				true,
-				(),
-			);
-		}
-	});
-	spawn_hud_action(
-		root,
-		fonts,
-		"Continue",
-		JustifyContent::Center,
-		HudMenuItem { index: 0, menu: Entity::PLACEHOLDER },
-	);
-}
-
-fn spawn_menu_scene(commands: &mut Commands, fonts: &HudFonts) {
-	if capture_before() {
-		spawn_legacy_menu_scene(commands, fonts);
-		return;
-	}
-	let menu = sample_menu();
-	let nodes = menu.menu_nodes();
-	commands
-		.spawn((
-			CaptureRoot,
-			Node {
-				width: Val::Percent(100.0),
-				height: Val::Percent(100.0),
-				justify_content: JustifyContent::FlexEnd,
-				align_items: AlignItems::FlexStart,
-				padding: UiRect::all(Val::Px(24.0)),
-				..default()
-			},
-			BackgroundColor(Color::srgb(0.07, 0.08, 0.10)),
-		))
-		.with_children(|root| {
-			root.spawn((
-				Node {
-					width: Val::Px(420.0),
-					height: Val::Percent(92.0),
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::FlexEnd,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					padding: UiRect::all(Val::Px(16.0)),
-					..default()
-				},
-				Pickable::IGNORE,
-			))
-			.with_children(|panel| {
-				let mut list = panel.spawn((
-					HudMenu::new(0),
+			viewport = spawn_starter_kit_shell(root, fonts, layout.title, TEXT_YELLOW, ());
+			footer = root
+				.spawn((
 					Node {
 						width: Val::Percent(100.0),
 						flex_direction: FlexDirection::Column,
-						align_items: AlignItems::FlexEnd,
-						row_gap: Val::Px(PANEL_ROW_GAP),
+						align_items: AlignItems::Center,
+						padding: UiRect::bottom(Val::Px(16.0)),
 						..default()
 					},
 					Pickable::IGNORE,
-				));
-				let hud = list.id();
-				list.with_children(|panel| {
-					paint_panel(panel, fonts, hud, &nodes);
-				});
-			});
+				))
+				.id();
 		});
-}
-
-fn paint_panel(
-	panel: &mut ChildSpawnerCommands,
-	fonts: &HudFonts,
-	hud: Entity,
-	nodes: &[MenuNode<MenuEvent>],
-) {
-	let mut prewarm = Vec::new();
-	let mut thumbnails = NoThumbnails;
-	let mut context = RenderContext {
-		fonts,
-		thumbnails: &mut thumbnails,
-		asset_thumbnails: AssetThumbnailDisplay::None,
-		prewarm: &mut prewarm,
-		hud_menu: hud,
-		hud_item_count: 0,
-		interactive: true,
-		lock_appearance: false,
-	};
-	MaybraidMenuSink::new(MenuJustify::Right).render_nodes(nodes, panel, &mut context);
-}
-
-fn spawn_legacy_menu_scene(commands: &mut Commands, fonts: &HudFonts) {
-	commands
-		.spawn((
-			CaptureRoot,
-			Node {
-				width: Val::Percent(100.0),
-				height: Val::Percent(100.0),
-				justify_content: JustifyContent::FlexEnd,
-				align_items: AlignItems::FlexStart,
-				padding: UiRect::all(Val::Px(24.0)),
-				..default()
-			},
-			BackgroundColor(Color::srgb(0.07, 0.08, 0.10)),
-		))
-		.with_children(|root| {
-			root.spawn((
-				Node {
-					width: Val::Px(420.0),
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::FlexEnd,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					padding: UiRect::all(Val::Px(16.0)),
-					..default()
-				},
-				Pickable::IGNORE,
-			))
-			.with_children(|panel| {
-				for label in ["Name", "Species", "Weapons", "Skill Maps", "Loadout"] {
-					spawn_hud_text(
-						panel,
-						fonts.header(HEADER_FONT_SIZE * 0.32),
-						label,
-						TEXT_YELLOW,
-						bevy::text::Justify::Right,
-					);
-				}
-			});
+	let mut thumbs = NoThumbnails;
+	let count =
+		fill_inventory_layout(commands, viewport, fonts, &layout.node, false, None, &mut thumbs);
+	if let Ok(mut footer) = commands.get_entity(footer) {
+		footer.with_children(|footer| {
+			spawn_hud_action(
+				footer,
+				fonts,
+				"Continue",
+				JustifyContent::Center,
+				HudMenuItem { index: count, menu: viewport },
+			);
 		});
-}
-
-fn spawn_legacy_weapons_modal(commands: &mut Commands, fonts: &HudFonts) {
-	let items = sample_items();
-	let weapons: Vec<_> = items.iter().filter(|item| item.firearm_mesh().is_some()).collect();
-	commands
-		.spawn((
-			CaptureRoot,
-			Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() },
-			BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.88)),
-		))
-		.with_children(|root| {
-			root.spawn((
-				Node {
-					position_type: PositionType::Absolute,
-					left: Val::Percent(6.0),
-					top: Val::Percent(8.0),
-					width: Val::Percent(62.0),
-					height: Val::Percent(84.0),
-					flex_direction: FlexDirection::Column,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					padding: UiRect::all(Val::Px(8.0)),
-					..default()
-				},
-				Pickable::IGNORE,
-			))
-			.with_children(|panel| {
-				spawn_hud_text(
-					panel,
-					fonts.header(HEADER_FONT_SIZE * 0.36),
-					"Weapons",
-					TEXT_YELLOW,
-					bevy::text::Justify::Left,
-				);
-				spawn_tile_grid(panel, JustifyContent::FlexStart, |grid| {
-					for item in weapons {
-						spawn_grid_catalog_tile(
-							grid,
-							fonts,
-							&item.name(),
-							&item.catalog_detail(),
-							true,
-							None,
-							None,
-							None,
-							None,
-							false,
-							(),
-						);
-					}
-				});
-			});
-		});
+	}
 }
 
 fn spawn_modal_scene(commands: &mut Commands, fonts: &HudFonts) {
-	if capture_before() {
-		spawn_legacy_weapons_modal(commands, fonts);
-		return;
-	}
 	let menu = sample_menu();
 	let nodes = menu.menu_nodes();
-	let overlay_key = find_overlay_node(&nodes, "Inventory")
-		.map(|_| "Inventory")
-		.or_else(|| find_overlay_node(&nodes, "Weapons").map(|_| "Weapons"))
-		.unwrap_or("Weapons");
-	let Some(node) = find_overlay_node(&nodes, overlay_key).cloned() else {
+	let Some(node) = find_overlay_node(&nodes, "Inventory").cloned() else {
 		return;
 	};
 	let mut viewport = Entity::PLACEHOLDER;
@@ -436,42 +178,28 @@ fn spawn_modal_scene(commands: &mut Commands, fonts: &HudFonts) {
 			BackgroundColor(Color::srgb(0.07, 0.08, 0.10)),
 		))
 		.with_children(|root| {
-			viewport = spawn_overlay_shell(root, fonts, overlay_key, TEXT_YELLOW);
+			viewport = spawn_overlay_shell(root, fonts, "Inventory", TEXT_YELLOW);
 		});
-	fill_overlay_viewport(commands, viewport, fonts, &node);
+	let mut thumbs = NoThumbnails;
+	fill_inventory_layout(commands, viewport, fonts, &node, true, None, &mut thumbs);
 }
 
-fn fill_overlay_viewport(
-	commands: &mut Commands,
-	viewport: Entity,
-	fonts: &HudFonts,
-	node: &MenuNode<MenuEvent>,
+fn apply_capture_scroll(
+	shots: Res<CaptureShots>,
+	mut viewports: Query<(&ComputedNode, &mut ScrollPosition), With<HudScrollViewport>>,
 ) {
-	let Ok(mut entity) = commands.get_entity(viewport) else {
-		return;
-	};
-	let mut prewarm = Vec::new();
-	let mut thumbnails = NoThumbnails;
-	entity.with_children(|body| {
-		let mut context = RenderContext {
-			fonts,
-			thumbnails: &mut thumbnails,
-			asset_thumbnails: AssetThumbnailDisplay::None,
-			prewarm: &mut prewarm,
-			hud_menu: viewport,
-			hud_item_count: 0,
-			interactive: true,
-			lock_appearance: false,
-		};
-		render_overlay_body(node, body, &mut context, MenuJustify::Left);
-	});
+	for (computed, mut scroll) in &mut viewports {
+		let max = ((computed.content_size().y - computed.size().y)
+			* computed.inverse_scale_factor())
+		.max(0.0);
+		scroll.y = if shots.scene.scrolled() { max } else { 0.0 };
+	}
 }
 
 fn capture_scene(
 	mut commands: Commands,
 	time: Res<Time>,
 	dir: Res<CaptureDir>,
-	tag: Res<CaptureTag>,
 	mut shots: ResMut<CaptureShots>,
 	roots: Query<(), With<CaptureRoot>>,
 ) {
@@ -487,7 +215,7 @@ fn capture_scene(
 	{
 		return;
 	}
-	let path = dir.0.join(format!("{}-{}.png", shots.scene.file_stem(), tag.0));
+	let path = dir.0.join(format!("{}.png", shots.scene.file_stem()));
 	commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
 	shots.requested = true;
 }
@@ -497,7 +225,6 @@ fn advance_after_shot(
 	mut commands: Commands,
 	time: Res<Time>,
 	dir: Res<CaptureDir>,
-	tag: Res<CaptureTag>,
 	assets: Res<AssetServer>,
 	mut shots: ResMut<CaptureShots>,
 	capturing: Query<(), With<Capturing>>,
@@ -506,23 +233,23 @@ fn advance_after_shot(
 	roots: Query<Entity, With<CaptureRoot>>,
 ) {
 	if shots.scene == CaptureScene::Done {
-		if time.elapsed_secs() > 14.0 {
+		if time.elapsed_secs() > 16.0 {
 			exit.write(AppExit::Success);
 		}
 		return;
 	}
 	if !shots.requested {
-		if time.elapsed_secs() > 20.0 {
+		if time.elapsed_secs() > 24.0 {
 			exit.write(AppExit::Success);
 		}
 		return;
 	}
-	let path = dir.0.join(format!("{}-{}.png", shots.scene.file_stem(), tag.0));
+	let path = dir.0.join(format!("{}.png", shots.scene.file_stem()));
 	if path.is_file() && capturing.is_empty() && ready_at.is_none() {
 		*ready_at = Some(time.elapsed());
 	}
 	if !(ready_at.is_some_and(|at| time.elapsed() > at + Duration::from_millis(250))
-		|| time.elapsed_secs() > 20.0)
+		|| time.elapsed_secs() > 24.0)
 	{
 		return;
 	}
@@ -539,8 +266,10 @@ fn advance_after_shot(
 	}
 	let fonts = HudFonts::load(assets.as_ref());
 	match shots.scene {
-		CaptureScene::Menu => spawn_menu_scene(&mut commands, &fonts),
-		CaptureScene::Modal => spawn_modal_scene(&mut commands, &fonts),
+		CaptureScene::GrantScrolled => spawn_grant_scene(&mut commands, &fonts),
+		CaptureScene::ModalTop | CaptureScene::ModalScrolled => {
+			spawn_modal_scene(&mut commands, &fonts)
+		}
 		_ => {}
 	}
 }

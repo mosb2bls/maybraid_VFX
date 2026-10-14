@@ -1,29 +1,32 @@
-//! All-at-once gallery of granted starter inventory.
+//! Starter Kit: the shared inventory layout in read-only mode.
 
 use bevy::prelude::*;
-use bevy::scene::prelude::{Scene, bsn, template_value};
-use bevy::text::{FontSourceTemplate, LineBreak};
+use character_creation_menus::InventoryLayout;
 use character_items::InventoryItem;
+use maybraid_character_ui_menu_renderer::{
+	fill_inventory_layout, spawn_starter_kit_shell, NoThumbnails,
+};
+use maybraid_input::{MenuNav, MenuNavImpulse};
 use maybraid_menu_controller::MenuController;
 use menu_components::{
-	BARLOW_SEMIBOLD, ButtonWithSubtext, MENU_CLEAR, PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE,
-	TEXT_YELLOW, TEXT_YELLOW_FAINT, TextMenuPlugin, republish_menu_activate, screen_back_scene,
+	spawn_hud_action, spawn_hud_text, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu,
+	MenuComponentsPlugin, ScreenBack, MENU_CLEAR, TEXT_YELLOW,
 };
 
-use crate::MenuScreen;
 use crate::input::add_menu_input;
-use crate::show::{MenuScreens, MenuShowRequest, add_menu_show_systems};
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
+use crate::MenuScreen;
 
-/// Queue a starter-inventory gallery spawn. Pair with [`SpinRevealItems`].
+/// Queue a Starter Kit spawn. Pair with [`SpinRevealItems`].
 #[derive(Component, Debug, Clone, Copy)]
 #[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowSpinReveal;
 
-/// Granted items shown together on the gallery.
+/// Granted items shown on the Starter Kit.
 #[derive(Resource, Clone, Debug)]
 pub struct SpinRevealItems(pub Vec<InventoryItem>);
 
-/// Hosts bind catalog art here. The gallery is the only view; do not spawn a
+/// Hosts bind catalog art here. The layout is the only view; do not spawn a
 /// live inspect mesh or camera on this screen.
 #[derive(Resource, Clone, Debug)]
 pub struct SpinRevealCurrent {
@@ -31,18 +34,26 @@ pub struct SpinRevealCurrent {
 	pub revealed: bool,
 }
 
-/// Marker on the spawned starter-inventory gallery root.
+/// Marker on the spawned Starter Kit root.
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct SpinRevealScreen;
 
-/// Continue from the gallery into the body editor.
+/// Scroll viewport that owns Starter Kit focus.
+#[derive(Component, Debug, Default, Clone, Copy)]
+pub struct StarterKitViewport;
+
+/// Continue footer. Activate finishes the grant.
+#[derive(Component, Debug, Default, Clone, Copy)]
+pub struct StarterKitContinue;
+
+/// Continue from the Starter Kit into the body editor.
 #[derive(Clone, Copy, Debug, Default, Message, Component, PartialEq, Eq)]
 pub enum SpinRevealChoice {
 	#[default]
 	Advance,
 }
 
-/// Fired once the player continues from the gallery.
+/// Fired once the player continues from the Starter Kit.
 #[derive(Message, Clone, Debug)]
 pub struct SpinRevealFinished {
 	pub items: Vec<InventoryItem>,
@@ -63,11 +74,16 @@ pub struct SpinRevealScreenPlugin;
 impl Plugin for SpinRevealScreenPlugin {
 	fn build(&self, app: &mut App) {
 		add_menu_input(app);
-		app.add_plugins(TextMenuPlugin::<SpinRevealChoice>::default())
+		if !app.is_plugin_added::<MenuComponentsPlugin>() {
+			app.add_plugins(MenuComponentsPlugin);
+		}
+		app.add_message::<SpinRevealChoice>()
 			.add_message::<SpinRevealFinished>()
+			.add_observer(click_starter_kit_continue)
+			.add_observer(select_starter_kit_continue)
 			.add_systems(
 				Update,
-				(finish_spin_reveal, drop_stale_gallery)
+				(enter_starter_kit_continue, finish_spin_reveal, drop_stale_gallery)
 					.chain()
 					.in_set(SpinRevealSystems::Apply),
 			);
@@ -80,6 +96,7 @@ fn apply_show_spin_reveal(
 	requests: Query<(), With<RequestShowSpinReveal>>,
 	screens: MenuScreens,
 	items: Option<Res<SpinRevealItems>>,
+	assets: Res<AssetServer>,
 ) {
 	if screens.take(&mut commands, &requests).is_none() {
 		return;
@@ -87,10 +104,10 @@ fn apply_show_spin_reveal(
 	let Some(items) = items else {
 		return;
 	};
-	spawn_grant_gallery(&mut commands, &items);
+	spawn_starter_kit(&mut commands, &items, &HudFonts::load(assets.as_ref()));
 }
 
-/// If another screen replaced the gallery, drop the current-item binding so
+/// If another screen replaced the Starter Kit, drop the current-item binding so
 /// hosts do not keep painting catalog art over the new screen.
 fn drop_stale_gallery(
 	mut commands: Commands,
@@ -103,93 +120,124 @@ fn drop_stale_gallery(
 	commands.remove_resource::<SpinRevealCurrent>();
 }
 
-fn spawn_grant_gallery(commands: &mut Commands, items: &SpinRevealItems) {
+fn spawn_starter_kit(commands: &mut Commands, items: &SpinRevealItems, fonts: &HudFonts) {
 	commands.insert_resource(SpinRevealCurrent { items: items.0.clone(), revealed: true });
-	commands.spawn_scene(gallery_scene(items));
-}
-
-fn gallery_scene(items: &SpinRevealItems) -> impl Scene + 'static {
-	let children: Vec<Box<dyn Scene>> = vec![
-		Box::new(
-			ButtonWithSubtext::new("Continue", "Edit Character", SpinRevealChoice::Advance).scene(),
-		),
-		Box::new(screen_back_scene()),
-		Box::new(gallery_grid(items.0.clone())),
-	];
-	bsn! {
-		SpinRevealScreen
-		MenuScreen
-		MenuController
-		BackgroundColor(MENU_CLEAR)
-		Node {
-			width: percent(100),
-			height: percent(100),
-		}
-		Pickable::IGNORE
-		on(republish_menu_activate::<SpinRevealChoice>)
-		Children [ {children} ]
+	let layout = InventoryLayout::starter_kit(items.0.clone());
+	let mut viewport = Entity::PLACEHOLDER;
+	let mut continue_parent = Entity::PLACEHOLDER;
+	commands
+		.spawn((
+			SpinRevealScreen,
+			MenuScreen,
+			MenuController::default(),
+			BackgroundColor(MENU_CLEAR),
+			Node {
+				width: Val::Percent(100.0),
+				height: Val::Percent(100.0),
+				flex_direction: FlexDirection::Column,
+				..default()
+			},
+			Pickable::IGNORE,
+		))
+		.with_children(|root| {
+			viewport =
+				spawn_starter_kit_shell(root, fonts, layout.title, TEXT_YELLOW, StarterKitViewport);
+			continue_parent = root
+				.spawn((
+					Node {
+						width: Val::Percent(100.0),
+						flex_direction: FlexDirection::Column,
+						align_items: AlignItems::Center,
+						padding: UiRect::bottom(Val::Px(24.0)),
+						..default()
+					},
+					Pickable::IGNORE,
+				))
+				.id();
+			root.spawn((
+				Button,
+				ScreenBack,
+				Node {
+					position_type: PositionType::Absolute,
+					left: Val::Px(16.0),
+					bottom: Val::Px(16.0),
+					..default()
+				},
+			))
+			.with_children(|back| {
+				spawn_hud_text(
+					back,
+					fonts.item(22.0),
+					"Back",
+					TEXT_YELLOW,
+					bevy::text::Justify::Left,
+				);
+			});
+		});
+	let mut thumbs = NoThumbnails;
+	let count =
+		fill_inventory_layout(commands, viewport, fonts, &layout.node, false, None, &mut thumbs);
+	if let Ok(mut footer) = commands.get_entity(continue_parent) {
+		footer.with_children(|footer| {
+			spawn_hud_action(
+				footer,
+				fonts,
+				"Continue",
+				JustifyContent::Center,
+				(StarterKitContinue, HudMenuItem { index: count, menu: viewport }),
+			);
+		});
+	}
+	if let Ok(mut entity) = commands.get_entity(viewport) {
+		entity.insert((HudMenu::retain(count + 1, None), HudOverlayMenu));
 	}
 }
 
-fn gallery_grid(items: Vec<InventoryItem>) -> impl Scene + 'static {
-	let tiles: Vec<Box<dyn Scene>> = items
-		.iter()
-		.map(|item| Box::new(gallery_tile(item)) as Box<dyn Scene>)
-		.collect();
-	bsn! {
-		Node {
-			position_type: PositionType::Absolute,
-			top: percent(16),
-			width: percent(100),
-			height: percent(72),
-			padding: UiRect::axes(Val::Px(40.0), Val::Px(12.0)),
-			flex_direction: FlexDirection::Row,
-			flex_wrap: FlexWrap::Wrap,
-			justify_content: JustifyContent::Center,
-			align_content: AlignContent::FlexStart,
-			column_gap: Val::Px(16.0),
-			row_gap: Val::Px(16.0),
-		}
-		Pickable::IGNORE
-		Children [ {tiles} ]
+fn click_starter_kit_continue(
+	click: On<Pointer<Click>>,
+	continues: Query<(), With<StarterKitContinue>>,
+	mut choices: MessageWriter<SpinRevealChoice>,
+) {
+	if continues.get(click.entity).is_ok() {
+		choices.write(SpinRevealChoice::Advance);
 	}
 }
 
-fn gallery_tile(item: &InventoryItem) -> impl Scene + 'static {
-	let name = item.name();
-	let detail = item.catalog_detail();
-	let mut lines: Vec<Box<dyn Scene>> =
-		vec![Box::new(caption_line(name, PANEL_ITEM_FONT_SIZE, TEXT_YELLOW))];
-	if !detail.is_empty() {
-		lines.push(Box::new(caption_line(detail, PANEL_LABEL_FONT_SIZE, TEXT_YELLOW_FAINT)));
+fn select_starter_kit_continue(
+	impulse: On<MenuNavImpulse>,
+	menus: Query<&HudMenu, With<StarterKitViewport>>,
+	items: Query<(&HudMenuItem, Option<&StarterKitContinue>)>,
+	mut choices: MessageWriter<SpinRevealChoice>,
+) {
+	if impulse.event().nav != MenuNav::Select {
+		return;
 	}
-	bsn! {
-		Node {
-			width: px(210.0),
-			min_height: px(88.0),
-			flex_direction: FlexDirection::Column,
-			align_items: AlignItems::Center,
-			justify_content: JustifyContent::Center,
-			padding: UiRect::all(Val::Px(8.0)),
-		}
-		Pickable::IGNORE
-		Children [ {lines} ]
+	let Ok(menu) = menus.get(impulse.entity) else {
+		return;
+	};
+	if items.iter().any(|(item, cont)| {
+		item.menu == impulse.entity && item.index == menu.selected && cont.is_some()
+	}) {
+		choices.write(SpinRevealChoice::Advance);
 	}
 }
 
-fn caption_line(text: String, size: f32, color: Color) -> impl Scene + 'static {
-	bsn! {
-		template_value(Text::new(text))
-		TextFont {
-			font: FontSourceTemplate::Handle(BARLOW_SEMIBOLD),
-			font_size: px(size),
-		}
-		TextColor(color)
-		TextLayout::new(Justify::Center, LineBreak::WordBoundary)
-		Node {
-			width: px(200.0),
-		}
-		Pickable::IGNORE
+fn enter_starter_kit_continue(
+	keyboard: Res<ButtonInput<KeyCode>>,
+	menus: Query<(Entity, &HudMenu), With<StarterKitViewport>>,
+	items: Query<(&HudMenuItem, Option<&StarterKitContinue>)>,
+	mut choices: MessageWriter<SpinRevealChoice>,
+) {
+	if !keyboard.just_pressed(KeyCode::Enter) {
+		return;
+	}
+	let Some((menu_entity, menu)) = menus.iter().next() else {
+		return;
+	};
+	if items.iter().any(|(item, cont)| {
+		item.menu == menu_entity && item.index == menu.selected && cont.is_some()
+	}) {
+		choices.write(SpinRevealChoice::Advance);
 	}
 }
 
@@ -210,19 +258,20 @@ fn finish_spin_reveal(
 }
 
 impl SpinRevealScreen {
-	pub fn scene(items: &[InventoryItem]) -> impl Scene + 'static {
-		gallery_scene(&SpinRevealItems(items.to_vec()))
+	pub fn layout(items: &[InventoryItem]) -> InventoryLayout {
+		InventoryLayout::starter_kit(items.to_vec())
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::{
-		SpinRevealChoice, SpinRevealCurrent, SpinRevealFinished, SpinRevealItems, SpinRevealScreen,
-		drop_stale_gallery, finish_spin_reveal,
+		drop_stale_gallery, finish_spin_reveal, SpinRevealChoice, SpinRevealCurrent,
+		SpinRevealFinished, SpinRevealItems, SpinRevealScreen,
 	};
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
+	use character_creation_menus::{InventoryLayoutMode, STARTER_KIT_LABEL};
 	use character_items::{ClothingMaterial, ClothingMesh, InventoryItem, ItemColor};
 
 	fn pants() -> InventoryItem {
@@ -290,5 +339,15 @@ mod tests {
 			return Err("finished items must be the whole grant".into());
 		}
 		Ok(())
+	}
+
+	#[test]
+	fn grant_uses_the_read_only_starter_kit_layout() {
+		let layout = SpinRevealScreen::layout(&[pants()]);
+		assert_eq!(layout.title, STARTER_KIT_LABEL);
+		assert_eq!(layout.mode, InventoryLayoutMode::ReadOnly);
+		assert!(!layout.allows(character_creation_menus::MenuEvent::ToggleInventory(0)));
+		assert!(!layout.allows(character_creation_menus::MenuEvent::DropInventory(0)));
+		assert_eq!(layout.section_labels(), ["Clothing", "Tools", "Skill Maps", "Lubikan"]);
 	}
 }

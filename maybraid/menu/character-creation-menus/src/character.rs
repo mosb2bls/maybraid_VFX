@@ -3,7 +3,6 @@ use character_ui_menu::{
 	CameraFocus, LabelOption, ListValues, MenuComponent, MenuNode, SingleSelect,
 };
 use characters::{
-	CharacterAppearance, ConceptAnimation,
 	species::{
 		braidman::BraidmanConfig, brenal::BrenalConfig, brodler::BrodlerConfig,
 		brokker::BrokkerConfig, caole::CaoleConfig, chupri::ChupriConfig, claber::ClaberConfig,
@@ -14,6 +13,7 @@ use characters::{
 		tipple::TippleConfig, topple::ToppleConfig, tuberwaber::TuberwaberConfig,
 		wumbus::WumbusConfig, ylter::YilterConfig,
 	},
+	CharacterAppearance, ConceptAnimation,
 };
 
 use crate::{
@@ -49,9 +49,7 @@ use crate::{
 	},
 	cycle_value,
 	event::{AssetValue, CharacterField, MenuEvent, SectionId, SwatchValue},
-	shared::{
-		clothing_menu_from_inventory, inventory_overlay_key, inventory_section, loadout_section,
-	},
+	shared::{clothing_menu_from_inventory, inventory_overlay_key, loadout_section},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -346,7 +344,11 @@ impl CharacterMenu {
 
 	pub fn saved_name(&self) -> String {
 		let name = self.name.trim();
-		if name.is_empty() { String::from("Unnamed") } else { name.to_string() }
+		if name.is_empty() {
+			String::from("Unnamed")
+		} else {
+			name.to_string()
+		}
 	}
 
 	pub fn is_create(&self) -> bool {
@@ -1448,7 +1450,11 @@ impl CharacterMenu {
 			ConceptSpecies::Mistler => self.mistler.menu_node(),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.menu_node(),
 		};
-		if self.inventory.is_some() { omit_clothing_section(node) } else { node }
+		if self.inventory.is_some() {
+			omit_clothing_section(node)
+		} else {
+			node
+		}
 	}
 
 	pub fn animation(&self) -> ConceptAnimation {
@@ -3615,8 +3621,7 @@ impl MenuComponent<MenuEvent> for CharacterMenu {
 			),
 		];
 		if let Some(inventory) = &self.inventory {
-			let clothing = clothing_menu_from_inventory(inventory);
-			nodes.push(inventory_section(inventory, &clothing));
+			nodes.push(crate::InventoryLayout::character_menu(inventory).node);
 			nodes.push(loadout_section(inventory));
 		}
 		MenuNode::fragment(nodes)

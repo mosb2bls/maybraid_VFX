@@ -4,6 +4,7 @@ pub mod character;
 pub mod characters;
 pub mod event;
 pub mod focus;
+pub mod inventory_layout;
 pub mod section_open;
 pub mod shared;
 
@@ -21,6 +22,10 @@ pub use event::{AssetValue, CharacterField, MenuEvent, SectionId, SwatchValue};
 pub use focus::{
 	spin_reveal_firearm_focus, spin_reveal_focus, spin_reveal_grenade_focus, BODY_FOCUS,
 	SPIN_REVEAL_FOCUS,
+};
+pub use inventory_layout::{
+	overflow_inventory_items, InventoryLayout, InventoryLayoutMode, INVENTORY_LABEL, LUBIKAN_LABEL,
+	STARTER_KIT_LABEL, TOOLS_LABEL,
 };
 
 pub use character_ui_menu::{AssetOption, LabelOption, ListValues, StringIdentified, SwatchOption};

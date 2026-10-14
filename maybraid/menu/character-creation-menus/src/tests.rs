@@ -5,9 +5,9 @@ use characters::species::{
 };
 
 use crate::{
-	MenuEvent,
 	character::{CharacterMenu, ConceptSpecies},
 	characters::{braidman::BraidmanMenu, brodler::BrodlerMenu, tuberwaber::TuberwaberMenu},
+	MenuEvent,
 };
 
 fn inventory_section<'a>(
@@ -565,7 +565,7 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 
 #[test]
 fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
-	use character_items::{InventoryItem, SKILL_MAP_QUEUE_LIMIT, SkillMapKind, SkillMapSpec};
+	use character_items::{InventoryItem, SkillMapKind, SkillMapSpec, SKILL_MAP_QUEUE_LIMIT};
 
 	let items = vec![
 		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
@@ -622,19 +622,15 @@ fn create_menu_inventory_is_one_section_with_four_headers() -> anyhow::Result<()
 		})
 		.collect();
 	assert_eq!(labels, ["Clothing", "Tools", "Skill Maps", "Lubikan"]);
-	assert!(
-		nodes
-			.iter()
-			.all(|node| !matches!(node, MenuNode::Section { label: "Weapons" | "Skill Maps", .. }))
-	);
+	assert!(nodes
+		.iter()
+		.all(|node| !matches!(node, MenuNode::Section { label: "Weapons" | "Skill Maps", .. })));
 	let MenuNode::SectionSelect { children: species, .. } = &nodes[1] else {
 		anyhow::bail!("expected species SectionSelect");
 	};
-	assert!(
-		species
-			.iter()
-			.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. }))
-	);
+	assert!(species
+		.iter()
+		.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. })));
 	let tools = inventory_child(&nodes, "Tools")?;
 	let MenuNode::GridCatalog { choices, .. } = tools else {
 		anyhow::bail!("Tools must be a GridCatalog");
@@ -655,19 +651,15 @@ fn appearance_only_menu_keeps_clothing_under_species() -> anyhow::Result<()> {
 	let menu = CharacterMenu::default();
 	assert!(menu.inventory.is_none());
 	let nodes = menu.menu_nodes();
-	assert!(
-		nodes
-			.iter()
-			.all(|node| !matches!(node, MenuNode::Section { label: "Inventory", .. }))
-	);
+	assert!(nodes
+		.iter()
+		.all(|node| !matches!(node, MenuNode::Section { label: "Inventory", .. })));
 	let MenuNode::SectionSelect { children, .. } = &nodes[1] else {
 		anyhow::bail!("expected species SectionSelect");
 	};
-	assert!(
-		children
-			.iter()
-			.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. }))
-	);
+	assert!(children
+		.iter()
+		.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. })));
 	Ok(())
 }
 
@@ -761,21 +753,15 @@ fn saved_menu_locks_body_and_keeps_inventory() -> anyhow::Result<()> {
 	let MenuNode::SectionSelect { children, .. } = &nodes[1] else {
 		anyhow::bail!("expected species SectionSelect so body attributes stay visible");
 	};
-	assert!(
-		children
-			.iter()
-			.any(|node| matches!(node, MenuNode::Section { label: "Body", .. }))
-	);
-	assert!(
-		children
-			.iter()
-			.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. }))
-	);
-	assert!(
-		nodes
-			.iter()
-			.any(|node| matches!(node, MenuNode::Section { label: "Inventory", .. }))
-	);
+	assert!(children
+		.iter()
+		.any(|node| matches!(node, MenuNode::Section { label: "Body", .. })));
+	assert!(children
+		.iter()
+		.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. })));
+	assert!(nodes
+		.iter()
+		.any(|node| matches!(node, MenuNode::Section { label: "Inventory", .. })));
 	assert!(nodes.iter().all(|node| !matches!(node, MenuNode::Action { .. })));
 	assert!(!menu.overlay_editable("Species"));
 	assert!(!menu.overlay_editable("Body"));

@@ -84,6 +84,7 @@ impl<T> RenderContext<'_, T> {
 			&& !matches!(
 				label,
 				"Inventory"
+					| "Starter Kit"
 					| "Clothing" | "Weapons"
 					| "Tools" | "Skill Maps"
 					| "Lubikan" | "Loadout"
@@ -519,6 +520,7 @@ impl MaybraidMenuSink {
 		swatch: Option<Color>,
 		event: E,
 	) {
+		let item = context.stamp_hud_item();
 		if context.interactive {
 			spawn_grid_catalog_tile(
 				parent,
@@ -531,9 +533,11 @@ impl MaybraidMenuSink {
 				viewport,
 				swatch,
 				false,
-				(MenuButton(event), context.stamp_hud_item()),
+				(MenuButton(event), item),
 			);
 		} else {
+			// Read-only tiles stay in the focus list so pad / keyboard can
+			// scroll them into view. Activate extras (equip / drop) stay off.
 			spawn_grid_catalog_tile(
 				parent,
 				context.fonts,
@@ -544,8 +548,8 @@ impl MaybraidMenuSink {
 				thumbnail,
 				viewport,
 				swatch,
-				true,
-				Pickable::IGNORE,
+				false,
+				item,
 			);
 		}
 	}

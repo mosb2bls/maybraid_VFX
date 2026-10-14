@@ -12,7 +12,7 @@ use maybraid_character_ui_menu_renderer::{
 	CharacterHudSystems, CharacterMenuEvent, MaybraidCharacterMenuRendererPlugin, MaybraidMenuSink,
 	MenuButton, MenuJustify, MenuSink, MenuThumbnailContext, OverlayClose, OverlayOpen,
 	OverlaySelectRoot, OverlaySelectViewport, RenderContext, find_overlay_node,
-	overlay_closes_on_pick, render_overlay_body, spawn_overlay_shell,
+	fill_inventory_layout, overlay_closes_on_pick, spawn_overlay_shell,
 };
 use maybraid_menu_controller::MenuController;
 use maybraid_skill_map::{SkillMapSpinRevealHud, SkillMapTileMaterialPlugin};
@@ -523,30 +523,10 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 	interactive: bool,
 	icons: Option<&ItemIconCache>,
 ) {
-	let mut prewarm = Vec::new();
 	let mut thumbnails = CatalogThumbs { icons };
-	let Ok(mut entity) = commands.get_entity(viewport) else {
-		return;
-	};
-	entity.despawn_related::<Children>();
-	let mut item_count = 0;
-	entity.with_children(|body| {
-		let mut context = RenderContext {
-			fonts,
-			thumbnails: &mut thumbnails,
-			asset_thumbnails: AssetThumbnailDisplay::None,
-			prewarm: &mut prewarm,
-			hud_menu: viewport,
-			hud_item_count: 0,
-			interactive,
-			lock_appearance: !interactive,
-		};
-		render_overlay_body(node, body, &mut context, MenuJustify::Left);
-		item_count = context.hud_item_count;
-	});
-	drop(entity);
+	fill_inventory_layout(commands, viewport, fonts, node, interactive, previous, &mut thumbnails);
 	if let Ok(mut entity) = commands.get_entity(viewport) {
-		entity.insert((HudMenu::retain(item_count, previous), HudOverlayMenu));
+		entity.insert(HudOverlayMenu);
 	}
 }
 
