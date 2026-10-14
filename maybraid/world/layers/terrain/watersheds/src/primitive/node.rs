@@ -176,7 +176,7 @@ impl HydroNode {
 		}
 		let edge = self.params.boundary_noise_amp().max(2.0);
 		let t = (-phi / edge).clamp(0.0, 1.0);
-		let keep = t * t * (3.0 - 2.0 * t);
+		let keep = Smoothstep01::eval(t);
 		w - geo_depth * keep
 	}
 
