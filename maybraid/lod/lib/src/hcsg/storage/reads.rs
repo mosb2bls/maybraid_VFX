@@ -24,6 +24,7 @@ impl HcsgStorage {
 	}
 
 	/// Stored ids of `T` whose bounds intersect `region`, in id order.
+	#[cfg(any(test, feature = "test-support"))]
 	fn blocking_overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
 		self.store::<T>()
 			.map(|store| read(&store.nodes).overlapping(region))
@@ -53,11 +54,6 @@ impl HcsgStorage {
 	#[cfg(any(test, feature = "test-support"))]
 	pub fn contains<T: HcsgValue>(&self, id: Id) -> bool {
 		self.store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
-	}
-
-	#[cfg(not(any(test, feature = "test-support")))]
-	pub(crate) fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
-		self.blocking_overlapping::<T>(region)
 	}
 
 	#[cfg(any(test, feature = "test-support"))]
