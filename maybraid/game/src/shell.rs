@@ -18,7 +18,7 @@ use layer_stack::ActiveGenerationMode;
 use maybraid_game_mode_discover::{streams_terrain, Discovery};
 use maybraid_world::{
 	Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, TerrainStreaming,
-	WorldGameplayEnabled, WorldSceneryVisible, SKY_CLEAR,
+	WorldGameplayEnabled, WorldMenuShell, WorldSceneryVisible, SKY_CLEAR,
 };
 use menu_components::MENU_CLEAR;
 use menu_playground::{
@@ -214,6 +214,7 @@ pub(crate) fn apply_shell_look(
 	mut physics: ResMut<PlayerPhysicsEnabled>,
 	mut streaming: ResMut<TerrainStreaming<Durham>>,
 	mut scenery: ResMut<WorldSceneryVisible>,
+	mut menu_shell: ResMut<WorldMenuShell>,
 ) {
 	let flow = *flow.get();
 	let loading = flow == GameFlow::LoadingWorld;
@@ -240,6 +241,7 @@ pub(crate) fn apply_shell_look(
 	let playing = world_session_playing(flow, *session, pause.as_deref());
 	gameplay.0 = playing;
 	physics.0 = playing;
+	menu_shell.0 = matches!(flow, GameFlow::Home | GameFlow::Characters);
 }
 
 fn camera_render_layers(flow: GameFlow) -> RenderLayers {
@@ -306,7 +308,8 @@ mod tests {
 	use layer_stack::ActiveGenerationMode;
 	use maybraid_game_mode_discover::Discovery;
 	use maybraid_world::{
-		Durham, PlayerPhysicsEnabled, TerrainStreaming, WorldGameplayEnabled, WorldSceneryVisible,
+		Durham, PlayerPhysicsEnabled, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
+		WorldSceneryVisible,
 	};
 	use menu_components::MENU_CLEAR;
 
@@ -354,6 +357,7 @@ mod tests {
 			world.insert_resource(PlayerPhysicsEnabled(false));
 			world.insert_resource(TerrainStreaming::<Durham>::new(false));
 			world.insert_resource(WorldSceneryVisible(false));
+			world.insert_resource(WorldMenuShell(false));
 			world
 				.run_system_once(apply_shell_look)
 				.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -378,6 +382,7 @@ mod tests {
 		world.insert_resource(PlayerPhysicsEnabled(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(false));
 		world.insert_resource(WorldSceneryVisible(false));
+		world.insert_resource(WorldMenuShell(false));
 		world
 			.run_system_once(apply_shell_look)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

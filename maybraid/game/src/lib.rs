@@ -41,7 +41,7 @@ use maybraid_world::{
 	resume_discovery_from_saved_waypoints, AdapterKind, Durham, InventoryEditCameraFollow,
 	PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality, TerrainStreaming, VisualStyle,
 	VisualStyleAutoReason, VisualStyleSetting, VisualStyleSignals, WorldGameplayEnabled,
-	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
+	WorldMenuShell, WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
 	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
@@ -68,6 +68,7 @@ impl Plugin for GamePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(WorldPlugin::game())
 			.insert_resource(WorldGameplayEnabled(false))
+			.insert_resource(WorldMenuShell(true))
 			.insert_resource(InventoryEditCameraFollow(false))
 			.insert_resource(PlayerPhysicsEnabled(false))
 			.insert_resource(TerrainStreaming::<Durham>::new(false))
@@ -110,11 +111,12 @@ impl Plugin for GamePlugin {
 					apply_shell_look,
 					detach_preview_camera,
 					crate::load::arm_first_load,
-					load_active_player_loadout.before(resume_discovery_from_saved_waypoints),
+					load_active_player_loadout,
 					remember_world_session,
 					reset_first_spawn_offer,
 					resume_discovery_from_saved_waypoints,
-				),
+				)
+					.chain(),
 			)
 			.add_systems(
 				OnExit(GameFlow::LoadingWorld),
