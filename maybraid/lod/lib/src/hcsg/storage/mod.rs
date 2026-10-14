@@ -36,8 +36,9 @@ pub struct Busy;
 ///
 /// Blocking reads ([`Self::get`], [`Self::entry`], [`Self::overlapping`],
 /// [`Self::membership_revision`], [`Self::contains`]) are for the generation
-/// worker (via [`GenerationContext`](super::context::GenerationContext)) and for
-/// tests. Outside `lod` they
-/// are only available with the `test-support` feature.
+/// worker and for tests. Outside `lod` they are only available with the
+/// `test-support` feature. [`Self::clear`] and [`Self::remove`] follow the same
+/// rule: production code clears stores only through session restart
+/// ([`Self::clear_derived`]); the worker evicts through internal sweeps.
 #[derive(Resource, Clone, Default)]
 pub struct HcsgStorage(Arc<Registry>);
