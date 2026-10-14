@@ -5,7 +5,10 @@ use bevy::prelude::Resource;
 use lod::gen::{Id, OriginalId};
 use lod::hcsg::{self, GenerationContext};
 use procedural_common::SeededHash;
-use urbanization_cells::{SelectedUrbanization, UrbanDevelopmentKind, UrbanizationExtent};
+use urbanization_cells::{
+	urbanization_leaf_original_ids, SelectedUrbanization, UrbanDevelopmentKind, UrbanizationExtent,
+	UrbanizationSelection,
+};
 use urbanization_developments::{cell_salt, PadPlan, SiteGround};
 
 use crate::cell::{cell_selected, DevelopmentExtent};
@@ -213,21 +216,8 @@ impl hcsg::GenerationScheme for DevelopmentSite {
 				ids.extend(DevelopmentExtent::original_ids_overlapping(region));
 			}
 			DevelopmentSites::Urbanization => {
-				for extent in UrbanizationExtent::cells_overlapping(region) {
-					let Some(selected) = cx.get_or_generate::<SelectedUrbanization>(extent.id())
-					else {
-						continue;
-					};
-					ids.extend(
-						selected
-							.leaves
-							.iter()
-							.filter(|leaf| {
-								leaf.kind != UrbanDevelopmentKind::Empty
-									&& overlaps_xz(region, leaf.bounds)
-							})
-							.map(|leaf| OriginalId(leaf.id())),
-					);
+				if let Some(selection) = cx.get::<UrbanizationSelection>(Id::Universal) {
+					ids.extend(urbanization_leaf_original_ids(region, selection.as_ref()));
 				}
 			}
 		}
@@ -430,42 +420,20 @@ mod tests {
 			UrbanizationExtent::xz_radius_aabb(Vec3::ZERO, DEVELOPMENT_GENERATE_RADIUS_M)
 		}
 
-		/// Local computation path from #1176 (bypasses HCSG storage).
-		fn local_urbanization_leaf_ids(
-			region: Aabb3d,
-			selection: &UrbanizationSelection,
-		) -> Vec<OriginalId> {
-			use urbanization_cells::{select_cell, select_cell_as};
-			UrbanizationExtent::cells_overlapping(region)
-				.into_iter()
-				.flat_map(|extent| {
-					let selected = match selection.kind {
-						Some(kind) => select_cell_as(extent, selection.noise, kind),
-						None => select_cell(extent, selection.noise),
-					};
-					selected.leaves.into_iter().filter(|leaf| {
-						leaf.kind != UrbanDevelopmentKind::Empty
-							&& overlaps_xz(region, leaf.bounds)
-					})
-				})
-				.map(|leaf| OriginalId(leaf.id()))
-				.collect()
-		}
-
-		/// Discovery using local computation (part 2 of #1176).
-		fn site_ids_local(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+		/// Discovery using pure leaf selection (no `SelectedUrbanization` storage).
+		fn site_ids_pure_leaf(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
 			let authored = cx.get::<AuthoredDevelopments>(Id::Universal).unwrap_or_default();
 			let mut ids: Vec<OriginalId> =
 				authored.overlapping(region).map(|authored| OriginalId(authored.id())).collect();
 			if let Some(selection) = cx.get::<UrbanizationSelection>(Id::Universal) {
-				ids.extend(local_urbanization_leaf_ids(region, selection.as_ref()));
+				ids.extend(urbanization_leaf_original_ids(region, selection.as_ref()));
 			}
 			ids.sort_unstable_by_key(|OriginalId(id)| *id);
 			ids.dedup();
 			ids
 		}
 
-		/// Discovery using HCSG path (current/restored).
+		/// Discovery through [`DevelopmentSite::original_ids_for`].
 		fn site_ids_hcsg(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
 			cx.original_ids_for::<DevelopmentSite>(region)
 		}
@@ -476,25 +444,31 @@ mod tests {
 			seed_urbanization(&storage);
 			let region = discovery_region();
 
-			let mut local_cx = GenerationContext::new(&storage);
-			let local = site_ids_local(&mut local_cx, region);
+			let mut pure_cx = GenerationContext::new(&storage);
+			let pure = site_ids_pure_leaf(&mut pure_cx, region);
 
 			let mut hcsg_cx = GenerationContext::new(&storage);
 			let hcsg = site_ids_hcsg(&mut hcsg_cx, region);
 
 			anyhow::ensure!(!hcsg.is_empty(), "discovery should find urbanization sites");
 			anyhow::ensure!(
-				local == hcsg,
-				"local and HCSG paths must produce identical site lists"
+				pure == hcsg,
+				"pure leaf selection and DevelopmentSite discovery must match"
 			);
 
-			// Verify HCSG path materialized selections in storage
-			for extent in UrbanizationExtent::cells_overlapping(region) {
-				if hcsg_cx.get::<SelectedUrbanization>(extent.id()).is_some() {
-					return Ok(());
-				}
-			}
-			anyhow::bail!("expected at least one SelectedUrbanization in storage after HCSG discovery");
+			// Discovery must not materialize selections; build still does.
+			anyhow::ensure!(
+				UrbanizationExtent::cells_overlapping(region)
+					.iter()
+					.all(|extent| hcsg_cx.get::<SelectedUrbanization>(extent.id()).is_none()),
+				"original_ids_for must not store SelectedUrbanization"
+			);
+			let first = hcsg.first().copied().expect("non-empty discovery");
+			anyhow::ensure!(
+				hcsg_cx.get_or_generate::<DevelopmentSite>(first.0).is_some(),
+				"build_with_id must still resolve urbanization leaves"
+			);
+			Ok(())
 		}
 
 		/// Warm the storage by pre-generating all selections in the region.
@@ -505,81 +479,106 @@ mod tests {
 			}
 		}
 
+		/// Pre-fix discovery: materialize every overlapping [`SelectedUrbanization`].
+		fn site_ids_materializing(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+			let authored = cx.get::<AuthoredDevelopments>(Id::Universal).unwrap_or_default();
+			let mut ids: Vec<OriginalId> =
+				authored.overlapping(region).map(|authored| OriginalId(authored.id())).collect();
+			for extent in UrbanizationExtent::cells_overlapping(region) {
+				let Some(selected) = cx.get_or_generate::<SelectedUrbanization>(extent.id()) else {
+					continue;
+				};
+				ids.extend(
+					selected
+						.leaves
+						.iter()
+						.filter(|leaf| {
+							leaf.kind != UrbanDevelopmentKind::Empty
+								&& overlaps_xz(region, leaf.bounds)
+						})
+						.map(|leaf| OriginalId(leaf.id())),
+				);
+			}
+			ids.sort_unstable_by_key(|OriginalId(id)| *id);
+			ids.dedup();
+			ids
+		}
+
+		fn percentile(sorted_ns: &[u128], p: f64) -> f64 {
+			let idx = ((sorted_ns.len() as f64 - 1.0) * p).round() as usize;
+			sorted_ns[idx] as f64 / 1_000_000.0
+		}
+
+		fn bench_discover(
+			radius_m: f32,
+			runs: usize,
+			warm: bool,
+			materialize: bool,
+		) -> (f64, f64) {
+			let region = UrbanizationExtent::xz_radius_aabb(Vec3::ZERO, radius_m);
+			let mut samples_ns = Vec::with_capacity(runs);
+			for _ in 0..runs {
+				let storage = HcsgStorage::default();
+				seed_urbanization(&storage);
+				if warm {
+					warm_selections(&storage, region);
+				}
+				let start = Instant::now();
+				let mut cx = GenerationContext::new(&storage);
+				if materialize {
+					let _ids = site_ids_materializing(&mut cx, region);
+				} else {
+					let _ids = site_ids_hcsg(&mut cx, region);
+				}
+				samples_ns.push(start.elapsed().as_nanos());
+			}
+			samples_ns.sort_unstable();
+			let median = percentile(&samples_ns, 0.5);
+			let p95 = percentile(&samples_ns, 0.95);
+			(median, p95)
+		}
+
 		/// `cargo test -p richmond site_discovery_perf --release -- --ignored --nocapture`
 		#[test]
 		#[ignore = "perf benchmark"]
 		fn site_discovery_perf() {
-			let region = discovery_region();
 			let runs = 40;
+			let radii = [500.0_f32, 1500.0, DEVELOPMENT_GENERATE_RADIUS_M];
 
-			// Cold storage: local path (bypasses HCSG)
-			let cold_local = {
-				let start = Instant::now();
-				for _ in 0..runs {
-					let storage = HcsgStorage::default();
-					seed_urbanization(&storage);
-					let mut cx = GenerationContext::new(&storage);
-					let _ids = site_ids_local(&mut cx, region);
-				}
-				start.elapsed()
-			};
+			eprintln!("\nDevelopmentSite urbanization discovery (median / p95 ms per discover, {} runs):", runs);
+			eprintln!(
+				"{:>8}  {:>22}  {:>22}  {:>22}  {:>22}",
+				"radius_m",
+				"cold materialize med",
+				"cold materialize p95",
+				"cold scheme med",
+				"cold scheme p95",
+			);
+			for radius_m in radii {
+				let (mat_med, mat_p95) = bench_discover(radius_m, runs, false, true);
+				let (sch_med, sch_p95) = bench_discover(radius_m, runs, false, false);
+				eprintln!(
+					"{:>8.0}  {:>22.3}  {:>22.3}  {:>22.3}  {:>22.3}  ({:.2}x / {:.2}x)",
+					radius_m,
+					mat_med,
+					mat_p95,
+					sch_med,
+					sch_p95,
+					mat_med / sch_med.max(1e-9),
+					mat_p95 / sch_p95.max(1e-9),
+				);
+			}
 
-			// Cold storage: HCSG path (materializes selections)
-			let cold_hcsg = {
-				let start = Instant::now();
-				for _ in 0..runs {
-					let storage = HcsgStorage::default();
-					seed_urbanization(&storage);
-					let mut cx = GenerationContext::new(&storage);
-					let _ids = site_ids_hcsg(&mut cx, region);
-				}
-				start.elapsed()
-			};
-
-			// Warm storage: local path (still bypasses, but baseline)
-			let warm_local = {
-				let start = Instant::now();
-				for _ in 0..runs {
-					let storage = HcsgStorage::default();
-					seed_urbanization(&storage);
-					warm_selections(&storage, region);
-					let mut cx = GenerationContext::new(&storage);
-					let _ids = site_ids_local(&mut cx, region);
-				}
-				start.elapsed()
-			};
-
-			// Warm storage: HCSG path (reads stored selections)
-			let warm_hcsg = {
-				let start = Instant::now();
-				for _ in 0..runs {
-					let storage = HcsgStorage::default();
-					seed_urbanization(&storage);
-					warm_selections(&storage, region);
-					let mut cx = GenerationContext::new(&storage);
-					let _ids = site_ids_hcsg(&mut cx, region);
-				}
-				start.elapsed()
-			};
-
-			let cold_local_ms = cold_local.as_secs_f64() * 1000.0 / runs as f64;
-			let cold_hcsg_ms = cold_hcsg.as_secs_f64() * 1000.0 / runs as f64;
-			let warm_local_ms = warm_local.as_secs_f64() * 1000.0 / runs as f64;
-			let warm_hcsg_ms = warm_hcsg.as_secs_f64() * 1000.0 / runs as f64;
-
-			eprintln!("\nSite Discovery Performance ({} m radius, {} runs):", DEVELOPMENT_GENERATE_RADIUS_M, runs);
-			eprintln!("  Cold storage:");
-			eprintln!("    Local (bypass HCSG):  {:.3} ms/discover", cold_local_ms);
-			eprintln!("    HCSG (materialize):   {:.3} ms/discover ({:.2}x vs local)", cold_hcsg_ms, cold_hcsg_ms / cold_local_ms.max(1e-9));
-			eprintln!("  Warm storage (pre-materialized):");
-			eprintln!("    Local (bypass HCSG):  {:.3} ms/discover", warm_local_ms);
-			eprintln!("    HCSG (read stored):   {:.3} ms/discover ({:.2}x vs local)", warm_hcsg_ms, warm_hcsg_ms / warm_local_ms.max(1e-9));
-			eprintln!("\nAnalysis:");
-			eprintln!("  HCSG generation overhead: {:.3} ms ({:.2}x select_cell cost)",
-				cold_hcsg_ms - cold_local_ms,
-				(cold_hcsg_ms - cold_local_ms) / cold_local_ms.max(1e-9));
-			eprintln!("  HCSG reuse benefit (warm): {:.3} ms saved by reusing stored selections",
-				cold_hcsg_ms - warm_hcsg_ms);
+			let (warm_mat_med, warm_mat_p95) = bench_discover(DEVELOPMENT_GENERATE_RADIUS_M, runs, true, true);
+			let (warm_sch_med, warm_sch_p95) = bench_discover(DEVELOPMENT_GENERATE_RADIUS_M, runs, true, false);
+			eprintln!(
+				"\nWarm storage @ {} m: materialize med/p95 {:.3}/{:.3} ms (reads stored selections), scheme med/p95 {:.3}/{:.3} ms (pure select_cell; no storage writes)",
+				DEVELOPMENT_GENERATE_RADIUS_M,
+				warm_mat_med,
+				warm_mat_p95,
+				warm_sch_med,
+				warm_sch_p95,
+			);
 		}
 	}
 }

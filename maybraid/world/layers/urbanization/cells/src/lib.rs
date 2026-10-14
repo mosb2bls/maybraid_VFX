@@ -21,7 +21,8 @@ mod storage;
 
 pub use extent::{UrbanizationExtent, DEFAULT_URBANIZATION_EXTENT_XZ};
 pub use generation::{
-	UrbanizationWindow, DEVELOPMENT_GENERATE_RADIUS_M, DEVELOPMENT_PRESENT_RADIUS_M,
+	urbanization_leaf_original_ids, UrbanizationWindow, DEVELOPMENT_GENERATE_RADIUS_M,
+	DEVELOPMENT_PRESENT_RADIUS_M,
 };
 pub use guillotine::{guillotine_partition, UrbanizationGuillotineParams};
 pub use hopscotch::{select as hopscotch_select, HopscotchNode};
