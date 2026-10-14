@@ -6,9 +6,9 @@
 use bevy::prelude::*;
 use character_animations::animations::{
 	BallisticJump, DorsoventralUndulation, FixedTuck, Flapping, FlipDirection, Gallop,
-	LateralUndulation, Leap, QuadrupedRun, Run, Soaring, TuckProfile, TuckedFlip, TwoFootedJump,
-	Walk, AIR_END, DEFAULT_BACKSWING, DEFAULT_DESCENT_SPEED, DEFAULT_GRAVITY, DEFAULT_JAB_TARGET,
-	DEFAULT_JUMP_HEIGHT, DEFAULT_LANDING_SQUAT_SPEED, DEFAULT_PRE_SQUAT_SPEED,
+	LateralUndulation, Leap, PowerDash, QuadrupedRun, Run, Soaring, TuckProfile, TuckedFlip,
+	TwoFootedJump, Walk, AIR_END, DEFAULT_BACKSWING, DEFAULT_DESCENT_SPEED, DEFAULT_GRAVITY,
+	DEFAULT_JAB_TARGET, DEFAULT_JUMP_HEIGHT, DEFAULT_LANDING_SQUAT_SPEED, DEFAULT_PRE_SQUAT_SPEED,
 	DEFAULT_SPRING_DURATION, TAKEOFF_END,
 };
 use character_animations::{ClipTimePolicy, SampleAddress};
@@ -27,6 +27,8 @@ const JUMP_PRE_SQUAT_SPEED: f32 = DEFAULT_PRE_SQUAT_SPEED * 1.2;
 const JUMP_LANDING_SQUAT_SPEED: f32 = DEFAULT_LANDING_SQUAT_SPEED * 1.3;
 /// One-shot leap lasts ~1.25 s so it covers the physics hang time.
 pub const LEAP_CYCLE_SPEED: f32 = 0.8;
+/// One-shot PowerDash matches Tanz forward-dash wall time when driven by [`AnimProgress`].
+pub const POWER_DASH_CYCLE_SPEED: f32 = 1.0;
 
 /// Clip discriminant. Mailbox transitions key on this, not knob values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
@@ -39,6 +41,7 @@ pub enum AnimId {
 	Gallop,
 	Jump,
 	Leap,
+	PowerDash,
 	Tuck,
 	TuckedFlip,
 	TwoFootedTuckedFlip,
@@ -62,6 +65,7 @@ impl AnimId {
 			Self::Gallop => GALLOP_CYCLE_SPEED,
 			Self::Jump => 1.0,
 			Self::Leap => LEAP_CYCLE_SPEED,
+			Self::PowerDash => POWER_DASH_CYCLE_SPEED,
 			Self::Tuck => TUCK_CYCLE_SPEED,
 			Self::TuckedFlip => FRONT_FLIP_CYCLE_SPEED,
 			Self::TwoFootedTuckedFlip => 1.0,
@@ -199,6 +203,7 @@ pub enum AnimClip {
 	Gallop(Gallop),
 	Jump(JumpParams),
 	Leap(Leap),
+	PowerDash(PowerDash),
 	Tuck(TuckParams),
 	TuckedFlip(TuckedFlipParams),
 	TwoFootedTuckedFlip(TwoFootedTuckedFlipParams),
@@ -222,6 +227,7 @@ impl AnimClip {
 			Self::Gallop(_) => AnimId::Gallop,
 			Self::Jump(_) => AnimId::Jump,
 			Self::Leap(_) => AnimId::Leap,
+			Self::PowerDash(_) => AnimId::PowerDash,
 			Self::Tuck(_) => AnimId::Tuck,
 			Self::TuckedFlip(_) => AnimId::TuckedFlip,
 			Self::TwoFootedTuckedFlip(_) => AnimId::TwoFootedTuckedFlip,
@@ -266,6 +272,10 @@ impl AnimClip {
 
 	pub fn leap() -> Self {
 		Self::Leap(Leap::default())
+	}
+
+	pub fn power_dash() -> Self {
+		Self::PowerDash(PowerDash::default())
 	}
 
 	pub fn tuck() -> Self {
@@ -333,6 +343,7 @@ impl AnimClip {
 			}
 			Self::Jump(_)
 			| Self::Leap(_)
+			| Self::PowerDash(_)
 			| Self::TwoFootedTuckedFlip(_)
 			| Self::Squat
 			| Self::SquatDescent
@@ -399,6 +410,14 @@ mod tests {
 	}
 
 	#[test]
+	fn power_dash_is_a_distinct_clip() {
+		assert_eq!(AnimClip::power_dash().id(), AnimId::PowerDash);
+		assert_eq!(AnimClip::power_dash().default_speed(), POWER_DASH_CYCLE_SPEED);
+		assert_ne!(AnimClip::power_dash().id(), AnimClip::leap().id());
+		assert_ne!(AnimClip::power_dash().id(), AnimClip::jab().id());
+	}
+
+	#[test]
 	fn still_keeps_the_rest_identity() {
 		assert_eq!(AnimClip::still().id(), AnimId::Still);
 		assert_eq!(AnimClip::still().default_speed(), IDLE_CYCLE_SPEED);
@@ -413,6 +432,7 @@ mod tests {
 		assert!(AnimClip::run().is_sample_cacheable());
 		assert!(!AnimClip::jab().is_sample_cacheable());
 		assert!(!AnimClip::leap().is_sample_cacheable());
+		assert!(!AnimClip::power_dash().is_sample_cacheable());
 		assert_eq!(AnimClip::walk().revision(), 0);
 		assert_eq!(AnimClip::walk().sample_address(0.123, 10_000).canonical_time, 0.12);
 	}

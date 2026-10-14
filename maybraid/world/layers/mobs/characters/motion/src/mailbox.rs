@@ -13,7 +13,7 @@ use bevy::prelude::*;
 use character_animations::{
 	animations::{
 		Idle, Jab, Prone, QuadrupedIdle, QuadrupedLeap, QuadrupedRun, Squat, SquatDescent, Tuck,
-		TwoFootedTuckedFlip, UprightLeap,
+		TwoFootedTuckedFlip, UprightLeap, UprightPowerDash,
 	},
 	Animation, Effects,
 };
@@ -751,6 +751,13 @@ fn sample_humanoid(
 		AnimClip::Leap(leap) => {
 			sample_split(&UprightLeap::from_leap(&leap), rig, progress, write_bones, write_effects)
 		}
+		AnimClip::PowerDash(power_dash) => sample_split(
+			&UprightPowerDash::from_power_dash(&power_dash),
+			rig,
+			progress.clamp(0.0, 1.0),
+			write_bones,
+			write_effects,
+		),
 		AnimClip::Tuck(params) => sample_split(
 			&Tuck::new(params.tightness),
 			rig,
