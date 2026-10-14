@@ -1,6 +1,8 @@
 //! Hierarchical world POIs over streamed Chico and Richmond scenes.
 
 mod hcsg;
+#[cfg(test)]
+mod scheme_timing;
 
 pub use hcsg::{GrovePois, PlacePois, UrbanPois, WorldPoiTiles};
 

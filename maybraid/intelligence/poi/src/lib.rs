@@ -42,4 +42,6 @@ pub use source::PoiSource;
 pub use visit::{choose_poi, PoiVisitState};
 
 #[cfg(test)]
+mod scheme_timing;
+#[cfg(test)]
 mod tests;
