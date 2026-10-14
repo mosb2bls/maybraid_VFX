@@ -60,7 +60,7 @@ pub(crate) fn despawn_loading_backdrop(
 	cameras: Query<Entity, With<LoadingBackdropCamera>>,
 ) {
 	for entity in &cameras {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 }
 

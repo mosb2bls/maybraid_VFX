@@ -73,7 +73,7 @@ fn apply_show_weapons(
 		return;
 	}
 	for entity in &items {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 	commands.spawn_scene(weapon_gallery_scene());
 	spawn_gallery_operators(&mut commands);
@@ -164,7 +164,7 @@ fn despawn_weapon_gallery_items(
 		return;
 	}
 	for entity in &items {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 }
 
@@ -203,5 +203,26 @@ mod tests {
 		let last_col = cell_translation(GALLERY_COLS - 1, rows);
 		assert!((first.x + last_col.x).abs() < 1e-5);
 		assert!(first.y.abs() < 1e-5);
+	}
+
+	#[test]
+	fn teardown_ignores_items_that_are_already_gone() -> Result<(), Box<dyn std::error::Error>> {
+		use super::{despawn_weapon_gallery_items, WeaponGalleryItem};
+		use bevy::ecs::system::RunSystemOnce;
+		use bevy::prelude::*;
+
+		let mut world = World::new();
+		let stale = world.spawn(WeaponGalleryItem).id();
+		world.despawn(stale);
+		world.spawn(WeaponGalleryItem);
+		world
+			.run_system_once(despawn_weapon_gallery_items)
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		let left = world.query::<&WeaponGalleryItem>().iter(&world).count();
+		if left != 0 {
+			return Err(format!("gallery items should despawn, left {left}").into());
+		}
+		Ok(())
 	}
 }

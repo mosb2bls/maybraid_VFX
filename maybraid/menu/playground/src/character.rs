@@ -78,6 +78,12 @@ impl CharacterEditBaseline {
 			None => self.inventory != Inventory::default(),
 		}
 	}
+
+	/// Put the editor back to the snapshot taken when it opened or last saved.
+	pub fn restore_into(&self, menu: &mut CharacterMenu) {
+		menu.name.clone_from(&self.name);
+		menu.inventory = Some(self.inventory.clone());
+	}
 }
 
 /// Create always offers Save Character. Saved characters offer Save Changes once dirty.
@@ -351,9 +357,12 @@ fn rebuild_character_ui_panel(
 			.iter()
 			.find(|(entity, _)| *entity == viewport)
 			.and_then(|(_, menu)| *menu);
-		commands.entity(viewport).despawn_related::<Children>();
+		let Ok(mut entity) = commands.get_entity(viewport) else {
+			continue;
+		};
+		entity.despawn_related::<Children>();
 		let mut item_count = 0;
-		commands.entity(viewport).with_children(|panel| {
+		entity.with_children(|panel| {
 			item_count = populate_character_ui_panel(
 				panel,
 				fonts,
@@ -363,30 +372,37 @@ fn rebuild_character_ui_panel(
 				icons,
 			);
 		});
+		drop(entity);
 		if let Some(corner) = back_corner {
-			commands.entity(corner).despawn_related::<Children>();
-			commands.entity(corner).with_children(|corner| {
-				spawn_corner_action(corner, fonts, "Back", ScreenBack);
-			});
-		}
-		if let Some(corner) = save_corner {
-			commands.entity(corner).despawn_related::<Children>();
-			if let Some(label) = save_chrome(&menu_state.0, baseline) {
-				commands.entity(corner).with_children(|corner| {
-					spawn_corner_action(
-						corner,
-						fonts,
-						label,
-						(
-							MenuButton(MenuEvent::Save),
-							HudMenuItem { index: item_count, menu: viewport },
-						),
-					);
+			if let Ok(mut corner) = commands.get_entity(corner) {
+				corner.despawn_related::<Children>();
+				corner.with_children(|corner| {
+					spawn_corner_action(corner, fonts, "Back", ScreenBack);
 				});
-				item_count += 1;
 			}
 		}
-		commands.entity(viewport).insert(HudMenu::retain(item_count, keep));
+		if let Some(corner) = save_corner {
+			if let Ok(mut corner) = commands.get_entity(corner) {
+				corner.despawn_related::<Children>();
+				if let Some(label) = save_chrome(&menu_state.0, baseline) {
+					corner.with_children(|corner| {
+						spawn_corner_action(
+							corner,
+							fonts,
+							label,
+							(
+								MenuButton(MenuEvent::Save),
+								HudMenuItem { index: item_count, menu: viewport },
+							),
+						);
+					});
+					item_count += 1;
+				}
+			}
+		}
+		if let Ok(mut entity) = commands.get_entity(viewport) {
+			entity.insert(HudMenu::retain(item_count, keep));
+		}
 	}
 }
 
@@ -466,9 +482,13 @@ fn sync_overlay_select(
 		let mut viewport = Entity::PLACEHOLDER;
 		let title_color =
 			if menu_state.0.overlay_editable(key) { TEXT_YELLOW } else { TEXT_YELLOW_FAINT };
-		commands.entity(screen).with_children(|root| {
+		let Ok(mut root) = commands.get_entity(screen) else {
+			return;
+		};
+		root.with_children(|root| {
 			viewport = spawn_overlay_shell(root, &fonts, key, title_color);
 		});
+		drop(root);
 		populate_overlay_viewport(
 			&mut commands,
 			viewport,
@@ -505,9 +525,12 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 ) {
 	let mut prewarm = Vec::new();
 	let mut thumbnails = CatalogThumbs { icons };
-	commands.entity(viewport).despawn_related::<Children>();
+	let Ok(mut entity) = commands.get_entity(viewport) else {
+		return;
+	};
+	entity.despawn_related::<Children>();
 	let mut item_count = 0;
-	commands.entity(viewport).with_children(|body| {
+	entity.with_children(|body| {
 		let mut context = RenderContext {
 			fonts,
 			thumbnails: &mut thumbnails,
@@ -521,9 +544,10 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 		render_overlay_body(node, body, &mut context, MenuJustify::Left);
 		item_count = context.hud_item_count;
 	});
-	commands
-		.entity(viewport)
-		.insert((HudMenu::retain(item_count, previous), HudOverlayMenu));
+	drop(entity);
+	if let Ok(mut entity) = commands.get_entity(viewport) {
+		entity.insert((HudMenu::retain(item_count, previous), HudOverlayMenu));
+	}
 }
 
 fn discover_menu_item_icons(
@@ -688,6 +712,10 @@ mod tests {
 		assert_eq!(save_chrome(&dirty, Some(&baseline)), Some("Save Changes"));
 		assert!(baseline.is_dirty(&dirty));
 		assert!(!baseline.is_dirty(&saved));
+
+		baseline.restore_into(&mut dirty);
+		assert_eq!(dirty.name, baseline.name);
+		assert!(!baseline.is_dirty(&dirty));
 	}
 
 	#[test]

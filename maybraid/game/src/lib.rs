@@ -35,9 +35,10 @@ use menu_components::{
 	TextMenuSystems, MENU_CLEAR,
 };
 use menu_playground::{
-	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterLeavePrompt,
-	CharacterMenuState, CharacterModalMode, CharacterPreviewPlugin, CharacterScreen,
-	CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
+	leave_character_editor, ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn,
+	CharacterLeavePrompt, CharacterMenuState, CharacterModalMode, CharacterPreviewPlugin,
+	CharacterScreen, CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter,
+	RequestEditCharacter,
 };
 use menu_screens::{
 	apply_unsaved_visual_style_default, cancel_pending_create, request_show_gallery,
@@ -498,6 +499,7 @@ fn pause_menu_back(
 	mut backs: MessageReader<ScreenBackPressed>,
 	settings: Query<(), With<InGameSettingsScreen>>,
 	character: Query<(), With<CharacterScreen>>,
+	return_to: Option<Res<CharacterEditorReturn>>,
 ) {
 	if settings.is_empty() && character.is_empty() {
 		return;
@@ -511,7 +513,10 @@ fn pause_menu_back(
 	) {
 		return;
 	}
-	commands.remove_resource::<CharacterEditorReturn>();
+	if !character.is_empty() {
+		leave_character_editor(&mut commands, return_to.as_deref().copied());
+		return;
+	}
 	request_show_in_game(&mut commands);
 }
 
@@ -546,6 +551,7 @@ fn character_back(
 	character: Query<(), With<CharacterScreen>>,
 	spin: Query<(), With<SpinRevealScreen>>,
 	gallery: Query<(), With<GalleryScreen>>,
+	return_to: Option<Res<CharacterEditorReturn>>,
 ) {
 	if !consume_screen_back(
 		nav.as_ref(),
@@ -557,7 +563,7 @@ fn character_back(
 		return;
 	}
 	if !character.is_empty() {
-		request_show_gallery(&mut commands);
+		leave_character_editor(&mut commands, return_to.as_deref().copied());
 		return;
 	}
 	if !spin.is_empty() {
@@ -860,6 +866,44 @@ mod tests {
 		settings.visual_style = InGameVisualStyle::Impressionist;
 		assert!(apply_unsaved_visual_style_default(true, &mut settings, &signals).is_none());
 		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
+		Ok(())
+	}
+
+	#[test]
+	fn pause_back_from_the_editor_keeps_return_until_the_hud_goes() -> anyhow::Result<()> {
+		use crate::pause_menu_back;
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use menu_components::{
+			ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
+		};
+		use menu_playground::{CharacterLeavePrompt, CharacterModalMode, CharacterScreen};
+		use menu_screens::RequestShowInGame;
+
+		let mut world = World::new();
+		world.init_resource::<Messages<ScreenBackPressed>>();
+		let mut nav = MenuNavPad::default();
+		nav.events.push(MenuNav::Back);
+		world.insert_resource(nav);
+		world.init_resource::<ActiveOverlayKey>();
+		world.init_resource::<ShortTextModal>();
+		world.init_resource::<CharacterLeavePrompt>();
+		world.init_resource::<CharacterModalMode>();
+		world.init_resource::<MenuBackConsumed>();
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.spawn(CharacterScreen);
+		world
+			.run_system_once(pause_menu_back)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+		anyhow::ensure!(
+			world.get_resource::<CharacterEditorReturn>().is_some(),
+			"in-game editor return must stay until CharacterScreen despawns"
+		);
+		let requests = world.query::<&RequestShowInGame>().iter(&world).count();
+		anyhow::ensure!(
+			requests == 1,
+			"pause back should request the in-game menu, got {requests}"
+		);
 		Ok(())
 	}
 }

@@ -134,7 +134,7 @@ fn rebuild_spin_reveal(
 		return;
 	};
 	for entity in &screens {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 	if items.0.is_empty() {
 		phase.dirty = false;
@@ -289,5 +289,32 @@ fn finish_spin_reveal(
 impl SpinRevealScreen {
 	pub fn scene(item: &InventoryItem, revealed: bool) -> impl Scene + 'static {
 		spin_scene(item, revealed, action_copy(item, revealed, true, 0, 1))
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{rebuild_spin_reveal, SpinRevealItems, SpinRevealPhase, SpinRevealScreen};
+	use bevy::ecs::system::RunSystemOnce;
+	use bevy::prelude::*;
+
+	#[test]
+	fn rebuild_despawns_existing_screens_without_panicking(
+	) -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = World::new();
+		let stale = world.spawn(SpinRevealScreen).id();
+		world.despawn(stale);
+		world.spawn(SpinRevealScreen);
+		world.insert_resource(SpinRevealItems(Vec::new()));
+		world.insert_resource(SpinRevealPhase::start());
+		world
+			.run_system_once(rebuild_spin_reveal)
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		let left = world.query::<&SpinRevealScreen>().iter(&world).count();
+		if left != 0 {
+			return Err(format!("empty reveal should despawn leftover screens, left {left}").into());
+		}
+		Ok(())
 	}
 }
