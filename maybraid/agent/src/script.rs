@@ -107,6 +107,13 @@ mod tests {
 		"visual-style-traverse-native.jsonl",
 		"visual-style-traverse-sharp.jsonl",
 		"visual-style-traverse-antediluvian.jsonl",
+		"menu-editor-discard-start.jsonl",
+		"menu-editor-save-start.jsonl",
+		"menu-create-back-mid-spin.jsonl",
+		"menu-settings-cycle.jsonl",
+		"menu-leave-and-return.jsonl",
+		"menu-mash-home-42.jsonl",
+		"menu-mash-pause-42.jsonl",
 	];
 
 	#[test]

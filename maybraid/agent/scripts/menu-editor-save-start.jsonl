@@ -1,0 +1,17 @@
+# Script API 6. Pause → Character → Start (save prompt) → Start confirms
+# save → back at the pause root. Run with --start-at and a one-character roster.
+
+{"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","screen":"in_game","timeout":10}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait_for","screen":"character","timeout":15}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","modal":"save","timeout":5}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","screen":"in_game","modal":null,"timeout":15}
+{"cmd":"expect","screen":"in_game"}
+{"cmd":"quit"}

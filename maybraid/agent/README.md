@@ -41,8 +41,11 @@ with `"cmd"`.
 |---|---|---|
 | `start` | `xz` | spawn point when leading; otherwise like `teleport` |
 | `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
-| `press` | `button` | one frame |
+| `press` | `button` and/or `buttons` | one frame; `buttons` is a same-frame chord |
 | `wait` | `secs` | idle |
+| `wait_for` | `screen`, `modal`, `flow`, `pause`, `timeout` (default 10) | idle until the snapshot matches; fails with `detail` on timeout |
+| `expect` | same matcher as `wait_for` | instant; `failed` on mismatch |
+| `mash` | `buttons`, `rate_hz` (default 15), `secs`, `seed` | seeded random presses and chords |
 | `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
@@ -50,9 +53,18 @@ with `"cmd"`.
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
 | `quit` | | request process exit |
 
-Buttons: `jump` (`a`), `sprint` (`l3`), `stance` (`b`), `interact` (`x`),
-`swap` (`y`), `ads` (`lb`), `fire` (`rt`), `focus` (`lt`), `menu`, `map`,
-`swap_pov` (`r3`), d-pad.
+Buttons: `jump` (`a`, `confirm`), `sprint` (`l3`), `stance` (`b`, `back`),
+`interact` (`x`), `swap` (`y`), `ads` (`lb`), `fire` (`rt`), `focus` (`lt`),
+`menu` (`start`), `map` (`select` / `view`), `swap_pov` (`r3`), d-pad.
+
+A script with no leading `start` and no `--start-at` boots to Home. Ready
+emits `detail: "menu"` once the first menu screen is up. World scripts still
+wait for surface + gameplay (`detail: "surface"`).
+
+Menu playtest scripts live in [`scripts/menu-*.jsonl`](scripts/) and are
+regression tests, not Traces assets. Run them with
+[`bin/menu-playtest.sh`](../../bin/menu-playtest.sh) so saves and logs stay
+in a temp dir. See [CONTRIBUTING.md → Menu playtest scripts](../../CONTRIBUTING.md#menu-playtest-scripts).
 
 See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
 [`scripts/origin-idle.jsonl`](scripts/origin-idle.jsonl),
@@ -83,8 +95,10 @@ That replaces `--start-at` (and `MAYBRAID_START_AT`), so the player spawns
 there and terrain streams in there — no origin load followed by a teleport.
 The game logs `script start X,Z replaces --start-at`. A `start` after the
 first duration command, or one sent over `--agent-pipe`, behaves like
-`teleport`. Without a `start`, the script runs from `--start-at` (the flight
-scripts pass `0,0`). See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl).
+`teleport`. Without a `start` or `--start-at`, the executable boots Home and
+the agent becomes ready on the first menu screen. Flight scripts still pass
+`--start-at=0,0`. See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl)
+and [`scripts/menu-create-back-mid-spin.jsonl`](scripts/menu-create-back-mid-spin.jsonl).
 
 ## Script API version
 
@@ -99,6 +113,7 @@ published outside the repo (Traces releases) state the version they target.
 | 3 | `visual_style` — set presentation mode (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) |
 | 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
 | 5 | `visual_style` adds `native` (direct window). `sharp` is now untreated 1080p offscreen (height-fit); v4 `sharp` was today's Native |
+| 6 | Menu playtests: Home boot ready (`detail: "menu"`), `confirm` / `back` / `start` aliases, `press.buttons` chords, `wait_for` / `expect` / `mash`, and `screen` / `modal` / `focus` / `flow` / `invariant` events |
 
 ## Events
 
@@ -107,7 +122,7 @@ and `frame`.
 
 | `kind` | When |
 |---|---|
-| `ready` | world surface + gameplay are up (or ready-timeout) |
+| `ready` | world surface + gameplay (`surface`), first menu screen (`menu`), or ready-timeout |
 | `player` | periodic pose (`x,y,z`, `yaw`, `move`); optional `ground` (composed Y), `map_open`, `picker` |
 | `command` | `acknowledged` / `started` / `finished` / `failed` |
 | `waypoint` | `goto` reached, timed out, or stuck |
@@ -116,6 +131,11 @@ and `frame`.
 | `actors` | `hosts` / `bodies` / `brains` plus `min_y` / `max_y` / `ground_at_min_y` when the census or Y band changes |
 | `picker` | locked spawn picker opened or closed (`open`) |
 | `presentation` | offscreen `resize` / `recreate` (`window`, `target`) — must be zero in a measure window |
+| `screen` | live menu screen (`home`, `gallery`, `spin_reveal`, `character`, `in_game`, `settings`, `loading`, `none`) |
+| `modal` | leave prompt (`save` / `save_failed` / `discard`), `name`, catalog overlay key, or `null` when closed |
+| `focus` | focused row (`screen`, `row`, optional `label`) |
+| `flow` | `GameFlow` / `WorldPause` (`flow`, `pause`) |
+| `invariant` | a menu invariant broke — always a playtest failure |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the

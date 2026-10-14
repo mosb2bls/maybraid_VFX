@@ -1,0 +1,26 @@
+# Script API 6. Pause → Character → B (discard) → Start confirms Exit →
+# expect in_game → Start → expect playing → Start → expect in_game.
+# Run with --start-at and a one-character fixture roster.
+
+{"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","screen":"in_game","timeout":10}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait_for","screen":"character","timeout":15}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"back"}
+{"cmd":"wait_for","modal":"discard","timeout":5}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","screen":"in_game","modal":null,"timeout":10}
+{"cmd":"expect","screen":"in_game"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","pause":"playing","screen":"none","timeout":5}
+{"cmd":"expect","pause":"playing"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","screen":"in_game","timeout":5}
+{"cmd":"expect","screen":"in_game"}
+{"cmd":"quit"}

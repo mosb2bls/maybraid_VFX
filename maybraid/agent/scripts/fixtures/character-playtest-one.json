@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "id": "00000000000000000000000000000001",
+  "name": "Playtest One",
+  "appearance": {
+    "species": "braidman",
+    "config": {
+      "gender": "neutral",
+      "build": "average",
+      "body": "standard",
+      "head": "standard",
+      "eye": "standard",
+      "nose": "standard",
+      "mouth": "standard",
+      "ear": "standard",
+      "hair": "none",
+      "clothing": [],
+      "colors": {
+        "body": "natural",
+        "head": "natural",
+        "eyes": "blue",
+        "nose": "natural",
+        "mouth": "warm",
+        "ears": "natural",
+        "hair": "dark",
+        "clothing_default": "cool",
+        "clothing_material": "cloth",
+        "clothing_materials": [],
+        "clothing": []
+      },
+      "sliders": {
+        "shoulder_width": 1.0,
+        "hip_width": 1.0,
+        "chest_thickness": 1.0,
+        "hip_thickness": 1.0,
+        "leg_thickness": 1.0,
+        "buttocks_thickness": 1.0,
+        "waist_thickness": 1.0,
+        "lower_trunk_thickness": 1.0,
+        "arm_length": 1.0,
+        "arm_thickness": 1.0,
+        "leg_length": 1.0,
+        "eye_width": 1.0,
+        "eye_height": 1.0,
+        "eye_tilt": 0.0,
+        "nose_width": 1.0,
+        "nose_height": 1.0,
+        "mouth_width": 1.0,
+        "mouth_height": 1.0,
+        "ear_width": 1.0,
+        "ear_height": 1.0
+      }
+    }
+  }
+}

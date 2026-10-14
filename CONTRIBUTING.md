@@ -327,6 +327,46 @@ Agent scripts ([`maybraid/agent`](maybraid/agent/README.md)) can be published on
 
 Check that a script parses before publishing it: run `profiling/tracy-flight.sh path/to/script.jsonl check 1`, or `cargo test -p maybraid-agent` with the script copied into `maybraid/agent/scripts/` locally.
 
+### Menu playtest scripts
+
+Menu scripts are regression tests, not Traces captures. They live in-repo as
+[`maybraid/agent/scripts/menu-*.jsonl`](maybraid/agent/scripts/) (script API 6+)
+and each file's header comment says what it covers.
+
+They need menu control and observation that world gameplay scripts do not:
+`confirm` / `back` / `start` aliases, same-frame `press.buttons` chords,
+`wait_for` / `expect` / `mash`, and `screen` / `modal` / `focus` / `flow` /
+`invariant` events. A script with no leading `start` and no `--start-at` boots
+to Home and becomes ready when the first menu screen is up (`ready` detail
+`menu`). See the [agent README](maybraid/agent/README.md#script-api-version).
+
+Write a new script by copying a `menu-*.jsonl` neighbor. Put a `wait` of a
+couple of frames between pad presses so two `press` commands do not land on
+the same tick. Prefer `wait_for` / `expect` over long `wait`s. Put `mash`
+seeds in the filename (`menu-mash-home-42.jsonl`) so a failure names the
+reproduction seed.
+
+Check that a script parses with `cargo test -p maybraid-agent`. Run the suite
+against throwaway saves:
+
+```bash
+cargo build -p maybraid
+bin/menu-playtest.sh
+bin/menu-playtest.sh --seeds 3          # repeat each mash script with N seeds
+bin/menu-playtest.sh menu-create-back-mid-spin
+```
+
+The runner sets `MAYBRAID_SAVES` / `MAYBRAID_LOGS` to a temp dir, seeds a
+fixture roster (`empty`, `one`, or `several`), and uses a small window
+(`MAYBRAID_RESOLUTION`, default `960x540`). A run fails on a non-zero exit,
+a `panic.log`, a missing `quit` event, any `failed` command, or any
+`invariant` event. It prints the failing mash seed.
+
+Do not commit screenshots or playtest logs. Capture shots only with the
+in-engine `{"cmd":"console","line":"screenshot PATH"}` command (GPU readback).
+A crash found by a menu script is a `bug` (plus `trace` when it came from a
+Traces asset), linking the script and seed.
+
 CPU captures come from `profiling/tracy-flight.sh <script.jsonl> <phase> <repeat>`, and GPU captures from `profiling/metal-flight.sh` (Metal System Trace; uploads `*.trace.zip`). Both accept a downloaded script path. See [`profiling/README.md`](profiling/README.md).
 
 ### The `trace` label
