@@ -45,7 +45,10 @@ pub use settings::{
 	RequestShowInGameSettings, VisualStyleAutoPick, VisualStyleSaved, ENV_RENDER_SCALE,
 	ENV_SHADOWS,
 };
-pub use show::{despawn_menu_screens, take_menu_show_request};
+pub use show::{
+	despawn_menu_screens, spawn_menu_show_request, take_menu_show_request, MenuScreens,
+	MenuShowRequest,
+};
 pub use spin_reveal::{
 	request_show_spin_reveal, RequestShowSpinReveal, SpinRevealChoice, SpinRevealCurrent,
 	SpinRevealFinished, SpinRevealItems, SpinRevealScreen, SpinRevealScreenPlugin,

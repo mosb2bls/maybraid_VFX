@@ -16,7 +16,7 @@ use lod::lod_ref::LodRef;
 use lod::scene::LodScene;
 use maybraid_menu_controller::MenuController;
 use menu_components::{screen_back_scene, BrandModeLine};
-use menu_screens::{add_menu_input, take_menu_show_request, MenuScreen};
+use menu_screens::{add_menu_input, spawn_menu_show_request, take_menu_show_request, MenuScreen};
 use player::PlayerLook;
 
 use crate::preview::spawn_firearm;
@@ -40,7 +40,7 @@ pub struct WeaponGalleryScreen;
 struct WeaponGalleryItem;
 
 pub fn request_show_weapons(commands: &mut Commands) {
-	commands.spawn(RequestShowWeapons);
+	spawn_menu_show_request(commands, RequestShowWeapons);
 }
 
 pub struct WeaponGalleryPlugin;

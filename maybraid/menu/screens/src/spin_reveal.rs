@@ -13,7 +13,7 @@ use menu_components::{
 };
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{spawn_menu_show_request, take_menu_show_request};
 use crate::MenuScreen;
 
 /// Queue a spin-and-reveal spawn. Pair with [`SpinRevealItems`].
@@ -65,7 +65,7 @@ impl SpinRevealPhase {
 
 pub fn request_show_spin_reveal(commands: &mut Commands, items: Vec<InventoryItem>) {
 	commands.insert_resource(SpinRevealItems(items));
-	commands.spawn(RequestShowSpinReveal);
+	spawn_menu_show_request(commands, RequestShowSpinReveal);
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]

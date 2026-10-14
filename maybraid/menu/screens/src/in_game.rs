@@ -12,7 +12,7 @@ use menu_components::{
 
 use crate::input::add_menu_input;
 use crate::settings::InGameSettingsPlugin;
-use crate::show::take_menu_show_request;
+use crate::show::{spawn_menu_show_request, take_menu_show_request};
 use crate::{GameMode, MenuScreen};
 
 /// Queue an in-game menu spawn (despawns any existing menu screen first).
@@ -98,16 +98,19 @@ impl InGameScreen {
 }
 
 pub fn request_show_in_game(commands: &mut Commands) {
-	commands.spawn(RequestShowInGame { mode: None, selected: None });
+	spawn_menu_show_request(commands, RequestShowInGame { mode: None, selected: None });
 }
 
 pub fn request_show_in_game_with_mode(commands: &mut Commands, mode: impl Into<String>) {
-	commands.spawn(RequestShowInGame { mode: Some(mode.into()), selected: None });
+	spawn_menu_show_request(
+		commands,
+		RequestShowInGame { mode: Some(mode.into()), selected: None },
+	);
 }
 
 /// Re-show the pause menu with `selected` under the cursor.
 pub fn request_show_in_game_at(commands: &mut Commands, selected: InGameMenuChoice) {
-	commands.spawn(RequestShowInGame { mode: None, selected: Some(selected) });
+	spawn_menu_show_request(commands, RequestShowInGame { mode: None, selected: Some(selected) });
 }
 
 pub struct InGameScreenPlugin;

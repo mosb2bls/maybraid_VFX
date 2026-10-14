@@ -92,7 +92,7 @@ impl Plugin for CharacterSessionPlugin {
 	}
 }
 
-type SessionQuery<'w, 's> = Query<
+pub type SessionQuery<'w, 's> = Query<
 	'w,
 	's,
 	(Entity, &'static CharacterModelUser, &'static InventoryUser),
@@ -143,6 +143,21 @@ pub fn leave_character_editor(commands: &mut Commands, return_to: Option<Charact
 		_ => request_show_gallery(commands),
 	}
 	commands.remove_resource::<CharacterEditorReturn>();
+}
+
+/// Drop editor session state without requesting another screen.
+///
+/// Recovery and other teardown paths use this so they can pick the destination
+/// themselves. Live navigation still goes through [`leave_character_editor`].
+pub fn end_character_editor(commands: &mut Commands, sessions: &SessionQuery) {
+	commands.remove_resource::<CharacterEditorReturn>();
+	commands.remove_resource::<EditingCharacter>();
+	commands.remove_resource::<CharacterEditBaseline>();
+	for (host, model_user, inventory_user) in sessions.iter() {
+		commands.entity(model_user.model).try_despawn();
+		commands.entity(inventory_user.bag).try_despawn();
+		commands.entity(host).try_despawn();
+	}
 }
 
 pub fn set_active_character(commands: &mut Commands, root: &SaveRoot, id: CharacterId) {
@@ -453,5 +468,43 @@ mod tests {
 	fn in_game_return_uses_the_live_world_player() {
 		assert!(super::CharacterEditorReturn::InGame.uses_live_world_player());
 		assert!(!super::CharacterEditorReturn::Gallery.uses_live_world_player());
+	}
+
+	#[test]
+	fn end_character_editor_drops_session_state() -> anyhow::Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
+		use character_inventory_user::InventoryUser;
+		use character_model_user::CharacterModelUser;
+
+		use super::{
+			end_character_editor, CharacterEditBaseline, CharacterEditorReturn, CharacterSession,
+			EditingCharacter, SessionQuery,
+		};
+
+		fn end(mut commands: Commands, sessions: SessionQuery) {
+			end_character_editor(&mut commands, &sessions);
+		}
+
+		let mut world = World::new();
+		let model = world.spawn_empty().id();
+		let bag = world.spawn_empty().id();
+		let host = world
+			.spawn((CharacterSession, CharacterModelUser::of(model), InventoryUser::carrying(bag)))
+			.id();
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.insert_resource(EditingCharacter { id: CharacterId(3) });
+		world.insert_resource(CharacterMenuState::default());
+		world.insert_resource(CharacterEditBaseline::capture(&CharacterMenuState::default().0));
+
+		world.run_system_once(end).map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+
+		anyhow::ensure!(world.get_entity(host).is_err(), "session host");
+		anyhow::ensure!(world.get_entity(model).is_err(), "model");
+		anyhow::ensure!(world.get_entity(bag).is_err(), "bag");
+		anyhow::ensure!(world.get_resource::<CharacterEditorReturn>().is_none());
+		anyhow::ensure!(world.get_resource::<EditingCharacter>().is_none());
+		anyhow::ensure!(world.get_resource::<CharacterEditBaseline>().is_none());
+		Ok(())
 	}
 }

@@ -84,6 +84,11 @@ impl CharacterLeavePrompt {
 		self.kind = Some(kind);
 		self.opened_this_frame = true;
 	}
+
+	pub fn close(&mut self) {
+		self.kind = None;
+		self.opened_this_frame = false;
+	}
 }
 
 #[derive(Component, Debug, Default, Clone, Copy)]

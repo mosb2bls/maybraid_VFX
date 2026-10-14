@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use character_items::{InventoryItem, ItemRng};
 use character_persist::CharacterId;
 
+use crate::show::spawn_menu_show_request;
 use crate::spin_reveal::{
 	request_show_spin_reveal, SpinRevealFinished, SpinRevealScreenPlugin, SpinRevealSystems,
 };
@@ -29,7 +30,7 @@ pub fn request_show_create_character(commands: &mut Commands) {
 }
 
 pub fn request_show_create_character_id(commands: &mut Commands, id: CharacterId) {
-	commands.spawn(RequestShowCreateCharacter { id });
+	spawn_menu_show_request(commands, RequestShowCreateCharacter { id });
 }
 
 /// Drop an in-flight starter reveal so Back from spin-reveal does not create.

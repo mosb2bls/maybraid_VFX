@@ -8,7 +8,7 @@ use menu_components::{
 	MenuComponentsPlugin,
 };
 
-use crate::show::take_menu_show_request;
+use crate::show::{spawn_menu_show_request, take_menu_show_request};
 use crate::MenuScreen;
 
 /// Queue a loading-screen spawn (despawns any existing menu screen first).
@@ -48,7 +48,7 @@ impl LoadingScreen {
 }
 
 pub fn request_show_loading(commands: &mut Commands) {
-	commands.spawn(RequestShowLoading);
+	spawn_menu_show_request(commands, RequestShowLoading);
 }
 
 pub fn request_loading_progress(commands: &mut Commands, progress: f32) {

@@ -13,7 +13,7 @@ use menu_components::{
 };
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{spawn_menu_show_request, take_menu_show_request};
 use crate::MenuScreen;
 
 /// Queue a gallery spawn (despawns any existing menu screen first).
@@ -33,7 +33,7 @@ pub enum GalleryChoice {
 }
 
 pub fn request_show_gallery(commands: &mut Commands) {
-	commands.spawn(RequestShowGallery);
+	spawn_menu_show_request(commands, RequestShowGallery);
 }
 
 pub struct GalleryScreenPlugin;

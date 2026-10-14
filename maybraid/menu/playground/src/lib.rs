@@ -18,8 +18,9 @@ pub use game_commands::command::PendingStartupCommand;
 pub use leave_prompt::{CharacterLeavePrompt, CharacterModalMode};
 pub use preview::{CharacterPreviewLight, CharacterPreviewPlugin, CharacterPreviewRoot};
 pub use session::{
-	leave_character_editor, save_editing_character, ActiveCharacter, CharacterEditorReturn,
-	CharacterSession, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
+	end_character_editor, leave_character_editor, save_editing_character, ActiveCharacter,
+	CharacterEditorReturn, CharacterSession, CharacterSessionPlugin, EditingCharacter,
+	RequestEditCharacter, SessionQuery,
 };
 pub use weapon_gallery::{request_show_weapons, WeaponGalleryPlugin, WeaponGalleryScreen};
 

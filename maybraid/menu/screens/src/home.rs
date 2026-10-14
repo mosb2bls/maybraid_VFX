@@ -13,7 +13,7 @@ use menu_components::TextMenuPlugin;
 use menu_components::{MenuObjectiveKind, TextCursorRow};
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{spawn_menu_show_request, take_menu_show_request};
 use crate::MenuScreen;
 
 /// Queue a home-screen spawn (despawns any existing home UI first).
@@ -117,7 +117,7 @@ impl HomeScreen {
 }
 
 pub fn request_show_home(commands: &mut Commands) {
-	commands.spawn(RequestShowHome);
+	spawn_menu_show_request(commands, RequestShowHome);
 	commands.spawn(RequestPruneItemIconCache);
 }
 
@@ -227,6 +227,7 @@ mod tests {
 		super::request_show_home(&mut commands);
 		world.flush();
 		assert_eq!(world.query::<&super::RequestShowHome>().iter(&world).count(), 1);
+		assert_eq!(world.query::<&crate::MenuShowRequest>().iter(&world).count(), 1);
 		assert_eq!(world.query::<&item_icons::RequestPruneItemIconCache>().iter(&world).count(), 1);
 	}
 }

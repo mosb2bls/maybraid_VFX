@@ -18,7 +18,7 @@ use menu_components::{
 use serde::{Deserialize, Serialize};
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{spawn_menu_show_request, take_menu_show_request};
 use crate::{GameMode, MenuScreen};
 
 pub use catalog::{
@@ -453,11 +453,11 @@ impl InGameSettingsScreen {
 }
 
 pub fn request_show_in_game_settings(commands: &mut Commands) {
-	commands.spawn(RequestShowInGameSettings { selected: None });
+	spawn_menu_show_request(commands, RequestShowInGameSettings { selected: None });
 }
 
 fn request_show_in_game_settings_at(commands: &mut Commands, selected: InGameSettingsChoice) {
-	commands.spawn(RequestShowInGameSettings { selected: Some(selected) });
+	spawn_menu_show_request(commands, RequestShowInGameSettings { selected: Some(selected) });
 }
 
 pub struct InGameSettingsPlugin;

@@ -26,7 +26,8 @@ use menu_components::{
 	SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use menu_screens::{
-	take_menu_show_request, MenuScreen, SpinRevealCurrent, SpinRevealItems, SpinRevealScreen,
+	spawn_menu_show_request, take_menu_show_request, MenuScreen, SpinRevealCurrent,
+	SpinRevealItems, SpinRevealScreen,
 };
 
 use crate::leave_prompt::CharacterLeavePromptPlugin;
@@ -147,7 +148,7 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 }
 
 pub fn request_show_character(commands: &mut Commands) {
-	commands.spawn(RequestShowCharacter);
+	spawn_menu_show_request(commands, RequestShowCharacter);
 }
 
 pub struct CharacterScreenPlugin;
