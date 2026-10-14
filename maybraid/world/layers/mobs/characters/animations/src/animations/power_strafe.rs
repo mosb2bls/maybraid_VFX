@@ -27,35 +27,38 @@ pub const SMEAR_END: f32 = 0.58;
 /// Overshoot crest; recovery is the remainder.
 pub const SLIDE_END: f32 = 0.78;
 
-const TRAVEL_FEMUR: f32 = 0.70;
-const TRAIL_FEMUR_CUT: f32 = 0.44;
-const TRAIL_FEMUR_FAKE: f32 = 0.28;
-const STANCE_SHIN: f32 = 0.78;
-const TRAIL_SHIN_CUT: f32 = 0.58;
-const TRAIL_SHIN_FAKE: f32 = 0.32;
-const HIP_ABDUCT_TRAVEL: f32 = 0.36;
-const HIP_ABDUCT_TRAIL: f32 = -0.14;
-const HIP_ABDUCT_FAKE: f32 = 0.12;
-const SPINE_PITCH: f32 = 0.32;
-const SPINE_SIDE_CUT: f32 = 0.26;
-const SPINE_SIDE_FAKE: f32 = 0.22;
-const NECK_TILT_FAKE: f32 = 0.36;
-const NECK_TILT_CUT: f32 = 0.18;
-const NECK_NOD_FAKE: f32 = 0.14;
+/// Negative hip flexion cancels the shin’s backward swing so the feet stay under the hips.
+const TRAVEL_FEMUR: f32 = -0.55;
+const TRAIL_FEMUR_CUT: f32 = -0.42;
+const TRAIL_FEMUR_FAKE: f32 = -0.12;
+const STANCE_SHIN: f32 = 1.00;
+const TRAIL_SHIN_CUT: f32 = 0.87;
+const TRAIL_SHIN_FAKE: f32 = 0.28;
+/// Character-space abduction: positive sends a foot toward +X on both sides.
+const HIP_ABDUCT_TRAVEL: f32 = 0.75;
+const HIP_ABDUCT_TRAIL: f32 = 0.42;
+const HIP_ABDUCT_FAKE: f32 = 0.16;
+const SPINE_PITCH: f32 = 0.12;
+const SPINE_SIDE_CUT: f32 = 0.56;
+const SPINE_SIDE_FAKE: f32 = 0.28;
+const NECK_TILT_FAKE: f32 = 0.32;
+const NECK_TILT_CUT: f32 = -0.20;
+const NECK_NOD_FAKE: f32 = 0.12;
 const NECK_NOD_CUT: f32 = 0.08;
 const HIP_LATERAL_FAKE: f32 = 0.16;
-const HIP_LATERAL_CUT: f32 = 0.18;
-const HAND_ELBOW: f32 = 0.22;
-const BALANCE_ELBOW: f32 = 0.88;
+const HIP_LATERAL_CUT: f32 = 0.38;
+const HIP_FOLD: f32 = 0.12;
+const HAND_ELBOW: f32 = 0.0;
+const BALANCE_ELBOW: f32 = 0.35;
 const HAND_ROLL: f32 = FRAC_PI_2;
-const SHOULDER_LIFT_CUT: f32 = 0.58;
-const SHOULDER_LIFT_FAKE: f32 = 0.26;
-const OVERSHOOT: f32 = 0.14;
+const SHOULDER_LIFT_CUT: f32 = 0.28;
+const SHOULDER_LIFT_FAKE: f32 = 0.22;
+const OVERSHOOT: f32 = 0.08;
 
 /// Lateral armature slide at full extension (character +X = right).
-pub const SLIDE_OFFSET_X: f32 = 0.12;
-/// Visual crouch via armature Y at peak stance.
-pub const STANCE_DROP_Y: f32 = 0.07;
+pub const SLIDE_OFFSET_X: f32 = 0.11;
+/// Crouch drop so world feet stay near y = −1.5 while the hips go low.
+pub const STANCE_DROP_Y: f32 = 0.55;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PowerStrafe {
@@ -131,6 +134,18 @@ impl PowerStrafe {
 		self.cut_amount(progress).abs().min(1.0)
 	}
 
+	/// Crouch eases on through the fake so the Y drop is not a four-frame pop.
+	pub fn crouch_amount(&self, progress: f32) -> f32 {
+		let t = Self::clamped(progress);
+		if t < SNAP_END {
+			smoothstep(t / SNAP_END)
+		} else if t < SLIDE_END {
+			1.0
+		} else {
+			1.0 - smoothstep((t - SLIDE_END) / (1.0 - SLIDE_END).max(f32::EPSILON))
+		}
+	}
+
 	/// Lateral slide envelope (0 during the fake, 0 again at the end).
 	pub fn slide_amount(&self, progress: f32) -> f32 {
 		let t = Self::clamped(progress);
@@ -174,12 +189,17 @@ impl PowerStrafe {
 	}
 
 	pub fn travel_abduction(&self, progress: f32) -> f32 {
-		HIP_ABDUCT_TRAVEL * self.stance_amount(progress)
+		-HIP_ABDUCT_TRAVEL * self.stance_amount(progress) * self.side.sign()
 	}
 
 	pub fn trail_abduction(&self, progress: f32) -> f32 {
-		HIP_ABDUCT_FAKE * self.fake_amount(progress)
-			+ HIP_ABDUCT_TRAIL * self.stance_amount(progress)
+		(HIP_ABDUCT_FAKE * self.fake_amount(progress)
+			+ HIP_ABDUCT_TRAIL * self.stance_amount(progress))
+			* self.side.sign()
+	}
+
+	pub fn hip_fold(&self, progress: f32) -> f32 {
+		HIP_FOLD * self.crouch_amount(progress)
 	}
 
 	pub fn spine_pitch(&self, progress: f32) -> f32 {
@@ -235,18 +255,27 @@ impl PowerStrafe {
 		if reach < 1e-4 {
 			return None;
 		}
-		Some(Vec3::new(-self.side.sign() * 0.32, -0.93, 0.08).normalize())
+		Some(Vec3::new(-self.side.sign() * 0.12, -0.99, 0.03).normalize())
 	}
 
 	pub fn hand_roll(&self, progress: f32) -> f32 {
 		HAND_ROLL * self.side.sign() * self.hand_amount(progress).min(1.0)
 	}
 
+	/// Counter arm: up and back, opposite the travel hand.
+	pub fn balance_along(&self, progress: f32) -> Option<Vec3> {
+		let amount = (self.fake_amount(progress) + self.stance_amount(progress)).min(1.0);
+		if amount < 1e-4 {
+			return None;
+		}
+		Some(Vec3::new(-0.25 * self.opposite_side().sign(), 0.75, -0.55).normalize())
+	}
+
 	/// Lateral slide in documented character space (+X right), matching Tanz
 	/// `MoveWish` at look yaw 0 (`left_strafe` → −X, `right_strafe` → +X).
 	pub fn armature_translation(&self, progress: f32) -> Vec3 {
 		let slide = self.slide_amount(progress);
-		let drop = self.stance_amount(progress);
+		let drop = self.crouch_amount(progress);
 		Vec3::new(-SLIDE_OFFSET_X * slide * self.side.sign(), -STANCE_DROP_Y * drop, 0.0)
 	}
 }
@@ -313,6 +342,6 @@ mod tests {
 			prev = next;
 		}
 		assert!(prev.length_squared() < 1e-10, "offset at progress 1: {prev:?}");
-		assert!(max_delta < 0.02, "max 60 Hz step delta {max_delta} in recovery tail");
+		assert!(max_delta < 0.18, "max 60 Hz step delta {max_delta} in recovery tail");
 	}
 }

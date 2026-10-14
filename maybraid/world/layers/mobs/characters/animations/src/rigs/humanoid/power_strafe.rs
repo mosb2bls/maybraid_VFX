@@ -31,12 +31,19 @@ impl Animation<HumanoidV0Rig> for PowerStrafe {
 			self.trail_abduction(progress),
 		);
 
+		let fold = self.hip_fold(progress);
+		if fold > f32::EPSILON {
+			pose.apply_hip_fold(travel, fold);
+			pose.apply_hip_fold(trail, fold * 0.85);
+		}
+
 		pose.apply_spine_pitch(self.spine_pitch(progress));
 		if fake + cut > f32::EPSILON {
 			let side = self.spine_side(progress);
+			pose.spine.side_bend[0] += side * 1.10;
 			pose.spine.side_bend[1] += side;
-			pose.spine.side_bend[2] += side * 0.70;
-			pose.spine.side_bend[3] += side * 0.45;
+			pose.spine.side_bend[2] += side * 0.12;
+			pose.spine.side_bend[3] += side * 0.02;
 		}
 
 		let hip = self.hip_lateral(progress);
@@ -63,14 +70,13 @@ impl Animation<HumanoidV0Rig> for PowerStrafe {
 		} else if fake > f32::EPSILON {
 			apply_fake_travel_arm(&mut pose, travel, fake, self.shoulder_lift_travel(progress));
 		}
-		if fake + cut > f32::EPSILON {
+		if let Some(along) = self.balance_along(progress) {
 			apply_balance_arm(
 				&mut pose,
 				trail,
+				along,
 				self.balance_elbow(progress),
 				self.shoulder_lift_trail(progress),
-				fake,
-				cut,
 			);
 		}
 
@@ -116,20 +122,15 @@ fn apply_fake_travel_arm(pose: &mut HumanoidPose, side: Side, fake: f32, shoulde
 fn apply_balance_arm(
 	pose: &mut HumanoidPose,
 	side: Side,
+	along: Vec3,
 	elbow: f32,
 	shoulder_lift: f32,
-	fake: f32,
-	cut: f32,
 ) {
-	let wind = 0.20 * fake + 0.10 * cut;
-	pose.apply_arm(
-		side,
-		-0.20 * side.sign(),
-		0.28 * side.sign() + shoulder_lift,
-		0.16 * side.sign() + wind * side.sign(),
-		0.0,
-		elbow,
-	);
+	let arm = pose.arm_mut(side);
+	arm.elbow_flexion += elbow;
+	arm.shoulder_forward += 0.28 * side.sign();
+	arm.shoulder_lift += shoulder_lift;
+	arm.aim = Some(ArmAim { along, roll: 0.4 * side.sign() });
 }
 
 #[cfg(test)]
@@ -147,6 +148,8 @@ mod tests {
 	const REVIEW_SAMPLES: [f32; 8] = [0.0, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0];
 	const TANZ_SECS: f32 = 0.38;
 	const FPS: f32 = 60.0;
+	const GROUND_Y: f32 = -1.5;
+	const GROUND_SLACK: f32 = 0.2;
 
 	fn bone_tail(rig: &HumanoidV0Rig, name: &str) -> Vec3 {
 		rig.character_point(name) + rig.character_length(name)
@@ -209,6 +212,10 @@ mod tests {
 		format!("({:.3}, {:.3}, {:.3})", v.x, v.y, v.z)
 	}
 
+	fn world_of(point: Vec3, offset: Vec3) -> Vec3 {
+		point + offset
+	}
+
 	#[test]
 	fn repeatability_same_progress_same_pose() -> anyhow::Result<()> {
 		let strafe = PowerStrafe::new(Side::Right);
@@ -242,28 +249,70 @@ mod tests {
 			);
 		}
 		assert!(
-			end.posed_angle("femur.L") < strafe.travel_femur(peak_progress()) * 0.35,
+			end.posed_angle("femur.L") < strafe.travel_femur(peak_progress()).abs() * 0.35,
 			"end should recover toward rest"
 		);
 		Ok(())
+	}
+
+	fn assert_grounded_cut(side: Side, progress: f32) {
+		let (rig, effects) = sample(side, progress);
+		let offset = effects.0.translation;
+		let wish = body_travel_x(side);
+		let travel_hand = world_of(bone_tail(&rig, forearm_bone(side)), offset);
+		let balance_hand = world_of(bone_tail(&rig, forearm_bone(side.opposite())), offset);
+		let plant = world_of(bone_tail(&rig, shin_bone(side)), offset);
+		let trail = world_of(bone_tail(&rig, shin_bone(side.opposite())), offset);
+		assert!(offset.y < -0.35, "hips drop via offset at {progress}, got {offset:?}");
+		assert!(
+			(travel_hand.y - GROUND_Y).abs() < GROUND_SLACK,
+			"travel hand should skim the ground at {progress} on {side:?}, {travel_hand:?}"
+		);
+		assert!(
+			travel_hand.x * wish > 0.2,
+			"travel hand should reach the travel side at {progress}, {travel_hand:?}"
+		);
+		assert!(
+			travel_hand.y < balance_hand.y - 0.6,
+			"balance arm should counter-swing up, travel {travel_hand:?} balance {balance_hand:?}"
+		);
+		for (name, foot) in [("plant", plant), ("trail", trail)] {
+			assert!(
+				(foot.y - GROUND_Y).abs() < GROUND_SLACK,
+				"{name} should stay near the ground plane at {progress} on {side:?}, {foot:?}"
+			);
+			assert!(
+				foot.z.abs() < 0.52,
+				"{name} should stay under the hips at {progress}, {foot:?}"
+			);
+		}
+		assert!(
+			plant.x * wish > trail.x * wish + 0.15,
+			"plant foot should sit outside toward travel at {progress}: plant {plant:?} trail {trail:?}"
+		);
 	}
 
 	#[test]
 	fn peak_low_stance_and_hand_down_on_travel_side() -> anyhow::Result<()> {
 		let strafe = PowerStrafe::new(Side::Right);
 		let mut rig = HumanoidV0Rig::for_clip_test();
-		strafe.apply(&mut rig, peak_progress());
+		let effects = strafe.apply(&mut rig, peak_progress());
+		let offset = effects.0.translation;
 		assert!(rig.posed_angle("femur.R") > 0.35, "travel hip folds");
 		assert!(rig.posed_angle("shin.R") > 0.45, "travel knee bends");
-		let down = bone_tail(&rig, forearm_bone(Side::Right));
-		let up = bone_tail(&rig, forearm_bone(Side::Left));
-		let foot_r = bone_tail(&rig, shin_bone(Side::Right));
-		assert!(down.y < up.y - 0.12, "travel hand lower than balance, down={down:?} up={up:?}");
-		assert!(down.x > 0.05, "travel hand lateral on +X for right strafe");
-		assert!(
-			(down.y - foot_r.y).abs() < 0.15,
-			"travel hand should skim the foot height, down={down:?} foot={foot_r:?}"
-		);
+		assert!(offset.y < -0.35, "hips drop via offset, got {offset:?}");
+		assert_grounded_cut(Side::Right, peak_progress());
+		assert_grounded_cut(Side::Left, peak_progress());
+		Ok(())
+	}
+
+	#[test]
+	fn hold_window_keeps_both_feet_and_travel_hand_on_the_ground() -> anyhow::Result<()> {
+		for side in [Side::Left, Side::Right] {
+			for progress in [0.35, 0.5, 0.65] {
+				assert_grounded_cut(side, progress);
+			}
+		}
 		Ok(())
 	}
 
@@ -310,8 +359,9 @@ mod tests {
 		let mut rig = HumanoidV0Rig::for_clip_test();
 		let effects = strafe.apply(&mut rig, peak_progress());
 		assert!(effects.0.translation.x < -0.04, "left strafe offsets −X");
-		assert!(effects.0.translation.y < -0.01, "crouch drop");
-		assert!(effects.0.translation.x.abs() < 0.2, "offset stays modest");
+		assert!(effects.0.translation.y < -0.35, "crouch drop");
+		assert!(effects.0.translation.x.abs() < 0.2, "lateral offset stays modest");
+		assert!(effects.0.translation.y.abs() < 0.65, "drop stays in the 0.4–0.6 crouch band");
 		Ok(())
 	}
 
@@ -376,84 +426,46 @@ mod tests {
 			"max armature |Δ| at 60 Hz over Tanz {TANZ_SECS:.2}s ({:.0} frames): {max_delta:.6}",
 			TANZ_SECS * FPS
 		);
-		assert!(max_delta < 0.05, "max 60 Hz Tanz-frame offset delta {max_delta}");
+		assert!(max_delta < 0.18, "max 60 Hz Tanz-frame offset delta {max_delta}");
 
 		for side in [Side::Left, Side::Right] {
-			eprintln!("\n### Side {:?}\n", side);
+			eprintln!("\n### Side {:?} (world = pose + ArmatureOffset)\n", side);
 			eprintln!(
 				"| progress | hand.L | hand.R | foot.L | foot.R | pelvis | head | armature offset |"
 			);
 			eprintln!("| --- | --- | --- | --- | --- | --- | --- | --- |");
 			for progress in REVIEW_SAMPLES {
 				let (rig, effects) = sample(side, progress);
-				let hand_l = bone_tail(&rig, forearm_bone(Side::Left));
-				let hand_r = bone_tail(&rig, forearm_bone(Side::Right));
-				let foot_l = bone_tail(&rig, shin_bone(Side::Left));
-				let foot_r = bone_tail(&rig, shin_bone(Side::Right));
-				let pelvis = pelvis_center(&rig);
-				let head = head_point(&rig);
+				let offset = effects.0.translation;
 				eprintln!(
 					"| {progress:.2} | {} | {} | {} | {} | {} | {} | {} |",
-					fmt_vec(hand_l),
-					fmt_vec(hand_r),
-					fmt_vec(foot_l),
-					fmt_vec(foot_r),
-					fmt_vec(pelvis),
-					fmt_vec(head),
-					fmt_vec(effects.0.translation),
+					fmt_vec(world_of(bone_tail(&rig, forearm_bone(Side::Left)), offset)),
+					fmt_vec(world_of(bone_tail(&rig, forearm_bone(Side::Right)), offset)),
+					fmt_vec(world_of(bone_tail(&rig, shin_bone(Side::Left)), offset)),
+					fmt_vec(world_of(bone_tail(&rig, shin_bone(Side::Right)), offset)),
+					fmt_vec(world_of(pelvis_center(&rig), offset)),
+					fmt_vec(world_of(head_point(&rig), offset)),
+					fmt_vec(offset),
 				);
 			}
 		}
 
 		for side in [Side::Left, Side::Right] {
 			let wish = body_travel_x(side);
-			let (fake_rig, _) = sample(side, 0.1);
-			let fake_head = head_point(&fake_rig);
-			let fake_pelvis = pelvis_center(&fake_rig);
+			let (fake_rig, fake_effects) = sample(side, 0.1);
+			let fake_offset = fake_effects.0.translation;
+			let fake_head = world_of(head_point(&fake_rig), fake_offset);
+			let fake_pelvis = world_of(pelvis_center(&fake_rig), fake_offset);
 			assert!(
 				(fake_head.x - fake_pelvis.x).signum() == -wish,
 				"progress 0.1 fake lean opposite for {side:?}"
 			);
 
-			for progress in [0.35, 0.5] {
-				let (rig, _) = sample(side, progress);
-				let hand = bone_tail(&rig, forearm_bone(side));
-				let foot = bone_tail(&rig, shin_bone(side));
-				assert!(
-					(hand.y - foot.y).abs() < 0.15,
-					"progress {progress} travel hand {hand:?} vs foot {foot:?} on {side:?}"
-				);
+			for progress in [0.35, 0.5, 0.65] {
+				assert_grounded_cut(side, progress);
 			}
 		}
 		Ok(())
-	}
-
-	/// Prints markdown-friendly pose tables for PR review (`cargo test … -- --ignored --nocapture`).
-	#[test]
-	#[ignore]
-	fn power_strafe_pose_table_for_review() {
-		let max_delta = max_offset_delta_60fps(&PowerStrafe::new(Side::Left));
-		eprintln!("max armature |Δ| at 60 Hz over Tanz {TANZ_SECS:.2}s: {max_delta:.6}");
-		for side in [Side::Left, Side::Right] {
-			eprintln!("\n### Side {:?}\n", side);
-			eprintln!(
-				"| progress | hand.L | hand.R | foot.L | foot.R | pelvis | head | armature offset |"
-			);
-			eprintln!("| --- | --- | --- | --- | --- | --- | --- | --- |");
-			for progress in REVIEW_SAMPLES {
-				let (rig, effects) = sample(side, progress);
-				eprintln!(
-					"| {progress:.2} | {} | {} | {} | {} | {} | {} | {} |",
-					fmt_vec(bone_tail(&rig, forearm_bone(Side::Left))),
-					fmt_vec(bone_tail(&rig, forearm_bone(Side::Right))),
-					fmt_vec(bone_tail(&rig, shin_bone(Side::Left))),
-					fmt_vec(bone_tail(&rig, shin_bone(Side::Right))),
-					fmt_vec(pelvis_center(&rig)),
-					fmt_vec(head_point(&rig)),
-					fmt_vec(effects.0.translation),
-				);
-			}
-		}
 	}
 
 	#[test]
@@ -467,10 +479,9 @@ mod tests {
 			ArmatureOffset::IDENTITY,
 		);
 		transition.apply(&mut rig, peak_progress(), 0.35);
+		let travel = PowerStrafe::new(Side::Right).travel_femur(peak_progress()).abs();
 		assert!(
-			rig.posed_angle("femur.R") > 0.05
-				&& rig.posed_angle("femur.R")
-					< PowerStrafe::new(Side::Right).travel_femur(peak_progress()),
+			rig.posed_angle("femur.R") > 0.05 && rig.posed_angle("femur.R") < travel,
 			"mid-blend between idle and full strafe"
 		);
 		Ok(())
