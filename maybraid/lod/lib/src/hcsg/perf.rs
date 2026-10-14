@@ -10,8 +10,6 @@ use std::time::Instant;
 use bevy::math::bounding::Aabb3d;
 use bevy::math::{DVec3, Vec3};
 
-use std::sync::Arc;
-
 use crate::gen::tests::test_utils::cell;
 use crate::gen::{Id, OriginalId, Version};
 
