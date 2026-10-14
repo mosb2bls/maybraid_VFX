@@ -91,19 +91,9 @@ xdotool key --window "$WID" Return
 
 shot() { import -window "$WID" "$OUT/$1.png"; }
 
-for _ in $(seq 1 180); do
-  shot _probe.png
-  if convert "$OUT/_probe.png" -crop 520x120+8+580 txt:- 2>/dev/null | grep -q 'Cycle:'; then
-    rm -f "$OUT/_probe.png"
-    break
-  fi
-  sleep 2
-done
-if [[ -f "$OUT/_probe.png" ]]; then
-  echo "Timed out waiting for Cycle cue"
-  tail -30 "$GAME_LOG"
-  exit 1
-fi
+# Fixed settle after title flow; category cycling no longer shows a HUD text cue.
+sleep 8
+rm -f "$OUT/_probe.png"
 
 python3 - "$WID" "$OUT" <<'PY'
 import subprocess
