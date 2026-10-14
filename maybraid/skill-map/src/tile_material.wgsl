@@ -366,8 +366,11 @@ fn shade_cursor(uv: vec2<f32>) -> vec3<f32> {
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let kind = tile_kind();
     let world = in.world_position.xy;
-    var color = shade_glimmer(world);
+    var color: vec3<f32>;
     var alpha = 1.0;
+    // Kind is a material uniform (one draw per tile class). Do not pay
+    // shade_glimmer's two FBMs as a discarded default — fire marks already
+    // call it inside shade_fire.
     if kind > 0.5 && kind < 1.5 {
         color = shade_water(world);
         alpha = water_blob(in.uv, world);
@@ -387,6 +390,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         color = shade_rock(in.uv, world);
     } else if kind > 8.5 {
         color = shade_cosmo(in.uv, world);
+    } else {
+        color = shade_glimmer(world);
     }
     color *= material.tint.xyz * material.style.y;
     return vec4<f32>(color, alpha);

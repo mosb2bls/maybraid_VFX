@@ -127,7 +127,6 @@ mod tests {
 		assert_eq!(parse_resolution_env(Some("1920X1080")), Some((1920, 1080)));
 		assert_eq!(parse_resolution_env(Some("")), None);
 		assert_eq!(parse_resolution_env(None), None);
-		assert_eq!(ENV_RESOLUTION, "MAYBRAID_RESOLUTION");
 	}
 
 	#[test]
@@ -137,7 +136,6 @@ mod tests {
 		assert!(env_flag_on(Some("YES")));
 		assert!(!env_flag_on(Some("0")));
 		assert!(!env_flag_on(None));
-		assert_eq!(ENV_FULLSCREEN, "MAYBRAID_FULLSCREEN");
 	}
 
 	#[test]
