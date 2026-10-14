@@ -709,3 +709,86 @@ fn saved_menu_strips_clothing_from_appearance() -> anyhow::Result<()> {
 	assert_eq!(restored.inventory.as_ref().expect("inventory").worn().len(), 2);
 	Ok(())
 }
+
+#[test]
+fn body_preview_focus_contains_every_species_bounds() {
+	use character_ui_menu::{CameraFocus, ListValues};
+
+	for &species in ConceptSpecies::values() {
+		let mut menu = CharacterMenu::default();
+		assert!(
+			menu.apply(MenuEvent::SetSpecies(species)) || species == ConceptSpecies::Braidman,
+			"{species:?} should be selectable from the default menu"
+		);
+		let bounds = menu.preview_aabb();
+		let focus = menu.body_preview_focus();
+		assert!(
+			focus.contains_preview_bounds(bounds, CameraFocus::BODY_PREVIEW_FOV, 1.0),
+			"{species:?} framing must contain its rest-pose hull {bounds:?} from {focus:?}"
+		);
+	}
+}
+
+#[test]
+fn body_preview_focus_scales_with_species_size() {
+	let braidman = CharacterMenu::default();
+	let mut spibmom = CharacterMenu::default();
+	assert!(spibmom.apply(MenuEvent::SetSpecies(ConceptSpecies::Spibmom)));
+	let mut chupri = CharacterMenu::default();
+	assert!(chupri.apply(MenuEvent::SetSpecies(ConceptSpecies::Chupri)));
+	let mut thumplus = CharacterMenu::default();
+	assert!(thumplus.apply(MenuEvent::SetSpecies(ConceptSpecies::Thumplus)));
+
+	let braidman_dist = braidman
+		.body_preview_focus()
+		.camera_offset
+		.distance(braidman.body_preview_focus().look_at_offset);
+	let spibmom_dist = spibmom
+		.body_preview_focus()
+		.camera_offset
+		.distance(spibmom.body_preview_focus().look_at_offset);
+	let chupri_dist = chupri
+		.body_preview_focus()
+		.camera_offset
+		.distance(chupri.body_preview_focus().look_at_offset);
+	let thumplus_dist = thumplus
+		.body_preview_focus()
+		.camera_offset
+		.distance(thumplus.body_preview_focus().look_at_offset);
+
+	assert!(
+		spibmom_dist > braidman_dist,
+		"Spibmom's 2× head + stature should sit farther than Braidman ({spibmom_dist} vs {braidman_dist})"
+	);
+	assert!(
+		chupri_dist < braidman_dist,
+		"Chupri should sit closer than Braidman ({chupri_dist} vs {braidman_dist})"
+	);
+	assert!(
+		thumplus_dist > spibmom_dist,
+		"Thumplus should sit farther than Spibmom ({thumplus_dist} vs {spibmom_dist})"
+	);
+}
+
+#[test]
+fn set_species_requests_body_preview_focus() {
+	let mut menu = CharacterMenu::default();
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Spibmom)));
+	let focus = menu
+		.camera_focus_for_event(MenuEvent::SetSpecies(ConceptSpecies::Spibmom))
+		.expect("species change should reframe");
+	assert_eq!(focus, menu.body_preview_focus());
+}
+
+#[test]
+fn human_scale_body_focus_misses_spibmom() {
+	use character_ui_menu::CameraFocus;
+
+	let mut menu = CharacterMenu::default();
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Spibmom)));
+	let bounds = menu.preview_aabb();
+	assert!(
+		!crate::BODY_FOCUS.contains_preview_bounds(bounds, CameraFocus::BODY_PREVIEW_FOV, 1.0),
+		"legacy human-scale BODY_FOCUS should crop a tall Spibmom"
+	);
+}
