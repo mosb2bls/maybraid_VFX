@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::*;
 use bevy::winit::WinitSettings;
 use clap::Parser;
-use combat_hud::{CombatHudInventoryCycleCategory, CombatHudPlugin, CombatHudVisible};
+use combat_hud::{
+	idle_cycle_outline, CombatHudCyclePanel, CombatHudInventoryCycleCategory, CombatHudPlugin,
+	CombatHudVisible,
+};
 use damage::Health;
 use lubikans::{
 	fixtures::{install_gameplay, install_interface, spawn_self_owner},
@@ -26,6 +29,9 @@ struct Cli {
 	/// Automated state machine for `capture-states.sh` (six PR preview frames).
 	#[arg(long)]
 	capture_states: bool,
+	/// Three frames: teal outline on the D-pad-selected system panel.
+	#[arg(long)]
+	capture_cycle: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +42,9 @@ enum StateKind {
 	SelfHealing,
 	PointMidflight,
 	PausedHidden,
+	CycleWeapons,
+	CycleSkillMaps,
+	CycleLubikans,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -71,7 +80,11 @@ fn artifacts_dir() -> PathBuf {
 }
 
 fn capture_png_path(label: &str) -> PathBuf {
-	artifacts_dir().join(format!("lubikan-hud-state-{label}.png"))
+	if label.starts_with("cycle-") {
+		artifacts_dir().join(format!("{label}.png"))
+	} else {
+		artifacts_dir().join(format!("lubikan-hud-state-{label}.png"))
+	}
 }
 
 fn import_primary_window(label: &str) -> Result<(), String> {
@@ -140,6 +153,79 @@ fn capture_steps() -> Vec<StateStep> {
 	]
 }
 
+fn cycle_capture_steps() -> Vec<StateStep> {
+	vec![
+		StateStep { label: "cycle-01-weapons", kind: StateKind::CycleWeapons, dwell_secs: 2.4 },
+		StateStep {
+			label: "cycle-02-skill-maps",
+			kind: StateKind::CycleSkillMaps,
+			dwell_secs: 0.8,
+		},
+		StateStep { label: "cycle-03-lubikans", kind: StateKind::CycleLubikans, dwell_secs: 0.8 },
+	]
+}
+
+fn spawn_cycle_standin_plates(mut commands: Commands) {
+	spawn_standin_plate(
+		&mut commands,
+		"weapons-cycle-standin",
+		CombatHudInventoryCycleCategory::Weapons,
+		"Weapons",
+		Val::Px(260.0),
+		120.0,
+	);
+	spawn_standin_plate(
+		&mut commands,
+		"skill-map-cycle-standin",
+		CombatHudInventoryCycleCategory::SkillMaps,
+		"Skill Map",
+		Val::Px(16.0),
+		168.0,
+	);
+}
+
+fn spawn_standin_plate(
+	commands: &mut Commands,
+	name: &'static str,
+	category: CombatHudInventoryCycleCategory,
+	caption: &'static str,
+	bottom: Val,
+	height: f32,
+) {
+	commands
+		.spawn((
+			Name::new(name),
+			CombatHudCyclePanel(category),
+			idle_cycle_outline(),
+			Node {
+				position_type: PositionType::Absolute,
+				right: Val::Px(16.0),
+				bottom,
+				width: Val::Px(228.0),
+				height: Val::Px(height),
+				padding: UiRect::axes(Val::Px(8.0), Val::Px(6.0)),
+				border: UiRect::all(Val::Px(1.5)),
+				border_radius: BorderRadius::all(Val::Px(8.0)),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			BackgroundColor(Color::srgba(0.52, 0.52, 0.56, 0.82)),
+			BorderColor::all(Color::srgba(0.78, 0.78, 0.82, 0.9)),
+			Visibility::Visible,
+			Pickable::IGNORE,
+			GlobalZIndex(i32::MAX - 7),
+		))
+		.with_children(|plate| {
+			plate.spawn((
+				Text::new(caption),
+				TextFont { font_size: FontSize::Px(16.0), ..default() },
+				TextColor(Color::srgb(1.0, 0.86, 0.22)),
+				Pickable::IGNORE,
+			));
+		});
+}
+
 fn main() {
 	let cli = Cli::parse();
 	let assets_path = assets_root();
@@ -187,10 +273,15 @@ fn main() {
 	));
 	app.insert_resource(PreviewOwner(owner));
 	app.add_systems(Update, (apply_capture_state, drive_capture_states).chain());
-	if app.world().resource::<Cli>().capture_states {
+	let capture_states = app.world().resource::<Cli>().capture_states;
+	let capture_cycle = app.world().resource::<Cli>().capture_cycle;
+	if capture_cycle {
+		app.add_systems(Startup, spawn_cycle_standin_plates);
+	}
+	if capture_states || capture_cycle {
 		let _ = std::fs::create_dir_all(artifacts_dir());
 		app.insert_resource(StateCapturePlan {
-			steps: capture_steps(),
+			steps: if capture_cycle { cycle_capture_steps() } else { capture_steps() },
 			index: 0,
 			dwell: 0.0,
 			last_applied: None,
@@ -230,7 +321,7 @@ fn apply_capture_state(
 	mut healths: Query<&mut Health>,
 	mut commands: Commands,
 ) {
-	if !cli.capture_states {
+	if !cli.capture_states && !cli.capture_cycle {
 		return;
 	}
 	let Some(mut plan) = plan else { return };
@@ -245,7 +336,11 @@ fn apply_capture_state(
 	let step = plan.steps[index];
 	priming.armed = false;
 	healing_enabled.0 = true;
-	*category = CombatHudInventoryCycleCategory::Weapons;
+	*category = match step.kind {
+		StateKind::CycleSkillMaps => CombatHudInventoryCycleCategory::SkillMaps,
+		StateKind::CycleLubikans => CombatHudInventoryCycleCategory::Lubikans,
+		_ => CombatHudInventoryCycleCategory::Weapons,
+	};
 	*hud = CombatHudVisible(true);
 
 	if let Ok(mut health) = healths.get_mut(owner.0) {
@@ -293,6 +388,9 @@ fn apply_capture_state(
 				plan.ledger_snapshot = Some(charge);
 				*hud = CombatHudVisible(false);
 			}
+			StateKind::CycleWeapons | StateKind::CycleSkillMaps | StateKind::CycleLubikans => {
+				ledger.apply_to_equipped(48.0 - current);
+			}
 		}
 	}
 }
@@ -308,7 +406,7 @@ fn drive_capture_states(
 	ledgers: Query<&LubikanLedger, With<LubikanOwner>>,
 	mut exit: MessageWriter<AppExit>,
 ) {
-	if !cli.capture_states {
+	if !cli.capture_states && !cli.capture_cycle {
 		return;
 	}
 	let Some(mut plan) = plan else { return };

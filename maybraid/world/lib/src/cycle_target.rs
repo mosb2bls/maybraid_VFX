@@ -1,16 +1,14 @@
 //! World-owned inventory cycle category and optional combat-hud mirror ([#1112](https://github.com/ramate-io/maybraid/issues/1112)).
 //!
-//! **Input model (this PR / #1112):** D-pad left / down / right selects the category;
+//! **Input model:** D-pad left / down / right selects the category;
 //! **Y** and **[** / **]** cycle the equipped queue in that category.
-//!
-//! Draft [#1223](https://github.com/ramate-io/maybraid/pull/1223) proposed rebinding **Y** to
-//! `CycleInventoryTarget` (rotate HUD cycle focus). That conflicts with #1112 acceptance
-//! criteria; this lane keeps #1112 bindings and exposes [`InventoryCycleTarget`] plus HUD sync
-//! so #1223 can layer teal panel chrome on the same world state.
+//! This module only mirrors that world state to the HUD and stamps cycle-panel
+//! markers onto existing weapons / skill-map roots.
 
 use bevy::prelude::*;
-use combat_hud::CombatHudInventoryCycleCategory;
+use combat_hud::{idle_cycle_outline, CombatHudCyclePanel, CombatHudInventoryCycleCategory};
 use maybraid_character_controller::InventoryCyclingCategory;
+use maybraid_skill_map::{SkillMapFirearmHud, SkillMapViewport};
 
 use crate::inventory_cycling::ActiveInventoryCyclingCategory;
 
@@ -39,10 +37,34 @@ pub(crate) fn sync_combat_hud_cycle_category(
 	}
 }
 
+/// Attach the generic cycle marker to existing weapons / skill-map panel roots.
+pub(crate) fn stamp_cycle_panel_markers(
+	mut commands: Commands,
+	firearms: Query<Entity, (With<SkillMapFirearmHud>, Without<CombatHudCyclePanel>)>,
+	maps: Query<Entity, (With<SkillMapViewport>, Without<CombatHudCyclePanel>)>,
+) {
+	for entity in &firearms {
+		commands.entity(entity).insert((
+			CombatHudCyclePanel(CombatHudInventoryCycleCategory::Weapons),
+			idle_cycle_outline(),
+		));
+	}
+	for entity in &maps {
+		commands.entity(entity).insert((
+			CombatHudCyclePanel(CombatHudInventoryCycleCategory::SkillMaps),
+			idle_cycle_outline(),
+		));
+	}
+}
+
 pub(crate) fn configure(app: &mut App) {
 	app.add_systems(
 		Update,
-		sync_combat_hud_cycle_category.after(crate::inventory_cycling::InventoryCyclingCategorySystems),
+		(
+			sync_combat_hud_cycle_category
+				.after(crate::inventory_cycling::InventoryCyclingCategorySystems),
+			stamp_cycle_panel_markers,
+		),
 	);
 }
 
@@ -73,6 +95,48 @@ mod tests {
 		world
 			.run_system_once(sync_combat_hud_cycle_category)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		Ok(())
+	}
+
+	#[test]
+	fn y_does_not_change_the_synced_hud_category() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(ActiveInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps));
+		world.insert_resource(CombatHudInventoryCycleCategory::Weapons);
+		world
+			.run_system_once(sync_combat_hud_cycle_category)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(
+			*world.resource::<CombatHudInventoryCycleCategory>(),
+			CombatHudInventoryCycleCategory::SkillMaps
+		);
+		// SwapActive / Y cycles the equipped queue; the world category is unchanged.
+		world
+			.run_system_once(sync_combat_hud_cycle_category)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(
+			*world.resource::<CombatHudInventoryCycleCategory>(),
+			CombatHudInventoryCycleCategory::SkillMaps
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn stamps_cycle_markers_on_existing_weapon_and_map_panels() -> anyhow::Result<()> {
+		let mut world = World::new();
+		let weapons = world.spawn(SkillMapFirearmHud).id();
+		let maps = world.spawn(SkillMapViewport).id();
+		world
+			.run_system_once(stamp_cycle_panel_markers)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(
+			world.get::<CombatHudCyclePanel>(weapons).copied(),
+			Some(CombatHudCyclePanel(CombatHudInventoryCycleCategory::Weapons))
+		);
+		assert_eq!(
+			world.get::<CombatHudCyclePanel>(maps).copied(),
+			Some(CombatHudCyclePanel(CombatHudInventoryCycleCategory::SkillMaps))
+		);
 		Ok(())
 	}
 }
