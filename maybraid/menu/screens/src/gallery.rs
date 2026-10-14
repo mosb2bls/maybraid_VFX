@@ -13,11 +13,12 @@ use menu_components::{
 };
 
 use crate::input::add_menu_input;
-use crate::show::{spawn_menu_show_request, take_menu_show_request};
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::MenuScreen;
 
 /// Queue a gallery spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowGallery;
 
 /// Marker on the spawned gallery root.
@@ -33,7 +34,7 @@ pub enum GalleryChoice {
 }
 
 pub fn request_show_gallery(commands: &mut Commands) {
-	spawn_menu_show_request(commands, RequestShowGallery);
+	commands.spawn(RequestShowGallery);
 }
 
 pub struct GalleryScreenPlugin;
@@ -41,18 +42,18 @@ pub struct GalleryScreenPlugin;
 impl Plugin for GalleryScreenPlugin {
 	fn build(&self, app: &mut App) {
 		add_menu_input(app);
-		app.add_plugins(TextMenuPlugin::<GalleryChoice>::default())
-			.add_systems(Update, apply_show_gallery);
+		app.add_plugins(TextMenuPlugin::<GalleryChoice>::default());
+		add_menu_show_systems(app, apply_show_gallery);
 	}
 }
 
 fn apply_show_gallery(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowGallery>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowGallery>>,
+	screens: MenuScreens,
 	save_root: Option<Res<SaveRoot>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	let summaries = save_root.as_ref().map(|root| list_summaries(root)).unwrap_or_default();

@@ -12,11 +12,12 @@ use menu_components::{
 
 use crate::input::add_menu_input;
 use crate::settings::InGameSettingsPlugin;
-use crate::show::{spawn_menu_show_request, take_menu_show_request};
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::{GameMode, MenuScreen};
 
 /// Queue an in-game menu spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowInGame {
 	pub mode: Option<String>,
 	/// Row under the cursor when the menu opens. `None` is the first row.
@@ -98,19 +99,16 @@ impl InGameScreen {
 }
 
 pub fn request_show_in_game(commands: &mut Commands) {
-	spawn_menu_show_request(commands, RequestShowInGame { mode: None, selected: None });
+	commands.spawn(RequestShowInGame { mode: None, selected: None });
 }
 
 pub fn request_show_in_game_with_mode(commands: &mut Commands, mode: impl Into<String>) {
-	spawn_menu_show_request(
-		commands,
-		RequestShowInGame { mode: Some(mode.into()), selected: None },
-	);
+	commands.spawn(RequestShowInGame { mode: Some(mode.into()), selected: None });
 }
 
 /// Re-show the pause menu with `selected` under the cursor.
 pub fn request_show_in_game_at(commands: &mut Commands, selected: InGameMenuChoice) {
-	spawn_menu_show_request(commands, RequestShowInGame { mode: None, selected: Some(selected) });
+	commands.spawn(RequestShowInGame { mode: None, selected: Some(selected) });
 }
 
 pub struct InGameScreenPlugin;
@@ -121,28 +119,27 @@ impl Plugin for InGameScreenPlugin {
 		app.init_resource::<GameMode>()
 			.add_plugins(TextMenuPlugin::<InGameMenuChoice>::default())
 			.add_plugins(InGameSettingsPlugin)
-			.add_systems(Update, (apply_show_in_game, sync_in_game_brand));
+			.add_systems(Update, sync_in_game_brand);
+		add_menu_show_systems(app, apply_show_in_game);
 	}
 }
 
 fn apply_show_in_game(
 	mut commands: Commands,
-	requests: Query<(Entity, &RequestShowInGame)>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<&RequestShowInGame>,
+	screens: MenuScreens,
 	mut mode: ResMut<GameMode>,
 ) {
-	let Some((_, request)) = requests.iter().last() else {
+	let Some(request) = screens.take(&mut commands, &requests) else {
+		return;
+	};
+	let Ok(request) = requests.get(request) else {
 		return;
 	};
 	if let Some(label) = request.mode.as_ref() {
 		mode.label.clone_from(label);
 	}
-	let selected = request.selected;
-	if !take_menu_show_request(&mut commands, requests.iter().map(|(entity, _)| entity), &existing)
-	{
-		return;
-	}
-	commands.spawn_scene(InGameScreen::scene(&mode, selected));
+	commands.spawn_scene(InGameScreen::scene(&mode, request.selected));
 }
 
 fn sync_in_game_brand(

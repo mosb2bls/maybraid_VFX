@@ -12,7 +12,7 @@ use menu_components::{
 	ScreenBackPressed, ShortTextModal, ShortTextModalRoot, TextMenuInputLock, TextMenuSystems,
 };
 
-use crate::character::{CharacterMenuState, CharacterScreen};
+use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
 use crate::session::{
 	leave_character_editor, save_editing_character, set_active_character, CharacterEditorReturn,
 	EditingCharacter,
@@ -264,7 +264,10 @@ fn sync_character_leave_prompt(
 	let Ok(screen) = screens.single() else {
 		return;
 	};
-	commands.entity(screen).with_children(|parent| {
+	let Ok(mut screen) = commands.get_entity(screen) else {
+		return;
+	};
+	screen.with_children(|parent| {
 		spawn_leave_prompt(parent, &HudFonts::load(asset_server.as_ref()), kind);
 	});
 }
@@ -376,7 +379,8 @@ fn on_leave_prompt_click(
 	roots: Query<Entity, With<CharacterLeavePromptRoot>>,
 	save_root: Res<SaveRoot>,
 	editing: Option<Res<EditingCharacter>>,
-	menu_state: Res<CharacterMenuState>,
+	baseline: Option<Res<CharacterEditBaseline>>,
+	mut menu_state: ResMut<CharacterMenuState>,
 	return_to: Option<Res<CharacterEditorReturn>>,
 	mut prompt: ResMut<CharacterLeavePrompt>,
 	mut commands: Commands,
@@ -389,7 +393,8 @@ fn on_leave_prompt_click(
 			&roots,
 			&save_root,
 			editing.as_deref(),
-			&menu_state,
+			baseline.as_deref(),
+			&mut menu_state,
 			return_to.as_deref().copied(),
 			&mut commands,
 		);
@@ -403,7 +408,8 @@ fn on_leave_prompt_click(
 			&roots,
 			&save_root,
 			editing.as_deref(),
-			&menu_state,
+			baseline.as_deref(),
+			&mut menu_state,
 			return_to.as_deref().copied(),
 			&mut commands,
 		);
@@ -416,7 +422,8 @@ fn on_leave_prompt_nav(
 	roots: Query<Entity, With<CharacterLeavePromptRoot>>,
 	save_root: Res<SaveRoot>,
 	editing: Option<Res<EditingCharacter>>,
-	menu_state: Res<CharacterMenuState>,
+	baseline: Option<Res<CharacterEditBaseline>>,
+	mut menu_state: ResMut<CharacterMenuState>,
 	return_to: Option<Res<CharacterEditorReturn>>,
 	mut prompt: ResMut<CharacterLeavePrompt>,
 	mut consumed: ResMut<MenuBackConsumed>,
@@ -444,7 +451,8 @@ fn on_leave_prompt_nav(
 				&roots,
 				&save_root,
 				editing.as_deref(),
-				&menu_state,
+				baseline.as_deref(),
+				&mut menu_state,
 				return_to.as_deref().copied(),
 				&mut commands,
 			);
@@ -460,7 +468,8 @@ fn on_leave_prompt_nav(
 				&roots,
 				&save_root,
 				editing.as_deref(),
-				&menu_state,
+				baseline.as_deref(),
+				&mut menu_state,
 				return_to.as_deref().copied(),
 				&mut commands,
 			);
@@ -482,7 +491,8 @@ fn apply_leave_prompt(
 	roots: &Query<Entity, With<CharacterLeavePromptRoot>>,
 	save_root: &SaveRoot,
 	editing: Option<&EditingCharacter>,
-	menu_state: &CharacterMenuState,
+	baseline: Option<&CharacterEditBaseline>,
+	menu_state: &mut CharacterMenuState,
 	return_to: Option<CharacterEditorReturn>,
 	commands: &mut Commands,
 ) {
@@ -509,6 +519,8 @@ fn apply_leave_prompt(
 			return;
 		}
 		set_active_character(commands, save_root, editing.id);
+	} else if let Some(baseline) = baseline {
+		baseline.restore_into(&mut menu_state.0);
 	}
 	close_leave_prompt(prompt, roots, commands);
 	leave_character_editor(commands, return_to);
@@ -545,8 +557,18 @@ fn pointer_target(
 mod tests {
 	use super::{
 		character_leave_edge, character_screen_modal, latch_modal_button, CharacterLeaveKind,
-		CharacterModalMode,
+		CharacterLeavePrompt, CharacterLeavePromptMenu, CharacterModalMode,
 	};
+	use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
+	use crate::session::{
+		finish_character_editor_exit, CharacterEditorExit, CharacterEditorReturn, EditingCharacter,
+	};
+	use bevy::prelude::*;
+	use character_items::Inventory;
+	use character_persist::{CharacterId, SaveRoot};
+	use maybraid_input::{MenuNav, MenuNavImpulse};
+	use menu_components::{HudMenu, MenuBackConsumed};
+	use menu_screens::{InGameScreen, MenuScreen, RequestShowInGame};
 
 	#[test]
 	fn start_on_the_main_screen_asks_to_save() {
@@ -608,5 +630,140 @@ mod tests {
 			character_leave_edge(true, mode.blocks_leave(), false, true, false),
 			Some(CharacterLeaveKind::Save)
 		);
+	}
+
+	fn scratch_root() -> SaveRoot {
+		SaveRoot::at(
+			std::env::temp_dir().join(format!("maybraid-leave-{}", CharacterId::new().to_hex())),
+		)
+	}
+
+	/// `sync_preview` / pause look used to spawn a gallery mesh over the live
+	/// world player when `CharacterEditorReturn` vanished while the HUD was up.
+	fn panic_if_in_game_editor_lost_return(
+		screens: Query<(), With<CharacterScreen>>,
+		return_to: Option<Res<CharacterEditorReturn>>,
+		exit: Option<Res<CharacterEditorExit>>,
+	) {
+		if !screens.is_empty() && exit.is_some() && return_to.is_none() {
+			panic!(
+				"CharacterEditorReturn removed while CharacterScreen is still live \
+				 (in-game editor teardown)"
+			);
+		}
+	}
+
+	fn apply_show_in_game_request(
+		mut commands: Commands,
+		requests: Query<Entity, With<RequestShowInGame>>,
+		screens: Query<Entity, With<MenuScreen>>,
+	) {
+		if requests.is_empty() {
+			return;
+		}
+		for entity in &requests {
+			commands.entity(entity).try_despawn();
+		}
+		for entity in &screens {
+			commands.entity(entity).try_despawn();
+		}
+		commands.spawn((InGameScreen, MenuScreen));
+	}
+
+	fn editor_leave_app(dirty_name: &str) -> App {
+		let mut menu = CharacterMenuState::default();
+		menu.0.name = String::from(dirty_name);
+		let baseline =
+			CharacterEditBaseline { name: String::from("Roamer"), inventory: Inventory::default() };
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.insert_resource(scratch_root())
+			.insert_resource(menu)
+			.insert_resource(baseline)
+			.insert_resource(EditingCharacter { id: CharacterId(11) })
+			.insert_resource(CharacterEditorReturn::InGame)
+			.init_resource::<CharacterLeavePrompt>()
+			.init_resource::<MenuBackConsumed>()
+			.add_observer(super::on_leave_prompt_nav)
+			.add_systems(
+				Update,
+				(
+					apply_show_in_game_request,
+					finish_character_editor_exit,
+					panic_if_in_game_editor_lost_return,
+				),
+			);
+		app.world_mut().spawn((CharacterScreen, MenuScreen));
+		app
+	}
+
+	fn open_discard_prompt(app: &mut App) -> Entity {
+		let mut prompt = app.world_mut().resource_mut::<CharacterLeavePrompt>();
+		prompt.open(CharacterLeaveKind::Discard);
+		prompt.opened_this_frame = false;
+		app.world_mut().spawn((CharacterLeavePromptMenu, HudMenu::new(2))).id()
+	}
+
+	fn has_component<T: Component>(app: &mut App) -> bool {
+		let world = app.world_mut();
+		world.query::<&T>().iter(world).next().is_some()
+	}
+
+	#[test]
+	fn canceling_the_in_game_leave_prompt_keeps_the_editor() {
+		let mut app = editor_leave_app("Dirty");
+		let menu = open_discard_prompt(&mut app);
+		app.world_mut().trigger(MenuNavImpulse::new(menu, MenuNav::Back));
+		app.update();
+		app.update();
+
+		assert!(app
+			.world()
+			.get_resource::<CharacterLeavePrompt>()
+			.is_some_and(|prompt| !prompt.is_open()));
+		assert!(has_component::<CharacterScreen>(&mut app));
+		assert_eq!(
+			app.world().get_resource::<CharacterEditorReturn>().copied(),
+			Some(CharacterEditorReturn::InGame)
+		);
+		assert_eq!(app.world().resource::<CharacterMenuState>().0.name, "Dirty");
+		assert!(app.world().get_resource::<CharacterEditorExit>().is_none());
+		assert!(!has_component::<InGameScreen>(&mut app));
+	}
+
+	#[test]
+	fn discarding_the_in_game_editor_restores_baseline_without_dropping_return() {
+		let mut app = editor_leave_app("Dirty");
+		let menu = open_discard_prompt(&mut app);
+		app.world_mut().trigger(MenuNavImpulse::new(menu, MenuNav::Select));
+		app.update();
+		app.update();
+
+		assert!(!has_component::<CharacterScreen>(&mut app));
+		assert!(has_component::<InGameScreen>(&mut app));
+		assert!(app.world().get_resource::<CharacterEditorReturn>().is_none());
+		assert!(app.world().get_resource::<CharacterEditorExit>().is_none());
+		assert_eq!(app.world().resource::<CharacterMenuState>().0.name, "Roamer");
+		assert!(app
+			.world()
+			.get_resource::<CharacterLeavePrompt>()
+			.is_some_and(|prompt| !prompt.is_open()));
+	}
+
+	#[test]
+	fn selecting_cancel_on_the_leave_prompt_stays_in_the_editor() {
+		let mut app = editor_leave_app("Dirty");
+		let menu = open_discard_prompt(&mut app);
+		app.world_mut().entity_mut(menu).insert(HudMenu { selected: 1, item_count: 2 });
+		app.world_mut().trigger(MenuNavImpulse::new(menu, MenuNav::Select));
+		app.update();
+		app.update();
+
+		assert!(has_component::<CharacterScreen>(&mut app));
+		assert_eq!(
+			app.world().get_resource::<CharacterEditorReturn>().copied(),
+			Some(CharacterEditorReturn::InGame)
+		);
+		assert_eq!(app.world().resource::<CharacterMenuState>().0.name, "Dirty");
 	}
 }

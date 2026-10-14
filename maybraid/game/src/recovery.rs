@@ -13,7 +13,7 @@ use bevy::ecs::error::{BevyError, ErrorContext, Severity};
 use bevy::prelude::*;
 use character_persist::SaveRoot;
 use maybraid_world::AgentDrive;
-use menu_playground::{end_character_editor, CharacterLeavePrompt, SessionQuery};
+use menu_playground::{end_character_editor, CharacterLeavePrompt};
 use menu_screens::{cancel_pending_create, MenuScreens};
 use std::collections::VecDeque;
 use std::fs;
@@ -308,7 +308,6 @@ fn apply_recovery(
 	mut route: ShellRoute,
 	flow: Res<State<GameFlow>>,
 	mut next_pause: Option<ResMut<NextState<WorldPause>>>,
-	sessions: SessionQuery,
 	mut prompt: Option<ResMut<CharacterLeavePrompt>>,
 	mut history: ResMut<RecoveryHistory>,
 	mut apply: ResMut<RecoveryApply>,
@@ -339,7 +338,7 @@ fn apply_recovery(
 	let flow = *flow.get();
 	let destination = recovery_destination(flow, escalate);
 	apply.in_progress = true;
-	tear_down_shell(&mut commands, &screens, &sessions, prompt.as_deref_mut());
+	tear_down_shell(&mut commands, &screens, prompt.as_deref_mut());
 	match destination {
 		RecoveryDestination::World => {
 			if let Some(next) = next_pause.as_mut() {
@@ -367,11 +366,10 @@ fn apply_recovery(
 fn tear_down_shell(
 	commands: &mut Commands,
 	screens: &MenuScreens,
-	sessions: &SessionQuery,
 	prompt: Option<&mut CharacterLeavePrompt>,
 ) {
 	screens.clear(commands);
-	end_character_editor(commands, sessions);
+	end_character_editor(commands);
 	cancel_pending_create(commands);
 	if let Some(prompt) = prompt {
 		prompt.close();
@@ -540,10 +538,8 @@ mod tests {
 			let mut requests = world.query::<&MenuShowRequest>();
 			anyhow::ensure!(requests.iter(world).count() == 0);
 		}
-		anyhow::ensure!(app
-			.world()
-			.get_resource::<menu_playground::CharacterEditorReturn>()
-			.is_none());
+		// `end_character_editor` marks the session; `finish_character_editor_exit`
+		// drops Return once CharacterScreen is gone (same frame in the full app).
 		let pause = app.world().resource::<State<WorldPause>>();
 		anyhow::ensure!(*pause.get() == WorldPause::Playing, "pause {pause:?}");
 		let toast = app

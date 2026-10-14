@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use character_items::{InventoryItem, ItemRng};
 use character_persist::CharacterId;
 
-use crate::show::spawn_menu_show_request;
 use crate::spin_reveal::{
 	request_show_spin_reveal, SpinRevealFinished, SpinRevealScreenPlugin, SpinRevealSystems,
 };
@@ -30,7 +29,7 @@ pub fn request_show_create_character(commands: &mut Commands) {
 }
 
 pub fn request_show_create_character_id(commands: &mut Commands, id: CharacterId) {
-	spawn_menu_show_request(commands, RequestShowCreateCharacter { id });
+	commands.spawn(RequestShowCreateCharacter { id });
 }
 
 /// Drop an in-flight starter reveal so Back from spin-reveal does not create.
@@ -65,7 +64,7 @@ fn start_create_character(
 	let mut id = CharacterId::new();
 	for (entity, request) in &requests {
 		id = request.id;
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 	commands.insert_resource(PendingCreate(id));
 	let mut rng = ItemRng::from_entropy();
@@ -83,5 +82,49 @@ fn forward_create_character_ready(
 	};
 	for event in finished.read() {
 		ready.write(CreateCharacterReady { id: pending.0, items: event.items.clone() });
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{
+		cancel_pending_create, start_create_character, PendingCreate, RequestShowCreateCharacter,
+	};
+	use bevy::ecs::system::RunSystemOnce;
+	use bevy::prelude::*;
+	use character_persist::CharacterId;
+
+	#[test]
+	fn cancel_pending_create_is_idempotent() -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = World::new();
+		world.insert_resource(PendingCreate(CharacterId(1)));
+		world
+			.run_system_once(|mut commands: Commands| {
+				cancel_pending_create(&mut commands);
+				cancel_pending_create(&mut commands);
+			})
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		if world.get_resource::<PendingCreate>().is_some() {
+			return Err("pending create should be gone".into());
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn start_create_despawns_its_request() -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = World::new();
+		let request = world.spawn(RequestShowCreateCharacter { id: CharacterId(2) }).id();
+		world
+			.run_system_once(start_create_character)
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		if world.get_entity(request).is_ok() {
+			return Err("create request should be gone".into());
+		}
+		if world.get_resource::<PendingCreate>().is_none() {
+			return Err("create should arm a pending id".into());
+		}
+		Ok(())
 	}
 }
