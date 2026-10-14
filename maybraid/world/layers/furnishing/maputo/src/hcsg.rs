@@ -190,8 +190,8 @@ mod tests {
 	use bevy::state::app::StatesPlugin;
 	use durham::Durham;
 	use lod::hcsg::{
-		hcsg_hosts, settle_presentation, HcsgNode, HcsgRestartRequest, RetiredHost,
-		SettlePresentation,
+		hcsg_hosts, settle_presentation, wait_replaced_hosts, HcsgNode, HcsgRestartRequest,
+		RetiredHost, SettlePresentation,
 	};
 	use lod::lod_ref::LodNodePose;
 	use lod::LodViewer;
@@ -341,7 +341,9 @@ mod tests {
 
 		seed_resources(&mut app, 20.0);
 		settle(&mut app)?;
-		let after = hcsg_hosts::<Furnished<Urban>>(&mut app);
+		// Presentation keeps the previous session until new versions publish.
+		// `settle` only runs a fixed reconcile budget; wait on versions.
+		let after = wait_replaced_hosts::<Furnished<Urban>>(&mut app, &before, IDLE, 64)?;
 
 		assert_eq!(after.len(), before.len());
 		for ((id, old), (new_id, new)) in before.iter().zip(&after) {

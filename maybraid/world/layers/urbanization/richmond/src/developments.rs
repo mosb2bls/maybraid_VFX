@@ -138,6 +138,23 @@ impl<G: RichmondGround> hcsg::GenerationScheme for RichmondDevelopment<G> {
 }
 
 impl<G: RichmondGround> RichmondDevelopment<G> {
+	/// Whether [`crate::Built`] discovery should include `id`.
+	///
+	/// Uses a cached development when present; otherwise builds only as much
+	/// of the site stack as needed to learn whether anything fits.
+	pub fn builds_filled(cx: &mut GenerationContext, id: Id) -> bool {
+		if let Some(development) = cx.get::<Self>(id) {
+			return development.is_filled();
+		}
+		let Some(site) = cx.get_or_generate::<DevelopmentSite>(id) else {
+			return false;
+		};
+		if !site.is_filled() {
+			return false;
+		}
+		cx.get_or_generate::<Self>(id).is_some_and(|development| development.is_filled())
+	}
+
 	/// Pad nodes of the filled `developments` affecting `region`, merged
 	/// into one sample-time blend pass.
 	///
