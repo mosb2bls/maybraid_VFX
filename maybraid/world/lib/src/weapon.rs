@@ -803,6 +803,9 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
 		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(ActiveInventoryCyclingCategory(
+			maybraid_character_controller::InventoryCyclingCategory::Weapons,
+		));
 		let bag = world.spawn(inventory).id();
 		let held = world.spawn_empty().id();
 		let player = world
