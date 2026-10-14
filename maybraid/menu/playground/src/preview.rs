@@ -1,15 +1,13 @@
 //! Live character preview driven by [`CharacterMenuState`].
 
 use std::collections::HashMap;
-use std::f32::consts::{FRAC_PI_4, PI, TAU};
+use std::f32::consts::{PI, TAU};
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
 use bevy::window::PrimaryWindow;
-use character_creation_menus::{
-	CharacterField, CharacterMenu, ConceptSpecies, MenuEvent, BODY_FOCUS,
-};
+use character_creation_menus::{CharacterMenu, ConceptSpecies, MenuEvent};
 #[cfg(test)]
 use character_items::InventoryItem;
 use character_items::{ClothingHost, ClothingMesh, FirearmSpec, ItemColor};
@@ -59,12 +57,15 @@ pub struct CharacterPreviewLight;
 #[derive(Resource, Default)]
 struct PreviewSyncState {
 	key: String,
+	species: Option<ConceptSpecies>,
 	anim: Option<AnimRef>,
 }
 
 /// Menu preview vertical FOV; gameplay leaves its own hip / ADS FOV on the
 /// shared world camera.
-const PREVIEW_FOV: f32 = FRAC_PI_4;
+const PREVIEW_FOV: f32 = CameraFocus::BODY_PREVIEW_FOV;
+/// Right-justified character HUD panel; keep the body in the leftover preview.
+const CHARACTER_PANEL_WIDTH_PX: f32 = 480.0;
 const ORBIT_YAW_SPEED: f32 = 2.4;
 const ORBIT_PITCH_SPEED: f32 = 1.6;
 /// Elevation cap so the orbit never reaches the `looking_at` up-vector pole.
@@ -89,6 +90,8 @@ impl PendingCameraFocus {
 		self.focus = Some(focus);
 		self.frame = None;
 		self.orbit = PreviewOrbit::default();
+		// Hull-fit body offsets are already in preview-root space.
+		self.world_space = focus.rig == FocusRig::Body && focus.socket == "root";
 	}
 
 	fn clear(&mut self) {
@@ -421,16 +424,18 @@ fn respawn_from_menu(
 	if sync.key == key && !roots.is_empty() {
 		return;
 	}
+	let species = menu.species.value;
+	let reframe = force_focus || pending.focus.is_none() || sync.species != Some(species);
 	sync.key = key;
+	sync.species = Some(species);
 	sync.anim = Some(AnimRef::from(menu.animation()));
 	for entity in roots {
 		commands.entity(entity).try_despawn();
 	}
 	spawn_from_menu(commands, menu);
 	pending.frame = None;
-	pending.world_space = false;
-	if force_focus || pending.focus.is_none() {
-		pending.set_focus(default_body_focus(menu));
+	if reframe {
+		pending.set_focus(menu.body_preview_focus());
 	}
 }
 
@@ -444,6 +449,7 @@ fn clear_preview(
 		commands.entity(entity).try_despawn();
 	}
 	sync.key.clear();
+	sync.species = None;
 	sync.anim = None;
 	pending.clear();
 }
@@ -689,6 +695,7 @@ fn apply_preview_camera_focus(
 	windows: Query<&Window, With<PrimaryWindow>>,
 	home: Query<(), With<HomeScreen>>,
 	gallery: Query<(), With<GalleryScreen>>,
+	character: Query<(), With<CharacterScreen>>,
 	weapons: Query<(), With<WeaponGalleryScreen>>,
 	firearm_previews: Query<(), (With<CharacterPreviewRoot>, With<FirearmRoot>)>,
 	scene: FocusRigScene,
@@ -744,13 +751,13 @@ fn apply_preview_camera_focus(
 			.map(|window| window.width() / window.height().max(1.0))
 			.unwrap_or(16.0 / 9.0);
 		offset_camera_into_display_pane(&mut transform, &projection, look_at, aspect);
+	} else if !character.is_empty() {
+		let (aspect, width) = windows.single().ok().map_or((16.0 / 9.0, 1920.0), |window| {
+			(window.width() / window.height().max(1.0), window.width().max(1.0))
+		});
+		offset_camera_for_character_panel(&mut transform, &projection, look_at, aspect, width);
 	}
 	sync_controller_from_transform(&mut controller, &transform);
-}
-
-fn default_body_focus(menu: &CharacterMenu) -> CameraFocus {
-	menu.camera_focus_for_event(MenuEvent::Cycle(CharacterField::Animation, 0))
-		.unwrap_or(BODY_FOCUS)
 }
 
 fn sync_controller_from_transform(controller: &mut CameraController, transform: &Transform) {
@@ -784,12 +791,35 @@ fn offset_camera_into_display_pane(
 	transform.translation -= *transform.up() * ndc_y * half_height;
 }
 
+/// Shift the framed body into the open preview left of the 480px HUD panel.
+fn offset_camera_for_character_panel(
+	transform: &mut Transform,
+	projection: &Projection,
+	look_at: Vec3,
+	aspect: f32,
+	window_width: f32,
+) {
+	let Projection::Perspective(perspective) = projection else {
+		return;
+	};
+	let depth = transform.translation.distance(look_at).max(0.1);
+	let half_height = (perspective.fov * 0.5).tan() * depth;
+	let half_width = half_height * aspect.max(0.1);
+	let visible = (window_width - CHARACTER_PANEL_WIDTH_PX).max(1.0);
+	let pane_center = (visible * 0.5) / window_width.max(1.0);
+	let ndc_x = pane_center * 2.0 - 1.0;
+	transform.translation -= *transform.right() * ndc_x * half_width;
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::f32::consts::FRAC_PI_4;
+
 	use character_creation_menus::focus::{
 		spin_reveal_firearm_focus, spin_reveal_grenade_focus, EYE_FOCUS, HEAD_ROOT_FOCUS,
 	};
+	use character_creation_menus::BODY_FOCUS;
 
 	const EPS: f32 = 1e-4;
 
@@ -981,5 +1011,27 @@ mod tests {
 		let charge = spin_reveal_grenade_focus();
 		assert!(charge.camera_offset.length() < gun.camera_offset.length());
 		assert!(GRENADE_PREVIEW_SCALE > 0.2);
+	}
+
+	#[test]
+	fn body_root_focus_is_applied_in_preview_root_space() {
+		let mut pending = PendingCameraFocus::default();
+		pending.set_focus(BODY_FOCUS);
+		assert!(pending.world_space);
+		pending.set_focus(HEAD_ROOT_FOCUS);
+		assert!(!pending.world_space);
+	}
+
+	#[test]
+	fn species_change_replaces_stale_body_focus() {
+		let braidman = CharacterMenu::default();
+		let mut spibmom = CharacterMenu::default();
+		assert!(spibmom.apply(MenuEvent::SetSpecies(ConceptSpecies::Spibmom)));
+		let mut pending = PendingCameraFocus::default();
+		pending.set_focus(braidman.body_preview_focus());
+		pending.set_focus(spibmom.body_preview_focus());
+		assert_eq!(pending.focus, Some(spibmom.body_preview_focus()));
+		assert_ne!(pending.focus, Some(braidman.body_preview_focus()));
+		assert!(pending.world_space);
 	}
 }
