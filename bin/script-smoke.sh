@@ -152,6 +152,8 @@ ready = None
 waypoint_reached = False
 picker_open = False
 max_bodies = 0
+first_hosts = None
+max_hosts = 0
 screen_home = False
 focus_characters = False
 try:
@@ -182,8 +184,13 @@ for raw in lines:
 		picker_open = True
 	elif kind == "actors":
 		bodies = event.get("bodies") or 0
+		hosts = event.get("hosts") or 0
 		if bodies > max_bodies:
 			max_bodies = bodies
+		if first_hosts is None:
+			first_hosts = hosts
+		if hosts > max_hosts:
+			max_hosts = hosts
 	elif kind == "screen" and event.get("name") == "home":
 		screen_home = True
 	elif kind == "focus" and event.get("label") == "Characters":
@@ -205,8 +212,9 @@ if name.startswith("smoke-menu-") or name.startswith("menu-"):
 	if name == "smoke-menu-home" and not focus_characters:
 		problems.append("no focus on Characters")
 if name.startswith("smoke-mobs-"):
-	if max_bodies < 1:
-		problems.append("no actor bodies")
+	# Bodies stream in slowly on lavapipe; a host census bump is the spawn signal.
+	if max_bodies < 1 and (first_hosts is None or max_hosts <= first_hosts):
+		problems.append("no actor host/body census bump")
 if problems:
 	print("; ".join(problems))
 	sys.exit(1)
