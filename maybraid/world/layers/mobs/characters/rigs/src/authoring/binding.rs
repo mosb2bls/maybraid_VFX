@@ -159,6 +159,10 @@ pub struct RigBinding {
 	pub entities: Box<[Entity]>,
 	pub effective_rest: PoseBuffer,
 	pub metrics: RigMetrics,
+	/// Bumped when [`Self::refresh_rest`] replaces rest. Lets animation skip per-bone scans.
+	pub rest_epoch: u32,
+	/// Last [`Self::rest_epoch`] confirmed against live [`AnimBone`] rests.
+	pub synced_rest_epoch: u32,
 }
 
 impl RigBinding {
@@ -168,7 +172,7 @@ impl RigBinding {
 		effective_rest: PoseBuffer,
 	) -> Self {
 		let metrics = RigMetrics::from_rest(&definition, &effective_rest);
-		Self { definition, entities, effective_rest, metrics }
+		Self { definition, entities, effective_rest, metrics, rest_epoch: 1, synced_rest_epoch: 0 }
 	}
 
 	/// Replace rest when a proportion edit or bone-map reload changes bind transforms.
@@ -178,6 +182,7 @@ impl RigBinding {
 		}
 		self.metrics = RigMetrics::from_rest(&self.definition, &effective_rest);
 		self.effective_rest = effective_rest;
+		self.rest_epoch += 1;
 	}
 }
 
