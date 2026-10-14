@@ -23,20 +23,37 @@ pub enum CharacterIntent {
 	ChangeProne,
 	ExitInteraction,
 	StartInteraction,
-	/// Cycle the weapon queue (pad **Y** / keyboard **Y**).
+	/// Cycle the equipped queue for the active inventory category (pad **Y** / keyboard **Y**).
 	SwapActive,
-	/// Cycle the equipped skill-map queue. D-Pad left/right, or **[** / **]**.
+	/// Cycle the equipped queue for the active category. **[** / **]** keyboard equivalents.
 	/// Negative steps backward; non-negative advances.
-	CycleSkillMap(i8),
+	CycleEquippedQueue(i8),
+	/// Select which equipped queue **Y** cycles. Pad **D-Pad** left / right / down.
+	SelectInventoryCyclingCategory(InventoryCyclingCategory),
 	InGameMenu,
 	Inventory,
 	PowerUseItem,
 	/// Toggle the world overhead map. Keyboard **M** / Xbox **View** (pad Select).
 	ToggleMap,
-	/// Open the overhead map. Pad **D-Pad up**.
-	OpenMap,
-	/// Close the overhead map. Pad **D-Pad down**.
-	CloseMap,
+}
+
+/// Which equipped inventory queue responds to **Y** / **[** / **]**.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum InventoryCyclingCategory {
+	#[default]
+	Weapons,
+	SkillMaps,
+	Lubikans,
+}
+
+impl InventoryCyclingCategory {
+	pub const fn label(self) -> &'static str {
+		match self {
+			Self::Weapons => "Weapons",
+			Self::SkillMaps => "Skill Maps",
+			Self::Lubikans => "Lubikans",
+		}
+	}
 }
 
 impl CharacterIntent {
@@ -57,13 +74,12 @@ impl CharacterIntent {
 			Self::ExitInteraction => "exit-interaction",
 			Self::StartInteraction => "start-interaction",
 			Self::SwapActive => "swap-active",
-			Self::CycleSkillMap(_) => "cycle-skill-map",
+			Self::CycleEquippedQueue(_) => "cycle-equipped-queue",
+			Self::SelectInventoryCyclingCategory(_) => "select-inventory-cycling-category",
 			Self::InGameMenu => "in-game-menu",
 			Self::Inventory => "inventory",
 			Self::PowerUseItem => "power-use-item",
 			Self::ToggleMap => "toggle-map",
-			Self::OpenMap => "open-map",
-			Self::CloseMap => "close-map",
 		}
 	}
 }

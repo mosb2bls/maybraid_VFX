@@ -54,10 +54,10 @@ impl HudPlateLayout {
 }
 
 /// Spawns a hidden, pick-ignored HUD plate with shared fill, stroke, and padding.
-pub(crate) fn spawn_hud_plate<M: Component>(
+pub(crate) fn spawn_hud_plate(
 	parent: &mut ChildSpawnerCommands,
 	name: &'static str,
-	marker: M,
+	marker: impl Bundle,
 	layout: HudPlateLayout,
 	children: impl FnOnce(&mut ChildSpawnerCommands),
 ) -> Entity {
