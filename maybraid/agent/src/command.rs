@@ -2,9 +2,19 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::menu::MenuMatcher;
+
 /// Script API version. Bump when a command is added or its meaning changes;
 /// record each bump in `maybraid/agent/README.md`.
-pub const SCRIPT_API_VERSION: u32 = 5;
+pub const SCRIPT_API_VERSION: u32 = 6;
+
+fn default_wait_for_timeout() -> f32 {
+	10.0
+}
+
+fn default_mash_rate_hz() -> f32 {
+	15.0
+}
 
 const DEFAULT_GOTO_TIMEOUT: f32 = 30.0;
 const DEFAULT_GOTO_RADIUS: f32 = 3.0;
@@ -24,14 +34,14 @@ fn default_goto_radius() -> f32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentButton {
-	/// Face **A** / Space — jump.
-	#[serde(alias = "a", alias = "south")]
+	/// Face **A** / Space — jump. Menu confirm.
+	#[serde(alias = "a", alias = "south", alias = "confirm")]
 	Jump,
 	/// L3 / Shift — sprint while held.
 	#[serde(alias = "l3", alias = "stick_click_move")]
 	Sprint,
-	/// Face **B** / Escape — squat tap, prone hold.
-	#[serde(alias = "b", alias = "east", alias = "crouch")]
+	/// Face **B** / Escape — squat tap, prone hold. Menu back.
+	#[serde(alias = "b", alias = "east", alias = "crouch", alias = "back")]
 	Stance,
 	/// Face **X** / E — interact.
 	#[serde(alias = "x", alias = "west", alias = "interact")]
@@ -117,7 +127,35 @@ pub enum AgentCommand {
 		secs: f32,
 	},
 	/// One-frame digital press (just_pressed on the virtual pad).
-	Press { button: AgentButton },
+	///
+	/// `button` is the original single-press form. `buttons` presses several
+	/// in the same frame (chords). Both may be set; they are unioned.
+	Press {
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		button: Option<AgentButton>,
+		#[serde(default, skip_serializing_if = "Vec::is_empty")]
+		buttons: Vec<AgentButton>,
+	},
+	/// Idle until the published menu snapshot matches, or `timeout` (fail).
+	WaitFor {
+		#[serde(flatten)]
+		matcher: MenuMatcher,
+		#[serde(default = "default_wait_for_timeout")]
+		timeout: f32,
+	},
+	/// Instant check of the published menu snapshot. Mismatch is `failed`.
+	Expect {
+		#[serde(flatten)]
+		matcher: MenuMatcher,
+	},
+	/// Seeded random presses (and chords) for `secs`. Same seed, same sequence.
+	Mash {
+		buttons: Vec<AgentButton>,
+		#[serde(default = "default_mash_rate_hz")]
+		rate_hz: f32,
+		secs: f32,
+		seed: u64,
+	},
 	/// Idle for `secs` of game time. Overlay is cleared.
 	Wait { secs: f32 },
 	/// Camera-relative walk toward world XZ until reached or `timeout`.
@@ -164,8 +202,23 @@ impl AgentCommand {
 		match self {
 			Self::Start { xz } => format!("start {:.1},{:.1}", xz[0], xz[1]),
 			Self::Hold { .. } => "hold".into(),
-			Self::Press { button } => format!("press {}", button.as_str()),
+			Self::Press { .. } => {
+				let names = self.press_buttons();
+				if names.is_empty() {
+					"press".into()
+				} else {
+					format!(
+						"press {}",
+						names.iter().map(|button| button.as_str()).collect::<Vec<_>>().join("+")
+					)
+				}
+			}
 			Self::Wait { .. } => "wait".into(),
+			Self::WaitFor { matcher, .. } => format!("wait_for {}", matcher.describe()),
+			Self::Expect { matcher } => format!("expect {}", matcher.describe()),
+			Self::Mash { seed, rate_hz, secs, .. } => {
+				format!("mash seed={seed} {rate_hz}hz {secs}s")
+			}
 			Self::Goto { xz, .. } => format!("goto {:.1},{:.1}", xz[0], xz[1]),
 			Self::Teleport { xz, .. } => format!("teleport {:.1},{:.1}", xz[0], xz[1]),
 			Self::Console { line } => format!("console {line}"),
@@ -178,8 +231,37 @@ impl AgentCommand {
 	pub fn is_duration(&self) -> bool {
 		matches!(
 			self,
-			Self::Hold { .. } | Self::Wait { .. } | Self::Goto { .. } | Self::Press { .. }
+			Self::Hold { .. }
+				| Self::Wait { .. }
+				| Self::Goto { .. }
+				| Self::Press { .. }
+				| Self::WaitFor { .. }
+				| Self::Mash { .. }
 		)
+	}
+
+	pub fn press(button: AgentButton) -> Self {
+		Self::Press { button: Some(button), buttons: Vec::new() }
+	}
+
+	pub fn press_many(buttons: Vec<AgentButton>) -> Self {
+		Self::Press { button: None, buttons }
+	}
+
+	pub fn press_buttons(&self) -> Vec<AgentButton> {
+		let Self::Press { button, buttons } = self else {
+			return Vec::new();
+		};
+		let mut out = Vec::new();
+		if let Some(button) = *button {
+			out.push(button);
+		}
+		for button in buttons {
+			if !out.contains(button) {
+				out.push(*button);
+			}
+		}
+		out
 	}
 }
 
@@ -212,7 +294,56 @@ mod tests {
 		let a = AgentCommand::parse_line(r#"{"cmd":"press","button":"a"}"#)
 			.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(jump, a);
-		assert!(matches!(jump, AgentCommand::Press { button: AgentButton::Jump }));
+		assert_eq!(jump.press_buttons(), vec![AgentButton::Jump]);
+		Ok(())
+	}
+
+	#[test]
+	fn parse_menu_aliases_and_press_chord() -> anyhow::Result<()> {
+		let confirm = AgentCommand::parse_line(r#"{"cmd":"press","button":"confirm"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		let back = AgentCommand::parse_line(r#"{"cmd":"press","button":"back"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		let start = AgentCommand::parse_line(r#"{"cmd":"press","button":"start"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(confirm.press_buttons(), vec![AgentButton::Jump]);
+		assert_eq!(back.press_buttons(), vec![AgentButton::Stance]);
+		assert_eq!(start.press_buttons(), vec![AgentButton::Menu]);
+		let chord = AgentCommand::parse_line(r#"{"cmd":"press","buttons":["confirm","start"]}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(chord.press_buttons(), vec![AgentButton::Jump, AgentButton::Menu]);
+		assert_eq!(chord.label(), "press jump+menu");
+		Ok(())
+	}
+
+	#[test]
+	fn parse_wait_for_expect_mash() -> anyhow::Result<()> {
+		let wait_for = AgentCommand::parse_line(
+			r#"{"cmd":"wait_for","screen":"in_game","modal":null,"timeout":5}"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(matches!(
+			&wait_for,
+			AgentCommand::WaitFor { timeout, matcher }
+				if (timeout - 5.0).abs() < 1e-5 && matcher.screen.as_deref() == Some("in_game") && matcher.modal == Some(None)
+		));
+		assert!(wait_for.is_duration());
+		let expect = AgentCommand::parse_line(r#"{"cmd":"expect","pause":"playing"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(matches!(
+			&expect,
+			AgentCommand::Expect { matcher } if matcher.pause.as_deref() == Some("playing")
+		));
+		assert!(!expect.is_duration());
+		let mash = AgentCommand::parse_line(
+			r#"{"cmd":"mash","buttons":["confirm","back","start"],"rate_hz":15,"secs":60,"seed":42}"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(matches!(
+			mash,
+			AgentCommand::Mash { seed: 42, secs, .. } if (secs - 60.0).abs() < 1e-5
+		));
+		assert_eq!(mash.label(), "mash seed=42 15hz 60s");
 		Ok(())
 	}
 

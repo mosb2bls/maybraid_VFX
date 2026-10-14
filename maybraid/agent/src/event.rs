@@ -90,6 +90,30 @@ pub enum AgentEventBody {
 		window: [u32; 2],
 		target: [u32; 2],
 	},
+	/// Live menu screen changed (`home`, `gallery`, …, `none`).
+	Screen {
+		name: String,
+	},
+	/// A leave prompt, name modal, or catalog overlay opened or closed.
+	Modal {
+		name: Option<String>,
+	},
+	/// Focused menu row changed.
+	Focus {
+		screen: String,
+		row: u32,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		label: Option<String>,
+	},
+	/// `GameFlow` or `WorldPause` transition.
+	Flow {
+		flow: String,
+		pause: String,
+	},
+	/// A menu invariant broke. Always a playtest failure.
+	Invariant {
+		detail: String,
+	},
 	Quit,
 }
 
@@ -135,6 +159,18 @@ impl AgentEvent {
 				"agent.presentation {action} window {}x{} target {}x{}",
 				window[0], window[1], target[0], target[1]
 			)),
+			AgentEventBody::Screen { name } => Some(format!("agent.screen {name}")),
+			AgentEventBody::Modal { name } => {
+				Some(format!("agent.modal {}", name.as_deref().unwrap_or("none")))
+			}
+			AgentEventBody::Focus { screen, row, label } => {
+				let extra = label.as_deref().unwrap_or("");
+				Some(format!("agent.focus {screen} row={row} {extra}"))
+			}
+			AgentEventBody::Flow { flow, pause } => {
+				Some(format!("agent.flow {flow} pause={pause}"))
+			}
+			AgentEventBody::Invariant { detail } => Some(format!("agent.invariant {detail}")),
 			_ => None,
 		}
 	}
@@ -236,6 +272,28 @@ mod tests {
 		let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert!(line.contains(r#""kind":"presentation""#));
 		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
+		Ok(())
+	}
+
+	#[test]
+	fn menu_events_roundtrip() -> anyhow::Result<()> {
+		for body in [
+			AgentEventBody::Screen { name: "in_game".into() },
+			AgentEventBody::Modal { name: Some("discard".into()) },
+			AgentEventBody::Modal { name: None },
+			AgentEventBody::Focus {
+				screen: "home".into(),
+				row: 2,
+				label: Some("Characters".into()),
+			},
+			AgentEventBody::Flow { flow: "world".into(), pause: "menu".into() },
+			AgentEventBody::Invariant { detail: "multiple MenuScreen (2)".into() },
+		] {
+			let event = AgentEvent { t: 1.0, frame: 12, body };
+			let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
+			assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
+			assert!(event.tracy_message().is_some(), "{line}");
+		}
 		Ok(())
 	}
 
