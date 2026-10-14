@@ -225,3 +225,213 @@ fn editor_back(
 		request_show_home(&mut commands);
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::editor_back;
+	use crate::character::CharacterScreen;
+	use crate::leave_prompt::{CharacterLeavePrompt, CharacterLeavePromptPlugin};
+	use bevy::input::keyboard::{Key, KeyboardInput, NativeKey};
+	use bevy::input::{ButtonState, InputPlugin, InputSystems};
+	use bevy::prelude::*;
+	use maybraid_input::{
+		MenuNavPad, MenuOwnsBack, PadButton, PadGameplayEnabled, VirtualPad, VirtualPadConfig,
+	};
+	use maybraid_menu_controller::{dispatch, MenuController};
+	use menu_components::{
+		HudMenu, HudMenuItem, MenuComponentsPlugin, ShortTextField, ShortTextKey, ShortTextModal,
+		TextMenuInputLock, TextMenuSystems,
+	};
+	use menu_screens::RequestShowGallery;
+
+	/// Physical pad buttons held this frame.
+	#[derive(Resource, Default)]
+	struct HeldPad(Vec<PadButton>);
+
+	/// Mirrors the menu controller's gate: the GameController backend cannot run
+	/// off the main thread, so tests skip `MenuControllerPlugin`.
+	fn gate_pad(
+		lock: Res<TextMenuInputLock>,
+		modal: Res<ShortTextModal>,
+		mut enabled: ResMut<PadGameplayEnabled>,
+	) {
+		enabled.0 = !lock.0 || modal.is_open();
+	}
+
+	/// Mirrors produce → derive with [`HeldPad`] as the only device.
+	fn drive_pad(
+		held: Res<HeldPad>,
+		config: Res<VirtualPadConfig>,
+		enabled: Res<PadGameplayEnabled>,
+		mut pad: ResMut<VirtualPad>,
+		mut nav: ResMut<MenuNavPad>,
+	) {
+		pad.begin_frame();
+		for button in &held.0 {
+			pad.hold_digital(*button);
+		}
+		if !enabled.is_enabled() {
+			pad.suppress_gameplay();
+		}
+		pad.finish_digital();
+		nav.derive(&pad, &config, 1.0 / 60.0);
+	}
+
+	fn editor_app() -> App {
+		let mut app = App::new();
+		app.add_plugins((
+			MinimalPlugins,
+			AssetPlugin::default(),
+			InputPlugin,
+			bevy::window::WindowPlugin { primary_window: None, ..default() },
+		))
+		.init_asset::<Font>()
+		.init_asset::<Image>()
+		.init_resource::<HeldPad>()
+		.init_resource::<VirtualPad>()
+		.init_resource::<VirtualPadConfig>()
+		.init_resource::<MenuNavPad>()
+		.init_resource::<MenuOwnsBack>()
+		.init_resource::<PadGameplayEnabled>()
+		.init_resource::<bevy::picking::hover::HoverMap>()
+		.init_resource::<crate::CharacterMenuState>()
+		.insert_resource(character_persist::SaveRoot::at(
+			std::env::temp_dir().join(format!("maybraid-editor-back-{}", std::process::id())),
+		))
+		.add_plugins((MenuComponentsPlugin, CharacterLeavePromptPlugin))
+		.add_plugins(menu_screens::MenuInputPlugin)
+		.add_systems(PreUpdate, (gate_pad, drive_pad).chain().after(InputSystems))
+		.add_systems(
+			Update,
+			(
+				(dispatch::refresh_menu_focus, dispatch::dispatch_menu_nav)
+					.chain()
+					.in_set(TextMenuSystems::Navigate),
+				editor_back.after(TextMenuSystems::Navigate),
+			),
+		);
+		let screen = app.world_mut().spawn((CharacterScreen, MenuController::default())).id();
+		let menu = app.world_mut().spawn((HudMenu::new(1), ChildOf(screen))).id();
+		app.world_mut().spawn((
+			HudMenuItem { index: 0, menu },
+			ShortTextKey("name"),
+			ShortTextField { value: String::new(), max_len: 16, editing: false },
+			ChildOf(menu),
+		));
+		app.update();
+		app
+	}
+
+	fn key(app: &mut App, key_code: KeyCode, state: ButtonState) {
+		app.world_mut().write_message(KeyboardInput {
+			key_code,
+			logical_key: Key::Unidentified(NativeKey::Unidentified),
+			state,
+			text: None,
+			repeat: false,
+			window: Entity::PLACEHOLDER,
+		});
+	}
+
+	/// Press for one frame, release, then let a few frames settle.
+	fn tap(app: &mut App, button: PadButton, key_code: Option<KeyCode>) {
+		app.world_mut().resource_mut::<HeldPad>().0 = vec![button];
+		if let Some(key_code) = key_code {
+			key(app, key_code, ButtonState::Pressed);
+		}
+		app.update();
+		app.world_mut().resource_mut::<HeldPad>().0.clear();
+		if let Some(key_code) = key_code {
+			key(app, key_code, ButtonState::Released);
+		}
+		for _ in 0..4 {
+			app.update();
+		}
+	}
+
+	fn left_editor(app: &mut App) -> bool {
+		let gallery = app
+			.world_mut()
+			.query_filtered::<(), With<RequestShowGallery>>()
+			.iter(app.world())
+			.next()
+			.is_some();
+		gallery || app.world().resource::<CharacterLeavePrompt>().is_open()
+	}
+
+	fn open_keyboard(app: &mut App) {
+		tap(app, PadButton::A, None);
+		assert!(app.world().resource::<ShortTextModal>().is_open(), "A opens the name keyboard");
+		assert!(!left_editor(app));
+	}
+
+	#[test]
+	fn pad_b_on_the_name_keyboard_only_closes_the_keyboard() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		tap(&mut app, PadButton::B, None);
+		assert!(!app.world().resource::<ShortTextModal>().is_open());
+		assert!(!left_editor(&mut app));
+	}
+
+	#[test]
+	fn start_on_the_name_keyboard_only_submits() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		tap(&mut app, PadButton::Start, None);
+		assert!(!app.world().resource::<ShortTextModal>().is_open());
+		assert!(!left_editor(&mut app));
+	}
+
+	#[test]
+	fn typing_then_b_on_the_name_keyboard_only_closes_the_keyboard() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		tap(&mut app, PadButton::A, None);
+		tap(&mut app, PadButton::A, None);
+		assert!(app.world().resource::<ShortTextModal>().is_open(), "A types on the keypad");
+		tap(&mut app, PadButton::B, None);
+		assert!(!app.world().resource::<ShortTextModal>().is_open());
+		assert!(!left_editor(&mut app));
+	}
+
+	/// Real presses span several frames; the pad gate drops while the keyboard
+	/// closes and must not turn the still-held button into a second press.
+	fn hold(app: &mut App, button: PadButton) {
+		app.world_mut().resource_mut::<HeldPad>().0 = vec![button];
+		for _ in 0..30 {
+			app.update();
+		}
+		app.world_mut().resource_mut::<HeldPad>().0.clear();
+		for _ in 0..4 {
+			app.update();
+		}
+	}
+
+	#[test]
+	fn held_b_on_the_name_keyboard_only_closes_the_keyboard() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		hold(&mut app, PadButton::B);
+		assert!(!app.world().resource::<ShortTextModal>().is_open());
+		assert!(!left_editor(&mut app));
+	}
+
+	#[test]
+	fn held_start_on_the_name_keyboard_only_submits() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		hold(&mut app, PadButton::Start);
+		assert!(!app.world().resource::<ShortTextModal>().is_open());
+		assert!(!left_editor(&mut app));
+	}
+
+	#[test]
+	fn escape_on_the_name_keyboard_only_closes_the_keyboard() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		tap(&mut app, PadButton::B, Some(KeyCode::Escape));
+		assert!(!app.world().resource::<ShortTextModal>().is_open());
+		assert!(!left_editor(&mut app));
+	}
+}
