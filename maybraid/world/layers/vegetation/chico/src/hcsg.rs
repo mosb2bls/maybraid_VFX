@@ -304,8 +304,7 @@ impl<G: ForestGround> hcsg::GenerationScheme for GrownGrove<G> {
 
 	/// `None` off the ground or where nothing grows.
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let grove = cx.get_or_generate::<ChicoGrove>(id)?;
-		let extent = Aabb3d::from_min_max(grove.extent.min(), grove.extent.max());
+		let (grove, extent) = cx.get_or_generate_stored::<ChicoGrove>(id)?;
 		let surface = GroundSurface::<G>::generate(cx, extent);
 		if surface.is_empty() {
 			return None;
