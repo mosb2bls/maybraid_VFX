@@ -50,8 +50,8 @@ pub use commands::{
 };
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
-	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
-	WorldSurfaceReady, WorldSurfaceSet,
+	InventoryEditCameraFollow, WorldGameplayEnabled, WorldMenuShell, WorldPlaySessionEnded,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
 };
 pub use durham::Durham;
 #[cfg(any(test, feature = "test-support"))]
@@ -81,11 +81,14 @@ pub use player_position::{
 };
 pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
 pub use render_scale::{
-	map_render_to_window, map_window_to_render, parse_force_offscreen_env,
-	parse_presentation_treatment_env, parse_render_scale_env, parse_visual_style_env,
-	target_physical_size, RenderScale, RequestForceOffscreen, RequestRenderScale,
-	RequestVisualStyle, VisualStyle, VisualStyleSetting, FORCE_OFFSCREEN_ENV,
-	PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV, VISUAL_STYLE_ENV,
+	host_memory_bytes, map_render_to_window, map_window_to_render, parse_device_tier_env,
+	parse_force_offscreen_env, parse_meminfo_total_bytes, parse_presentation_treatment_env,
+	parse_render_scale_env, parse_visual_style_env, pick_default_visual_style,
+	target_physical_size, window_above_1080p, AdapterKind, DeviceTier, RenderScale,
+	RequestForceOffscreen, RequestRenderScale, RequestVisualStyle, VisualStyle,
+	VisualStyleAutoReason, VisualStylePick, VisualStyleSetting, VisualStyleSignals,
+	DEVICE_TIER_ENV, FORCE_OFFSCREEN_ENV, PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV,
+	UNIFIED_MEMORY_NATIVE_BYTES, VISUAL_STYLE_ENV,
 };
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
@@ -233,6 +236,7 @@ impl Plugin for WorldPlugin {
 			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
+			.init_resource::<crate::WorldMenuShell>()
 			.init_resource::<crate::FirstWave>()
 			.init_resource::<WorldSceneryVisible>()
 			.insert_resource(WorldMobHudEnabled::from_debug_chrome(self.debug_chrome))

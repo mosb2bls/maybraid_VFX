@@ -8,11 +8,12 @@ use menu_components::{
 	MenuComponentsPlugin,
 };
 
-use crate::show::take_menu_show_request;
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::MenuScreen;
 
 /// Queue a loading-screen spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowLoading;
 
 /// Incoming fill, 0..=1. Applied to the visible [`LoadingScreen`].
@@ -75,19 +76,20 @@ impl Plugin for LoadingScreenPlugin {
 			.add_message::<LoadingExplainerText>()
 			.add_systems(
 				Update,
-				(apply_show_loading, apply_loading_progress, apply_loading_explainer)
+				(apply_loading_progress, apply_loading_explainer)
 					.chain()
 					.in_set(LoadingScreenSystems::Apply),
 			);
+		add_menu_show_systems(app, apply_show_loading);
 	}
 }
 
 fn apply_show_loading(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowLoading>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowLoading>>,
+	screens: MenuScreens,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	commands.spawn_scene(LoadingScreen::scene(0.0, "Loading…"));

@@ -902,6 +902,7 @@ mod tests {
 		assert_eq!(items.iter().filter_map(InventoryItem::grenade_spec).count(), 1);
 		let blast = items.iter().find_map(InventoryItem::grenade_stats).expect("grenade");
 		assert!((crate::BLAST_RADIUS_MIN..=crate::BLAST_RADIUS_MAX).contains(&blast.blast_radius));
+		assert!((crate::LAUNCH_SPEED_MIN..=crate::LAUNCH_SPEED_MAX).contains(&blast.launch_speed));
 		assert_eq!(items.iter().filter(|item| item.slot() == InventorySlot::Skills).count(), 1);
 		let mut guns: Vec<_> = items.iter().filter_map(InventoryItem::firearm_mesh).collect();
 		guns.sort_by_key(|mesh| mesh.label());

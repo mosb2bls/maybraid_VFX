@@ -190,6 +190,7 @@ pub fn prepare_anim_mailbox(
 			RigSkeletonKind::Humanoid => {
 				let mut rig = HumanoidV0Rig::imported();
 				rig.binding = binding;
+				rig.binding.synced_rest_epoch = 0;
 				rig.segment_lengths = rig.binding.metrics.humanoid_leg;
 				rig.pose.copy_from(&rest);
 				commands.entity(entity).insert(rig);
@@ -197,6 +198,7 @@ pub fn prepare_anim_mailbox(
 			RigSkeletonKind::Quadruped => {
 				let mut rig = QuadrupedV0Rig::imported();
 				rig.binding = binding;
+				rig.binding.synced_rest_epoch = 0;
 				rig.segment_lengths = rig.binding.metrics.quadruped_leg;
 				rig.pose.copy_from(&rest);
 				commands.entity(entity).insert(rig);
@@ -204,6 +206,7 @@ pub fn prepare_anim_mailbox(
 			RigSkeletonKind::Forelimbed => {
 				let mut rig = ForelimbedV0Rig::imported();
 				rig.binding = binding;
+				rig.binding.synced_rest_epoch = 0;
 				rig.pose.copy_from(&rest);
 				commands.entity(entity).insert(rig);
 			}
@@ -558,23 +561,34 @@ fn sync_quadruped_rest(rig: &mut QuadrupedV0Rig, bones: &Query<&AnimBone, Withou
 	}
 }
 
+fn binding_rests_match<R>(binding: &RigBinding, mut resolve: R) -> bool
+where
+	R: FnMut(Entity) -> Option<Transform>,
+{
+	binding
+		.entities
+		.iter()
+		.zip(binding.effective_rest.local.iter())
+		.all(|(entity, rest)| resolve(*entity).is_some_and(|bone| bone == *rest))
+}
+
 /// Refresh rest and segment lengths when a bone rest changed.
 fn sync_binding_rest(
 	binding: &mut RigBinding,
 	bones: &Query<&AnimBone, Without<AnimMailbox>>,
 ) -> bool {
-	if binding
-		.entities
-		.iter()
-		.zip(binding.effective_rest.local.iter())
-		.all(|(entity, rest)| bones.get(*entity).is_ok_and(|bone| bone.rest == *rest))
-	{
+	if binding.synced_rest_epoch == binding.rest_epoch {
+		return false;
+	}
+	if binding_rests_match(binding, |entity| bones.get(entity).ok().map(|bone| bone.rest)) {
+		binding.synced_rest_epoch = binding.rest_epoch;
 		return false;
 	}
 	let Some(rest) = rest_from_bones(binding, bones) else {
 		return false;
 	};
 	binding.refresh_rest(rest);
+	binding.synced_rest_epoch = binding.rest_epoch;
 	true
 }
 
@@ -1569,6 +1583,118 @@ mod tests {
 		run_ns
 	}
 
+	fn sync_binding_rest_legacy_query(
+		binding: &mut RigBinding,
+		bones: &Query<&AnimBone, Without<AnimMailbox>>,
+	) -> bool {
+		if binding_rests_match(binding, |entity| bones.get(entity).ok().map(|bone| bone.rest)) {
+			return false;
+		}
+		let Some(rest) = rest_from_bones(binding, bones) else {
+			return false;
+		};
+		binding.refresh_rest(rest);
+		true
+	}
+
+	fn run_rest_sync_bench(
+		bones: &Query<&AnimBone, Without<AnimMailbox>>,
+		rig: &mut HumanoidV0Rig,
+		use_epoch: bool,
+	) -> bool {
+		if use_epoch {
+			sync_binding_rest(&mut rig.binding, bones)
+		} else {
+			sync_binding_rest_legacy_query(&mut rig.binding, bones)
+		}
+	}
+
+	fn humanoid_rest_sync_fixture() -> (World, HumanoidV0Rig) {
+		let definition = humanoid_v0_definition();
+		let mut world = World::new();
+		let mut entities = Vec::with_capacity(definition.len());
+		let mut rest = PoseBuffer::identity(definition.len());
+		for (index, name) in definition.names.iter().enumerate() {
+			let transform = Transform {
+				translation: Vec3::new(index as f32 * 0.01, 0.0, 0.0),
+				rotation: Quat::from_rotation_x(index as f32 * 0.02),
+				scale: Vec3::ONE,
+			};
+			rest.local[index] = transform;
+			let entity = world
+				.spawn((AnimBone { name: RigName::from(*name), rest: transform }, transform))
+				.id();
+			entities.push(entity);
+		}
+		let binding = RigBinding::from_rest(definition, entities.into_boxed_slice(), rest);
+		let mut rig = HumanoidV0Rig::imported();
+		rig.binding = binding;
+		rig.binding.synced_rest_epoch = 0;
+		rig.pose.copy_from(&rig.binding.effective_rest);
+		(world, rig)
+	}
+
+	fn sync_binding_rest_in_world(
+		world: &mut World,
+		rig: &mut HumanoidV0Rig,
+		use_epoch: bool,
+	) -> bool {
+		let mut bones = world.query_filtered::<&AnimBone, Without<AnimMailbox>>();
+		let bones = bones.query(world);
+		run_rest_sync_bench(&bones, rig, use_epoch)
+	}
+
+	#[test]
+	fn binding_rest_epoch_matches_legacy_sync() {
+		let (mut legacy_world, mut legacy_rig) = humanoid_rest_sync_fixture();
+		let (mut epoch_world, mut epoch_rig) = humanoid_rest_sync_fixture();
+		sync_binding_rest_in_world(&mut legacy_world, &mut legacy_rig, false);
+		sync_binding_rest_in_world(&mut epoch_world, &mut epoch_rig, true);
+		let epoch_after_first = legacy_rig.binding.rest_epoch;
+
+		for _ in 0..32 {
+			let legacy_changed =
+				sync_binding_rest_in_world(&mut legacy_world, &mut legacy_rig, false);
+			let epoch_changed = sync_binding_rest_in_world(&mut epoch_world, &mut epoch_rig, true);
+			assert_eq!(legacy_changed, epoch_changed);
+			assert_eq!(legacy_rig.binding.effective_rest, epoch_rig.binding.effective_rest);
+			assert_eq!(legacy_rig.binding.metrics, epoch_rig.binding.metrics);
+			assert_eq!(legacy_rig.binding.rest_epoch, epoch_rig.binding.rest_epoch);
+		}
+		assert_eq!(epoch_after_first, legacy_rig.binding.rest_epoch);
+	}
+
+	fn bench_binding_rest_sync(use_epoch: bool) -> Vec<u128> {
+		const FRAMES: u32 = 5_000;
+		const CHARACTERS: u32 = 32;
+		const RUNS: u32 = 5;
+
+		let mut fixtures: Vec<_> = (0..CHARACTERS).map(|_| humanoid_rest_sync_fixture()).collect();
+		for (world, rig) in &mut fixtures {
+			let mut bones = world.query_filtered::<&AnimBone, Without<AnimMailbox>>();
+			let bones = bones.query(world);
+			run_rest_sync_bench(&bones, rig, true);
+		}
+
+		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
+		for _ in 0..RUNS {
+			let start = Instant::now();
+			for (world, rig) in &mut fixtures {
+				let mut bones = world.query_filtered::<&AnimBone, Without<AnimMailbox>>();
+				let bones = bones.query(world);
+				for frame in 0..FRAMES {
+					let frame = black_box(frame);
+					black_box(run_rest_sync_bench(&bones, rig, use_epoch));
+					black_box(frame);
+				}
+			}
+			let samples = FRAMES as u64 * CHARACTERS as u64;
+			run_ns.push(start.elapsed().as_nanos() / samples as u128);
+		}
+		run_ns.sort_unstable();
+		run_ns
+	}
+
 	fn report_handle_bench(label: &str, run_ns: &[u128]) {
 		let min = *run_ns.first().expect("run");
 		let median = run_ns[run_ns.len() / 2];
@@ -1578,6 +1704,19 @@ mod tests {
 			"mailbox_handle_microbench {label}: runs={runs:?} min={min} median={median} mean={mean} spread={spread} ns/lookup",
 			runs = run_ns,
 		);
+	}
+
+	/// `cargo test -p character-motion binding_rest_sync_microbench --release -- --ignored --nocapture`
+	#[test]
+	#[ignore]
+	fn binding_rest_sync_microbench() {
+		eprintln!(
+			"32 humanoid rigs, stable rests, sync_binding_rest each frame (real mailbox apply path)"
+		);
+		let legacy = bench_binding_rest_sync(false);
+		let optimized = bench_binding_rest_sync(true);
+		report_handle_bench("legacy per-bone scan", &legacy);
+		report_handle_bench("rest_epoch fast path", &optimized);
 	}
 
 	/// `cargo test -p character-motion mailbox_handle_microbench --release -- --ignored --nocapture`

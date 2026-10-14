@@ -7,6 +7,8 @@
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 
+mod gamecontroller_lifecycle;
+
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod gamecontroller;
 
