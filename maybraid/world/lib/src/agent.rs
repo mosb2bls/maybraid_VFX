@@ -4,7 +4,7 @@ use avian3d::prelude::{LinearVelocity, Position};
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use damage::{Health, Hit};
-use durham::{CascadeChunk, DurhamSurface, WorldBaseTerrain};
+use durham::{CascadeChunk, Durham, DurhamSurface, WorldBaseTerrain};
 use maybraid_agent::{
 	read_script_commands, take_leading_start, AgentArgs, AgentButton, AgentCommand, AgentEvent,
 	AgentEventBody, CommandStatus, EventSink, LineInbox, MenuObservation, PadIntent, Playback,
@@ -15,18 +15,22 @@ use mob_characters::CharacterSceneRecipe;
 use mob_scenes::MobScene;
 use player::Player as MotorPlayer;
 use player_camera::CameraController;
+use terrain_layer_model::TerrainStreaming;
 use threat_management_intelligence::ThreatManagementIntelligence;
 use world_player::player::{holding_elevation, player_spawn_point_at, AwaitingTerrainSurface};
 use world_player::Player as VegetationPlayer;
 
 use crate::commands::PlaygroundCommand;
-use crate::control::{WorldGameplayEnabled, WorldSurfaceReady};
+use crate::control::{WorldGameplayEnabled, WorldMenuShell, WorldSurfaceReady};
 use crate::map_view::WorldMapView;
 use crate::render_scale::{PresentationChurn, RequestVisualStyle, VisualStyle};
 use crate::PlayerSpawnXz;
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
 const DEFAULT_READY_TIMEOUT: f32 = 90.0;
+/// Home / Characters have gameplay and streaming off. Wait just long enough
+/// for the shell to spawn before a script can press Discovery.
+const MENU_READY_SECS: f32 = 2.0;
 
 /// Insert before [`crate::WorldPlugin`] to enable the agent. Missing = no systems.
 #[derive(Resource, Clone, Debug)]
@@ -225,6 +229,8 @@ fn agent_sync_ready(
 	surface: Res<WorldSurfaceReady>,
 	menu: Res<AgentMenuState>,
 	spawn: Res<PlayerSpawnXz>,
+	streaming: Res<TerrainStreaming<Durham>>,
+	menu_shell: Option<Res<WorldMenuShell>>,
 	time: Res<Time>,
 ) {
 	if runtime.ready {
@@ -249,7 +255,14 @@ fn agent_sync_ready(
 	}
 	let elapsed = time.elapsed_secs();
 	let surface_ready = gameplay.0 && surface.0;
-	let menu_ready = spawn.0.is_none() && menu.observation.menu_ready;
+	let observation_ready = spawn.0.is_none() && menu.observation.menu_ready;
+	// Prefer the shell bit the game writes from GameFlow. Streaming-off is a
+	// fallback, but Home has leaked streaming=on in live boots and that sat
+	// Home-first scripts on the 90 s timeout. Observation fires as soon as
+	// the first menu screen is published (no 2 s wait).
+	let menu_shell_ready = elapsed >= MENU_READY_SECS
+		&& (menu_shell.is_some_and(|shell| shell.0) || !streaming.enabled);
+	let menu_ready = observation_ready || menu_shell_ready;
 	let timed_out = elapsed >= runtime.ready_timeout;
 	if !surface_ready && !menu_ready && !timed_out {
 		return;
@@ -816,6 +829,8 @@ fn agent_maybe_quit(
 
 #[cfg(test)]
 mod tests {
+	use bevy::ecs::system::RunSystemOnce;
+
 	use super::*;
 
 	#[test]
@@ -860,5 +875,119 @@ mod tests {
 		assert_eq!(ready_detail(true, true), "surface");
 		assert_eq!(ready_detail(false, true), "menu");
 		assert_eq!(ready_detail(false, false), "timeout");
+	}
+
+	fn idle_runtime() -> AgentRuntime {
+		AgentRuntime {
+			playback: Playback::new(),
+			sink: EventSink::none(),
+			inbox: None,
+			ready: false,
+			frame: 0,
+			last_sample: -1_000.0,
+			last_intent: PadIntent::default(),
+			pending: Vec::new(),
+			quit: false,
+			quit_when_idle: false,
+			load_error: None,
+			ready_timeout: DEFAULT_READY_TIMEOUT,
+			sample_period: DEFAULT_SAMPLE_PERIOD,
+			last_menu: MenuObservation::default(),
+		}
+	}
+
+	fn advance_time(secs: f32) -> Time {
+		let mut time = Time::<()>::default();
+		time.advance_by(std::time::Duration::from_secs_f32(secs));
+		time
+	}
+
+	fn insert_ready_deps(world: &mut World) {
+		world.insert_resource(AgentMenuState::default());
+		world.insert_resource(PlayerSpawnXz(None));
+	}
+
+	#[test]
+	fn menu_shell_is_ready_before_discovery_surface() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(false));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(false));
+		insert_ready_deps(&mut world);
+		world.insert_resource(advance_time(MENU_READY_SECS));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<AgentRuntime>().ready);
+		Ok(())
+	}
+
+	#[test]
+	fn loading_world_does_not_count_as_menu_ready() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(false));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		insert_ready_deps(&mut world);
+		world.insert_resource(advance_time(MENU_READY_SECS));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.resource::<AgentRuntime>().ready);
+		Ok(())
+	}
+
+	#[test]
+	fn menu_shell_bit_is_ready_even_when_streaming_leaked_on() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		world.insert_resource(WorldMenuShell(true));
+		insert_ready_deps(&mut world);
+		world.insert_resource(advance_time(MENU_READY_SECS));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<AgentRuntime>().ready);
+		Ok(())
+	}
+
+	#[test]
+	fn menu_shell_is_ready_even_when_gameplay_leaked_on() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(false));
+		insert_ready_deps(&mut world);
+		world.insert_resource(advance_time(MENU_READY_SECS));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<AgentRuntime>().ready);
+		Ok(())
+	}
+
+	#[test]
+	fn first_menu_screen_is_ready_before_shell_timer() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(false));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		world.insert_resource(AgentMenuState {
+			observation: MenuObservation { menu_ready: true, ..Default::default() },
+		});
+		world.insert_resource(PlayerSpawnXz(None));
+		world.insert_resource(advance_time(0.1));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<AgentRuntime>().ready);
+		Ok(())
 	}
 }

@@ -23,6 +23,15 @@ maybraid --start-at=0,0 \
 `MAYBRAID_AGENT_QUIT` are the env equivalents. With none of those set the
 plugin is not added.
 
+Playback starts when Discovery surface is ready, when the Home / Characters
+shell has been up for two seconds (terrain streaming off), or when the 90 s
+ready timeout fires. A leaked `WorldGameplayEnabled` default must not block
+Home-first scripts. A leading `start` / `--start-at` still boots Discovery and
+skips the first-life picker. Home-first scripts (leave + pick another
+character) must omit both so the shell stays on Home. Use
+`MAYBRAID_NO_START_AT=1` with [`profiling/tracy-flight.sh`](../../profiling/tracy-flight.sh)
+so the flight wrapper does not latch `PlayerSpawnXz`.
+
 `{"cmd":"console","line":"player down"}` is handled only by the agent plugin
 (a lethal self-`Hit`). It is **not** a Playground `/` command and is not
 registered in the game shell. Death-picker scripts use it so production
@@ -73,7 +82,8 @@ See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
 [`scripts/crowd-16.jsonl`](scripts/crowd-16.jsonl),
 [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl),
 and the spawn-height scripts (`origin-first-spawn`, `origin-picker`,
-`dusk-spawn`, `death-picker`, `mob-spawns`).
+`dusk-spawn`, `death-picker`, `character-switch-spawn`, `poi-picker-cycle`,
+`mob-spawns`).
 
 Profile scripts mark a `*-warmup` scenario (stream-in / first steps) and then
 the measure window. `goto.look` holds the look stick while steering so a
@@ -95,9 +105,12 @@ That replaces `--start-at` (and `MAYBRAID_START_AT`), so the player spawns
 there and terrain streams in there — no origin load followed by a teleport.
 The game logs `script start X,Z replaces --start-at`. A `start` after the
 first duration command, or one sent over `--agent-pipe`, behaves like
-`teleport`. Without a `start` or `--start-at`, the executable boots Home and
-the agent becomes ready on the first menu screen. Flight scripts still pass
-`--start-at=0,0`. See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl)
+`teleport`. Without a `start`, the script runs from `--start-at` when that
+flag is set (the flight scripts pass `0,0`). Omit both: the executable boots
+Home, the agent becomes ready on the first menu screen (`ready` detail
+`menu`), and scripts can drive Discovery — needed to reproduce leave + pick
+another character. See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl),
+[`scripts/character-switch-spawn.jsonl`](scripts/character-switch-spawn.jsonl),
 and [`scripts/menu-create-back-mid-spin.jsonl`](scripts/menu-create-back-mid-spin.jsonl).
 
 ## Script API version

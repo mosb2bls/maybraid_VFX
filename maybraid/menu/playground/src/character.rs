@@ -22,8 +22,9 @@ use maybraid_skill_map::{
 use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
 use menu_components::{
 	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
-	HudOverlayMenu, MenuActivate, MenuFocus, ScreenBack, ShortTextChange, PANEL_ROW_GAP,
-	SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
+	HudOverlayMenu, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer, MenuModalStack,
+	ScreenBack, ShortTextChange, PANEL_ROW_GAP, SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW,
+	TEXT_YELLOW_FAINT,
 };
 use menu_screens::{
 	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealCurrent,
@@ -203,6 +204,7 @@ fn apply_show_character(
 	mut overlay: ResMut<OverlaySelectState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	icons: Option<Res<ItemIconCache>>,
 ) {
 	if screens.take(&mut commands, &requests).is_none() {
@@ -212,6 +214,7 @@ fn apply_show_character(
 	overlay_sync.open = None;
 	overlay_sync.menu_dirty = false;
 	active_overlay.0 = None;
+	stack.close(MenuModalId::OVERLAY_SELECT);
 	sync_state.menu_dirty = false;
 	sync_state.save_label = save_chrome(&menu_state.0, baseline.as_deref());
 	sync_state.icon_generation = icons.as_ref().map(|cache| cache.generation).unwrap_or(0);
@@ -601,6 +604,7 @@ fn on_overlay_open(
 	open: On<OverlayOpen>,
 	mut overlay: ResMut<OverlaySelectState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	screens: Query<Entity, With<CharacterScreen>>,
 ) {
 	if screens.is_empty() {
@@ -608,12 +612,14 @@ fn on_overlay_open(
 	}
 	overlay.open = Some(open.event().key);
 	active_overlay.0 = Some(open.event().key);
+	stack.open(MenuModalLayer::OVERLAY_SELECT);
 }
 
 fn on_overlay_close(
 	_close: On<OverlayClose>,
 	mut overlay: ResMut<OverlaySelectState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	screens: Query<Entity, With<CharacterScreen>>,
 ) {
 	if screens.is_empty() {
@@ -621,6 +627,7 @@ fn on_overlay_close(
 	}
 	overlay.open = None;
 	active_overlay.0 = None;
+	stack.close(MenuModalId::OVERLAY_SELECT);
 }
 
 fn on_menu_activate(
@@ -631,6 +638,7 @@ fn on_menu_activate(
 	mut overlay: ResMut<OverlaySelectState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	screens: Query<Entity, With<CharacterScreen>>,
 ) {
 	if screens.is_empty() {
@@ -648,6 +656,7 @@ fn on_menu_activate(
 		if find_overlay_node(&nodes, key).is_some_and(overlay_closes_on_pick) {
 			overlay.open = None;
 			active_overlay.0 = None;
+			stack.close(MenuModalId::OVERLAY_SELECT);
 		}
 	}
 }

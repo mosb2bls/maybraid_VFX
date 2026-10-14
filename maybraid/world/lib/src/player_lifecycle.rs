@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use character_inventory_user::InventoryUser;
 use character_ragdoll::CharacterRagdollSystems;
 use damage::{DamageSystems, DespawnAfter, Downed};
-use durham::DurhamSurface;
+use durham::{DurhamSurface, TerrainCellLayout, WorldBaseTerrain};
 use firearm_user::FirearmUser;
 use firearms::WeaponTrigger;
 use grenade_user::{GrenadeUser, GrenadeUserSystems};
@@ -17,15 +17,16 @@ use player::{CameraFollow, Player as MaybraidPlayer, PlayerUse};
 use player_camera::{CameraController, FollowCamera};
 use poi_intelligence::{
 	place_nearby, NearbyFallback, NearbyQuery, PoiId, PoiInterest, PoiInterests, PoiKind,
-	PoiRegistry, PoiSystems,
+	PoiRecord, PoiRegistry, PoiSystems,
 };
 use spotting_intelligence::SpotSubject;
 use threat_intelligence::{Affiliations, ThreatSubject};
 use world_player::{
-	player_position_above_surface, player_spawn_point_at, spawn_player_body, surface_or_hold_at,
-	AwaitingTerrainSurface, CharacterLocomotion, CharacterSpecies, ModePlayerPolicies, MoveWish,
-	Player as VegetationPlayer, PlayerLifeEnded, PlayerLifeSet, PlayerSpawnXz, RequestSetCharacter,
-	RequestSetCharacterAppearance, RespawnOrigin,
+	holding_elevation, player_position_above_surface, player_spawn_point_at, spawn_player_body,
+	surface_or_hold_at, AwaitingTerrainSurface, CharacterLocomotion, CharacterSpecies,
+	ModePlayerPolicies, MoveWish, OffTerrainAnchor, Player as VegetationPlayer, PlayerLifeEnded,
+	PlayerLifeSet, PlayerSpawnXz, RequestSetCharacter, RequestSetCharacterAppearance,
+	RespawnOrigin,
 };
 
 use layer_stack::ActiveGenerationMode;
@@ -33,7 +34,10 @@ use layer_stack::ActiveGenerationMode;
 use crate::control::strip_world_player_motor;
 use crate::map_view::WorldMapView;
 use crate::weapon::WorldPlayerAppearanceRequested;
-use crate::{FirstWave, HcsgDemand, LodJobCounter, WorldGameplayEnabled, WorldPlayerLoadout};
+use crate::{
+	FirstWave, HcsgDemand, LodJobCounter, PlayerPositionWaypoints, WorldGameplayEnabled,
+	WorldPlayerLoadout,
+};
 
 const MAP_OPEN_SECS: f32 = 0.18;
 const STICK_REST: f32 = 0.28;
@@ -102,9 +106,11 @@ pub struct WorldPlayerRespawnState {
 	first_spawn_offered: bool,
 }
 
-/// Clear the first-life offer so the next world load can pick again.
+/// Clear per-session spawn latches so the next world load (or character) can pick again.
 pub fn reset_first_spawn_offer(mut state: ResMut<WorldPlayerRespawnState>) {
 	state.first_spawn_offered = false;
+	state.last_poi = None;
+	state.pending = None;
 }
 
 /// Discovery map picker confirmed a POI, or `None` for the fallback ring.
@@ -285,6 +291,9 @@ fn queue_first_spawn_picker(
 	wave: Option<Res<FirstWave>>,
 	demand: Option<Res<HcsgDemand>>,
 	jobs: Option<Res<LodJobCounter>>,
+	waypoints: Option<Res<PlayerPositionWaypoints>>,
+	layout: Option<Res<TerrainCellLayout>>,
+	base: Option<Res<WorldBaseTerrain>>,
 	mut state: ResMut<WorldPlayerRespawnState>,
 	mut commands: Commands,
 	players: Query<
@@ -296,14 +305,19 @@ fn queue_first_spawn_picker(
 	if !gameplay.0 || state.first_spawn_offered || state.pending.is_some() {
 		return;
 	}
+	// Latch before first-wave. Resume clears `resume_pending` once the body
+	// is on the trail; waiting for HCSG would re-offer the picker ~30 s later.
+	if spawn.0.is_some()
+		|| waypoints.as_deref().is_some_and(|waypoints| waypoints.resume_pending)
+		|| character_has_resume_trail(waypoints.as_deref(), layout.as_deref(), base.as_deref())
+	{
+		state.first_spawn_offered = true;
+		return;
+	}
 	let ready = wave.as_deref().map(FirstWave::ready).unwrap_or_else(|| {
 		FirstWave::sample(demand.as_deref(), jobs.map(|jobs| jobs.active()).unwrap_or(0)).ready()
 	});
 	if !ready {
-		return;
-	}
-	if spawn.0.is_some() {
-		state.first_spawn_offered = true;
 		return;
 	}
 	let now = mode.as_deref().and_then(|mode| mode.get().mode_id());
@@ -329,6 +343,20 @@ fn queue_first_spawn_picker(
 		picker_nearby_scratch: Vec::new(),
 	});
 	retire_startup_player(&mut commands, player, firearm, inventory, &mut triggers);
+}
+
+fn character_has_resume_trail(
+	waypoints: Option<&PlayerPositionWaypoints>,
+	layout: Option<&TerrainCellLayout>,
+	base: Option<&WorldBaseTerrain>,
+) -> bool {
+	let (Some(waypoints), Some(layout), Some(base)) = (waypoints, layout, base) else {
+		return false;
+	};
+	let center = layout.region_center_xz().xz();
+	let default_spawn =
+		player_spawn_point_at(center, holding_elevation(&base.0, center.x, center.y));
+	waypoints.has_resume_trail(default_spawn)
 }
 
 fn retire_startup_player(
@@ -504,6 +532,7 @@ fn respawn_world_player(
 			origin,
 			now,
 			player_position_above_surface(death_at),
+			false,
 		);
 		return;
 	}
@@ -526,17 +555,18 @@ fn respawn_world_player(
 	let placed = choice.poi.and_then(|id| registry.get(id).copied());
 	close_respawn_map(&mut map);
 	state.pending = None;
-	let position = match placed {
+	let spawn = match placed {
 		Some(record) => {
 			state.last_poi = Some(record.id);
-			player_spawn_point_at(
-				record.position.xz(),
-				surface_or_hold_at(&surface, record.position.xz()),
-			)
+			spawn_pose_for_chosen_poi(&record, &surface)
 		}
-		None => {
-			player_spawn_point_at(fallback_at.xz(), surface_or_hold_at(&surface, fallback_at.xz()))
-		}
+		None => ChosenPoiSpawn {
+			position: player_spawn_point_at(
+				fallback_at.xz(),
+				surface_or_hold_at(&surface, fallback_at.xz()),
+			),
+			interior: false,
+		},
 	};
 	finish_world_player_spawn(
 		&mut commands,
@@ -546,7 +576,8 @@ fn respawn_world_player(
 		loadout.as_deref(),
 		origin,
 		now,
-		position,
+		spawn.position,
+		spawn.interior,
 	);
 }
 
@@ -750,12 +781,18 @@ fn finish_world_player_spawn(
 	origin: RespawnOrigin,
 	now: Option<std::any::TypeId>,
 	position: Vec3,
+	interior: bool,
 ) {
 	let player = spawn_player_body(commands, meshes, materials, locomotion, position);
 	// First-drop hold: snap teleports onto composed height and waits for a
 	// local trimesh. Without this marker, gravity can turn on while the body
 	// is still sitting on a base-noise or death-pose Y under the mesh.
+	// Interior rooms keep their authored floor Y; terrain snap would pull the
+	// capsule under the storey into the building volume.
 	commands.entity(player).insert(AwaitingTerrainSurface);
+	if interior {
+		commands.entity(player).insert(OffTerrainAnchor { translation: position });
+	}
 	crate::control::apply_world_player_motor(commands, player);
 	if let Some(loadout) = loadout {
 		if !origin.ends_life(now) {
@@ -792,6 +829,33 @@ fn default_player_respawn_interests() -> PoiInterests {
 
 fn is_building_poi(kind: PoiKind) -> bool {
 	kind == LOCAL_POI || kind == URBAN_POI || kind == SALOON_POI
+}
+
+/// House / storey / lounge pins live inside a building. Urban settlement pins
+/// stay outdoor even when the registry marks them local.
+fn is_interior_building_poi(record: &PoiRecord) -> bool {
+	record.local && (record.kind == LOCAL_POI || record.kind == SALOON_POI)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ChosenPoiSpawn {
+	position: Vec3,
+	interior: bool,
+}
+
+/// Local interiors keep the POI floor. Outdoor pins snap to composed terrain.
+fn spawn_pose_for_chosen_poi(record: &PoiRecord, surface: &DurhamSurface) -> ChosenPoiSpawn {
+	if is_interior_building_poi(record) {
+		ChosenPoiSpawn { position: player_position_above_surface(record.position), interior: true }
+	} else {
+		ChosenPoiSpawn {
+			position: player_spawn_point_at(
+				record.position.xz(),
+				surface_or_hold_at(surface, record.position.xz()),
+			),
+			interior: false,
+		}
+	}
 }
 
 fn prefer_building_poi_ids(ids: &[PoiId], registry: &PoiRegistry, death_at: Vec3) -> Vec<PoiId> {
@@ -1303,9 +1367,11 @@ mod tests {
 			.run_system_once(respawn_world_player)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 
-		let mut bodies = world.query_filtered::<&Transform, With<VegetationPlayer>>();
-		let body = bodies.single(&world)?;
+		let mut bodies =
+			world.query_filtered::<(&Transform, Has<OffTerrainAnchor>), With<VegetationPlayer>>();
+		let (body, anchored) = bodies.single(&world)?;
 		assert_eq!(body.translation.xz(), Vec2::new(80.0, 5.0));
+		assert!(!anchored, "urban pins stay outdoor");
 		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
 		assert!(!world.resource::<WorldMapView>().open);
 		assert!(world.resource::<WorldMapView>().begin_life);
@@ -1343,6 +1409,58 @@ mod tests {
 		assert!(body.translation.y > base.height_at(80.0, 5.0) + 50.0);
 		assert!(awaiting);
 		Ok(())
+	}
+
+	#[test]
+	fn discovery_respawn_keeps_an_interior_poi_floor() -> anyhow::Result<()> {
+		let mut world = discovery_respawn_world(0.2);
+		let poi = world.spawn_empty().id();
+		let floor = Vec3::new(80.0, 12.0, 5.0);
+		world.resource_mut::<PoiRegistry>().upsert(
+			poi,
+			poi_intelligence::Poi::new(PoiId(1), LOCAL_POI).with_arrival_radius(4.0),
+			floor,
+			true,
+			false,
+		)?;
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.write_message(PlayerChoseRespawnPoi { poi: Some(PoiId(1)) });
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+		let mut bodies = world.query_filtered::<
+			(&Transform, Has<AwaitingTerrainSurface>, Has<OffTerrainAnchor>),
+			With<VegetationPlayer>,
+		>();
+		let (body, awaiting, anchored) = bodies.single(&world)?;
+		assert_eq!(body.translation, player_position_above_surface(floor));
+		assert!(awaiting);
+		assert!(anchored);
+		Ok(())
+	}
+
+	#[test]
+	fn local_rooms_are_interior_and_urban_pins_are_not() {
+		let room = PoiRecord {
+			id: PoiId(1),
+			entity: Entity::from_bits(1),
+			kind: LOCAL_POI,
+			position: Vec3::new(8.0, 12.0, 3.0),
+			arrival_radius: 4.0,
+			salience: 1.0,
+			local: true,
+			global: false,
+		};
+		let lounge = PoiRecord { kind: SALOON_POI, ..room };
+		let urban = PoiRecord { kind: URBAN_POI, ..room };
+		let grove = PoiRecord { kind: VEGETATION_POI, local: false, global: true, ..room };
+		assert!(is_interior_building_poi(&room));
+		assert!(is_interior_building_poi(&lounge));
+		assert!(!is_interior_building_poi(&urban));
+		assert!(!is_interior_building_poi(&grove));
 	}
 
 	#[test]
@@ -1559,6 +1677,53 @@ mod tests {
 	}
 
 	#[test]
+	fn first_spawn_picker_latches_a_saved_trail_before_first_wave() -> anyhow::Result<()> {
+		let mut world = first_spawn_world(true, None);
+		world.insert_resource(FirstWave { undiscovered: 1, remaining: 40, passed: false });
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(PlayerPositionWaypoints {
+			positions: vec![Vec3::new(2178.3, 36.6, 1383.6)],
+			just_loaded: false,
+			resume_pending: false,
+			..default()
+		});
+		let player =
+			world.spawn((VegetationPlayer, Transform::from_xyz(2178.3, 36.6, 1383.6))).id();
+		world
+			.run_system_once(queue_first_spawn_picker)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.entities().contains(player));
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
+		assert!(world.resource::<WorldPlayerRespawnState>().first_spawn_offered);
+		Ok(())
+	}
+
+	#[test]
+	fn first_spawn_picker_skips_a_character_with_a_saved_trail() -> anyhow::Result<()> {
+		let mut world = first_spawn_world(true, None);
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(PlayerPositionWaypoints {
+			positions: vec![Vec3::new(2178.3, 36.6, 1383.6)],
+			resume_pending: true,
+			..default()
+		});
+		let player = world.spawn((VegetationPlayer, Transform::from_xyz(-49.7, 78.3, 50.0))).id();
+		world
+			.run_system_once(queue_first_spawn_picker)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.entities().contains(player));
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
+		assert!(world.resource::<WorldPlayerRespawnState>().first_spawn_offered);
+		Ok(())
+	}
+
+	#[test]
 	fn first_spawn_picker_skips_a_mode_that_does_not_pick() -> anyhow::Result<()> {
 		let mut world = first_spawn_world(false, None);
 		let player = world.spawn((VegetationPlayer, Transform::from_xyz(12.0, 4.0, -8.0))).id();
@@ -1735,11 +1900,32 @@ mod tests {
 	#[test]
 	fn reset_first_spawn_offer_clears_the_session_flag() -> anyhow::Result<()> {
 		let mut world = World::new();
-		world.insert_resource(WorldPlayerRespawnState { first_spawn_offered: true, ..default() });
+		world.insert_resource(WorldPlayerRespawnState {
+			first_spawn_offered: true,
+			last_poi: Some(PoiId(9)),
+			pending: Some(PendingPlayerRespawn {
+				timer: Timer::from_seconds(0.0, TimerMode::Once),
+				death_at: Vec3::ZERO,
+				origin: RespawnOrigin::began(None, false),
+				candidates: Vec::new(),
+				highlighted: None,
+				highlighted_at: None,
+				map_opened: false,
+				stick_resting: true,
+				first_life: true,
+				fallback_at: Vec3::ZERO,
+				registry_revision: 0,
+				picker_nearby_scratch: Vec::new(),
+			}),
+			..default()
+		});
 		world
 			.run_system_once(reset_first_spawn_offer)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert!(!world.resource::<WorldPlayerRespawnState>().first_spawn_offered);
+		let state = world.resource::<WorldPlayerRespawnState>();
+		assert!(!state.first_spawn_offered);
+		assert!(state.last_poi.is_none());
+		assert!(state.pending.is_none());
 		Ok(())
 	}
 
