@@ -2,7 +2,7 @@ use character_rigs::authoring::HumanoidPose;
 use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use character_rigs::Side;
 
-use crate::animations::{smoothstep, UprightLeap, AIR_END, TAKEOFF_END};
+use crate::animations::{LeapPhase, LeapTimeline, LinearBlend, UprightLeap};
 use crate::{Animation, Progress};
 
 #[derive(Clone, Copy)]
@@ -48,23 +48,22 @@ impl Animation<HumanoidV0Rig> for UprightLeap {
 
 impl UprightLeap {
 	fn pose_at(&self, t: f32) -> LeapPose {
-		if t < TAKEOFF_END {
-			self.takeoff(smoothstep(t / TAKEOFF_END))
-		} else if t < AIR_END {
-			self.air(smoothstep((t - TAKEOFF_END) / (AIR_END - TAKEOFF_END)))
-		} else {
-			self.land(smoothstep((t - AIR_END) / (1.0 - AIR_END).max(f32::EPSILON)))
+		match LeapTimeline::sample(t) {
+			(LeapPhase::Takeoff, u) => self.takeoff(u),
+			(LeapPhase::Air, u) => self.air(u),
+			(LeapPhase::Land, u) => self.land(u),
 		}
 	}
 
 	/// `u = 0` is a running split; `u = 1` is the push-off.
 	fn takeoff(&self, u: f32) -> LeapPose {
-		let lead_femur = lerp(-self.lead_stride, -self.lead_stride * 0.25, u);
-		let trail_femur = lerp(self.trail_stride, self.trail_stride * 0.2, u);
-		let lead_shin = lerp(self.takeoff_knee_lead, self.takeoff_knee_lead * 0.2, u);
-		let trail_shin = lerp(self.takeoff_knee_trail, self.takeoff_knee_trail * 0.15, u);
-		let lean = lerp(self.lean * 0.45, self.lean, u);
-		let drive = lerp(self.arm_drive, self.arm_drive * 0.35, u);
+		let lead_femur = LinearBlend::eval(-self.lead_stride, -self.lead_stride * 0.25, u);
+		let trail_femur = LinearBlend::eval(self.trail_stride, self.trail_stride * 0.2, u);
+		let lead_shin = LinearBlend::eval(self.takeoff_knee_lead, self.takeoff_knee_lead * 0.2, u);
+		let trail_shin =
+			LinearBlend::eval(self.takeoff_knee_trail, self.takeoff_knee_trail * 0.15, u);
+		let lean = LinearBlend::eval(self.lean * 0.45, self.lean, u);
+		let drive = LinearBlend::eval(self.arm_drive, self.arm_drive * 0.35, u);
 		LeapPose {
 			left_femur: trail_femur,
 			right_femur: lead_femur,
@@ -82,9 +81,9 @@ impl UprightLeap {
 	/// `u = 0` leaves the ground; gather peaks near mid-air; `u = 1` reaches down.
 	fn air(&self, u: f32) -> LeapPose {
 		let gather = (u * std::f32::consts::PI).sin();
-		let femur = lerp(-self.lead_stride * 0.25, -self.air_femur, gather);
-		let shin = lerp(self.takeoff_knee_lead * 0.2, self.air_knee, gather);
-		let reach = lerp(self.air_arm, self.air_arm * 0.4, u);
+		let femur = LinearBlend::eval(-self.lead_stride * 0.25, -self.air_femur, gather);
+		let shin = LinearBlend::eval(self.takeoff_knee_lead * 0.2, self.air_knee, gather);
+		let reach = LinearBlend::eval(self.air_arm, self.air_arm * 0.4, u);
 		LeapPose {
 			left_femur: femur,
 			right_femur: femur * 0.92,
@@ -119,10 +118,6 @@ impl UprightLeap {
 			elbow: self.elbow * (1.0 - u * 0.25),
 		}
 	}
-}
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-	a + (b - a) * t
 }
 
 #[cfg(test)]

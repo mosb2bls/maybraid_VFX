@@ -36,6 +36,16 @@ pub fn smoothstep(t: f32) -> f32 {
 	t * t * (3.0 - 2.0 * t)
 }
 
+/// Linear blend between two scalars (`t` is not clamped).
+pub struct LinearBlend;
+
+impl LinearBlend {
+	#[inline]
+	pub fn eval(a: f32, b: f32, t: f32) -> f32 {
+		a + (b - a) * t
+	}
+}
+
 /// Default fade width for [`burst_envelope`] (fraction of the unit interval at each end).
 pub const DEFAULT_BURST_EDGE: f32 = 0.22;
 

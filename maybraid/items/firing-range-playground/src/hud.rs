@@ -1,6 +1,7 @@
 //! Firing-range-specific additions to the shared combat HUD.
 
 use bevy::prelude::*;
+#[cfg(test)]
 use evasion_intelligence::EvasionIntelligenceUser;
 use game_commands::GameCommandDrawerVisible;
 use player::Player;
@@ -9,7 +10,9 @@ use crate::session::CombatantKit;
 
 const GUN_CARD_WIDTH: f32 = 248.0;
 const DRAWER_CLEARANCE: f32 = 290.0;
+#[cfg(test)]
 const FLEE_DOT: Color = Color::srgb(1.0, 0.38, 0.72);
+#[cfg(test)]
 const HIDE_DOT: Color = Color::srgb(0.28, 0.52, 1.0);
 
 #[derive(Component)]
@@ -131,6 +134,7 @@ fn format_gun_card(title: &str, detail: &str, rows: &[(String, String)]) -> Stri
 	lines.join("\n")
 }
 
+#[cfg(test)]
 fn evasion_dot_color(evasion: &EvasionIntelligenceUser) -> Option<Color> {
 	if evasion.signal.is_flee() {
 		Some(FLEE_DOT)

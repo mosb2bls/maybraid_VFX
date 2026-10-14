@@ -2,7 +2,9 @@
 
 use bevy::prelude::*;
 use game_commands::command::{TextEntryBlocked, TextEntryFocus};
-use menu_components::{ShortTextField, ShortTextModal, TextMenuInputLock, TextMenuSystems};
+use menu_components::{
+	MenuModalSystems, ShortTextField, ShortTextModal, TextMenuInputLock, TextMenuSystems,
+};
 
 /// Registers the lock that keeps `/` and HUD arrows off each other.
 ///
@@ -11,7 +13,12 @@ pub struct MenuInputPlugin;
 
 impl Plugin for MenuInputPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_systems(Update, sync_text_menu_input_lock.in_set(TextMenuSystems::InputLock));
+		app.add_systems(
+			Update,
+			sync_text_menu_input_lock
+				.in_set(TextMenuSystems::InputLock)
+				.after(MenuModalSystems::Apply),
+		);
 	}
 }
 

@@ -30,6 +30,19 @@ impl CountPair {
 	}
 }
 
+/// Parse `left<delimiter>right` after trimming each side.
+fn parse_delimited_pair<T>(
+	s: &str,
+	delimiter: &str,
+	expected_shape: &str,
+	parse_item: impl Fn(&str) -> Result<T, String>,
+) -> Result<(T, T), String> {
+	let (left, right) = s
+		.split_once(delimiter)
+		.ok_or_else(|| format!("expected {expected_shape}, got {s:?}"))?;
+	Ok((parse_item(left.trim())?, parse_item(right.trim())?))
+}
+
 macro_rules! define_int_range {
 	($name:ident, $ty:ty, $parse_fn:ident) => {
 		#[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,11 +68,9 @@ macro_rules! define_int_range {
 		}
 
 		pub fn $parse_fn(s: &str) -> Result<$name, String> {
-			let (start, end) = s
-				.split_once("..")
-				.ok_or_else(|| format!("expected start..end range, got {s:?}"))?;
-			let start = start.trim().parse::<$ty>().map_err(|e| e.to_string())?;
-			let end = end.trim().parse::<$ty>().map_err(|e| e.to_string())?;
+			let (start, end) = parse_delimited_pair(s, "..", "start..end range", |t| {
+				t.parse::<$ty>().map_err(|e| e.to_string())
+			})?;
 			Ok($name::new(start, end))
 		}
 	};
@@ -69,20 +80,16 @@ define_int_range!(U32Range, u32, parse_u32_range);
 define_int_range!(UsizeRange, usize, parse_usize_range);
 
 pub fn parse_unit_range(s: &str) -> Result<UnitRange, String> {
-	let (start, end) = s
-		.split_once("..")
-		.ok_or_else(|| format!("expected start..end range, got {s:?}"))?;
-	let start = start.trim().parse::<f32>().map_err(|e| e.to_string())?;
-	let end = end.trim().parse::<f32>().map_err(|e| e.to_string())?;
+	let (start, end) = parse_delimited_pair(s, "..", "start..end range", |t| {
+		t.parse::<f32>().map_err(|e| e.to_string())
+	})?;
 	Ok(UnitRange::new(start, end))
 }
 
 pub fn parse_count_pair(s: &str) -> Result<CountPair, String> {
-	let (first, second) = s
-		.split_once('x')
-		.ok_or_else(|| format!("expected firstxsecond counts, got {s:?}"))?;
-	let first = first.trim().parse::<u32>().map_err(|e| e.to_string())?;
-	let second = second.trim().parse::<u32>().map_err(|e| e.to_string())?;
+	let (first, second) = parse_delimited_pair(s, "x", "firstxsecond counts", |t| {
+		t.parse::<u32>().map_err(|e| e.to_string())
+	})?;
 	Ok(CountPair::new(first, second))
 }
 

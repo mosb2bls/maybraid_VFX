@@ -56,6 +56,11 @@ impl Default for WorldSceneryVisible {
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct WorldSurfaceReady(pub bool);
 
+/// Home / Characters shell. The game sets this from [`GameFlow`] so the agent
+/// can start Home-first scripts without inferring the menu from streaming.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct WorldMenuShell(pub bool);
+
 /// Terrain column under the player. The shell unveils after this.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WorldSurfaceSet;
