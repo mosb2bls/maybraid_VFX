@@ -208,7 +208,7 @@ impl<G: RichmondGround> hcsg::GenerationScheme for PaddedTerrain<G> {
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
 		let cell = cx.get_or_generate::<G::Cell>(id)?;
 		let bounds = GroundCell::bounds(cell.as_ref());
-		let developments = cx.get_or_generate_in::<RichmondDevelopment<G>>(bounds);
+		let developments = RichmondDevelopment::<G>::filled_in(cx, bounds);
 		let pads = RichmondDevelopment::merge_pads(bounds, developments.iter().map(Arc::as_ref));
 		Some((Self::new(cell.as_ref().compose_pads(&pads)), bounds))
 	}
@@ -282,5 +282,177 @@ mod tests {
 		let chunk = cascade_chunk_for_cell(pad.cell, pad.res_2);
 		assert_eq!(pad.chunk_pose(), Transform::from_translation(chunk.origin));
 		assert_ne!(pad.chunk_pose(), Transform::IDENTITY);
+	}
+
+	mod scheme_perf_tests {
+		use super::*;
+		use crate::config::{DevelopmentConfig, DevelopmentSites};
+		use crate::developments::RichmondDevelopment;
+		use crate::ground::GroundCell;
+		use durham::terrain::host::TerrainCoverage;
+		use durham::{
+			fine_patch_cell_layout, mesh_assets, CellTiling, Durham, Terrain, TerrainCellLayout,
+			TerrainConfig, TerrainStampConfigs, WatershedConfigs,
+		};
+		use lod::gen::{Id, OriginalId};
+		use lod::hcsg::{self, universal_bounds, GenerationContext, HcsgStorage};
+		use std::sync::Arc;
+		use std::time::Instant;
+		use terrain_layer_model::OnTerrain;
+		use urbanization_cells::{UrbanizationKind, UrbanizationSelection};
+
+		type Ground = OnTerrain<Durham>;
+
+		fn seed_patch(
+			storage: &HcsgStorage,
+			seed: u32,
+			origin: bevy::math::IVec2,
+			development: DevelopmentConfig,
+			selection: UrbanizationSelection,
+		) -> TerrainCellLayout {
+			let layout = fine_patch_cell_layout(1, origin);
+			storage.seed(layout.clone(), universal_bounds());
+			storage.seed(TerrainStampConfigs::from_world_seed(seed), universal_bounds());
+			storage.seed(WatershedConfigs::default().with_seed(seed), universal_bounds());
+			storage.seed(
+				mesh_assets(
+					TerrainConfig::new(seed),
+					Handle::default(),
+					TerrainCoverage::FinePatch,
+					1,
+				),
+				universal_bounds(),
+			);
+			storage.seed(development, universal_bounds());
+			storage.seed(selection, universal_bounds());
+			layout
+		}
+
+		fn build_padded_legacy(cx: &mut GenerationContext, id: Id) -> Option<TerrainWithPads> {
+			let cell = cx.get_or_generate::<Terrain>(id)?;
+			let bounds = GroundCell::bounds(cell.as_ref());
+			let developments = cx.get_or_generate_in::<RichmondDevelopment<Ground>>(bounds);
+			let pads = RichmondDevelopment::merge_pads(bounds, developments.iter().map(Arc::as_ref));
+			Some(cell.as_ref().compose_pads(&pads))
+		}
+
+		fn padded_snapshot(padded: &TerrainWithPads) -> (usize, f32, f32, f32) {
+			let center = (Vec3::from(padded.cell.min) + Vec3::from(padded.cell.max)) * 0.5;
+			let height = |x, z| padded.sdf.terrain().height_at_with_all_modulations(x, z);
+			(padded.pad_count, height(center.x, center.z), height(center.x + 4.0, center.z), height(center.x, center.z + 4.0))
+		}
+
+		fn assert_patch_matches(
+			seed: u32,
+			origin: bevy::math::IVec2,
+			development: DevelopmentConfig,
+			selection: UrbanizationSelection,
+		) -> anyhow::Result<()> {
+			let layout = fine_patch_cell_layout(1, origin);
+			let ids: Vec<Id> = layout
+				.cell_ids(layout.request_region())
+				.into_iter()
+				.map(|OriginalId(id)| id)
+				.collect();
+
+			let legacy_storage = HcsgStorage::default();
+			seed_patch(&legacy_storage, seed, origin, development.clone(), selection.clone());
+			let mut legacy_cx = GenerationContext::new(&legacy_storage);
+
+			let optimized_storage = HcsgStorage::default();
+			seed_patch(&optimized_storage, seed, origin, development, selection);
+			let mut optimized_cx = GenerationContext::new(&optimized_storage);
+
+			for id in ids {
+				let legacy = build_padded_legacy(&mut legacy_cx, id)
+					.ok_or_else(|| anyhow::anyhow!("legacy padded missing for {id:?}"))?;
+				let optimized = <PaddedTerrain<Ground> as hcsg::GenerationScheme>::build_with_id(
+					&mut optimized_cx,
+					id,
+				)
+					.ok_or_else(|| anyhow::anyhow!("optimized padded missing for {id:?}"))?
+					.0
+					.surface;
+				assert_eq!(
+					padded_snapshot(&legacy),
+					padded_snapshot(&optimized),
+					"seed {seed} origin {origin:?} cell {id:?}"
+				);
+			}
+			Ok(())
+		}
+
+		#[test]
+		fn padded_terrain_matches_skipping_empty_developments() -> anyhow::Result<()> {
+			let lattice = DevelopmentConfig {
+				sites: DevelopmentSites::Lattice,
+				seed: 42,
+				..DevelopmentConfig::default()
+			};
+			let urban = DevelopmentConfig {
+				sites: DevelopmentSites::Urbanization,
+				..DevelopmentConfig::default()
+			};
+			let selection = UrbanizationSelection {
+				kind: Some(UrbanizationKind::Frontier),
+				..UrbanizationSelection::default()
+			};
+			for seed in [11u32, 42, 99, 7_001] {
+				assert_patch_matches(seed, bevy::math::IVec2::new(-1, -1), lattice.clone(), selection.clone())?;
+				assert_patch_matches(seed, bevy::math::IVec2::new(0, 1), lattice.clone(), selection.clone())?;
+				assert_patch_matches(seed, bevy::math::IVec2::new(-1, -1), urban.clone(), selection.clone())?;
+				assert_patch_matches(seed, bevy::math::IVec2::new(0, 1), urban.clone(), selection.clone())?;
+			}
+			Ok(())
+		}
+
+		fn cold_patch_build_time(
+			seed: u32,
+			origin: bevy::math::IVec2,
+			legacy: bool,
+		) -> std::time::Duration {
+			let layout = fine_patch_cell_layout(1, origin);
+			let ids: Vec<Id> = layout
+				.cell_ids(layout.request_region())
+				.into_iter()
+				.map(|OriginalId(id)| id)
+				.collect();
+			let development = DevelopmentConfig {
+				sites: DevelopmentSites::Lattice,
+				seed,
+				..DevelopmentConfig::default()
+			};
+			let selection = UrbanizationSelection::default();
+			let storage = HcsgStorage::default();
+			seed_patch(&storage, seed, origin, development, selection);
+			let mut cx = GenerationContext::new(&storage);
+			let start = Instant::now();
+			for id in ids {
+				if legacy {
+					build_padded_legacy(&mut cx, id).expect("legacy padded");
+				} else {
+					<PaddedTerrain<Ground> as hcsg::GenerationScheme>::build_with_id(&mut cx, id)
+						.expect("optimized padded");
+				}
+			}
+			start.elapsed()
+		}
+
+		/// `cargo test -p richmond padded_terrain_scheme_microbench --release -- --ignored --nocapture`
+		#[test]
+		#[ignore = "microbench"]
+		fn padded_terrain_scheme_microbench() {
+			let seed = 42u32;
+			let origin = bevy::math::IVec2::new(-1, -1);
+			let legacy = cold_patch_build_time(seed, origin, true);
+			let optimized = cold_patch_build_time(seed, origin, false);
+			eprintln!(
+				"padded_terrain_scheme_microbench (2×2 fine patch, lattice sites, seed {seed}): \
+				 legacy {:?} optimized {:?} ({:.2}x)",
+				legacy,
+				optimized,
+				legacy.as_secs_f64() / optimized.as_secs_f64().max(1e-9)
+			);
+		}
 	}
 }
