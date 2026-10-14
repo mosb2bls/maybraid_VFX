@@ -118,4 +118,64 @@ mod tests {
 		assert_eq!(forward_dash().action, TanzAction::Move { local: Vec2::Y });
 		Ok(())
 	}
+
+	#[test]
+	fn forward_dash_clip_wall_time_matches_move_timing() -> anyhow::Result<()> {
+		let dash = forward_dash();
+		let wall = dash.timing.total();
+		assert!((wall - 0.38).abs() < 1e-4, "MOVE_TIMING total={wall}");
+		assert_eq!(dash.clip.default_speed(), 1.0);
+		// Tanz drives normalized progress from execution age; cycle speed is irrelevant on that path.
+		eprintln!(
+			"forward dash wall time {:.3}s (startup {:.2} + active {:.2} + recovery {:.2}); AnimProgress = age / {:.3}",
+			wall,
+			dash.timing.startup,
+			dash.timing.active,
+			dash.timing.recovery,
+			wall,
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn forward_dash_capsule_travel_during_active_phase() -> anyhow::Result<()> {
+		// Matches `player::body` jog cap / accel / brake (not re-exported).
+		const JOG_SPEED: f32 = 6.0;
+		const MOVE_ACCEL: f32 = 40.0;
+		const MOVE_BRAKE: f32 = 50.0;
+
+		fn move_toward(current: f32, target: f32, max_delta: f32) -> f32 {
+			let delta = target - current;
+			if delta.abs() <= max_delta {
+				target
+			} else {
+				current + delta.signum() * max_delta
+			}
+		}
+
+		let timing = forward_dash().timing;
+		let dt = 1.0 / 60.0;
+		let mut velocity = 0.0f32;
+		let mut distance = 0.0f32;
+		let mut age = 0.0f32;
+		while age < timing.total() {
+			let in_active = age >= timing.startup_end() && age < timing.active_end();
+			let target = if in_active { JOG_SPEED } else { 0.0 };
+			let rate = if target > 0.0 { MOVE_ACCEL } else { MOVE_BRAKE };
+			velocity = move_toward(velocity, target, rate * dt);
+			if in_active {
+				distance += velocity * dt;
+			}
+			age += dt;
+		}
+
+		eprintln!(
+			"capsule forward travel during active {:.2}s (tanzer, no sprint): {:.3} m @ JOG_SPEED cap {:.1} m/s",
+			timing.active,
+			distance,
+			JOG_SPEED,
+		);
+		assert!(distance > 0.7 && distance < 1.1, "unexpected travel {distance}");
+		Ok(())
+	}
 }
