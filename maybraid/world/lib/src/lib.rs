@@ -14,10 +14,11 @@ mod camera;
 pub mod commands;
 pub mod control;
 mod crate_loot;
+mod cycle_target;
 mod first_wave;
 mod intelligence;
-mod cycle_target;
 mod inventory_cycling;
+mod inventory_drop;
 mod item_icons;
 mod map_view;
 pub mod world_lubikan;
@@ -43,6 +44,10 @@ mod world_layers;
 pub use world_furnished::WorldFurnished;
 
 pub use agent::AgentDrive;
+pub use character_items::{
+	ActiveInventoryDropPolicy, InventoryDrop, InventoryDropError, InventoryDropPolicy,
+	InventoryDropRefused, InventoryDropRequest, InventoryDropped,
+};
 #[cfg(feature = "debug-commands")]
 pub use commands::{
 	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
@@ -53,13 +58,13 @@ pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldMenuShell, WorldPlaySessionEnded,
 	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
 };
+pub use cycle_target::InventoryCycleTarget;
 pub use durham::Durham;
 #[cfg(any(test, feature = "test-support"))]
 pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
-pub use cycle_target::InventoryCycleTarget;
 pub use inventory_cycling::ActiveInventoryCyclingCategory;
 pub use item_icons::{
 	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
@@ -297,6 +302,7 @@ impl Plugin for WorldPlugin {
 			);
 		camera::configure(app);
 		inventory_cycling::configure(app);
+		inventory_drop::configure(app);
 		cycle_target::configure(app);
 		weapon::configure(app);
 		app.configure_sets(

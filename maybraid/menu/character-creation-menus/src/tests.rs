@@ -792,3 +792,54 @@ fn human_scale_body_focus_misses_spibmom() {
 		"legacy human-scale BODY_FOCUS should crop a tall Spibmom"
 	);
 }
+
+#[test]
+fn drop_inventory_removes_an_item_and_unequips_it() -> anyhow::Result<()> {
+	use character_items::{ClothingMaterial, ClothingMesh, FirearmMesh, InventoryItem, ItemColor};
+
+	let items = vec![
+		InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Natural),
+		InventoryItem::clothing(ClothingMesh::TankTop, ClothingMaterial::Cloth, ItemColor::Red),
+		InventoryItem::firearm(FirearmMesh::Bullpup),
+		InventoryItem::firearm(FirearmMesh::Reltor),
+	];
+	let mut menu = CharacterMenu::for_create(items);
+	assert!(menu.apply(MenuEvent::DropInventory(2)));
+	let inventory = menu.inventory.as_ref().ok_or_else(|| anyhow::anyhow!("create inventory"))?;
+	assert_eq!(inventory.items.len(), 3);
+	assert_eq!(inventory.weapons, vec![2]);
+	assert_eq!(
+		inventory.primary_weapon().and_then(InventoryItem::firearm_mesh),
+		Some(FirearmMesh::Reltor)
+	);
+	assert_eq!(inventory.clothing, vec![0, 1]);
+	assert!(menu.apply(MenuEvent::DropInventory(0)));
+	let inventory = menu.inventory.as_ref().ok_or_else(|| anyhow::anyhow!("create inventory"))?;
+	assert_eq!(inventory.items.len(), 2);
+	assert_eq!(inventory.clothing, vec![0]);
+	assert_eq!(inventory.items[0].mesh(), Some(ClothingMesh::TankTop));
+	assert!(!menu.apply(MenuEvent::DropInventory(9)));
+	Ok(())
+}
+
+#[test]
+fn saved_menu_can_drop_after_appearance_lock() -> anyhow::Result<()> {
+	use character_items::{ClothingMaterial, ClothingMesh, InventoryItem, ItemColor};
+
+	let items = vec![
+		InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Natural),
+		InventoryItem::clothing(ClothingMesh::TankTop, ClothingMaterial::Cloth, ItemColor::Red),
+	];
+	let mut created = CharacterMenu::for_create(items);
+	created.name = String::from("Misty");
+	let appearance = created.appearance();
+	let inventory = created.inventory.clone().ok_or_else(|| anyhow::anyhow!("inventory"))?;
+	let mut menu = CharacterMenu::for_saved(created.saved_name(), &appearance, inventory);
+	assert!(menu.appearance_locked());
+	assert!(MenuEvent::DropInventory(0).edits_inventory());
+	assert!(menu.apply(MenuEvent::DropInventory(0)));
+	let inventory = menu.inventory.as_ref().ok_or_else(|| anyhow::anyhow!("inventory"))?;
+	assert_eq!(inventory.items.len(), 1);
+	assert_eq!(inventory.clothing, vec![0]);
+	Ok(())
+}

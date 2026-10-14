@@ -11,6 +11,7 @@
 pub mod clothing;
 pub mod clothing_material;
 pub mod clothing_roll;
+pub mod drop;
 pub mod firearm;
 pub mod firearm_material;
 pub mod firearm_roll;
@@ -27,6 +28,10 @@ mod menu_traits;
 pub use clothing::{ClothingColor, ClothingHost, ClothingKind, ClothingMesh, ClothingSlot};
 pub use clothing_material::{ClothingMaterial, ClothingMaterialChoice};
 pub use clothing_roll::{generate_clothing_stats, ClothingBuff, ClothingPriors};
+pub use drop::{
+	ActiveInventoryDropPolicy, InventoryDrop, InventoryDropError, InventoryDropPolicy,
+	InventoryDropRefused, InventoryDropRequest, InventoryDropped,
+};
 pub use firearm::{
 	FirearmBarrel, FirearmGrip, FirearmKitSpec, FirearmLooks, FirearmMesh, FirearmScales,
 	FirearmSight, FirearmSpec, FirearmStock, FirearmTriggerBox, SlotLook, SlotRest, SlotScale,

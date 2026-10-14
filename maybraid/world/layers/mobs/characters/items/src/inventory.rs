@@ -515,7 +515,7 @@ impl Inventory {
 		self.take_indices(&keep)
 	}
 
-	fn take_indices(&mut self, keep: &[usize]) -> Self {
+	pub(crate) fn take_indices(&mut self, keep: &[usize]) -> Self {
 		let len = self.items.len();
 		let is_kept = |index: usize| keep.binary_search(&index).is_ok();
 		let clothing = std::mem::take(&mut self.clothing);

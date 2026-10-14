@@ -31,6 +31,7 @@ use menu_screens::{
 	SpinRevealItems, SpinRevealScreen,
 };
 
+use crate::drop_prompt::CharacterDropPromptPlugin;
 use crate::leave_prompt::CharacterLeavePromptPlugin;
 
 const PANEL_WIDTH: f32 = 480.0;
@@ -104,8 +105,8 @@ pub fn save_chrome(
 }
 
 #[derive(Resource, Default)]
-struct CharacterUiSyncState {
-	menu_dirty: bool,
+pub(crate) struct CharacterUiSyncState {
+	pub(crate) menu_dirty: bool,
 	save_label: Option<&'static str>,
 	icon_generation: u64,
 }
@@ -116,9 +117,9 @@ struct OverlaySelectState {
 }
 
 #[derive(Resource, Default)]
-struct OverlayUiSyncState {
+pub(crate) struct OverlayUiSyncState {
 	open: Option<&'static str>,
-	menu_dirty: bool,
+	pub(crate) menu_dirty: bool,
 	icon_generation: u64,
 }
 
@@ -169,6 +170,9 @@ impl Plugin for CharacterScreenPlugin {
 		}
 		if !app.is_plugin_added::<CharacterLeavePromptPlugin>() {
 			app.add_plugins(CharacterLeavePromptPlugin);
+		}
+		if !app.is_plugin_added::<CharacterDropPromptPlugin>() {
+			app.add_plugins(CharacterDropPromptPlugin);
 		}
 		if !app.is_plugin_added::<ItemIconPlugin>() {
 			app.add_plugins(ItemIconPlugin);

@@ -31,6 +31,7 @@ pub struct MenuModalId(pub &'static str);
 impl MenuModalId {
 	pub const OVERLAY_SELECT: Self = Self("overlay-select");
 	pub const SHORT_TEXT: Self = Self("short-text");
+	pub const ITEM_DROP: Self = Self("item-drop");
 	pub const CHARACTER_LEAVE: Self = Self("character-leave");
 
 	pub fn as_str(self) -> &'static str {
@@ -53,6 +54,7 @@ pub struct MenuModalLayer {
 impl MenuModalLayer {
 	pub const OVERLAY_SELECT: Self = Self { id: MenuModalId::OVERLAY_SELECT, order: 10 };
 	pub const SHORT_TEXT: Self = Self { id: MenuModalId::SHORT_TEXT, order: 20 };
+	pub const ITEM_DROP: Self = Self { id: MenuModalId::ITEM_DROP, order: 25 };
 	pub const CHARACTER_LEAVE: Self = Self { id: MenuModalId::CHARACTER_LEAVE, order: 30 };
 
 	pub fn new(id: MenuModalId, order: i32) -> Self {
@@ -73,6 +75,8 @@ impl MenuModal {
 		Self { id: MenuModalId::OVERLAY_SELECT, order: MenuModalLayer::OVERLAY_SELECT.order };
 	pub const SHORT_TEXT: Self =
 		Self { id: MenuModalId::SHORT_TEXT, order: MenuModalLayer::SHORT_TEXT.order };
+	pub const ITEM_DROP: Self =
+		Self { id: MenuModalId::ITEM_DROP, order: MenuModalLayer::ITEM_DROP.order };
 	pub const CHARACTER_LEAVE: Self =
 		Self { id: MenuModalId::CHARACTER_LEAVE, order: MenuModalLayer::CHARACTER_LEAVE.order };
 
@@ -270,6 +274,8 @@ mod tests {
 		stack.open(MenuModalLayer::OVERLAY_SELECT);
 		stack.open(MenuModalLayer::SHORT_TEXT);
 		assert_eq!(stack.top().map(|layer| layer.id), Some(MenuModalId::SHORT_TEXT));
+		stack.open(MenuModalLayer::ITEM_DROP);
+		assert_eq!(stack.top().map(|layer| layer.id), Some(MenuModalId::ITEM_DROP));
 		stack.open(MenuModalLayer::CHARACTER_LEAVE);
 		assert_eq!(stack.top().map(|layer| layer.id), Some(MenuModalId::CHARACTER_LEAVE));
 	}

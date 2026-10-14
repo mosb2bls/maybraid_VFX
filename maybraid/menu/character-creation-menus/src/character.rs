@@ -1627,6 +1627,19 @@ impl CharacterMenu {
 				self.sync_inventory_clothing();
 				return true;
 			}
+			MenuEvent::DropInventory(index) => {
+				let Some(inventory) = self.inventory.as_mut() else {
+					return false;
+				};
+				if inventory
+					.try_drop(index, character_items::InventoryDropPolicy::PLACEHOLDER)
+					.is_err()
+				{
+					return false;
+				}
+				self.sync_inventory_clothing();
+				return true;
+			}
 			MenuEvent::ToggleClothing(_) if self.inventory.is_some() => return false,
 			MenuEvent::ToggleSection(_) => return false,
 			_ if self.appearance_locked() && !event.edits_inventory() => return false,
@@ -1709,7 +1722,10 @@ impl CharacterMenu {
 	}
 
 	pub fn camera_focus_for_event(&self, event: MenuEvent) -> Option<CameraFocus> {
-		if matches!(event, MenuEvent::ToggleInventory(_) | MenuEvent::SetSpecies(_)) {
+		if matches!(
+			event,
+			MenuEvent::ToggleInventory(_) | MenuEvent::DropInventory(_) | MenuEvent::SetSpecies(_)
+		) {
 			return Some(self.body_preview_focus());
 		}
 		let field = match event {
@@ -1833,9 +1849,10 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::SetSwatch(_, _) | MenuEvent::Cycle(_, _) | MenuEvent::ToggleInventory(_) => {
-				false
-			}
+			MenuEvent::SetSwatch(_, _)
+			| MenuEvent::Cycle(_, _)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -1908,7 +1925,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -1968,7 +1986,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2032,7 +2051,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2092,7 +2112,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2148,7 +2169,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2208,7 +2230,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2281,7 +2304,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2354,7 +2378,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2435,7 +2460,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2498,7 +2524,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2562,7 +2589,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2625,7 +2653,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2688,7 +2717,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2747,7 +2777,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2810,7 +2841,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2873,7 +2905,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2936,7 +2969,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2999,7 +3033,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3062,7 +3097,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3125,7 +3161,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3204,7 +3241,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3271,7 +3309,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3346,7 +3385,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3361,7 +3401,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::GrenerBodyColor, SwatchValue::GrenerBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3384,7 +3426,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::ThumplusBodyColor, SwatchValue::ThumplusBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3407,7 +3451,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::MistlerBodyColor, SwatchValue::MistlerBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3502,9 +3548,10 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::SetSwatch(_, _) | MenuEvent::Cycle(_, _) | MenuEvent::ToggleInventory(_) => {
-				false
-			}
+			MenuEvent::SetSwatch(_, _)
+			| MenuEvent::Cycle(_, _)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 }
