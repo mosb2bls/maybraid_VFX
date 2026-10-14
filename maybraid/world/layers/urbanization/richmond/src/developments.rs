@@ -121,8 +121,7 @@ impl<G: RichmondGround> hcsg::GenerationScheme for RichmondDevelopment<G> {
 	/// An authored site plans on its own level, dry ground; a procedural one
 	/// on `G`, and has no development without ground under its center.
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let site = cx.get_or_generate::<DevelopmentSite>(id)?;
-		let bounds = column_bounds(site.cell);
+		let (site, bounds) = cx.get_or_generate_stored::<DevelopmentSite>(id)?;
 		if !site.is_filled() {
 			return Some((Self::Empty(site.cell), bounds));
 		}

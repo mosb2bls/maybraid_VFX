@@ -23,7 +23,7 @@ use terrain_shaders::TerrainShader;
 
 use crate::compose::PadComposable;
 use crate::developments::RichmondDevelopment;
-use crate::ground::{GroundCell, RichmondGround};
+use crate::ground::RichmondGround;
 use crate::pad::PadComplex;
 /// Durham [`Terrain`] plus overlapping development pads.
 #[derive(Debug, Clone, Component)]
@@ -206,8 +206,7 @@ impl<G: RichmondGround> hcsg::GenerationScheme for PaddedTerrain<G> {
 
 	/// The cell with the pads of every development over it.
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let cell = cx.get_or_generate::<G::Cell>(id)?;
-		let bounds = GroundCell::bounds(cell.as_ref());
+		let (cell, bounds) = cx.get_or_generate_stored::<G::Cell>(id)?;
 		let developments = RichmondDevelopment::<G>::filled_in(cx, bounds);
 		let pads = RichmondDevelopment::merge_pads(bounds, developments.iter().map(Arc::as_ref));
 		Some((Self::new(cell.as_ref().compose_pads(&pads)), bounds))
