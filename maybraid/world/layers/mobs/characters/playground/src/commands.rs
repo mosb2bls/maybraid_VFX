@@ -7,6 +7,8 @@ pub use character::Character;
 use clap::Parser;
 use game_commands::command::{CommandScript, GameCommand};
 
+use crate::capture::CaptureTanzIconsArgs;
+
 pub const PLAYGROUND_CLI_NAME: &str = "characters-playground";
 pub type Script = CommandScript<PlaygroundCommand>;
 
@@ -23,6 +25,8 @@ pub enum PlaygroundCommand {
 	Script(Script),
 	#[command(subcommand)]
 	Character(Character),
+	/// Pose the default nude Braidman at each starter Tanz and screenshot.
+	CaptureTanzIcons(CaptureTanzIconsArgs),
 }
 
 impl PlaygroundCommand {
@@ -39,6 +43,10 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Help => *console = Self::long_help_string(),
 			PlaygroundCommand::Script(s) => s.run(commands, console),
 			PlaygroundCommand::Character(c) => c.react(commands),
+			PlaygroundCommand::CaptureTanzIcons(args) => {
+				crate::capture::start_tanz_icon_capture(commands, args);
+				*console = String::from("capturing tanz icons");
+			}
 		}
 	}
 }

@@ -48,6 +48,24 @@ impl TanzId {
 			_ => None,
 		}
 	}
+
+	pub fn display_name(self) -> &'static str {
+		match self {
+			Self::HealingSalute => "Healing Salute",
+			Self::LeftStrafe => "Left Strafe",
+			Self::RightStrafe => "Right Strafe",
+			Self::ForwardDash => "Forward Dash",
+		}
+	}
+
+	pub fn icon_path(self) -> &'static str {
+		match self {
+			Self::HealingSalute => "iconography/tanz/healing_salute.png",
+			Self::LeftStrafe => "iconography/tanz/left_strafe.png",
+			Self::RightStrafe => "iconography/tanz/right_strafe.png",
+			Self::ForwardDash => "iconography/tanz/forward_dash.png",
+		}
+	}
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -111,6 +129,8 @@ pub struct TanzDefinition {
 	pub action: crate::TanzAction,
 	pub timing: TanzTiming,
 	pub clip: AnimClip,
+	/// Bevy asset path for the captured silhouette HUD icon.
+	pub icon: &'static str,
 }
 
 /// Equipped Tanzes, highest priority first.
@@ -180,6 +200,8 @@ mod tests {
 		assert_eq!(TanzId::from_script_id("left_strafe"), Some(TanzId::LeftStrafe));
 		assert_eq!(TanzId::from_script_id("DASH"), Some(TanzId::ForwardDash));
 		assert_eq!(TanzId::LeftStrafe.script_id(), "left_strafe");
+		assert_eq!(TanzId::LeftStrafe.display_name(), "Left Strafe");
+		assert_eq!(TanzId::ForwardDash.icon_path(), "iconography/tanz/forward_dash.png");
 		assert!(TanzId::from_script_id("spin").is_none());
 		let stack = TanzStack::starter();
 		let hit = stack.match_input(&input(Vec2::Y, 0.9, TanzButton::APress), |_| false);
@@ -234,6 +256,15 @@ mod tests {
 			)
 			.is_none());
 		Ok(())
+	}
+
+	#[test]
+	fn starter_icon_assets_exist() {
+		let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+		for id in TanzId::STARTER {
+			let path = root.join(id.icon_path());
+			assert!(path.is_file(), "missing captured icon {}", path.display());
+		}
 	}
 
 	#[test]

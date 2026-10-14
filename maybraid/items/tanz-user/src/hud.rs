@@ -1,14 +1,32 @@
-//! Minimal Standard / Tanzer mode indicator.
+//! Minimal Standard / Tanzer mode indicator and Tanz trigger callout.
 
 use bevy::prelude::*;
 
+use crate::callout::TanzCallout;
+use crate::stack::TanzId;
 use crate::{ControlMode, TanzUser};
+
+const PANEL: Color = Color::srgba(0.05, 0.05, 0.08, 0.55);
+const INK: Color = Color::srgb(0.92, 0.9, 0.82);
+const ICON_PX: f32 = 40.0;
 
 #[derive(Component)]
 pub struct TanzModeHud;
 
 #[derive(Component)]
 pub struct TanzModeHudLabel;
+
+#[derive(Component)]
+pub struct TanzCalloutHud;
+
+#[derive(Component)]
+pub struct TanzCalloutHudPanel;
+
+#[derive(Component)]
+pub struct TanzCalloutHudIcon;
+
+#[derive(Component)]
+pub struct TanzCalloutHudLabel;
 
 pub fn spawn_tanz_mode_hud(mut commands: Commands) {
 	commands
@@ -22,7 +40,7 @@ pub fn spawn_tanz_mode_hud(mut commands: Commands) {
 				padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
 				..default()
 			},
-			BackgroundColor(Color::srgba(0.05, 0.05, 0.08, 0.55)),
+			BackgroundColor(PANEL),
 			GlobalZIndex(24),
 			Pickable::IGNORE,
 			Visibility::Hidden,
@@ -32,9 +50,69 @@ pub fn spawn_tanz_mode_hud(mut commands: Commands) {
 				TanzModeHudLabel,
 				Text::new("STANDARD"),
 				TextFont { font_size: FontSize::Px(14.0), ..default() },
-				TextColor(Color::srgb(0.92, 0.9, 0.82)),
+				TextColor(INK),
 				Pickable::IGNORE,
 			));
+		});
+}
+
+pub fn spawn_tanz_callout_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
+	for id in TanzId::STARTER {
+		let _: Handle<Image> = asset_server.load(id.icon_path());
+	}
+	let icon: Handle<Image> = asset_server.load(TanzId::ForwardDash.icon_path());
+	commands
+		.spawn((
+			Name::new("tanz-callout-hud"),
+			TanzCalloutHud,
+			Node {
+				position_type: PositionType::Absolute,
+				top: Val::Px(56.0),
+				left: Val::Px(0.0),
+				right: Val::Px(0.0),
+				width: Val::Percent(100.0),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			GlobalZIndex(24),
+			Pickable::IGNORE,
+			Visibility::Hidden,
+		))
+		.with_children(|parent| {
+			parent
+				.spawn((
+					TanzCalloutHudPanel,
+					Node {
+						flex_direction: FlexDirection::Row,
+						align_items: AlignItems::Center,
+						column_gap: Val::Px(10.0),
+						padding: UiRect::axes(Val::Px(12.0), Val::Px(7.0)),
+						..default()
+					},
+					BackgroundColor(PANEL),
+					Pickable::IGNORE,
+				))
+				.with_children(|row| {
+					row.spawn((
+						TanzCalloutHudIcon,
+						ImageNode { image: icon, color: INK, ..default() },
+						Node {
+							width: Val::Px(ICON_PX),
+							height: Val::Px(ICON_PX),
+							flex_shrink: 0.0,
+							..default()
+						},
+						Pickable::IGNORE,
+					));
+					row.spawn((
+						TanzCalloutHudLabel,
+						Text::new(""),
+						TextFont { font_size: FontSize::Px(14.0), ..default() },
+						TextColor(INK),
+						Pickable::IGNORE,
+					));
+				});
 		});
 }
 
@@ -58,5 +136,36 @@ pub fn sync_tanz_mode_hud(
 		if text.0 != label {
 			text.0 = String::from(label);
 		}
+	}
+}
+
+pub fn sync_tanz_callout_hud(
+	callout: Res<TanzCallout>,
+	asset_server: Res<AssetServer>,
+	mut roots: Query<&mut Visibility, With<TanzCalloutHud>>,
+	mut panels: Query<&mut BackgroundColor, With<TanzCalloutHudPanel>>,
+	mut icons: Query<&mut ImageNode, With<TanzCalloutHudIcon>>,
+	mut labels: Query<(&mut Text, &mut TextColor), With<TanzCalloutHudLabel>>,
+) {
+	let visible = callout.current.is_some();
+	for mut visibility in &mut roots {
+		*visibility = if visible { Visibility::Visible } else { Visibility::Hidden };
+	}
+	let Some(view) = &callout.current else {
+		return;
+	};
+	let alpha = callout.alpha();
+	for mut color in &mut panels {
+		color.0 = Color::srgba(0.05, 0.05, 0.08, 0.55 * alpha);
+	}
+	for mut image in &mut icons {
+		image.image = asset_server.load(view.icon);
+		image.color = Color::srgba(0.92, 0.9, 0.82, alpha);
+	}
+	for (mut text, mut color) in &mut labels {
+		if text.0 != view.name {
+			text.0 = String::from(view.name);
+		}
+		color.0 = Color::srgba(0.92, 0.9, 0.82, alpha);
 	}
 }
