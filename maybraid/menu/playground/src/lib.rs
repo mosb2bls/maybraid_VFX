@@ -235,7 +235,8 @@ mod tests {
 	use bevy::input::{ButtonState, InputPlugin, InputSystems};
 	use bevy::prelude::*;
 	use maybraid_input::{
-		MenuNavPad, MenuOwnsBack, PadButton, PadGameplayEnabled, VirtualPad, VirtualPadConfig,
+		produce::keyboard::produce_keyboard, KeyboardPadMap, MenuNavPad, MenuOwnsBack, PadButton,
+		PadGameplayEnabled, VirtualPad, VirtualPadConfig,
 	};
 	use maybraid_menu_controller::{dispatch, MenuController};
 	use menu_components::{
@@ -253,23 +254,31 @@ mod tests {
 	fn gate_pad(
 		lock: Res<TextMenuInputLock>,
 		modal: Res<ShortTextModal>,
+		owns: Res<MenuOwnsBack>,
 		mut enabled: ResMut<PadGameplayEnabled>,
+		mut keys: ResMut<KeyboardPadMap>,
 	) {
-		enabled.0 = !lock.0 || modal.is_open();
+		enabled.set_menu(!lock.0 || modal.is_open());
+		*keys = if modal.is_open() || lock.0 || owns.0 {
+			KeyboardPadMap::Menu
+		} else {
+			KeyboardPadMap::Gameplay
+		};
 	}
 
-	/// Mirrors produce → derive with [`HeldPad`] as the only device.
-	fn drive_pad(
-		held: Res<HeldPad>,
+	fn begin_held_pad(held: Res<HeldPad>, mut pad: ResMut<VirtualPad>) {
+		pad.begin_frame();
+		for button in &held.0 {
+			pad.hold_digital(*button);
+		}
+	}
+
+	fn finish_held_pad(
 		config: Res<VirtualPadConfig>,
 		enabled: Res<PadGameplayEnabled>,
 		mut pad: ResMut<VirtualPad>,
 		mut nav: ResMut<MenuNavPad>,
 	) {
-		pad.begin_frame();
-		for button in &held.0 {
-			pad.hold_digital(*button);
-		}
 		if !enabled.is_enabled() {
 			pad.suppress_gameplay();
 		}
@@ -293,6 +302,7 @@ mod tests {
 		.init_resource::<MenuNavPad>()
 		.init_resource::<MenuOwnsBack>()
 		.init_resource::<PadGameplayEnabled>()
+		.init_resource::<KeyboardPadMap>()
 		.init_resource::<bevy::picking::hover::HoverMap>()
 		.init_resource::<crate::CharacterMenuState>()
 		.insert_resource(character_persist::SaveRoot::at(
@@ -300,7 +310,12 @@ mod tests {
 		))
 		.add_plugins((MenuComponentsPlugin, CharacterLeavePromptPlugin))
 		.add_plugins(menu_screens::MenuInputPlugin)
-		.add_systems(PreUpdate, (gate_pad, drive_pad).chain().after(InputSystems))
+		.add_systems(
+			PreUpdate,
+			(gate_pad, begin_held_pad, produce_keyboard, finish_held_pad)
+				.chain()
+				.after(InputSystems),
+		)
 		.add_systems(
 			Update,
 			(
@@ -423,6 +438,35 @@ mod tests {
 		open_keyboard(&mut app);
 		hold(&mut app, PadButton::Start);
 		assert!(!app.world().resource::<ShortTextModal>().is_open());
+		assert!(!left_editor(&mut app));
+	}
+
+	#[test]
+	fn key_b_on_the_name_keyboard_does_not_back() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		key(&mut app, KeyCode::KeyB, ButtonState::Pressed);
+		app.update();
+		key(&mut app, KeyCode::KeyB, ButtonState::Released);
+		for _ in 0..4 {
+			app.update();
+		}
+		assert!(app.world().resource::<ShortTextModal>().is_open(), "B types; Escape backs");
+		assert!(!left_editor(&mut app));
+	}
+
+	#[test]
+	fn wasd_on_the_name_keyboard_does_not_steer_the_pad() {
+		let mut app = editor_app();
+		open_keyboard(&mut app);
+		for key_code in [KeyCode::KeyW, KeyCode::KeyA, KeyCode::KeyS, KeyCode::KeyD] {
+			key(&mut app, key_code, ButtonState::Pressed);
+		}
+		app.update();
+		let pad = app.world().resource::<VirtualPad>();
+		assert_eq!(pad.move_stick, Vec2::ZERO);
+		assert_eq!(pad.dpad, Vec2::ZERO);
+		assert!(app.world().resource::<ShortTextModal>().is_open());
 		assert!(!left_editor(&mut app));
 	}
 

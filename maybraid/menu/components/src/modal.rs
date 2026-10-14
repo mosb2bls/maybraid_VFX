@@ -234,7 +234,6 @@ pub fn tick_menu_modal_holds(
 ) {
 	let back_down = pad.as_deref().is_some_and(|pad| pad.pressed(PadButton::B))
 		|| keyboard.pressed(KeyCode::Escape)
-		|| keyboard.pressed(KeyCode::KeyB)
 		|| nav.just_pressed(MenuNav::Back);
 	let start_down = pad.as_deref().is_some_and(|pad| pad.pressed(PadButton::Start))
 		|| keyboard.pressed(KeyCode::Enter);
