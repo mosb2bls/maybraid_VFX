@@ -35,7 +35,7 @@ pub(super) fn forget_evictions_of(storage: &HcsgStorage, type_id: TypeId) {
 impl HcsgStorage {
 	/// Removes every `T` whose bounds overlap none of `regions`. `Id::Universal`
 	/// is kept. Removal bumps the membership revision as [`Self::remove`] does.
-	pub fn retain_overlapping<T: HcsgValue>(&self, regions: &[Aabb3d]) {
+	pub(crate) fn retain_overlapping<T: HcsgValue>(&self, regions: &[Aabb3d]) {
 		let Some(store) = self.store::<T>() else {
 			return;
 		};
@@ -98,7 +98,7 @@ impl HcsgStorage {
 
 	/// Drops every recorded eviction. Called when no live subscription remains
 	/// (epoch or last unsubscribe) so a new session does not count as rebuilds.
-	pub fn clear_evictions(&self) {
+	pub(crate) fn clear_evictions(&self) {
 		#[cfg(debug_assertions)]
 		lock_mutex(&self.0.evicted).clear();
 	}

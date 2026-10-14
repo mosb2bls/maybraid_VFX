@@ -93,6 +93,9 @@ impl Plugin for CombatHudPlugin {
 		if !any {
 			return;
 		}
+		if self.player_vitals || self.lubikan_charge {
+			app.add_message::<lubikans::LubikanActivationFinished>();
+		}
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
 			.init_resource::<CombatHudInventoryCycleCategory>();
@@ -132,9 +135,7 @@ impl Plugin for CombatHudPlugin {
 
 /// Shared meter content for the persistent player health widget.
 fn configure_health_content(app: &mut App) {
-	app.init_resource::<ContinuousHealthConfig>()
-		.add_message::<lubikans::LubikanActivationFinished>()
-		.add_systems(
+	app.init_resource::<ContinuousHealthConfig>().add_systems(
 			PostUpdate,
 			(update_continuous_health_bar_content, trigger_completion_flash)
 				.chain()
@@ -917,6 +918,44 @@ mod tests {
 			.map(|ledger| ledger.equipped().charge().current());
 		assert_eq!(stored, Some(80.0));
 		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "80"));
+		Ok(())
+	}
+
+	#[test]
+	fn lubikan_charge_catches_up_after_hud_was_hidden() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut().entity_mut(owner).insert((Player, Health::default()));
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			ledger.apply_to_equipped(12.0);
+		}
+		app.world_mut().insert_resource(CombatHudVisible(false));
+		app.update();
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			ledger.apply_to_equipped(33.0);
+		}
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let world = app.world_mut();
+		assert_eq!(
+			world
+				.get::<lubikans::LubikanLedger>(owner)
+				.map(|ledger| ledger.equipped().charge().current()),
+			Some(45.0)
+		);
+		assert!(
+			world.query::<&Text>().iter(world).any(|text| text.0 == "45"),
+			"charge plate must reflect awards applied while the HUD was hidden"
+		);
 		Ok(())
 	}
 
