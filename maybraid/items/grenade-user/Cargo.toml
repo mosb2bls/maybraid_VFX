@@ -16,6 +16,7 @@ character-inventory-user = { workspace = true }
 character-items = { workspace = true }
 character-rigs = { workspace = true }
 characters = { workspace = true }
+damage = { workspace = true }
 firearm-user = { workspace = true }
 grenades = { workspace = true }
 maybraid-audio = { workspace = true }

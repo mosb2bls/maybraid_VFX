@@ -113,19 +113,7 @@ pub struct BumpedOut<P, G: ForestGround> {
 impl<P: CanopyProxy, G: ForestGround> BumpedOut<P, G> {
 	/// The surface cell carrying `cell` that overlaps it most.
 	fn surface(cx: &mut GenerationContext, cell: Aabb3d) -> Option<Arc<G::Surface>> {
-		let overlap = |footprint: Aabb3d| {
-			let x = (cell.max.x.min(footprint.max.x) - cell.min.x.max(footprint.min.x)).max(0.0);
-			let z = (cell.max.z.min(footprint.max.z) - cell.min.z.max(footprint.min.z)).max(0.0);
-			x * z
-		};
-		G::surface_ids_for(cx, cell)
-			.into_iter()
-			.filter_map(|OriginalId(id)| cx.get_or_generate::<G::Surface>(id))
-			.filter(|surface| {
-				let footprint = G::footprint(surface);
-				P::carried_by(footprint.max.x - footprint.min.x) && overlap(footprint) > 1e-3
-			})
-			.max_by(|a, b| overlap(G::footprint(a)).total_cmp(&overlap(G::footprint(b))))
+		G::best_surface_at(cx, cell, P::carried_by)
 	}
 
 	/// Low inside the band, High in the hole within it, UltraLow beyond it.
