@@ -18,7 +18,7 @@ use menu_components::{
 use serde::{Deserialize, Serialize};
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::{GameMode, MenuScreen};
 
 pub use catalog::{
@@ -32,6 +32,7 @@ pub use persist::{
 
 /// Queue an in-game settings spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Default, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowInGameSettings {
 	pub selected: Option<InGameSettingsChoice>,
 }
@@ -485,11 +486,11 @@ impl Plugin for InGameSettingsPlugin {
 			)
 			.add_systems(
 				Update,
-				(apply_show_in_game_settings, sync_in_game_settings_brand)
-					.chain()
+				sync_in_game_settings_brand
 					.in_set(InGameSettingsSystems::Show)
 					.after(InGameSettingsSystems::ApplyChoice),
 			);
+		add_menu_show_systems(app, apply_show_in_game_settings);
 	}
 }
 
@@ -570,17 +571,16 @@ fn mark_visual_style_saved(saved: &mut VisualStyleSaved, auto: &mut VisualStyleA
 
 fn apply_show_in_game_settings(
 	mut commands: Commands,
-	requests: Query<(Entity, &RequestShowInGameSettings)>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<&RequestShowInGameSettings>,
+	screens: MenuScreens,
 	mode: Res<GameMode>,
 	settings: Res<InGameSettings>,
 	readout: Res<RenderScaleReadout>,
 ) {
-	let selected = requests.iter().last().and_then(|(_, request)| request.selected);
-	if !take_menu_show_request(&mut commands, requests.iter().map(|(entity, _)| entity), &existing)
-	{
+	let Some(request) = screens.take(&mut commands, &requests) else {
 		return;
-	}
+	};
+	let selected = requests.get(request).ok().and_then(|request| request.selected);
 	commands.spawn_scene(InGameSettingsScreen::scene(
 		&mode,
 		*settings,

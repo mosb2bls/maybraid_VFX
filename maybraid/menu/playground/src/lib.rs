@@ -18,8 +18,9 @@ pub use game_commands::command::PendingStartupCommand;
 pub use leave_prompt::CharacterLeavePrompt;
 pub use preview::{CharacterPreviewLight, CharacterPreviewPlugin, CharacterPreviewRoot};
 pub use session::{
-	leave_character_editor, save_editing_character, ActiveCharacter, CharacterEditorReturn,
-	CharacterSession, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
+	end_character_editor, leave_character_editor, save_editing_character, ActiveCharacter,
+	CharacterEditorReturn, CharacterSession, CharacterSessionPlugin, EditingCharacter,
+	RequestEditCharacter,
 };
 pub use weapon_gallery::{request_show_weapons, WeaponGalleryPlugin, WeaponGalleryScreen};
 
@@ -188,12 +189,13 @@ fn echo_gallery_choice(
 	}
 }
 
+/// Back on every screen except the character editor, whose leave prompt owns it.
 fn editor_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
 	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
-	return_to: Option<Res<crate::CharacterEditorReturn>>,
+	return_to: Option<Res<CharacterEditorReturn>>,
 	character: Query<(), With<CharacterScreen>>,
 	spin: Query<(), With<SpinRevealScreen>>,
 	gallery: Query<(), With<GalleryScreen>>,

@@ -20,7 +20,7 @@ use bevy::prelude::*;
 use bevy::render::renderer::RenderAdapterInfo;
 use bevy::window::PrimaryWindow;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
-use maybraid_input::MenuNavPad;
+use maybraid_input::{MenuNav, MenuNavPad, PadButton, VirtualPad};
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	host_memory_bytes, parse_device_tier_env, parse_visual_style_env, reset_first_spawn_offer,
@@ -41,10 +41,10 @@ use menu_playground::{
 use menu_screens::{
 	apply_unsaved_visual_style_default, cancel_pending_create, request_show_gallery,
 	request_show_home, request_show_in_game, request_show_in_game_settings, CreateCharacterPlugin,
-	GalleryScreen, GameMode, HomeMenuChoice, HomeScreenPlugin, InGameMenuChoice,
+	GalleryScreen, GameMode, HomeMenuChoice, HomeScreenPlugin, InGameMenuChoice, InGameScreen,
 	InGameScreenPlugin, InGameSettings, InGameSettingsScreen, InGameSettingsSystems,
 	InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin, LoadingScreenSystems, MenuScreen,
-	RenderScaleReadout, SpinRevealScreen, VisualStyleAutoPick, VisualStyleSaved,
+	MenuScreens, RenderScaleReadout, SpinRevealScreen, VisualStyleAutoPick, VisualStyleSaved,
 };
 
 pub struct GamePlugin;
@@ -140,7 +140,11 @@ impl Plugin for GamePlugin {
 						.run_if(in_state(GameFlow::Home)),
 					route_in_game_choice.run_if(in_state(WorldPause::Menu)),
 					apply_pause_character_look.run_if(in_state(WorldPause::Menu)),
-					sync_world_loadout_from_editor.run_if(in_state(WorldPause::Menu)),
+					// Discard restores the baseline from a Navigate observer; write it
+					// to the live player before the swap drops the editor return.
+					sync_world_loadout_from_editor
+						.after(TextMenuSystems::Navigate)
+						.run_if(in_state(WorldPause::Menu)),
 					persist_changed_player_inventory,
 					sync_world_mob_hud,
 					sync_world_shadows,
@@ -160,6 +164,7 @@ impl Plugin for GamePlugin {
 						.run_if(in_state(GameFlow::Characters)),
 					toggle_world_pause
 						.after(CharacterControlSystems)
+						.before(TextMenuSystems::InputLock)
 						.run_if(in_state(GameFlow::World)),
 				),
 			);
@@ -175,7 +180,7 @@ fn boot_shell(
 	mut route: ShellRoute,
 	mut mode: ResMut<GameMode>,
 	mut commands: Commands,
-	screens: Query<Entity, With<MenuScreen>>,
+	screens: MenuScreens,
 ) {
 	if spawn.0.is_some() {
 		mode.label = String::from("Discovery");
@@ -484,6 +489,8 @@ fn home_settings_back(
 	request_show_home(&mut commands);
 }
 
+/// Settings Back returns to the pause root. The character editor's leave
+/// prompt owns Back on that screen.
 fn pause_menu_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
@@ -498,43 +505,61 @@ fn pause_menu_back(
 	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
-	commands.remove_resource::<CharacterEditorReturn>();
-	request_show_in_game(&mut commands);
+	if !settings.is_empty() {
+		request_show_in_game(&mut commands);
+	}
 }
 
+/// Where Start sends the pause state, if anywhere. Play opens pause and the
+/// pause root closes it; on a pause sub-screen (character editor, settings)
+/// Start is that screen's Select.
+fn start_pause_target(pause: WorldPause, sub_screen: bool) -> Option<WorldPause> {
+	match pause {
+		WorldPause::Playing => Some(WorldPause::Menu),
+		WorldPause::Menu if sub_screen => None,
+		WorldPause::Menu => Some(WorldPause::Playing),
+	}
+}
+
+/// Start is both a pause intent and a menu Select. When pause takes it, the
+/// Select is dropped before menus navigate so one press never confirms a row
+/// and unpauses in the same frame.
 fn toggle_world_pause(
 	pause: Res<State<WorldPause>>,
 	mut next: ResMut<NextState<WorldPause>>,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	mut intents: MessageReader<CharacterIntent>,
+	mut nav: ResMut<MenuNavPad>,
+	pad: Option<Res<VirtualPad>>,
+	sub_screens: Query<(), (With<MenuScreen>, Without<InGameScreen>)>,
 ) {
 	if !intents.read().any(|intent| matches!(intent, CharacterIntent::InGameMenu)) {
 		return;
 	}
-	match pause.get() {
-		WorldPause::Playing => {
-			gameplay.0 = false;
-			next.set(WorldPause::Menu);
-		}
-		WorldPause::Menu => next.set(WorldPause::Playing),
+	let Some(target) = start_pause_target(*pause.get(), !sub_screens.is_empty()) else {
+		return;
+	};
+	if !pad.is_some_and(|pad| pad.just_pressed(PadButton::A)) {
+		nav.events.retain(|event| *event != MenuNav::Select);
 	}
+	if target == WorldPause::Menu {
+		gameplay.0 = false;
+	}
+	next.set(target);
 }
 
+/// Gallery / spin-reveal Back. The character editor's leave prompt owns Back
+/// on that screen.
 fn character_back(
 	mut route: ShellRoute,
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
 	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
-	character: Query<(), With<CharacterScreen>>,
 	spin: Query<(), With<SpinRevealScreen>>,
 	gallery: Query<(), With<GalleryScreen>>,
 ) {
 	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
-		return;
-	}
-	if !character.is_empty() {
-		request_show_gallery(&mut commands);
 		return;
 	}
 	if !spin.is_empty() {
@@ -837,6 +862,103 @@ mod tests {
 		settings.visual_style = InGameVisualStyle::Impressionist;
 		assert!(apply_unsaved_visual_style_default(true, &mut settings, &signals).is_none());
 		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
+		Ok(())
+	}
+
+	#[test]
+	fn start_closes_pause_only_from_the_pause_root() {
+		use crate::{start_pause_target, WorldPause};
+
+		assert_eq!(start_pause_target(WorldPause::Playing, false), Some(WorldPause::Menu));
+		assert_eq!(start_pause_target(WorldPause::Playing, true), Some(WorldPause::Menu));
+		assert_eq!(start_pause_target(WorldPause::Menu, false), Some(WorldPause::Playing));
+		assert_eq!(start_pause_target(WorldPause::Menu, true), None);
+	}
+
+	fn start_pressed_world(pause: crate::WorldPause) -> World {
+		use maybraid_character_controller::CharacterIntent;
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use maybraid_world::WorldGameplayEnabled;
+
+		let mut world = World::new();
+		world.insert_resource(State::new(pause));
+		world.insert_resource(NextState::<crate::WorldPause>::Unchanged);
+		world.insert_resource(WorldGameplayEnabled(pause == crate::WorldPause::Playing));
+		world.init_resource::<Messages<CharacterIntent>>();
+		world.write_message(CharacterIntent::InGameMenu);
+		let mut nav = MenuNavPad::default();
+		nav.events.push(MenuNav::Select);
+		world.insert_resource(nav);
+		world
+	}
+
+	#[test]
+	fn start_on_the_pause_root_unpauses_without_selecting_a_row() -> anyhow::Result<()> {
+		use crate::{toggle_world_pause, WorldPause};
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use menu_screens::{InGameScreen, MenuScreen};
+
+		let mut world = start_pressed_world(WorldPause::Menu);
+		world.spawn((InGameScreen, MenuScreen));
+		world
+			.run_system_once(toggle_world_pause)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		anyhow::ensure!(matches!(
+			world.resource::<NextState<WorldPause>>(),
+			NextState::Pending(WorldPause::Playing)
+		));
+		anyhow::ensure!(
+			!world.resource::<MenuNavPad>().just_pressed(MenuNav::Select),
+			"pause took Start; the pause row must not also activate"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn start_in_the_character_editor_stays_with_the_editor() -> anyhow::Result<()> {
+		use crate::{toggle_world_pause, WorldPause};
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use menu_playground::CharacterScreen;
+		use menu_screens::MenuScreen;
+
+		let mut world = start_pressed_world(WorldPause::Menu);
+		world.spawn((CharacterScreen, MenuScreen));
+		world
+			.run_system_once(toggle_world_pause)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		anyhow::ensure!(
+			matches!(world.resource::<NextState<WorldPause>>(), NextState::Unchanged),
+			"Start under a pause sub-screen must not unpause"
+		);
+		anyhow::ensure!(
+			world.resource::<MenuNavPad>().just_pressed(MenuNav::Select),
+			"the editor (and its leave prompt) should still see Start as Select"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn pause_back_leaves_the_editor_to_its_leave_prompt() -> anyhow::Result<()> {
+		use crate::pause_menu_back;
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use menu_components::{MenuModalStack, ScreenBackPressed};
+		use menu_playground::CharacterScreen;
+		use menu_screens::{MenuScreen, MenuShowRequest};
+
+		let mut world = World::new();
+		world.init_resource::<Messages<ScreenBackPressed>>();
+		let mut nav = MenuNavPad::default();
+		nav.events.push(MenuNav::Back);
+		world.insert_resource(nav);
+		world.init_resource::<MenuModalStack>();
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.spawn((CharacterScreen, MenuScreen));
+		world
+			.run_system_once(pause_menu_back)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+		let requests = world.query::<&MenuShowRequest>().iter(&world).count();
+		anyhow::ensure!(requests == 0, "pause back must not route out of the editor");
 		Ok(())
 	}
 }
