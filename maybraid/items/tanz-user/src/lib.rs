@@ -2,6 +2,7 @@
 //! and always advance the Skill Map.
 
 mod actions;
+mod callout;
 mod execute;
 mod hud;
 mod input;
@@ -18,6 +19,7 @@ use player::{MoveWish, PlayerLook, PlayerSystems};
 pub use actions::{
 	forward_dash, healing_salute, left_strafe, right_strafe, starter_stack, TanzAction,
 };
+pub use callout::{TanzCallout, TanzCalloutView, TANZ_CALLOUT_SECS};
 pub use execute::{
 	advance_tanz_execution, apply_tanz_movement, drive_tanz_animation, match_tanz_inputs,
 	ActiveTanz, BufferedTanz, TanzExecution, TanzPhase,
@@ -212,8 +214,18 @@ impl Plugin for TanzUserPlugin {
 					.in_set(TanzUserSystems::Execute),
 			)
 			.add_systems(Update, drive_tanz_animation.in_set(TanzUserSystems::Animate))
-			.add_systems(Startup, hud::spawn_tanz_mode_hud)
-			.add_systems(Update, hud::sync_tanz_mode_hud.after(TanzUserSystems::Toggle));
+			.init_resource::<TanzCallout>()
+			.add_systems(Startup, (hud::spawn_tanz_mode_hud, hud::spawn_tanz_callout_hud))
+			.add_systems(Update, hud::sync_tanz_mode_hud.after(TanzUserSystems::Toggle))
+			.add_systems(
+				Update,
+				(
+					callout::announce_tanz_callouts.after(TanzUserSystems::Match),
+					callout::tick_tanz_callout,
+					hud::sync_tanz_callout_hud,
+				)
+					.chain(),
+			);
 	}
 }
 

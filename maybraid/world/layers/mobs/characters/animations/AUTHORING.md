@@ -42,7 +42,7 @@ Segment lengths are joint-to-joint. Femur length is the shin origin’s translat
 
 After `/`:
 
-- `/character assemble --species braidman --animation jab` spawns the default clothed Braidman preview (parts + character shaders) through the runtime fixed-assembly path. Sided gestures take `--side left|right`.
+- `/character assemble --species braidman --animation jab` spawns the default clothed Braidman preview (parts + character shaders) through the runtime fixed-assembly path. Sided gestures take `--side left|right`. Tanz clips: `jab`, `power-strafe --side left|right`, `power-dash`.
 - `/character animate jab --side right` switches the mailbox clip without respawning. The sample clock restarts at 0 so a one-shot reads from the first frame.
 - `/character playback --pause` freezes the clock. `--resume` starts it. `--speed 0.5` scales time. `--progress 0.4` scrubs to 0.4 seconds. `--once` stops at one second. `--looping` keeps running. `--phase 0.5` samples the opposite gait phase. `--leg-scale 0.75` or `--leg-scale 1.25` scales femur and shin rest translations before sampling. Femur length follows the scaled shin origin.
 - `/character camera front`, `side`, or `three-quarter` frames the rig.

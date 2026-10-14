@@ -54,6 +54,7 @@ pub fn healing_salute() -> TanzDefinition {
 		action: TanzAction::Heal { amount: HEALING_SALUTE_AMOUNT },
 		timing: SALUTE_TIMING,
 		clip: AnimClip::jab(),
+		icon: TanzId::HealingSalute.icon_path(),
 	}
 }
 
@@ -64,6 +65,7 @@ pub fn left_strafe() -> TanzDefinition {
 		action: TanzAction::Move { local: Vec2::NEG_X },
 		timing: MOVE_TIMING,
 		clip: AnimClip::power_strafe_left(),
+		icon: TanzId::LeftStrafe.icon_path(),
 	}
 }
 
@@ -74,6 +76,7 @@ pub fn right_strafe() -> TanzDefinition {
 		action: TanzAction::Move { local: Vec2::X },
 		timing: MOVE_TIMING,
 		clip: AnimClip::power_strafe_right(),
+		icon: TanzId::RightStrafe.icon_path(),
 	}
 }
 
@@ -84,6 +87,7 @@ pub fn forward_dash() -> TanzDefinition {
 		action: TanzAction::Move { local: Vec2::Y },
 		timing: MOVE_TIMING,
 		clip: AnimClip::power_dash(),
+		icon: TanzId::ForwardDash.icon_path(),
 	}
 }
 
@@ -101,6 +105,7 @@ mod tests {
 		assert_eq!(salute.clip.id(), AnimClip::jab().id());
 		assert_eq!(salute.action, TanzAction::Heal { amount: HEALING_SALUTE_AMOUNT });
 		assert_eq!(salute.input.button, TanzButton::APress);
+		assert_eq!(salute.icon, TanzId::HealingSalute.icon_path());
 		Ok(())
 	}
 

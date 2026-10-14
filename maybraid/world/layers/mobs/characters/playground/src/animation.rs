@@ -26,6 +26,7 @@ pub enum AnimationMode {
 	Flapping,
 	Jab,
 	PowerStrafe,
+	PowerDash,
 	Prone,
 }
 
@@ -51,6 +52,7 @@ impl AnimationMode {
 			Self::Flapping => "flapping",
 			Self::Jab => "jab",
 			Self::PowerStrafe => "power-strafe",
+			Self::PowerDash => "power-dash",
 			Self::Prone => "prone",
 		}
 	}
@@ -75,6 +77,7 @@ impl AnimationMode {
 				target: DEFAULT_JAB_TARGET,
 			}),
 			Self::PowerStrafe => AnimClip::power_strafe(side),
+			Self::PowerDash => AnimClip::power_dash(),
 			Self::Prone => AnimClip::prone(),
 		}
 	}
