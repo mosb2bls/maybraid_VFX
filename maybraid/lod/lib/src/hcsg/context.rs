@@ -9,7 +9,7 @@ use bevy::math::DVec3;
 
 use crate::gen::{Id, OriginalId};
 
-use super::node_store::{StoredEntry, DEFAULT_BASE_SCALE};
+use super::node_store::DEFAULT_BASE_SCALE;
 use super::storage::{HcsgStorage, HcsgValue};
 
 /// How one generated type is discovered and built.
@@ -70,6 +70,12 @@ impl<'a> GenerationContext<'a> {
 		self.reached.insert(TypeId::of::<T>());
 	}
 
+	/// Records `T` on reach and returns whether `id` is already stored.
+	pub(super) fn has_stored<T: HcsgValue>(&mut self, id: Id) -> bool {
+		self.touch::<T>();
+		self.storage.contains::<T>(id)
+	}
+
 	/// Types this context read since it was created.
 	pub(super) fn take_reached(&mut self) -> HashSet<TypeId> {
 		std::mem::take(&mut self.reached)
@@ -84,17 +90,6 @@ impl<'a> GenerationContext<'a> {
 	pub fn get<T: HcsgValue>(&mut self, id: Id) -> Option<Arc<T>> {
 		self.touch::<T>();
 		self.storage.get(id)
-	}
-
-	/// The stored entry, recording `T` on this fill's reach.
-	pub fn entry<T: HcsgValue>(&mut self, id: Id) -> Option<StoredEntry<Arc<T>>> {
-		self.touch::<T>();
-		self.storage.entry(id)
-	}
-
-	pub fn overlapping<T: HcsgValue>(&mut self, region: Aabb3d) -> Vec<Id> {
-		self.touch::<T>();
-		self.storage.overlapping::<T>(region)
 	}
 
 	pub fn original_ids_for<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<OriginalId> {

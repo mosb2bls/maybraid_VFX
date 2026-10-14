@@ -3,8 +3,8 @@
 use bevy::prelude::*;
 use maybraid_input::{MenuNav, MenuNavImpulse};
 use menu_components::{
-	HudMenu, HudMenuItem, HudOverlayMenu, KeyboardMenuNav, MenuActivate, MenuBackConsumed,
-	MenuFocus, TextMenuInputLock,
+	HudMenu, HudMenuItem, HudOverlayMenu, KeyboardMenuNav, MenuActivate, MenuFocus,
+	MenuModalDismiss, MenuModalId, TextMenuInputLock,
 };
 
 use crate::event::{OverlayClose, OverlayOpen};
@@ -144,14 +144,12 @@ fn activate_selected_hud_item<E: Copy + Send + Sync + 'static>(
 	}
 }
 
-pub fn emit_overlay_close_on_escape(
-	keyboard: Res<ButtonInput<KeyCode>>,
-	keyboard_nav: Res<KeyboardMenuNav>,
-	lock: Res<TextMenuInputLock>,
+pub fn close_overlay_on_modal_dismiss(
+	mut dismiss: MessageReader<MenuModalDismiss>,
 	roots: Query<Entity, With<OverlaySelectRoot>>,
 	mut commands: Commands,
 ) {
-	if !keyboard_nav.is_enabled() || lock.0 || !keyboard.just_pressed(KeyCode::Escape) {
+	if !dismiss.read().any(|event| event.is(MenuModalId::OVERLAY_SELECT)) {
 		return;
 	}
 	let Ok(root) = roots.single() else {
@@ -160,19 +158,82 @@ pub fn emit_overlay_close_on_escape(
 	commands.trigger(OverlayClose { entity: root });
 }
 
-pub fn emit_overlay_close_on_nav(
-	impulse: On<MenuNavImpulse>,
-	lock: Res<TextMenuInputLock>,
-	roots: Query<Entity, With<OverlaySelectRoot>>,
-	mut consumed: ResMut<MenuBackConsumed>,
-	mut commands: Commands,
-) {
-	if lock.0 || impulse.event().nav != MenuNav::Back {
-		return;
-	}
-	let Ok(root) = roots.single() else {
-		return;
+#[cfg(test)]
+mod tests {
+	use super::{close_overlay_on_modal_dismiss, OverlaySelectRoot};
+	use crate::event::OverlayClose as OverlayCloseEvent;
+	use bevy::ecs::system::RunSystemOnce;
+	use bevy::prelude::*;
+	use maybraid_input::{MenuNav, MenuNavPad};
+	use menu_components::{
+		consume_menu_modal_back, consume_screen_back, MenuModalDismiss, MenuModalId,
+		MenuModalLayer, MenuModalStack, ScreenBackPressed,
 	};
-	consumed.0 = true;
-	commands.trigger(OverlayClose { entity: root });
+
+	#[derive(Resource, Default)]
+	struct OverlayCloseHits(u32);
+
+	fn count_close(_close: On<OverlayCloseEvent>, mut hits: ResMut<OverlayCloseHits>) {
+		hits.0 += 1;
+	}
+
+	fn overlay_back_world() -> World {
+		let mut world = World::new();
+		world.init_resource::<MenuModalStack>();
+		world.init_resource::<MenuNavPad>();
+		world.init_resource::<ButtonInput<KeyCode>>();
+		world.init_resource::<OverlayCloseHits>();
+		world.init_resource::<Messages<MenuModalDismiss>>();
+		world.init_resource::<Messages<ScreenBackPressed>>();
+		world.add_observer(count_close);
+		world.spawn(OverlaySelectRoot);
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::OVERLAY_SELECT);
+		world.resource_mut::<MenuNavPad>().events.push(MenuNav::Back);
+		world.run_system_once(consume_menu_modal_back).expect("consume");
+		world.run_system_once(close_overlay_on_modal_dismiss).expect("close");
+		world.flush();
+		world
+	}
+
+	#[test]
+	fn back_closes_overlay_and_does_not_leave_the_screen() {
+		let mut world = overlay_back_world();
+		assert_eq!(world.resource::<OverlayCloseHits>().0, 1);
+		assert_eq!(
+			world
+				.run_system_once(|mut dismiss: MessageReader<MenuModalDismiss>| {
+					dismiss.read().next().map(|event| event.id)
+				})
+				.expect("dismiss"),
+			Some(MenuModalId::OVERLAY_SELECT)
+		);
+		let left = world
+			.run_system_once(
+				|nav: Res<MenuNavPad>,
+				 stack: Res<MenuModalStack>,
+				 mut backs: MessageReader<ScreenBackPressed>| {
+					consume_screen_back(&nav, &stack, &mut backs)
+				},
+			)
+			.expect("screen back");
+		assert!(!left);
+	}
+
+	#[test]
+	fn escape_closes_overlay_without_nav_back() {
+		let mut world = World::new();
+		world.init_resource::<MenuModalStack>();
+		world.init_resource::<MenuNavPad>();
+		world.init_resource::<ButtonInput<KeyCode>>();
+		world.init_resource::<OverlayCloseHits>();
+		world.init_resource::<Messages<MenuModalDismiss>>();
+		world.add_observer(count_close);
+		world.spawn(OverlaySelectRoot);
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::OVERLAY_SELECT);
+		world.resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
+		world.run_system_once(consume_menu_modal_back).expect("consume");
+		world.run_system_once(close_overlay_on_modal_dismiss).expect("close");
+		world.flush();
+		assert_eq!(world.resource::<OverlayCloseHits>().0, 1);
+	}
 }

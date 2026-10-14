@@ -2,12 +2,20 @@
 
 The actual Maybraid game.
 
-Starts on the home screen. Discovery enters the streamed world. Characters opens
-the character screen. Reliquary is not wired yet. Training Ground is listed but
-temporarily removed until it is rebuilt. In world, Start (Enter on
-keyboard) overlays the in-game menu; Start again dismisses it. Leave on that
-menu returns home. Settings opens the same pause settings overlay (shadows, render
-scale, mob HUD); Back / Escape returns home.
+Starts on the home screen ([`HomeMenuChoice`](../menu/screens/src/home.rs)):
+
+| Row | Behavior |
+| --- | --- |
+| **Discovery** | Enters the streamed world (`PlaySession::Discovery`). Locked until the save has at least one character. |
+| **Characters** | Opens the character screen. Shows **Start here** when the roster is empty. |
+| **Reliquary** | Shown as **Coming soon** (locked). The executable route is still unimplemented. |
+| **Training Ground** | Shown as **Temporarily removed** (locked) while it is rebuilt. |
+| **Settings** | Opens the shared in-game settings overlay (shadows, render scale, mob HUD). **Back** / **Escape** / **B** returns to the home screen. |
+
+In world, **Start** (**Enter** on keyboard) toggles the in-game pause menu.
+**Start** again resumes play. **Leave** on that menu returns home. **Settings**
+there opens the same overlay; **Back** dismisses back to the pause menu (or the
+character screen when opened from pause).
 
 ```bash
 cargo run -p maybraid

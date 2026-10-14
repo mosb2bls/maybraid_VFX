@@ -12,6 +12,7 @@ use lod::gen::{Id, OriginalId};
 use lod::hcsg::{self, GenerationContext};
 use procedural_common::Bounds2;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use urbanization_developments::{
 	Development, LesHalles, OldCityMarket, PadParams, PadPlan, RingFort, ShepherdsCommune,
 	ShepherdsVillage, SingleHighrise, SiteGround, SkybridgeBazaar, SuburbanHomes, TempleComplex,
@@ -22,7 +23,7 @@ use crate::artifact::BuiltDevelopment;
 use crate::config::DevelopmentConfig;
 use crate::ground::{GroundCells, RichmondGround};
 use crate::pad::{cell_center_xz, PadComplex};
-use crate::storage::{column_bounds, overlaps_xz_strictly};
+use crate::storage::overlaps_xz_strictly;
 
 use site::{AuthoredCourtyard, DevelopmentKind, DevelopmentSite};
 
@@ -120,8 +121,7 @@ impl<G: RichmondGround> hcsg::GenerationScheme for RichmondDevelopment<G> {
 	/// An authored site plans on its own level, dry ground; a procedural one
 	/// on `G`, and has no development without ground under its center.
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let site = cx.get_or_generate::<DevelopmentSite>(id)?;
-		let bounds = column_bounds(site.cell);
+		let (site, bounds) = cx.get_or_generate_stored::<DevelopmentSite>(id)?;
 		if !site.is_filled() {
 			return Some((Self::Empty(site.cell), bounds));
 		}
@@ -138,6 +138,37 @@ impl<G: RichmondGround> hcsg::GenerationScheme for RichmondDevelopment<G> {
 }
 
 impl<G: RichmondGround> RichmondDevelopment<G> {
+	/// Filled development `id`, or `None` when the site is empty or nothing fits.
+	///
+	/// Uses a cached value when present; otherwise builds only as much of the
+	/// site stack as needed to learn whether anything fits.
+	pub fn try_get_filled(cx: &mut GenerationContext, id: Id) -> Option<Arc<Self>> {
+		if let Some(development) = cx.get::<Self>(id) {
+			return development.is_filled().then_some(development);
+		}
+		let Some(site) = cx.get_or_generate::<DevelopmentSite>(id) else {
+			return None;
+		};
+		if !site.is_filled() {
+			return None;
+		}
+		let development = cx.get_or_generate::<Self>(id)?;
+		development.is_filled().then_some(development)
+	}
+
+	/// Whether [`crate::Built`] discovery should include `id`.
+	pub fn builds_filled(cx: &mut GenerationContext, id: Id) -> bool {
+		Self::try_get_filled(cx, id).is_some()
+	}
+
+	/// Filled developments originating in `bounds`, for pad composition.
+	pub fn filled_in(cx: &mut GenerationContext, bounds: Aabb3d) -> Vec<Arc<Self>> {
+		cx.original_ids_for::<DevelopmentSite>(bounds)
+			.into_iter()
+			.filter_map(|OriginalId(id)| Self::try_get_filled(cx, id))
+			.collect()
+	}
+
 	/// Pad nodes of the filled `developments` affecting `region`, merged
 	/// into one sample-time blend pass.
 	///

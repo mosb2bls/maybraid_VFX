@@ -34,23 +34,6 @@
 
 use bevy::prelude::*;
 use camera_controls::look::CameraLookEnabled;
-use character_creation_menus::characters::brenal::BODY_FOCUS as BRENAL_BODY_FOCUS;
-use character_creation_menus::characters::caole::BODY_FOCUS as CAOLE_BODY_FOCUS;
-use character_creation_menus::characters::claber::BODY_FOCUS as CLABER_BODY_FOCUS;
-use character_creation_menus::characters::croconot::BODY_FOCUS as CROCONOT_BODY_FOCUS;
-use character_creation_menus::characters::epiphant::BODY_FOCUS as EPIPHANT_BODY_FOCUS;
-use character_creation_menus::characters::hars::BODY_FOCUS as HARS_BODY_FOCUS;
-use character_creation_menus::characters::sonyak::BODY_FOCUS as SONYAK_BODY_FOCUS;
-use character_creation_menus::characters::tuberwaber::BODY_FOCUS as TUBERWABER_BODY_FOCUS;
-use character_creation_menus::characters::ylter::BODY_FOCUS as YILTER_BODY_FOCUS;
-use character_creation_menus::focus::CHUPRI_BODY_FOCUS;
-use character_creation_menus::focus::GRENER_BODY_FOCUS;
-use character_creation_menus::focus::MISTLER_BODY_FOCUS;
-use character_creation_menus::focus::SMALL_BIRD_BODY_FOCUS;
-use character_creation_menus::focus::SPIBMOM_BODY_FOCUS;
-use character_creation_menus::focus::THUMPLUS_BODY_FOCUS;
-use character_creation_menus::focus::TIPPLE_BODY_FOCUS;
-use character_creation_menus::BODY_FOCUS;
 use character_ui_menu::{CameraFocus, FocusRig};
 use characters::{SocketRefApplied, SocketRefRoot};
 use characters_playground::CameraController;
@@ -106,29 +89,7 @@ pub fn queue_species_default_camera_focus(
 }
 
 pub fn default_focus_target(config: &ConceptPreviewConfig) -> CameraFocus {
-	match config.species() {
-		crate::preview::ConceptSpecies::Brenal => BRENAL_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Caole => CAOLE_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Epiphant => EPIPHANT_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Hars => HARS_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Yilter => YILTER_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Sonyak => SONYAK_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Claber => CLABER_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Croconot => CROCONOT_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Spibmom => SPIBMOM_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Chupri => CHUPRI_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Tipple => TIPPLE_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Topple
-		| crate::preview::ConceptSpecies::Kispar
-		| crate::preview::ConceptSpecies::Tapp
-		| crate::preview::ConceptSpecies::Kaller
-		| crate::preview::ConceptSpecies::Kappler => SMALL_BIRD_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Grener => GRENER_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Thumplus => THUMPLUS_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Mistler => MISTLER_BODY_FOCUS,
-		crate::preview::ConceptSpecies::Tuberwaber => TUBERWABER_BODY_FOCUS,
-		_ => BODY_FOCUS,
-	}
+	config.body_preview_focus()
 }
 
 /// Shadow rig data needed to resolve a focus target.

@@ -30,7 +30,10 @@ pub(super) fn discover<T: GenerationScheme>(cx: &mut GenerationContext, region: 
 	T::original_ids_for(cx, region).into_iter().map(|OriginalId(id)| id).collect()
 }
 
-pub(super) fn generate<T: GenerationScheme>(cx: &mut GenerationContext, id: Id) -> bool {
+pub(crate) fn generate<T: GenerationScheme>(cx: &mut GenerationContext, id: Id) -> bool {
+	if cx.has_stored::<T>(id) {
+		return true;
+	}
 	cx.get_or_generate::<T>(id).is_some()
 }
 

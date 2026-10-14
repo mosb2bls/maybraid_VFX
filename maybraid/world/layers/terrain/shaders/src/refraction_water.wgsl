@@ -104,25 +104,25 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let t = globals.time / 4.0;
     let cell_scale = 0.45;
     let cell = floor(uv * cell_scale);
-    let r = hash21(cell);
-    let warp = (r - 0.5) * 0.75;
-    let warped_uv = uv + warp;
-    let angle = hash21(cell) * 6.2831853;
-    let cell_uv = fract(warped_uv * cell_scale);
-    let local = cell_uv - 0.5;
-    let pr = rot2(local, angle);
-
-    let u1 = pr.x * 3.0 + t * 0.6;
-    let w1 = tri_wave(u1);
-    let line1 = smoothstep(0.90, 0.985, w1);
-    var caustic = line1;
-
+    // Warp, angle, and presence all used the same hash21(cell). Sample once.
+    // Empty cells (hash < 0.65) contribute nothing — skip rot / wave / strength.
     let cell_r = hash21(cell);
     let presence = smoothstep(0.65, 0.75, cell_r);
-    caustic *= presence;
+    var caustic = 0.0;
+    if presence > 0.0 {
+        let warp = (cell_r - 0.5) * 0.75;
+        let warped_uv = uv + warp;
+        let angle = cell_r * 6.2831853;
+        let cell_uv = fract(warped_uv * cell_scale);
+        let local = cell_uv - 0.5;
+        let pr = rot2(local, angle);
 
-    let cell_strength = mix(0.35, 1.25, hash21(cell + vec2<f32>(7.0, 13.0)));
-    caustic *= cell_strength;
+        let u1 = pr.x * 3.0 + t * 0.6;
+        let w1 = tri_wave(u1);
+        let line1 = smoothstep(0.90, 0.985, w1);
+        let cell_strength = mix(0.35, 1.25, hash21(cell + vec2<f32>(7.0, 13.0)));
+        caustic = line1 * presence * cell_strength;
+    }
 
     col += vec3<f32>(1.0) * caustic * (0.12 + (deepness * 0.25));
 

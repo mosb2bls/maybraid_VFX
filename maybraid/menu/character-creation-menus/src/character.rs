@@ -181,6 +181,33 @@ impl ConceptSpecies {
 				| Self::Tuberwaber
 		)
 	}
+
+	/// Body-rig family used to expand and aim whole-body preview framing.
+	pub const fn skeleton_kind(self) -> characters::RigSkeletonKind {
+		use characters::RigSkeletonKind;
+		match self {
+			Self::Brenal
+			| Self::Caole
+			| Self::Epiphant
+			| Self::Hars
+			| Self::Yilter
+			| Self::Sonyak
+			| Self::Claber
+			| Self::Croconot => RigSkeletonKind::Quadruped,
+			Self::Grener | Self::Thumplus | Self::Mistler => RigSkeletonKind::Forelimbed,
+			_ => RigSkeletonKind::Humanoid,
+		}
+	}
+
+	/// Whole-body preview framing from a rest-pose hull (no per-species offsets).
+	pub fn body_preview_focus(self, hull: characters::LocomotionCapsule) -> CameraFocus {
+		let kind = self.skeleton_kind();
+		CameraFocus::fit_preview_bounds(
+			hull.preview_aabb_for(kind),
+			CameraFocus::BODY_PREVIEW_FOV,
+			kind.preview_view_direction(),
+		)
+	}
 }
 
 impl LabelOption for ConceptSpecies {
@@ -1637,16 +1664,60 @@ impl CharacterMenu {
 		}
 	}
 
+	pub fn locomotion_capsule(&self) -> characters::LocomotionCapsule {
+		use characters::CharacterRecipe;
+		match self.species.value {
+			ConceptSpecies::Braidman => self.braidman_config().locomotion_capsule(),
+			ConceptSpecies::Brenal => self.brenal_config().locomotion_capsule(),
+			ConceptSpecies::Caole => self.caole_config().locomotion_capsule(),
+			ConceptSpecies::Epiphant => self.epiphant_config().locomotion_capsule(),
+			ConceptSpecies::Hars => self.hars_config().locomotion_capsule(),
+			ConceptSpecies::Yilter => self.ylter_config().locomotion_capsule(),
+			ConceptSpecies::Sonyak => self.sonyak_config().locomotion_capsule(),
+			ConceptSpecies::Claber => self.claber_config().locomotion_capsule(),
+			ConceptSpecies::Croconot => self.croconot_config().locomotion_capsule(),
+			ConceptSpecies::Brodler => self.brodler_config().locomotion_capsule(),
+			ConceptSpecies::Mygr => self.mygr_config().locomotion_capsule(),
+			ConceptSpecies::Dui => self.dui_config().locomotion_capsule(),
+			ConceptSpecies::Lidder => self.lidder_config().locomotion_capsule(),
+			ConceptSpecies::Chupri => self.chupri_config().locomotion_capsule(),
+			ConceptSpecies::Brokker => self.brokker_config().locomotion_capsule(),
+			ConceptSpecies::Tipple => self.tipple_config().locomotion_capsule(),
+			ConceptSpecies::Topple => self.topple_config().locomotion_capsule(),
+			ConceptSpecies::Kispar => self.kispar_config().locomotion_capsule(),
+			ConceptSpecies::Tapp => self.tapp_config().locomotion_capsule(),
+			ConceptSpecies::Kaller => self.kaller_config().locomotion_capsule(),
+			ConceptSpecies::Kappler => self.kappler_config().locomotion_capsule(),
+			ConceptSpecies::Wumbus => self.wumbus_config().locomotion_capsule(),
+			ConceptSpecies::Lero => self.lero_config().locomotion_capsule(),
+			ConceptSpecies::Spibmom => self.spibmom_config().locomotion_capsule(),
+			ConceptSpecies::Grener => self.grener_config().locomotion_capsule(),
+			ConceptSpecies::Thumplus => self.thumplus_config().locomotion_capsule(),
+			ConceptSpecies::Mistler => self.mistler_config().locomotion_capsule(),
+			ConceptSpecies::Tuberwaber => self.tuberwaber_config().locomotion_capsule(),
+		}
+	}
+
+	/// Rest-pose envelope used to frame the live preview for the selected species.
+	pub fn preview_aabb(&self) -> bevy_math::bounding::Aabb3d {
+		self.locomotion_capsule().preview_aabb_for(self.species.value.skeleton_kind())
+	}
+
+	/// Whole-body camera for the current species' actual size.
+	pub fn body_preview_focus(&self) -> CameraFocus {
+		self.species.value.body_preview_focus(self.locomotion_capsule())
+	}
+
 	pub fn camera_focus_for_event(&self, event: MenuEvent) -> Option<CameraFocus> {
-		if matches!(event, MenuEvent::ToggleInventory(_)) {
-			return Some(crate::BODY_FOCUS);
+		if matches!(event, MenuEvent::ToggleInventory(_) | MenuEvent::SetSpecies(_)) {
+			return Some(self.body_preview_focus());
 		}
 		let field = match event {
 			MenuEvent::SetAsset(field, _) | MenuEvent::Cycle(field, _) => Some(field),
 			MenuEvent::ToggleClothing(clothing) => Some(CharacterField::Clothing(clothing)),
 			_ => None,
 		}?;
-		match self.species.value {
+		let focus = match self.species.value {
 			ConceptSpecies::Braidman => self.braidman.camera_focus_for_field(field),
 			ConceptSpecies::Brenal => self.brenal.camera_focus_for_field(field),
 			ConceptSpecies::Caole => self.caole.camera_focus_for_field(field),
@@ -1675,7 +1746,11 @@ impl CharacterMenu {
 			ConceptSpecies::Thumplus => self.thumplus.camera_focus_for_field(field),
 			ConceptSpecies::Mistler => self.mistler.camera_focus_for_field(field),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.camera_focus_for_field(field),
-		}
+		}?;
+		Some(match focus.rig {
+			character_ui_menu::FocusRig::Body => self.body_preview_focus(),
+			character_ui_menu::FocusRig::Head => focus,
+		})
 	}
 
 	fn apply_braidman(&mut self, event: MenuEvent) -> bool {

@@ -33,6 +33,7 @@ use objc2_game_controller::{
 	GCInputButtonOptions, GCInputButtonShare, GCSystemGestureState, GCXboxGamepad,
 };
 
+use super::gamecontroller_lifecycle::{add_gamecontroller_shutdown, pad_map_action, PadMapAction};
 use crate::rumble::PadRumbleSystems;
 
 thread_local! {
@@ -66,8 +67,8 @@ impl Plugin for GameControllerPlugin {
 					.chain(),
 			)
 			.add_systems(PreUpdate, poll_game_controllers.before(InputSystems))
-			.add_systems(PostUpdate, play_gamecontroller_rumble.in_set(PadRumbleSystems::Play))
-			.add_systems(Last, shutdown_gamecontroller_backend);
+			.add_systems(PostUpdate, play_gamecontroller_rumble.in_set(PadRumbleSystems::Play));
+		add_gamecontroller_shutdown(app, shutdown_gamecontroller_backend);
 	}
 }
 
@@ -197,58 +198,94 @@ fn sync_controller(
 	let Some(extended) = (unsafe { controller.extendedGamepad() }) else {
 		return;
 	};
-	let is_new = !routing.by_controller_id.contains_key(&id);
-	if is_new {
-		let entity = commands.spawn_empty().id();
-		let event = GamepadConnectionEvent::new(
-			entity,
-			GamepadConnection::Connected {
-				name: controller_name(controller),
-				vendor_id: None,
-				product_id: None,
+	let has_routing = routing.by_controller_id.contains_key(&id);
+	let has_native = with_native_pads(|pads| pads.contains_key(&id));
+	match pad_map_action(has_routing, has_native) {
+		PadMapAction::ConnectNew => {
+			connect_controller(
+				controller,
+				id,
+				&extended,
+				commands,
+				routing,
+				connection_events,
+				raw_events,
+			);
+		}
+		PadMapAction::RecreateNative => {
+			install_native_pad(controller, id, &extended);
+		}
+		PadMapAction::Existing => {}
+	}
+	let Some(input) = routing.by_controller_id.get_mut(&id) else {
+		return;
+	};
+	with_native_pads(|pads| {
+		let Some(native) = pads.get_mut(&id) else {
+			return;
+		};
+		emit_extended(input, native, controller, &extended, raw_events);
+	});
+}
+
+fn connect_controller(
+	controller: &GCController,
+	id: usize,
+	extended: &GCExtendedGamepad,
+	commands: &mut Commands,
+	routing: &mut GameControllerRouting,
+	connection_events: &mut MessageWriter<GamepadConnectionEvent>,
+	raw_events: &mut MessageWriter<RawGamepadEvent>,
+) {
+	let entity = commands.spawn_empty().id();
+	let event = GamepadConnectionEvent::new(
+		entity,
+		GamepadConnection::Connected {
+			name: controller_name(controller),
+			vendor_id: None,
+			product_id: None,
+		},
+	);
+	connection_events.write(event.clone());
+	raw_events.write(event.into());
+	let name = controller_name(controller);
+	// SAFETY: live controller; `haptics` is nil when the OS has no rumble path.
+	let has_haptics = unsafe { controller.haptics() }.is_some();
+	debug!("pad_rumble: connected name={name} entity={entity:?} haptics={has_haptics}");
+	if name == "Controller" {
+		debug!(
+			"pad_rumble: generic 'Controller' name is usually USB Xbox; Apple rumble often only works over Bluetooth"
+		);
+	}
+	routing.entity_to_controller_id.retain(|_, mapped| *mapped != id);
+	routing.entity_to_controller_id.insert(entity, id);
+	routing
+		.by_controller_id
+		.insert(id, PadInputState { entity, axes: HashMap::new(), buttons: HashMap::new() });
+	install_native_pad(controller, id, extended);
+}
+
+fn install_native_pad(controller: &GCController, id: usize, extended: &GCExtendedGamepad) {
+	let select = unsafe { select_button(controller, extended) };
+	if let Some(select) = select.as_ref() {
+		unsafe {
+			claim_for_app(select);
+		}
+	}
+	with_native_pads(|pads| {
+		if let Some(mut old) = pads.remove(&id) {
+			teardown_native_pad(&mut old);
+		}
+		pads.insert(
+			id,
+			PadNativeState {
+				controller: controller.retain(),
+				engine: None,
+				pulses: Vec::new(),
+				select,
+				logged_select: false,
 			},
 		);
-		connection_events.write(event.clone());
-		raw_events.write(event.into());
-		let name = controller_name(controller);
-		// SAFETY: live controller; `haptics` is nil when the OS has no rumble path.
-		let has_haptics = unsafe { controller.haptics() }.is_some();
-		debug!("pad_rumble: connected name={name} entity={entity:?} haptics={has_haptics}");
-		if name == "Controller" {
-			debug!(
-				"pad_rumble: generic 'Controller' name is usually USB Xbox; Apple rumble often only works over Bluetooth"
-			);
-		}
-		let select = unsafe { select_button(controller, &extended) };
-		if let Some(select) = select.as_ref() {
-			unsafe {
-				claim_for_app(select);
-			}
-		}
-		routing.entity_to_controller_id.insert(entity, id);
-		routing
-			.by_controller_id
-			.insert(id, PadInputState { entity, axes: HashMap::new(), buttons: HashMap::new() });
-		with_native_pads(|pads| {
-			pads.insert(
-				id,
-				PadNativeState {
-					controller: controller.retain(),
-					engine: None,
-					pulses: Vec::new(),
-					select,
-					logged_select: false,
-				},
-			);
-		});
-	}
-	let input = routing
-		.by_controller_id
-		.get_mut(&id)
-		.expect("routing and native maps stay in sync for connected controllers");
-	with_native_pads(|pads| {
-		let native = pads.get_mut(&id).expect("native map matches routing");
-		emit_extended(input, native, controller, &extended, raw_events);
 	});
 }
 

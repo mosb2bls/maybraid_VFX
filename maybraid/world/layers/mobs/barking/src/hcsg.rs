@@ -53,10 +53,7 @@ where
 {
 	fn plant_hosts(cx: &mut GenerationContext, region: Aabb3d) -> Vec<MobPlantHost> {
 		let mut hosts = Vec::new();
-		for OriginalId(id) in cx.original_ids_for::<SelectedUrbanization>(region) {
-			let Some(selected) = cx.get_or_generate::<SelectedUrbanization>(id) else {
-				continue;
-			};
+		for selected in cx.get_or_generate_in::<SelectedUrbanization>(region) {
 			hosts.extend(
 				selected
 					.leaves
@@ -67,10 +64,7 @@ where
 					.map(|leaf| host_at(leaf.bounds)),
 			);
 		}
-		for OriginalId(id) in cx.original_ids_for::<Built<T>>(region) {
-			let Some(built) = cx.get_or_generate::<Built<T>>(id) else {
-				continue;
-			};
+		for built in cx.get_or_generate_in::<Built<T>>(region) {
 			hosts.push(MobPlantHost {
 				xz: built.setting_at.xz(),
 				arrival_radius: built.setting.arrival_radius,

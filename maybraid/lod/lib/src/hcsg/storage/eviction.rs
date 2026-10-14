@@ -13,7 +13,9 @@ use super::super::node_store::expand_region;
 #[cfg(debug_assertions)]
 use super::store::lock_mutex;
 use super::store::{read, ErasedStore};
-use super::{HcsgStorage, HcsgValue};
+use super::HcsgStorage;
+#[cfg(any(test, feature = "test-support"))]
+use super::HcsgValue;
 
 pub(super) fn record_evictions(storage: &HcsgStorage, removed: Vec<(TypeId, Id)>) {
 	if removed.is_empty() {
@@ -25,6 +27,7 @@ pub(super) fn record_evictions(storage: &HcsgStorage, removed: Vec<(TypeId, Id)>
 	let _ = (storage, removed);
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn forget_evictions_of(storage: &HcsgStorage, type_id: TypeId) {
 	#[cfg(debug_assertions)]
 	lock_mutex(&storage.0.evicted).retain(|(stored, _)| *stored != type_id);
@@ -35,6 +38,7 @@ pub(super) fn forget_evictions_of(storage: &HcsgStorage, type_id: TypeId) {
 impl HcsgStorage {
 	/// Removes every `T` whose bounds overlap none of `regions`. `Id::Universal`
 	/// is kept. Removal bumps the membership revision as [`Self::remove`] does.
+	#[cfg(any(test, feature = "test-support"))]
 	pub fn retain_overlapping<T: HcsgValue>(&self, regions: &[Aabb3d]) {
 		let Some(store) = self.store::<T>() else {
 			return;
@@ -67,7 +71,11 @@ impl HcsgStorage {
 				.map(|region| expand_region(*region, margin))
 				.collect();
 			let stamp = self.stamp();
-			let removed = store.evict_outside(&expanded, stamp);
+			let removed = if expanded.is_empty() {
+				store.clear_non_universal(stamp)
+			} else {
+				store.evict_outside(&expanded, stamp)
+			};
 			if removed.is_empty() {
 				continue;
 			}
@@ -98,7 +106,7 @@ impl HcsgStorage {
 
 	/// Drops every recorded eviction. Called when no live subscription remains
 	/// (epoch or last unsubscribe) so a new session does not count as rebuilds.
-	pub fn clear_evictions(&self) {
+	pub(crate) fn clear_evictions(&self) {
 		#[cfg(debug_assertions)]
 		lock_mutex(&self.0.evicted).clear();
 	}

@@ -3,7 +3,12 @@
 Shared point-of-interest discovery and retained knowledge.
 
 - `Poi` carries a stable `PoiId`, semantic `PoiKind`, arrival radius, and salience.
-- `LocalPoi` enters a Gimme-backed bounded index; `GlobalPoi` enters a sparse whole-map set.
+- `LocalPoi` enters a Gimme-backed bounded index for nearby scans; `GlobalPoi`
+  enters a sparse whole-map set for those scans.
+- Distant xz-tile lookups use a `PoiOrigin` `GenerationScheme` (`PoiSet<S>`)
+  via `get_or_generate_in`. World sources (groves, urban settings, places)
+  implement `PoiOrigin` and reuse those grids' ids. There is no side POI index
+  for this path.
 - `PoiIntelligenceUser` scans both sets according to its interests and learning policy.
 - `PoiKnowledge` unions source ownership, retains old findings, and accepts directed
   `PoiObservation` messages from any other discovery system.

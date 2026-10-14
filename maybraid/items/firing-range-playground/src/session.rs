@@ -134,20 +134,8 @@ impl RangeSession {
 		self.epoch = self.epoch.wrapping_add(1);
 	}
 
-	pub fn is_free_for_all(&self) -> bool {
-		self.mode == RangeMode::FreeForAll
-	}
-
 	pub fn is_assault_free_for_all(&self) -> bool {
 		self.mode == RangeMode::AssaultFreeForAll
-	}
-
-	pub fn is_generated_field(&self) -> bool {
-		self.is_free_for_all() || self.is_assault_free_for_all()
-	}
-
-	pub fn field_count(&self) -> u16 {
-		self.npc_count + self.civilian_count
 	}
 
 	pub fn is_test_dummy(&self) -> bool {

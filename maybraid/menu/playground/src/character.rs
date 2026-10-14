@@ -22,11 +22,13 @@ use maybraid_skill_map::{
 use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
 use menu_components::{
 	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
-	HudOverlayMenu, MenuActivate, MenuFocus, ScreenBack, ShortTextChange, PANEL_ROW_GAP,
-	SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
+	HudOverlayMenu, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer, MenuModalStack,
+	ScreenBack, ShortTextChange, PANEL_ROW_GAP, SPIN_REVEAL_SLOT_SIZE, TEXT_YELLOW,
+	TEXT_YELLOW_FAINT,
 };
 use menu_screens::{
-	take_menu_show_request, MenuScreen, SpinRevealCurrent, SpinRevealItems, SpinRevealScreen,
+	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealCurrent,
+	SpinRevealItems, SpinRevealScreen,
 };
 
 use crate::leave_prompt::CharacterLeavePromptPlugin;
@@ -36,6 +38,7 @@ const PANEL_HEIGHT_PERCENT: f32 = 82.0;
 
 /// Queue a character-panel spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowCharacter;
 
 /// Marker on the spawned character-panel root.
@@ -77,6 +80,12 @@ impl CharacterEditBaseline {
 			Some(inventory) => !self.inventory.same_catalog_identity(inventory),
 			None => self.inventory != Inventory::default(),
 		}
+	}
+
+	/// Put the editor back to the snapshot taken when it opened or last saved.
+	pub fn restore_into(&self, menu: &mut CharacterMenu) {
+		menu.name.clone_from(&self.name);
+		menu.inventory = Some(self.inventory.clone());
 	}
 }
 
@@ -176,38 +185,36 @@ impl Plugin for CharacterScreenPlugin {
 			.add_systems(Update, discover_menu_item_icons.in_set(ItemIconSystems::Discover))
 			.add_systems(
 				Update,
-				(
-					apply_show_character,
-					sync_character_ui,
-					sync_overlay_select,
-					sync_spin_reveal_item_icon,
-				)
+				(sync_character_ui, sync_overlay_select, sync_spin_reveal_item_icon)
 					.chain()
 					.in_set(CharacterHudSystems::Sync),
 			);
+		add_menu_show_systems(app, apply_show_character);
 	}
 }
 
 fn apply_show_character(
 	mut commands: Commands,
 	asset_server: Res<AssetServer>,
-	requests: Query<Entity, With<RequestShowCharacter>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowCharacter>>,
+	screens: MenuScreens,
 	menu_state: Res<CharacterMenuState>,
 	baseline: Option<Res<CharacterEditBaseline>>,
 	mut sync_state: ResMut<CharacterUiSyncState>,
 	mut overlay: ResMut<OverlaySelectState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	icons: Option<Res<ItemIconCache>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	overlay.open = None;
 	overlay_sync.open = None;
 	overlay_sync.menu_dirty = false;
 	active_overlay.0 = None;
+	stack.close(MenuModalId::OVERLAY_SELECT);
 	sync_state.menu_dirty = false;
 	sync_state.save_label = save_chrome(&menu_state.0, baseline.as_deref());
 	sync_state.icon_generation = icons.as_ref().map(|cache| cache.generation).unwrap_or(0);
@@ -351,9 +358,12 @@ fn rebuild_character_ui_panel(
 			.iter()
 			.find(|(entity, _)| *entity == viewport)
 			.and_then(|(_, menu)| *menu);
-		commands.entity(viewport).despawn_related::<Children>();
+		let Ok(mut entity) = commands.get_entity(viewport) else {
+			continue;
+		};
+		entity.despawn_related::<Children>();
 		let mut item_count = 0;
-		commands.entity(viewport).with_children(|panel| {
+		entity.with_children(|panel| {
 			item_count = populate_character_ui_panel(
 				panel,
 				fonts,
@@ -363,30 +373,37 @@ fn rebuild_character_ui_panel(
 				icons,
 			);
 		});
+		drop(entity);
 		if let Some(corner) = back_corner {
-			commands.entity(corner).despawn_related::<Children>();
-			commands.entity(corner).with_children(|corner| {
-				spawn_corner_action(corner, fonts, "Back", ScreenBack);
-			});
-		}
-		if let Some(corner) = save_corner {
-			commands.entity(corner).despawn_related::<Children>();
-			if let Some(label) = save_chrome(&menu_state.0, baseline) {
-				commands.entity(corner).with_children(|corner| {
-					spawn_corner_action(
-						corner,
-						fonts,
-						label,
-						(
-							MenuButton(MenuEvent::Save),
-							HudMenuItem { index: item_count, menu: viewport },
-						),
-					);
+			if let Ok(mut corner) = commands.get_entity(corner) {
+				corner.despawn_related::<Children>();
+				corner.with_children(|corner| {
+					spawn_corner_action(corner, fonts, "Back", ScreenBack);
 				});
-				item_count += 1;
 			}
 		}
-		commands.entity(viewport).insert(HudMenu::retain(item_count, keep));
+		if let Some(corner) = save_corner {
+			if let Ok(mut corner) = commands.get_entity(corner) {
+				corner.despawn_related::<Children>();
+				if let Some(label) = save_chrome(&menu_state.0, baseline) {
+					corner.with_children(|corner| {
+						spawn_corner_action(
+							corner,
+							fonts,
+							label,
+							(
+								MenuButton(MenuEvent::Save),
+								HudMenuItem { index: item_count, menu: viewport },
+							),
+						);
+					});
+					item_count += 1;
+				}
+			}
+		}
+		if let Ok(mut entity) = commands.get_entity(viewport) {
+			entity.insert(HudMenu::retain(item_count, keep));
+		}
 	}
 }
 
@@ -466,9 +483,13 @@ fn sync_overlay_select(
 		let mut viewport = Entity::PLACEHOLDER;
 		let title_color =
 			if menu_state.0.overlay_editable(key) { TEXT_YELLOW } else { TEXT_YELLOW_FAINT };
-		commands.entity(screen).with_children(|root| {
+		let Ok(mut root) = commands.get_entity(screen) else {
+			return;
+		};
+		root.with_children(|root| {
 			viewport = spawn_overlay_shell(root, &fonts, key, title_color);
 		});
+		drop(root);
 		populate_overlay_viewport(
 			&mut commands,
 			viewport,
@@ -505,9 +526,12 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 ) {
 	let mut prewarm = Vec::new();
 	let mut thumbnails = CatalogThumbs { icons };
-	commands.entity(viewport).despawn_related::<Children>();
+	let Ok(mut entity) = commands.get_entity(viewport) else {
+		return;
+	};
+	entity.despawn_related::<Children>();
 	let mut item_count = 0;
-	commands.entity(viewport).with_children(|body| {
+	entity.with_children(|body| {
 		let mut context = RenderContext {
 			fonts,
 			thumbnails: &mut thumbnails,
@@ -521,9 +545,10 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 		render_overlay_body(node, body, &mut context, MenuJustify::Left);
 		item_count = context.hud_item_count;
 	});
-	commands
-		.entity(viewport)
-		.insert((HudMenu::retain(item_count, previous), HudOverlayMenu));
+	drop(entity);
+	if let Ok(mut entity) = commands.get_entity(viewport) {
+		entity.insert((HudMenu::retain(item_count, previous), HudOverlayMenu));
+	}
 }
 
 fn discover_menu_item_icons(
@@ -579,6 +604,7 @@ fn on_overlay_open(
 	open: On<OverlayOpen>,
 	mut overlay: ResMut<OverlaySelectState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	screens: Query<Entity, With<CharacterScreen>>,
 ) {
 	if screens.is_empty() {
@@ -586,12 +612,14 @@ fn on_overlay_open(
 	}
 	overlay.open = Some(open.event().key);
 	active_overlay.0 = Some(open.event().key);
+	stack.open(MenuModalLayer::OVERLAY_SELECT);
 }
 
 fn on_overlay_close(
 	_close: On<OverlayClose>,
 	mut overlay: ResMut<OverlaySelectState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	screens: Query<Entity, With<CharacterScreen>>,
 ) {
 	if screens.is_empty() {
@@ -599,6 +627,7 @@ fn on_overlay_close(
 	}
 	overlay.open = None;
 	active_overlay.0 = None;
+	stack.close(MenuModalId::OVERLAY_SELECT);
 }
 
 fn on_menu_activate(
@@ -609,6 +638,7 @@ fn on_menu_activate(
 	mut overlay: ResMut<OverlaySelectState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut active_overlay: ResMut<ActiveOverlayKey>,
+	mut stack: ResMut<MenuModalStack>,
 	screens: Query<Entity, With<CharacterScreen>>,
 ) {
 	if screens.is_empty() {
@@ -626,6 +656,7 @@ fn on_menu_activate(
 		if find_overlay_node(&nodes, key).is_some_and(overlay_closes_on_pick) {
 			overlay.open = None;
 			active_overlay.0 = None;
+			stack.close(MenuModalId::OVERLAY_SELECT);
 		}
 	}
 }
@@ -688,6 +719,10 @@ mod tests {
 		assert_eq!(save_chrome(&dirty, Some(&baseline)), Some("Save Changes"));
 		assert!(baseline.is_dirty(&dirty));
 		assert!(!baseline.is_dirty(&saved));
+
+		baseline.restore_into(&mut dirty);
+		assert_eq!(dirty.name, baseline.name);
+		assert!(!baseline.is_dirty(&dirty));
 	}
 
 	#[test]

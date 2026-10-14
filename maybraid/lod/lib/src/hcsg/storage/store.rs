@@ -39,6 +39,9 @@ pub(super) trait ErasedStore: Send + Sync {
 	fn into_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 	fn reset(&self, revision: u64);
 	fn evict_outside(&self, regions: &[Aabb3d], revision: u64) -> Vec<Id>;
+	/// Drops every entry except [`Id::Universal`]. Returns removed ids only
+	/// under `cfg(debug_assertions)`; release builds clear without listing them.
+	fn clear_non_universal(&self, revision: u64) -> Vec<Id>;
 	fn len(&self) -> usize;
 	fn type_name(&self) -> &'static str;
 }
@@ -54,6 +57,10 @@ impl<T: HcsgValue> ErasedStore for TypedStore<T> {
 
 	fn evict_outside(&self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
 		write(&self.nodes).evict_outside(regions, revision)
+	}
+
+	fn clear_non_universal(&self, revision: u64) -> Vec<Id> {
+		write(&self.nodes).clear_non_universal(revision)
 	}
 
 	fn len(&self) -> usize {

@@ -1,0 +1,48 @@
+# Home-first: Discovery as wa, confirm a POI, Leave, pick dew, Discovery again.
+# No leading `start` and no `--start-at` — those skip the first-life picker
+# and latch PlayerSpawnXz for every character in the process.
+# Do not send `stats vsync`.
+
+{"cmd":"scenario","name":"character-switch-spawn-warmup","mark":"start"}
+{"cmd":"wait","secs":1}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":28}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"character-switch-spawn-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"character-switch-spawn","mark":"start"}
+{"cmd":"press","button":"menu"}
+{"cmd":"wait","secs":1}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":1}
+{"cmd":"press","button":"stance"}
+{"cmd":"wait","secs":2}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":28}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":8}
+{"cmd":"scenario","name":"character-switch-spawn","mark":"end"}
+{"cmd":"quit"}

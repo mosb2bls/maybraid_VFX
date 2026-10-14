@@ -7,6 +7,8 @@
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 
+mod gamecontroller_lifecycle;
+
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod gamecontroller;
 
@@ -51,5 +53,35 @@ pub(crate) fn configure_backend(app: &mut App) {
 	#[cfg(not(any(target_os = "macos", target_os = "ios")))]
 	{
 		let _ = app;
+	}
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) fn value_changed(previous: Option<f32>, value: f32) -> bool {
+	const EPS: f32 = 1e-4;
+	previous.is_none_or(|old| (old - value).abs() > EPS)
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn first_sample_always_emits() -> anyhow::Result<()> {
+		assert!(value_changed(None, 0.0));
+		Ok(())
+	}
+
+	#[test]
+	fn tiny_noise_is_ignored() -> anyhow::Result<()> {
+		assert!(!value_changed(Some(0.5), 0.5 + 1e-5));
+		Ok(())
+	}
+
+	#[test]
+	fn stick_deflection_emits() -> anyhow::Result<()> {
+		assert!(value_changed(Some(0.0), 0.2));
+		Ok(())
 	}
 }

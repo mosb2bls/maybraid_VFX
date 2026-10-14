@@ -103,3 +103,52 @@ pub fn hcsg_hosts<T: HcsgValue>(app: &mut App) -> Vec<(Id, Version)> {
 	hosts.sort();
 	hosts
 }
+
+/// Every `before` id is presented at a strictly newer version.
+///
+/// After a session restart, presentation keeps the previous session until the
+/// worker publishes replacements. A missing id is still mid-replace.
+pub fn hosts_replaced(before: &[(Id, Version)], after: &[(Id, Version)]) -> bool {
+	let after: std::collections::BTreeMap<Id, Version> = after.iter().copied().collect();
+	!before.is_empty()
+		&& before.iter().all(|(id, old)| after.get(id).is_some_and(|new| *new > *old))
+}
+
+/// Extra frames until [`hosts_replaced`] holds.
+///
+/// [`settle_presentation`] uses a fixed reconcile budget. A busy store or a
+/// still-running publish pass can leave one host on the previous session after
+/// those frames — this waits on the version condition instead.
+pub fn wait_replaced_hosts<T: HcsgValue>(
+	app: &mut App,
+	before: &[(Id, Version)],
+	idle_timeout: Duration,
+	max_frames: u32,
+) -> Result<Vec<(Id, Version)>, SettleTimedOut> {
+	for _ in 0..max_frames {
+		let after = hcsg_hosts::<T>(app);
+		if hosts_replaced(before, &after) {
+			return Ok(after);
+		}
+		app.update();
+		let demand = app.world().resource::<HcsgDemand>().clone();
+		if !demand.wait_idle(idle_timeout) {
+			return Err(SettleTimedOut { timeout: idle_timeout });
+		}
+	}
+	Ok(hcsg_hosts::<T>(app))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn hosts_replaced_requires_every_id_at_a_newer_version() -> anyhow::Result<()> {
+		let before = [(Id::Universal, Version(3))];
+		assert!(!hosts_replaced(&before, &[]));
+		assert!(!hosts_replaced(&before, &[(Id::Universal, Version(3))]));
+		assert!(hosts_replaced(&before, &[(Id::Universal, Version(4))]));
+		Ok(())
+	}
+}

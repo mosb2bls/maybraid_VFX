@@ -11,7 +11,7 @@ use super::text_menu::{
 	TextMenuItem, TextMenuItemLabel,
 };
 use crate::controls::scroll::{entity_is_under, reveal_item_in_viewport};
-use crate::controls::section::{ActiveOverlayKey, CursorRow};
+use crate::controls::section::CursorRow;
 use crate::info::description::TextMenuDescription;
 use crate::theme::{
 	BARLOW_SEMIBOLD, COLUMN_BOTTOM, CORNER_BOTTOM, CORNER_INSET, CURSOR_ICON_GAP, CURSOR_ICON_SIZE,
@@ -21,7 +21,6 @@ use crate::theme::{
 	TEXT_PURPLE, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS,
 	TILE_FOCUS_PAD,
 };
-use maybraid_input::{MenuNav, MenuNavPad};
 
 /// Marker on a text-cursor column. Shares [`TextMenu`] selection with the plain column.
 #[derive(Component, Debug, Default, Clone, Copy)]
@@ -377,31 +376,6 @@ pub fn emit_screen_back_on_click(
 	if backs.contains(click.entity) {
 		pressed.write(ScreenBackPressed);
 	}
-}
-
-/// Pad B already closed a modal / overlay this frame. Screen leave must not
-/// also fire on that edge.
-#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct MenuBackConsumed(pub bool);
-
-pub fn clear_menu_back_consumed(mut consumed: ResMut<MenuBackConsumed>) {
-	consumed.0 = false;
-}
-
-/// Click on [`ScreenBack`], or pad B, while no overlay / keypad / confirm
-/// prompt / consumed Back is holding the edge.
-pub fn consume_screen_back(
-	nav: &MenuNavPad,
-	overlay: &ActiveOverlayKey,
-	hold: bool,
-	consumed: &MenuBackConsumed,
-	backs: &mut MessageReader<ScreenBackPressed>,
-) -> bool {
-	let clicked = backs.read().next().is_some();
-	if overlay.0.is_some() || hold || consumed.0 {
-		return false;
-	}
-	clicked || nav.just_pressed(MenuNav::Back)
 }
 
 /// Lower-right screen chrome. Click opens the active character in the editor.
