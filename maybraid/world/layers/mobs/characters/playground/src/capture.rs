@@ -26,6 +26,9 @@ pub struct CaptureTanzIconsArgs {
 	/// Directory for raw playground screenshots (`<id>.png`).
 	#[arg(long)]
 	pub out_dir: PathBuf,
+	/// Capture PowerStrafe juke beats instead of the starter Tanz icon set.
+	#[arg(long)]
+	pub strafe_review: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -52,14 +55,14 @@ const POSES: &[IconPose] = &[
 		animation: AnimationMode::PowerStrafe,
 		side: Side::Left,
 		progress: 0.48,
-		eye: Vec3::new(3.4, 1.15, 0.15),
+		eye: Vec3::new(-2.5, 1.2, 2.5),
 	},
 	IconPose {
 		filename: "right_strafe.png",
 		animation: AnimationMode::PowerStrafe,
 		side: Side::Right,
 		progress: 0.48,
-		eye: Vec3::new(-3.4, 1.15, 0.15),
+		eye: Vec3::new(2.5, 1.2, 2.5),
 	},
 	IconPose {
 		filename: "forward_dash.png",
@@ -70,11 +73,58 @@ const POSES: &[IconPose] = &[
 	},
 ];
 
+/// Key juke beats for PR review screenshots (not the committed 128px icons).
+const STRAFE_REVIEW_POSES: &[IconPose] = &[
+	IconPose {
+		filename: "left_strafe_fake.png",
+		animation: AnimationMode::PowerStrafe,
+		side: Side::Left,
+		progress: 0.10,
+		eye: Vec3::new(-2.5, 1.2, 2.5),
+	},
+	IconPose {
+		filename: "left_strafe_plant.png",
+		animation: AnimationMode::PowerStrafe,
+		side: Side::Left,
+		progress: 0.20,
+		eye: Vec3::new(-2.5, 1.2, 2.5),
+	},
+	IconPose {
+		filename: "left_strafe_cut.png",
+		animation: AnimationMode::PowerStrafe,
+		side: Side::Left,
+		progress: 0.35,
+		eye: Vec3::new(-2.5, 1.2, 2.5),
+	},
+	IconPose {
+		filename: "left_strafe_smear.png",
+		animation: AnimationMode::PowerStrafe,
+		side: Side::Left,
+		progress: 0.50,
+		eye: Vec3::new(-2.5, 1.2, 2.5),
+	},
+	IconPose {
+		filename: "right_strafe_fake.png",
+		animation: AnimationMode::PowerStrafe,
+		side: Side::Right,
+		progress: 0.10,
+		eye: Vec3::new(2.5, 1.2, 2.5),
+	},
+	IconPose {
+		filename: "right_strafe_smear.png",
+		animation: AnimationMode::PowerStrafe,
+		side: Side::Right,
+		progress: 0.50,
+		eye: Vec3::new(2.5, 1.2, 2.5),
+	},
+];
+
 #[derive(Resource)]
 pub struct TanzIconCapture {
 	out_dir: PathBuf,
 	index: usize,
 	phase: CapturePhase,
+	poses: &'static [IconPose],
 }
 
 #[derive(Clone, Copy)]
@@ -86,13 +136,14 @@ enum CapturePhase {
 }
 
 impl TanzIconCapture {
-	pub fn new(out_dir: PathBuf) -> Self {
-		Self { out_dir, index: 0, phase: CapturePhase::Pose }
+	fn with_poses(out_dir: PathBuf, poses: &'static [IconPose]) -> Self {
+		Self { out_dir, index: 0, phase: CapturePhase::Pose, poses }
 	}
 }
 
 pub fn start_tanz_icon_capture(commands: &mut Commands, args: CaptureTanzIconsArgs) {
 	let out_dir = args.out_dir;
+	let poses = if args.strafe_review { STRAFE_REVIEW_POSES } else { POSES };
 	commands.queue(move |world: &mut World| {
 		if let Some(mut visible) = world.get_resource_mut::<GameCommandDrawerVisible>() {
 			visible.0 = false;
@@ -101,7 +152,7 @@ pub fn start_tanz_icon_capture(commands: &mut Commands, args: CaptureTanzIconsAr
 		if let Err(error) = std::fs::create_dir_all(&out_dir) {
 			error!("tanz icon capture: create {}: {error}", out_dir.display());
 		}
-		world.insert_resource(TanzIconCapture::new(out_dir));
+		world.insert_resource(TanzIconCapture::with_poses(out_dir, poses));
 	});
 }
 
@@ -113,12 +164,12 @@ pub fn drive_tanz_icon_capture(
 	mut capture: ResMut<TanzIconCapture>,
 	mut exit: MessageWriter<AppExit>,
 ) {
-	if capture.index >= POSES.len() {
+	if capture.index >= capture.poses.len() {
 		info!("tanz icon capture: finished {}", capture.out_dir.display());
 		exit.write(AppExit::Success);
 		return;
 	}
-	let pose = POSES[capture.index];
+	let pose = capture.poses[capture.index];
 	let path = capture.out_dir.join(pose.filename);
 	let now = time.elapsed_secs();
 	match capture.phase {

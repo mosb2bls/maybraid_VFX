@@ -1,10 +1,14 @@
-//! Low sideways power slide: wide crouch, lead hand skims the ground, recover.
+//! Cartoon football juke: fake opposite, plant, snap into a sideways cut.
+//!
+//! Beat: a short head / shoulder / hip lean away from travel, then a hard
+//! outside-foot plant, an explosive cut, and the travel-side hand swept down
+//! to skim the ground. The smear extreme holds, then overshoots and settles.
 //!
 //! [`PowerStrafe::side`] is the travel direction (left strafe → [`Side::Left`]).
 //! Humanoid rigs mirror lateral offsets with [`Side::sign`]; do not hand-author
 //! separate left/right pose tables.
 
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::{FRAC_PI_2, PI};
 
 use bevy::prelude::Vec3;
 use character_rigs::Side;
@@ -12,27 +16,46 @@ use character_rigs::Side;
 use crate::animations::smoothstep;
 use crate::Progress;
 
-/// Drop into stance through the first slice of normalized progress.
+/// Fake / anticipation finishes here; the plant and snap begin.
 pub const DROP_END: f32 = 0.16;
-/// Slide holds through this point; recovery is the remainder.
-pub const SLIDE_END: f32 = 0.80;
+/// Fake lean peaks near this progress (review sample `0.1`).
+pub const FAKE_PEAK: f32 = 0.10;
+/// Explosive cut reaches the smear pose.
+pub const SNAP_END: f32 = 0.34;
+/// Held smear-like extreme through this point.
+pub const SMEAR_END: f32 = 0.58;
+/// Overshoot crest; recovery is the remainder.
+pub const SLIDE_END: f32 = 0.78;
 
-const TRAVEL_FEMUR: f32 = 0.58;
-const TRAIL_FEMUR: f32 = 0.42;
-const STANCE_SHIN: f32 = 0.72;
-const TRAIL_SHIN: f32 = 0.62;
-const HIP_ABDUCT_TRAVEL: f32 = 0.28;
-const HIP_ABDUCT_TRAIL: f32 = -0.12;
-const SPINE_PITCH: f32 = 0.22;
-const SPINE_SIDE: f32 = 0.10;
-const HAND_ELBOW: f32 = 1.35;
-const BALANCE_ELBOW: f32 = 0.55;
+const TRAVEL_FEMUR: f32 = 0.70;
+const TRAIL_FEMUR_CUT: f32 = 0.44;
+const TRAIL_FEMUR_FAKE: f32 = 0.28;
+const STANCE_SHIN: f32 = 0.78;
+const TRAIL_SHIN_CUT: f32 = 0.58;
+const TRAIL_SHIN_FAKE: f32 = 0.32;
+const HIP_ABDUCT_TRAVEL: f32 = 0.36;
+const HIP_ABDUCT_TRAIL: f32 = -0.14;
+const HIP_ABDUCT_FAKE: f32 = 0.12;
+const SPINE_PITCH: f32 = 0.32;
+const SPINE_SIDE_CUT: f32 = 0.26;
+const SPINE_SIDE_FAKE: f32 = 0.22;
+const NECK_TILT_FAKE: f32 = 0.36;
+const NECK_TILT_CUT: f32 = 0.18;
+const NECK_NOD_FAKE: f32 = 0.14;
+const NECK_NOD_CUT: f32 = 0.08;
+const HIP_LATERAL_FAKE: f32 = 0.16;
+const HIP_LATERAL_CUT: f32 = 0.18;
+const HAND_ELBOW: f32 = 0.22;
+const BALANCE_ELBOW: f32 = 0.88;
 const HAND_ROLL: f32 = FRAC_PI_2;
+const SHOULDER_LIFT_CUT: f32 = 0.58;
+const SHOULDER_LIFT_FAKE: f32 = 0.26;
+const OVERSHOOT: f32 = 0.14;
 
 /// Lateral armature slide at full extension (character +X = right).
-pub const SLIDE_OFFSET_X: f32 = 0.11;
+pub const SLIDE_OFFSET_X: f32 = 0.12;
 /// Visual crouch via armature Y at peak stance.
-pub const STANCE_DROP_Y: f32 = 0.05;
+pub const STANCE_DROP_Y: f32 = 0.07;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PowerStrafe {
@@ -67,29 +90,70 @@ impl PowerStrafe {
 		Progress(progress).clamp()
 	}
 
-	/// 0 at rest, 1 through the slide window.
-	pub fn stance_amount(&self, progress: f32) -> f32 {
+	/// Fast attack into the smear (cubic ease-out).
+	fn snap_ease(u: f32) -> f32 {
+		let u = u.clamp(0.0, 1.0);
+		1.0 - (1.0 - u).powi(3)
+	}
+
+	/// Opposite-side fake: 0 at rest, ~1 at [`FAKE_PEAK`], 0 once the snap starts.
+	pub fn fake_amount(&self, progress: f32) -> f32 {
 		let t = Self::clamped(progress);
-		if t < DROP_END {
-			smoothstep(t / DROP_END)
-		} else if t < SLIDE_END {
-			1.0
+		if t < FAKE_PEAK {
+			smoothstep(t / FAKE_PEAK)
+		} else if t < DROP_END {
+			1.0 - smoothstep((t - FAKE_PEAK) / (DROP_END - FAKE_PEAK).max(f32::EPSILON))
 		} else {
-			1.0 - smoothstep((t - SLIDE_END) / (1.0 - SLIDE_END).max(f32::EPSILON))
+			0.0
 		}
 	}
 
-	/// Lateral slide envelope (0 outside the slide core).
+	/// Cut / plant envelope. Overshoots past 1 in the smear tail, then settles.
+	pub fn cut_amount(&self, progress: f32) -> f32 {
+		let t = Self::clamped(progress);
+		if t < DROP_END {
+			0.0
+		} else if t < SNAP_END {
+			Self::snap_ease((t - DROP_END) / (SNAP_END - DROP_END).max(f32::EPSILON))
+		} else if t < SMEAR_END {
+			1.0
+		} else if t < SLIDE_END {
+			let u = (t - SMEAR_END) / (SLIDE_END - SMEAR_END).max(f32::EPSILON);
+			1.0 + OVERSHOOT * (u * PI).sin()
+		} else {
+			let settle = 1.0 - smoothstep((t - SLIDE_END) / (1.0 - SLIDE_END).max(f32::EPSILON));
+			settle
+		}
+	}
+
+	/// 0 at rest, 1 through the smear window. Used for shared stance depth.
+	pub fn stance_amount(&self, progress: f32) -> f32 {
+		self.cut_amount(progress).abs().min(1.0)
+	}
+
+	/// Lateral slide envelope (0 during the fake, 0 again at the end).
 	pub fn slide_amount(&self, progress: f32) -> f32 {
 		let t = Self::clamped(progress);
 		if t < DROP_END {
 			return 0.0;
 		}
+		if t < SNAP_END {
+			return smoothstep((t - DROP_END) / (SNAP_END - DROP_END).max(f32::EPSILON));
+		}
 		if t < SLIDE_END {
-			let u = (t - DROP_END) / (SLIDE_END - DROP_END);
-			return smoothstep(u);
+			return 1.0;
 		}
 		1.0 - smoothstep((t - SLIDE_END) / (1.0 - SLIDE_END).max(f32::EPSILON))
+	}
+
+	/// Travel-hand sweep, slightly behind the plant so the slam reads after the cut.
+	pub fn hand_amount(&self, progress: f32) -> f32 {
+		let t = Self::clamped(progress);
+		if t >= 1.0 - 1e-4 {
+			return 0.0;
+		}
+		let attack = if t < SNAP_END { (t - 0.03).max(0.0) } else { t };
+		self.cut_amount(attack).clamp(0.0, 1.12)
 	}
 
 	pub fn travel_femur(&self, progress: f32) -> f32 {
@@ -97,7 +161,8 @@ impl PowerStrafe {
 	}
 
 	pub fn trail_femur(&self, progress: f32) -> f32 {
-		TRAIL_FEMUR * self.stance_amount(progress)
+		TRAIL_FEMUR_FAKE * self.fake_amount(progress)
+			+ TRAIL_FEMUR_CUT * self.stance_amount(progress)
 	}
 
 	pub fn travel_shin(&self, progress: f32) -> f32 {
@@ -105,7 +170,7 @@ impl PowerStrafe {
 	}
 
 	pub fn trail_shin(&self, progress: f32) -> f32 {
-		TRAIL_SHIN * self.stance_amount(progress)
+		TRAIL_SHIN_FAKE * self.fake_amount(progress) + TRAIL_SHIN_CUT * self.stance_amount(progress)
 	}
 
 	pub fn travel_abduction(&self, progress: f32) -> f32 {
@@ -113,36 +178,68 @@ impl PowerStrafe {
 	}
 
 	pub fn trail_abduction(&self, progress: f32) -> f32 {
-		HIP_ABDUCT_TRAIL * self.stance_amount(progress)
+		HIP_ABDUCT_FAKE * self.fake_amount(progress)
+			+ HIP_ABDUCT_TRAIL * self.stance_amount(progress)
 	}
 
 	pub fn spine_pitch(&self, progress: f32) -> f32 {
-		SPINE_PITCH * self.stance_amount(progress)
+		0.10 * self.fake_amount(progress) + SPINE_PITCH * self.stance_amount(progress)
 	}
 
+	/// Lateral spine. Fake is opposite travel; cut leans into travel.
 	pub fn spine_side(&self, progress: f32) -> f32 {
-		SPINE_SIDE * self.stance_amount(progress) * self.side.sign()
+		let fake = -SPINE_SIDE_FAKE * self.fake_amount(progress);
+		let cut = SPINE_SIDE_CUT * self.cut_amount(progress);
+		(fake + cut) * self.side.sign()
+	}
+
+	pub fn neck_tilt(&self, progress: f32) -> f32 {
+		let fake = -NECK_TILT_FAKE * self.fake_amount(progress);
+		let cut = NECK_TILT_CUT * self.cut_amount(progress);
+		(fake + cut) * self.side.sign()
+	}
+
+	pub fn neck_nod(&self, progress: f32) -> f32 {
+		NECK_NOD_FAKE * self.fake_amount(progress) + NECK_NOD_CUT * self.stance_amount(progress)
+	}
+
+	pub fn hip_lateral(&self, progress: f32) -> f32 {
+		let fake = -HIP_LATERAL_FAKE * self.fake_amount(progress);
+		let cut = HIP_LATERAL_CUT * self.cut_amount(progress);
+		(fake + cut) * self.side.sign()
 	}
 
 	pub fn hand_elbow(&self, progress: f32) -> f32 {
-		HAND_ELBOW * self.stance_amount(progress)
+		HAND_ELBOW * self.hand_amount(progress).min(1.0)
 	}
 
 	pub fn balance_elbow(&self, progress: f32) -> f32 {
-		BALANCE_ELBOW * self.stance_amount(progress)
+		BALANCE_ELBOW
+			* (0.45 * self.fake_amount(progress) + 0.70 * self.stance_amount(progress)).min(1.0)
+	}
+
+	pub fn shoulder_lift_travel(&self, progress: f32) -> f32 {
+		(SHOULDER_LIFT_FAKE * self.fake_amount(progress)
+			+ SHOULDER_LIFT_CUT * self.hand_amount(progress))
+			* self.side.sign()
+	}
+
+	pub fn shoulder_lift_trail(&self, progress: f32) -> f32 {
+		(-SHOULDER_LIFT_FAKE * self.fake_amount(progress) + 0.22 * self.stance_amount(progress))
+			* self.opposite_side().sign()
 	}
 
 	/// Character-space reach for the ground-skimming hand.
-	pub fn hand_along(&self, progress: f32) -> Vec3 {
-		let reach = self.stance_amount(progress);
+	pub fn hand_along(&self, progress: f32) -> Option<Vec3> {
+		let reach = self.hand_amount(progress);
 		if reach < 1e-4 {
-			return Vec3::Y;
+			return None;
 		}
-		Vec3::new(-self.side.sign() * 0.42, -0.78, 0.18).normalize()
+		Some(Vec3::new(-self.side.sign() * 0.32, -0.93, 0.08).normalize())
 	}
 
 	pub fn hand_roll(&self, progress: f32) -> f32 {
-		HAND_ROLL * self.side.sign() * self.stance_amount(progress)
+		HAND_ROLL * self.side.sign() * self.hand_amount(progress).min(1.0)
 	}
 
 	/// Lateral slide in documented character space (+X right), matching Tanz
@@ -160,9 +257,22 @@ mod tests {
 
 	#[test]
 	fn phase_windows_are_ordered() {
-		assert!(DROP_END > 0.0);
-		assert!(SLIDE_END > DROP_END);
+		assert!(FAKE_PEAK > 0.0);
+		assert!(DROP_END > FAKE_PEAK);
+		assert!(SNAP_END > DROP_END);
+		assert!(SMEAR_END > SNAP_END);
+		assert!(SLIDE_END > SMEAR_END);
 		assert!(SLIDE_END < 1.0);
+	}
+
+	#[test]
+	fn fake_peaks_before_the_cut() {
+		let strafe = PowerStrafe::default();
+		assert!(strafe.fake_amount(0.0) < 0.05);
+		assert!(strafe.fake_amount(FAKE_PEAK) > 0.95);
+		assert!(strafe.fake_amount(0.5) < 0.05);
+		assert!(strafe.cut_amount(FAKE_PEAK) < 0.05);
+		assert!(strafe.cut_amount(0.5) > 0.95);
 	}
 
 	#[test]
@@ -171,6 +281,18 @@ mod tests {
 		assert!(strafe.stance_amount(0.0) < 0.05);
 		assert!(strafe.stance_amount(0.5) > 0.95);
 		assert!(strafe.stance_amount(1.0) < 0.05);
+	}
+
+	#[test]
+	fn fake_spine_is_opposite_travel() {
+		let left = PowerStrafe::new(Side::Left);
+		let right = PowerStrafe::new(Side::Right);
+		assert!(left.spine_side(FAKE_PEAK) * left.side.sign() < -0.1);
+		assert!(right.spine_side(FAKE_PEAK) * right.side.sign() < -0.1);
+		assert!(left.spine_side(0.5) * left.side.sign() > 0.1);
+		assert!(right.spine_side(0.5) * right.side.sign() > 0.1);
+		assert!((left.spine_side(FAKE_PEAK) + right.spine_side(FAKE_PEAK)).abs() < 1e-5);
+		assert!((left.spine_side(0.5) + right.spine_side(0.5)).abs() < 1e-5);
 	}
 
 	#[test]
