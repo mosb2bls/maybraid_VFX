@@ -2,6 +2,7 @@
 
 pub mod args;
 pub mod bounds;
+pub mod csv_vec;
 pub mod distributions;
 pub mod easing;
 pub mod hysteresis;
@@ -20,6 +21,7 @@ pub use bounds::{
 	max_empty_rect2_with_clearance, plan_to_aabb3, touches_aabb2, union_aabb3, union_aabb3_iter,
 	PlanAxes,
 };
+pub use csv_vec::{parse_vec2_csv, parse_vec3_csv};
 pub use distributions::bucket_throw::{Bucket, BucketThrow, TypedBucketThrow};
 pub use distributions::{perturb_weights, FirstFitIndices, MIN_BUCKET_WEIGHT};
 pub use easing::Smoothstep01;
