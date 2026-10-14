@@ -68,6 +68,13 @@ pub fn request_show_spin_reveal(commands: &mut Commands, items: Vec<InventoryIte
 	commands.spawn(RequestShowSpinReveal);
 }
 
+/// Drop an in-flight reveal so Back cannot rebuild the screen on top of gallery.
+pub fn cancel_spin_reveal(commands: &mut Commands) {
+	commands.remove_resource::<SpinRevealPhase>();
+	commands.remove_resource::<SpinRevealCurrent>();
+	commands.remove_resource::<SpinRevealItems>();
+}
+
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpinRevealSystems {
 	Apply,
@@ -128,6 +135,14 @@ fn rebuild_spin_reveal(
 		return;
 	};
 	if !phase.dirty {
+		return;
+	}
+	// First item, still spinning: `tick` may have already added `dt` this frame.
+	let just_opened = phase.dirty && phase.spinning && phase.index == 0;
+	if screens.is_empty() && !just_opened {
+		commands.remove_resource::<SpinRevealPhase>();
+		commands.remove_resource::<SpinRevealCurrent>();
+		commands.remove_resource::<SpinRevealItems>();
 		return;
 	}
 	let Some(items) = items else {
