@@ -3,7 +3,8 @@
 use std::collections::VecDeque;
 
 use crate::command::AgentCommand;
-use crate::menu::{mash_press, MenuMatcher, MenuObservation};
+use crate::inventory::{AgentMatcher, InventoryObservation};
+use crate::menu::{mash_press, MenuObservation};
 use crate::pad::{camera_relative_move, xz_distance, PadIntent};
 
 const MAX_INSTANTS_PER_TICK: usize = 64;
@@ -24,6 +25,7 @@ pub struct TickView {
 	pub player_xz: Option<[f32; 2]>,
 	pub yaw: f32,
 	pub menu: MenuObservation,
+	pub inventory: InventoryObservation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,7 +74,7 @@ enum Active {
 	},
 	WaitFor {
 		id: u32,
-		matcher: MenuMatcher,
+		matcher: AgentMatcher,
 		remaining: f32,
 	},
 	Mash {
@@ -231,13 +233,13 @@ fn start_command(
 			false
 		}
 		AgentCommand::Expect { matcher } => {
-			if matcher.matches(&view.menu) {
+			if matcher.matches(&view.menu, &view.inventory) {
 				effects.push(TickEffect::Finished { id, cmd: label });
 			} else {
 				effects.push(TickEffect::Failed {
 					id,
 					cmd: label,
-					detail: matcher.mismatch_detail(&view.menu),
+					detail: matcher.mismatch_detail(&view.menu, &view.inventory),
 				});
 			}
 			true
@@ -363,7 +365,7 @@ fn step_active(
 			})
 		}
 		Active::WaitFor { id, matcher, remaining } => {
-			if matcher.matches(&view.menu) {
+			if matcher.matches(&view.menu, &view.inventory) {
 				effects.push(TickEffect::Finished {
 					id,
 					cmd: format!("wait_for {}", matcher.describe()),
@@ -374,7 +376,10 @@ fn step_active(
 				effects.push(TickEffect::Failed {
 					id,
 					cmd: format!("wait_for {}", matcher.describe()),
-					detail: format!("timeout {}", matcher.mismatch_detail(&view.menu)),
+					detail: format!(
+						"timeout {}",
+						matcher.mismatch_detail(&view.menu, &view.inventory)
+					),
 				});
 				Step::Done { leftover: dt - remaining }
 			} else {
@@ -468,6 +473,7 @@ fn should_pulse_jump(stall_secs: f32, dt: f32) -> bool {
 mod tests {
 	use super::*;
 	use crate::command::{AgentButton, ScenarioMark};
+	use crate::inventory::{AgentMatcher, InventoryMatcher, InventoryObservation};
 	use crate::menu::MenuMatcher;
 
 	fn started(effects: &[TickEffect]) -> Vec<u32> {
@@ -705,11 +711,17 @@ mod tests {
 
 	#[test]
 	fn wait_for_matches_then_expect_fails() -> anyhow::Result<()> {
-		let matcher = MenuMatcher { screen: Some("in_game".into()), ..MenuMatcher::default() };
+		let matcher = AgentMatcher {
+			menu: MenuMatcher { screen: Some("in_game".into()), ..MenuMatcher::default() },
+			..AgentMatcher::default()
+		};
 		let mut playback = Playback::from_commands([
 			AgentCommand::WaitFor { matcher: matcher.clone(), timeout: 1.0 },
 			AgentCommand::Expect {
-				matcher: MenuMatcher { pause: Some("playing".into()), ..MenuMatcher::default() },
+				matcher: AgentMatcher {
+					menu: MenuMatcher { pause: Some("playing".into()), ..MenuMatcher::default() },
+					..AgentMatcher::default()
+				},
 			},
 		]);
 		let waiting = playback.tick(0.1, &TickView::default());
@@ -735,7 +747,10 @@ mod tests {
 	#[test]
 	fn wait_for_times_out_with_detail() -> anyhow::Result<()> {
 		let mut playback = Playback::from_commands([AgentCommand::WaitFor {
-			matcher: MenuMatcher { screen: Some("gallery".into()), ..MenuMatcher::default() },
+			matcher: AgentMatcher {
+				menu: MenuMatcher { screen: Some("gallery".into()), ..MenuMatcher::default() },
+				..AgentMatcher::default()
+			},
 			timeout: 0.2,
 		}]);
 		playback.tick(0.1, &in_game_view());
@@ -745,6 +760,50 @@ mod tests {
 			TickEffect::Failed { detail, .. } if detail.starts_with("timeout") && detail.contains("gallery")
 		)));
 		assert!(timed.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn wait_for_inventory_cycle_category() -> anyhow::Result<()> {
+		let mut playback = Playback::from_commands([AgentCommand::WaitFor {
+			matcher: AgentMatcher {
+				inventory: InventoryMatcher {
+					cycle_category: Some("lubikans".into()),
+					weapon: Some("bullpup".into()),
+					..InventoryMatcher::default()
+				},
+				..AgentMatcher::default()
+			},
+			timeout: 1.0,
+		}]);
+		let waiting = playback.tick(
+			0.1,
+			&TickView {
+				inventory: InventoryObservation {
+					cycle_category: "weapons".into(),
+					weapon: Some("bullpup".into()),
+					..InventoryObservation::default()
+				},
+				..TickView::default()
+			},
+		);
+		assert!(!waiting.idle);
+		let matched = playback.tick(
+			0.1,
+			&TickView {
+				inventory: InventoryObservation {
+					cycle_category: "lubikans".into(),
+					weapon: Some("bullpup".into()),
+					..InventoryObservation::default()
+				},
+				..TickView::default()
+			},
+		);
+		assert!(matched
+			.effects
+			.iter()
+			.any(|effect| matches!(effect, TickEffect::Finished { id: 0, .. })));
+		assert!(matched.idle);
 		Ok(())
 	}
 

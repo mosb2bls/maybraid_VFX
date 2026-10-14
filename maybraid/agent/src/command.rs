@@ -2,11 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::menu::MenuMatcher;
+use crate::inventory::AgentMatcher;
 
 /// Script API version. Bump when a command is added or its meaning changes;
 /// record each bump in `maybraid/agent/README.md`.
-pub const SCRIPT_API_VERSION: u32 = 6;
+pub const SCRIPT_API_VERSION: u32 = 7;
 
 fn default_wait_for_timeout() -> f32 {
 	10.0
@@ -46,7 +46,7 @@ pub enum AgentButton {
 	/// Face **X** / E — interact.
 	#[serde(alias = "x", alias = "west", alias = "interact")]
 	Interact,
-	/// Face **Y** — swap active weapon.
+	/// Face **Y** — cycle the equipped queue in the D-pad-selected category.
 	#[serde(alias = "y", alias = "north", alias = "swap")]
 	Swap,
 	/// Left bumper / C — iron ADS.
@@ -138,17 +138,17 @@ pub enum AgentCommand {
 		#[serde(default, skip_serializing_if = "Vec::is_empty")]
 		buttons: Vec<AgentButton>,
 	},
-	/// Idle until the published menu snapshot matches, or `timeout` (fail).
+	/// Idle until the published snapshot matches, or `timeout` (fail).
 	WaitFor {
 		#[serde(flatten)]
-		matcher: MenuMatcher,
+		matcher: AgentMatcher,
 		#[serde(default = "default_wait_for_timeout")]
 		timeout: f32,
 	},
-	/// Instant check of the published menu snapshot. Mismatch is `failed`.
+	/// Instant check of the published snapshot. Mismatch is `failed`.
 	Expect {
 		#[serde(flatten)]
-		matcher: MenuMatcher,
+		matcher: AgentMatcher,
 	},
 	/// Seeded random presses (and chords) for `secs`. Same seed, same sequence.
 	Mash {
@@ -327,14 +327,14 @@ mod tests {
 		assert!(matches!(
 			&wait_for,
 			AgentCommand::WaitFor { timeout, matcher }
-				if (timeout - 5.0).abs() < 1e-5 && matcher.screen.as_deref() == Some("in_game") && matcher.modal == Some(None)
+				if (timeout - 5.0).abs() < 1e-5 && matcher.menu.screen.as_deref() == Some("in_game") && matcher.menu.modal == Some(None)
 		));
 		assert!(wait_for.is_duration());
 		let expect = AgentCommand::parse_line(r#"{"cmd":"expect","pause":"playing"}"#)
 			.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert!(matches!(
 			&expect,
-			AgentCommand::Expect { matcher } if matcher.pause.as_deref() == Some("playing")
+			AgentCommand::Expect { matcher } if matcher.menu.pause.as_deref() == Some("playing")
 		));
 		let focus = AgentCommand::parse_line(
 			r#"{"cmd":"wait_for","screen":"home","focus_label":"Characters","timeout":3}"#,
@@ -343,8 +343,18 @@ mod tests {
 		assert!(matches!(
 			&focus,
 			AgentCommand::WaitFor { matcher, .. }
-				if matcher.screen.as_deref() == Some("home")
-					&& matcher.focus_label.as_deref() == Some("Characters")
+				if matcher.menu.screen.as_deref() == Some("home")
+					&& matcher.menu.focus_label.as_deref() == Some("Characters")
+		));
+		let cycle = AgentCommand::parse_line(
+			r#"{"cmd":"expect","cycle_category":"weapons","weapon":"bullpup"}"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(matches!(
+			&cycle,
+			AgentCommand::Expect { matcher }
+				if matcher.inventory.cycle_category.as_deref() == Some("weapons")
+					&& matcher.inventory.weapon.as_deref() == Some("bullpup")
 		));
 		assert!(!expect.is_duration());
 		let mash = AgentCommand::parse_line(
