@@ -1,0 +1,8 @@
+# Script API 6. CI e2e smoke: spawn at origin, wait for the world, walk to
+# a nearby waypoint. Assert `waypoint.reached` (not wall-clock). Sharp / low
+# scale come from the runner env.
+
+{"cmd":"start","xz":[0,0]}
+{"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"goto","xz":[12,12],"timeout":45,"radius":5}
+{"cmd":"quit"}

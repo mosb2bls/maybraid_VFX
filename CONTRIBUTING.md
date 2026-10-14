@@ -359,6 +359,27 @@ bin/menu-playtest.sh --seeds 3          # repeat each mash script with N seeds
 bin/menu-playtest.sh menu-create-back-mid-spin
 ```
 
+CI e2e smokes (`maybraid/agent/scripts/smoke-*.jsonl`) are the same agent
+pipe against the **full** plugin set, on Xvfb + lavapipe. They live next to
+the menu scripts and are meant to stay short (spawn + waypoint, self-hit
+picker, Home focus, one Guard spawn). Locally:
+
+```bash
+export DISPLAY=:99
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+export MAYBRAID_VSYNC=off
+export MAYBRAID_VISUAL_STYLE=sharp
+export MAYBRAID_RENDER_SCALE=0.5
+cargo build -p maybraid --release
+bin/script-smoke.sh smoke-menu-home
+```
+
+See the [agent README](maybraid/agent/README.md) and
+[`.github/workflows/script-smoke.yml`](.github/workflows/script-smoke.yml).
+The workflow builds the release binary once and fans the four smokes out.
+It fails on panic, a missed event (`reached` / picker / menu / bodies), or
+a 2–5 minute per-script timeout. Logs are artifacts on failure only.
+
 The runner sets `MAYBRAID_SAVES` / `MAYBRAID_LOGS` to a temp dir, seeds a
 fixture roster (`empty`, `one`, or `several`), and uses a small window
 (`MAYBRAID_RESOLUTION`, default `960x540`). A run fails on a non-zero exit,

@@ -114,6 +114,10 @@ mod tests {
 		"menu-leave-and-return.jsonl",
 		"menu-mash-home-42.jsonl",
 		"menu-mash-pause-42.jsonl",
+		"smoke-origin-walk.jsonl",
+		"smoke-player-down.jsonl",
+		"smoke-menu-home.jsonl",
+		"smoke-mobs-guard.jsonl",
 	];
 
 	#[test]
