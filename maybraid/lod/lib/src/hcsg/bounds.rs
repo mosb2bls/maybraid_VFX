@@ -61,7 +61,7 @@ pub enum HcsgClass {
 }
 
 impl HcsgClass {
-	pub const fn weight(self) -> u32 {
+	pub(crate) const fn weight(self) -> u32 {
 		match self {
 			Self::Near => 8,
 			Self::Far => 4,
