@@ -6,6 +6,7 @@ use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
 
 use crate::controls::hud_menu::{HudMenu, HudMenuItem};
+use crate::modal::MenuModalStack;
 use crate::theme::{SCROLLBAR_THUMB, SCROLLBAR_TRACK, SCROLLBAR_WIDTH, TILE_FOCUS_PAD};
 use maybraid_input::{MenuNav, MenuNavImpulse};
 
@@ -148,10 +149,15 @@ pub fn sync_hud_scrollbars(
 }
 
 pub fn send_hud_scroll_events(
+	stack: Res<MenuModalStack>,
 	mut mouse_wheel_reader: MessageReader<MouseWheel>,
 	hover_map: Res<HoverMap>,
 	mut commands: Commands,
 ) {
+	if stack.owns_nav() {
+		for _ in mouse_wheel_reader.read() {}
+		return;
+	}
 	for mouse_wheel in mouse_wheel_reader.read() {
 		let mut delta = -Vec2::new(mouse_wheel.x, mouse_wheel.y);
 		if mouse_wheel.unit == MouseScrollUnit::Line {
@@ -381,5 +387,59 @@ mod tests {
 		let max_scroll = content_h - VIEW_H;
 		assert!(delta.clamp(0.0, max_scroll) > 0.0);
 		assert_eq!(scroll_delta_to_reveal(view_center, VIEW_H, view_center, TILE_H, 6.0), 0.0);
+	}
+
+	#[test]
+	fn wheel_does_not_scroll_while_a_confirm_modal_owns_nav() {
+		use super::{send_hud_scroll_events, HudScroll};
+		use crate::modal::{MenuModalId, MenuModalLayer, MenuModalStack};
+		use bevy::ecs::entity::EntityHashMap;
+		use bevy::ecs::system::RunSystemOnce;
+		use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+		use bevy::input::touch::TouchPhase;
+		use bevy::picking::backend::HitData;
+		use bevy::picking::hover::HoverMap;
+		use bevy::picking::pointer::PointerId;
+		use bevy::prelude::*;
+
+		#[derive(Resource, Default)]
+		struct ScrollHits(u32);
+
+		fn count(scroll: On<HudScroll>, mut hits: ResMut<ScrollHits>) {
+			hits.0 += 1;
+			let _ = scroll;
+		}
+
+		fn wheel() -> MouseWheel {
+			MouseWheel {
+				unit: MouseScrollUnit::Line,
+				x: 0.0,
+				y: 1.0,
+				window: Entity::PLACEHOLDER,
+				phase: TouchPhase::Moved,
+			}
+		}
+
+		let mut world = World::new();
+		world.init_resource::<MenuModalStack>();
+		world.init_resource::<HoverMap>();
+		world.init_resource::<Messages<MouseWheel>>();
+		world.init_resource::<ScrollHits>();
+		world.add_observer(count);
+		let viewport = world.spawn_empty().id();
+		let mut hits = EntityHashMap::default();
+		hits.insert(viewport, HitData::new(Entity::PLACEHOLDER, 0.0, None, None));
+		world.resource_mut::<HoverMap>().0.insert(PointerId::Mouse, hits);
+		world.resource_mut::<Messages<MouseWheel>>().write(wheel());
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::ITEM_DROP);
+		world.run_system_once(send_hud_scroll_events).expect("blocked wheel");
+		world.flush();
+		assert_eq!(world.resource::<ScrollHits>().0, 0);
+		world.resource_mut::<MenuModalStack>().close(MenuModalId::ITEM_DROP);
+		world.resource_mut::<ScrollHits>().0 = 0;
+		world.resource_mut::<Messages<MouseWheel>>().write(wheel());
+		world.run_system_once(send_hud_scroll_events).expect("restored wheel");
+		world.flush();
+		assert!(world.resource::<ScrollHits>().0 >= 1);
 	}
 }

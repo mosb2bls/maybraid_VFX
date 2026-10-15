@@ -22,14 +22,16 @@ pub use controls::{
 	select_hud_item_on_over, send_hud_scroll_events, spawn_asset_tile, spawn_block_label,
 	spawn_corner_action, spawn_cursor_slot, spawn_cursor_slot_sized, spawn_grid_catalog_tile,
 	spawn_group_label, spawn_header_line, spawn_hud_action, spawn_hud_plain, spawn_hud_text,
-	spawn_labeled_row, spawn_panel_title, spawn_scroll_pane, spawn_section_header,
-	spawn_short_text_button, spawn_stepper, spawn_swatch, spawn_swatch_row, spawn_text_button,
-	spawn_tile_grid, sync_hover_tiles, sync_hud_cursors, sync_hud_item_focus, sync_hud_scrollbars,
-	sync_tile_wrap, ActiveOverlayKey, ActiveShortText, CursorRow, HoverTile, HudFonts, HudMenu,
-	HudMenuIgnoresLock, HudMenuItem, HudOverlayMenu, HudScroll, HudScrollThumb, HudScrollTrack,
-	HudScrollViewport, OverlayHeader, OverlayHeaderKey, ShortTextChange, ShortTextField,
-	ShortTextKey, ShortTextModal, ShortTextModalRoot, ShortTextPad, ShortTextToggle,
-	ShortTextValue, SlotRank,
+	spawn_inventory_action_prompts, spawn_labeled_row, spawn_panel_title, spawn_scroll_pane,
+	spawn_section_header, spawn_short_text_button, spawn_stepper, spawn_swatch, spawn_swatch_row,
+	spawn_text_button, spawn_tile_grid, spawn_tile_grid_columns, sync_hover_tiles,
+	sync_hud_cursors, sync_hud_item_focus, sync_hud_scrollbars, sync_input_prompt_device,
+	sync_inventory_prompt_glyphs, sync_tile_wrap, ActiveOverlayKey, ActiveShortText, CursorRow,
+	HoverTile, HudFonts, HudMenu, HudMenuIgnoresLock, HudMenuItem, HudOverlayMenu, HudScroll,
+	HudScrollThumb, HudScrollTrack, HudScrollViewport, InputPromptDevice, InventoryActionPrompts,
+	InventoryPromptGlyph, InventoryPromptKind, OverlayHeader, OverlayHeaderKey, ShortTextChange,
+	ShortTextField, ShortTextKey, ShortTextModal, ShortTextModalRoot, ShortTextPad,
+	ShortTextToggle, ShortTextValue, SlotRank,
 };
 pub use icons::{blink_animated_icons, spin_icons, AnimatedIcon, Icon, SpinningIcon};
 pub use info::{
@@ -43,9 +45,9 @@ pub use loading::{
 	LoadingExplainer, LoadingPanel, LoadingStack,
 };
 pub use modal::{
-	begin_menu_modal_frame, consume_menu_modal_back, consume_screen_back, sync_menu_modal_stack,
-	tick_menu_modal_holds, MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer,
-	MenuModalStack, MenuModalSystems,
+	begin_menu_modal_frame, consume_menu_modal_back, consume_screen_back, entity_under_nav_owner,
+	hud_menu_under_modal, sync_menu_modal_stack, tick_menu_modal_holds, MenuModal,
+	MenuModalDismiss, MenuModalId, MenuModalLayer, MenuModalStack, MenuModalSystems,
 };
 pub use single_select::{
 	apply_text_menu_nav, emit_menu_activate_on_click, emit_menu_activate_on_enter,
@@ -64,13 +66,14 @@ pub use spin_reveal::{
 	SPIN_REVEAL_SECS, SPIN_REVEAL_SLOT_SIZE, SPIN_REVEAL_TILE_HEIGHT, SPIN_REVEAL_TILE_WIDTH,
 };
 pub use theme::{
-	BARLOW_BLACK, BARLOW_REGULAR, BARLOW_SEMIBOLD, BONES_ICON, DESCRIPTION_PANE_LEFT_PERCENT,
-	HEADER_FONT_SIZE, ITEM_FONT_SIZE, LOADING_ICON_SIZE, MAP_ARROW_ICON, MAP_GROVE_ICON,
-	MAP_HOUSE_ICON, MAP_MOUNTAIN_ICON, MAP_TOWN_ICON, MAP_TREE_ICON, MAP_WATER_ICON, MENU_CLEAR,
-	NOTO_SANS_REGULAR, OBJECTIVE_MARKER_FONT_SIZE, PANEL_BLOCK_FONT_SIZE, PANEL_GROUP_FONT_SIZE,
+	BARLOW_BLACK, BARLOW_REGULAR, BARLOW_SEMIBOLD, BONES_ICON, CATALOG_THUMB_PX,
+	DESCRIPTION_PANE_LEFT_PERCENT, HEADER_FONT_SIZE, INVENTORY_THUMB_PX, INVENTORY_TILE_COLUMNS,
+	ITEM_FONT_SIZE, LOADING_ICON_SIZE, MAP_ARROW_ICON, MAP_GROVE_ICON, MAP_HOUSE_ICON,
+	MAP_MOUNTAIN_ICON, MAP_TOWN_ICON, MAP_TREE_ICON, MAP_WATER_ICON, MENU_CLEAR, NOTO_SANS_REGULAR,
+	OBJECTIVE_MARKER_FONT_SIZE, PANEL_BLOCK_FONT_SIZE, PANEL_GROUP_FONT_SIZE,
 	PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP,
-	TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_PURPLE, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
-	TEXT_YELLOW_FAINT_FOCUS, TEXT_YELLOW_HOVER,
+	PANEL_TILE_COLUMNS, TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_PURPLE, TEXT_SALMON, TEXT_YELLOW,
+	TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS, TEXT_YELLOW_HOVER,
 };
 
 use bevy::prelude::*;
@@ -92,6 +95,7 @@ impl Plugin for MenuComponentsPlugin {
 			.init_resource::<ActiveShortText>()
 			.init_resource::<ShortTextModal>()
 			.init_resource::<MenuModalStack>()
+			.init_resource::<InputPromptDevice>()
 			.add_message::<ScreenBackPressed>()
 			.add_message::<ScreenEditPressed>()
 			.add_message::<MenuModalDismiss>()
@@ -161,6 +165,8 @@ impl Plugin for MenuComponentsPlugin {
 					sync_hud_item_focus,
 					sync_hover_tiles,
 					sync_tile_wrap,
+					sync_input_prompt_device,
+					sync_inventory_prompt_glyphs,
 				),
 			)
 			.add_systems(

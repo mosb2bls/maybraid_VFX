@@ -208,7 +208,6 @@ struct AdvanceQueries<'w, 's> {
 	globals: Query<'w, 's, &'static GlobalTransform>,
 	hosts: Query<'w, 's, (), With<CaptureHostReady>>,
 	standard: Query<'w, 's, &'static MeshMaterial3d<StandardMaterial>>,
-	preserved: Query<'w, 's, (), With<crate::session::CapturePreserveMaterial>>,
 	pixels: Query<'w, 's, (Entity, &'static CaptureReadback, &'static CapturePixels)>,
 	skins: Query<'w, 's, &'static SkinnedMesh>,
 	authored_extents: Query<'w, 's, &'static CaptureExtents>,
@@ -324,7 +323,6 @@ fn advance_sessions(
 			&queries.children,
 			&queries.standard,
 			&queries.mesh_entities,
-			&queries.preserved,
 		) {
 			Ok(warning) => {
 				if let Some(warning) = warning {
@@ -348,7 +346,6 @@ fn advance_sessions(
 			&queries.children,
 			&queries.standard,
 			&queries.mesh_entities,
-			&queries.preserved,
 		);
 	}
 

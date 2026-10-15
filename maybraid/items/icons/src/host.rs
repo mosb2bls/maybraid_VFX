@@ -3,7 +3,6 @@
 use bevy::camera::primitives::MeshAabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::entity_disabling::Disabled;
-use bevy::math::bounding::Aabb3d;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
@@ -32,8 +31,7 @@ use lod::{
 use material_ref::{MaterialRefApplied, StandardMaterialRefPlugin};
 use scene_ref::SceneRefRoot;
 use screen_capture::{
-	CaptureHostReady, CaptureHostRoot, CaptureId, CapturePreserveMaterial, CaptureSilhouetteRoot,
-	CAPTURE_RENDER_LAYER,
+	CaptureHostReady, CaptureHostRoot, CaptureId, CaptureSilhouetteRoot, CAPTURE_RENDER_LAYER,
 };
 use std::collections::HashMap;
 
@@ -202,10 +200,16 @@ pub fn mark_capture_hosts_ready(
 	grenades: Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: Query<(), With<ActiveRigPose>>,
 	posed: Query<(), With<PoseApplied>>,
-	preserved: Query<(), With<CapturePreserveMaterial>>,
 	pending_scene: Query<(), (With<SceneRefRoot>, Without<WorldAssetRoot>)>,
+	hosts_meta: Query<&CaptureHostRoot>,
+	bind_pose: Query<(), With<SelfLubikanBindPose>>,
 ) {
 	for root in &hosts {
+		if hosts_meta.get(root).is_ok_and(|host| host.kind == HOST_SELF_LUBIKAN)
+			&& bind_pose.get(root).is_err()
+		{
+			continue;
+		}
 		if host_tree_ready(
 			root,
 			&children,
@@ -219,7 +223,6 @@ pub fn mark_capture_hosts_ready(
 			&grenades,
 			&poses,
 			&posed,
-			&preserved,
 			&pending_scene,
 		) {
 			commands.entity(root).try_insert(CaptureHostReady);
@@ -335,7 +338,15 @@ fn spawn_self_lubikan_host(
 	materials: &mut Assets<StandardMaterial>,
 	root: Entity,
 ) {
-	commands.entity(root).try_insert(SceneRefRoot(braidman_icon_body().scene));
+	// Scene lives on a child so WorldAssetRoot spawn stays off the host root.
+	commands.spawn((
+		Name::new("self-lubikan-body"),
+		SceneRefRoot(braidman_icon_body().scene),
+		Transform::IDENTITY,
+		Visibility::default(),
+		RenderLayers::layer(CAPTURE_RENDER_LAYER),
+		ChildOf(root),
+	));
 	spawn_medical_cross(commands, meshes, materials, root);
 }
 
@@ -360,8 +371,7 @@ pub fn rest_pose_self_lubikan_skins(
 	pending_scene: Query<(), (With<SceneRefRoot>, Without<WorldAssetRoot>)>,
 	mesh_3d: Query<&Mesh3d>,
 	skinned: Query<Entity, With<SkinnedMesh>>,
-	preserved: Query<(), With<CapturePreserveMaterial>>,
-	painted: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
+	crosses: Query<(), With<MedicalCross>>,
 ) {
 	for (root, host) in &hosts {
 		if host.kind != HOST_SELF_LUBIKAN {
@@ -377,58 +387,62 @@ pub fn rest_pose_self_lubikan_skins(
 			continue;
 		}
 		let mut destemmed_any = false;
-		let mut saw_body = false;
-		let mut saw_joints = false;
+		let mut saw_loaded_body = false;
+		let mut pending_mesh = false;
 		visit_descendants(root, &children, &mut |entity| {
 			if entity == root {
 				return;
 			}
 			commands.entity(entity).try_insert(RenderLayers::layer(CAPTURE_RENDER_LAYER));
-			if preserved.get(entity).is_ok() {
+			if crosses.get(entity).is_ok() {
 				return;
 			}
 			let Ok(handle) = mesh_3d.get(entity) else {
 				return;
 			};
-			saw_body = true;
 			let Some(mesh) = meshes.get(&handle.0) else {
+				pending_mesh = true;
 				return;
 			};
+			saw_loaded_body = true;
 			if let Some(destemmed) = destem_bind_pose_mesh(mesh) {
-				saw_joints = true;
-				let painted = painted.get(entity).is_ok();
 				commands.entity(entity).try_insert(Mesh3d(meshes.add(destemmed)));
-				if !painted {
-					if let Some(materials) = standard_materials.as_mut() {
-						commands.entity(entity).try_insert(MeshMaterial3d(materials.add(
-							StandardMaterial { perceptual_roughness: 0.6, ..Default::default() },
-						)));
-					}
-				}
 				destemmed_any = true;
+			}
+			// Opaque gray-ready paint — no GLB texture / alpha for silhouette.
+			if let Some(materials) = standard_materials.as_mut() {
+				commands.entity(entity).try_insert(MeshMaterial3d(materials.add(
+					StandardMaterial {
+						perceptual_roughness: 0.6,
+						metallic: 0.0,
+						alpha_mode: AlphaMode::Opaque,
+						..Default::default()
+					},
+				)));
 			}
 			if skinned.get(entity).is_ok() {
 				commands.entity(entity).try_remove::<SkinnedMesh>();
 			}
 		});
-		if destemmed_any || (saw_body && !saw_joints) {
-			place_cross_on_chest(&mut commands, &meshes, root, &children, &mesh_3d, &preserved);
-			commands.entity(root).try_insert(SelfLubikanBindPose);
+		if pending_mesh || !(saw_loaded_body || destemmed_any) {
+			continue;
 		}
+		place_cross_in_corner(&mut commands, &meshes, root, &children, &mesh_3d, &crosses);
+		commands.entity(root).try_insert(SelfLubikanBindPose);
 	}
 }
 
-fn place_cross_on_chest(
+fn place_cross_in_corner(
 	commands: &mut Commands,
 	meshes: &Assets<Mesh>,
 	root: Entity,
 	children: &Query<&Children>,
 	mesh_3d: &Query<&Mesh3d>,
-	preserved: &Query<(), With<CapturePreserveMaterial>>,
+	crosses: &Query<(), With<MedicalCross>>,
 ) {
-	let mut union: Option<Aabb3d> = None;
+	let mut best: Option<(Entity, Vec3, Vec3)> = None;
 	visit_descendants(root, children, &mut |entity| {
-		if entity == root || preserved.get(entity).is_ok() {
+		if entity == root || crosses.get(entity).is_ok() {
 			return;
 		}
 		let Ok(handle) = mesh_3d.get(entity) else {
@@ -440,28 +454,32 @@ fn place_cross_on_chest(
 		let Some(local) = mesh.compute_aabb() else {
 			return;
 		};
-		let aabb = Aabb3d { min: local.min().into(), max: local.max().into() };
-		union = Some(match union {
-			Some(existing) => Aabb3d {
-				min: Vec3::from(existing.min).min(Vec3::from(aabb.min)).into(),
-				max: Vec3::from(existing.max).max(Vec3::from(aabb.max)).into(),
-			},
-			None => aabb,
-		});
+		let min = Vec3::from(local.min());
+		let max = Vec3::from(local.max());
+		let extent = (max - min).max_element();
+		if best
+			.as_ref()
+			.is_none_or(|(_, bmin, bmax)| extent > (*bmax - *bmin).max_element())
+		{
+			best = Some((entity, min, max));
+		}
 	});
-	let Some(aabb) = union else {
+	let Some((body, min, max)) = best else {
 		return;
 	};
-	let min = Vec3::from(aabb.min);
-	let max = Vec3::from(aabb.max);
 	let size = max - min;
 	if size.max_element() < 1e-3 {
 		return;
 	}
-	let chest = Vec3::new(min.x + size.x * 0.5, min.y + size.y * 0.62, max.z + 0.06);
+	// Mesh-local top-right, so FitExtents puts the mark in the icon corner.
+	let corner = Vec3::new(max.x + size.x * 0.08, max.y + size.y * 0.08, max.z + size.z * 0.04);
+	let scale = (size.max_element() / 1.8).clamp(0.4, 12.0);
 	visit_descendants(root, children, &mut |entity| {
-		if preserved.get(entity).is_ok() {
-			commands.entity(entity).try_insert(Transform::from_translation(chest));
+		if crosses.get(entity).is_ok() {
+			commands.entity(entity).try_insert((
+				ChildOf(body),
+				Transform { translation: corner, scale: Vec3::splat(scale), ..Default::default() },
+			));
 		}
 	});
 }
@@ -480,35 +498,32 @@ fn destem_bind_pose_mesh(mesh: &Mesh) -> Option<Mesh> {
 	Some(destemmed)
 }
 
+/// Scene-space badge so destem can place it after the body AABB is known.
+#[derive(Component)]
+pub(crate) struct MedicalCross;
+
 fn spawn_medical_cross(
 	commands: &mut Commands,
 	meshes: &mut Assets<Mesh>,
 	materials: &mut Assets<StandardMaterial>,
 	root: Entity,
 ) {
-	let material = materials.add(StandardMaterial {
-		base_color: Color::srgb(0.86, 0.14, 0.16),
-		unlit: true,
-		perceptual_roughness: 1.0,
-		metallic: 0.0,
-		reflectance: 0.0,
-		..Default::default()
-	});
-	// Chest-front mark: two cuboids so the cross is a real scene object,
-	// not a 2D overlay. CapturePreserveMaterial keeps the red through
-	// silhouette restamp.
+	let material =
+		materials.add(StandardMaterial { perceptual_roughness: 0.6, ..Default::default() });
+	// Corner badge: two cuboids so the cross is a real scene object.
+	// Silhouette restamp turns it unlit gray with the body.
 	for (name, size) in [
-		("medical-cross-vertical", Vec3::new(0.08, 0.38, 0.06)),
-		("medical-cross-horizontal", Vec3::new(0.28, 0.08, 0.06)),
+		("medical-cross-vertical", Vec3::new(0.05, 0.22, 0.05)),
+		("medical-cross-horizontal", Vec3::new(0.16, 0.05, 0.05)),
 	] {
 		let entity = commands
 			.spawn((
 				Name::new(name),
+				MedicalCross,
 				Mesh3d(meshes.add(Cuboid::from_size(size))),
 				MeshMaterial3d(material.clone()),
-				Transform::from_xyz(0.0, 1.15, 0.18),
+				Transform::from_xyz(1.2, 1.2, 0.18),
 				Visibility::default(),
-				CapturePreserveMaterial,
 				RenderLayers::layer(CAPTURE_RENDER_LAYER),
 			))
 			.id();
@@ -566,7 +581,6 @@ fn host_tree_ready(
 	grenades: &Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: &Query<(), With<ActiveRigPose>>,
 	posed: &Query<(), With<PoseApplied>>,
-	preserved: &Query<(), With<CapturePreserveMaterial>>,
 	pending_scene: &Query<(), (With<SceneRefRoot>, Without<WorldAssetRoot>)>,
 ) -> bool {
 	let mut found_mesh = false;
@@ -588,9 +602,6 @@ fn host_tree_ready(
 			pose_ready = true;
 		}
 		if meshes.get(entity).is_err() {
-			return;
-		}
-		if preserved.get(entity).is_ok() {
 			return;
 		}
 		found_mesh = true;
@@ -716,6 +727,54 @@ mod tests {
 	}
 
 	#[test]
+	fn self_lubikan_waits_for_loaded_body_mesh() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<Mesh>()
+			.init_asset::<StandardMaterial>()
+			.add_systems(Update, rest_pose_self_lubikan_skins);
+		let root = app
+			.world_mut()
+			.spawn((
+				CaptureHostRoot {
+					kind: HOST_SELF_LUBIKAN.to_string(),
+					id: CaptureId::new("self-lubikan"),
+				},
+				CaptureHostRealized,
+			))
+			.id();
+		app.world_mut().spawn((Mesh3d(Handle::default()), ChildOf(root)));
+		app.update();
+		assert!(
+			app.world().get::<SelfLubikanBindPose>(root).is_none(),
+			"Mesh3d without an asset must not ready the host"
+		);
+	}
+
+	#[test]
+	fn self_lubikan_does_not_ready_on_cross_only() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<Mesh>()
+			.init_asset::<StandardMaterial>()
+			.add_systems(Update, rest_pose_self_lubikan_skins);
+		let mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(Cuboid::from_length(0.1));
+		let root = app
+			.world_mut()
+			.spawn((
+				CaptureHostRoot {
+					kind: HOST_SELF_LUBIKAN.to_string(),
+					id: CaptureId::new("self-lubikan"),
+				},
+				CaptureHostRealized,
+			))
+			.id();
+		app.world_mut().spawn((MedicalCross, Mesh3d(mesh), ChildOf(root)));
+		app.update();
+		assert!(app.world().get::<SelfLubikanBindPose>(root).is_none());
+	}
+
+	#[test]
 	fn self_lubikan_rest_pose_drops_skinned_mesh() {
 		use bevy::asset::RenderAssetUsages;
 		use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
@@ -738,11 +797,7 @@ mod tests {
 				)
 				.with_inserted_attribute(
 					Mesh::ATTRIBUTE_JOINT_INDEX,
-					VertexAttributeValues::Uint16x4(vec![
-						[0, 0, 0, 0],
-						[0, 0, 0, 0],
-						[0, 0, 0, 0],
-					]),
+					VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]),
 				)
 				.with_inserted_attribute(
 					Mesh::ATTRIBUTE_JOINT_WEIGHT,
@@ -767,6 +822,17 @@ mod tests {
 				ChildOf(root),
 			))
 			.id();
+		let cross_mesh =
+			app.world_mut().resource_mut::<Assets<Mesh>>().add(Cuboid::from_length(0.1));
+		let cross = app
+			.world_mut()
+			.spawn((
+				MedicalCross,
+				Mesh3d(cross_mesh),
+				Transform::from_xyz(1.2, 1.2, 0.18),
+				ChildOf(root),
+			))
+			.id();
 		app.update();
 		assert!(app.world().get::<SkinnedMesh>(child).is_none());
 		assert!(app.world().get::<SelfLubikanBindPose>(root).is_some());
@@ -775,5 +841,8 @@ mod tests {
 		let destemmed = meshes.get(&handle.0).expect("mesh asset");
 		assert!(destemmed.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none());
 		assert!(destemmed.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_none());
+		assert_eq!(app.world().get::<ChildOf>(cross).map(|parent| parent.0), Some(child));
+		let placed = app.world().get::<Transform>(cross).expect("corner");
+		assert!(placed.translation.x > 0.0 && placed.translation.y > 0.0);
 	}
 }

@@ -7175,6 +7175,7 @@ dependencies = [
  "character-items",
  "character-model-user",
  "character-persist",
+ "character-ui-menu",
  "game-commands",
  "item-icons",
  "maybraid-character-ui-menu-renderer",
