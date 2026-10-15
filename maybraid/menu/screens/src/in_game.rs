@@ -6,8 +6,8 @@ use maybraid_menu_controller::MenuController;
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
-	set_brand_mode_title, BrandModeLine, BrandModeTitle, TextColumnAlign, TextColumnAnchor,
-	TextCursorRow, TextMenuPlugin,
+	menu_region_wash, set_brand_mode_title, BrandModeLine, BrandModeTitle, TextColumnAlign,
+	TextColumnAnchor, TextCursorRow, TextMenuPlugin,
 };
 
 use crate::input::add_menu_input;
@@ -85,6 +85,7 @@ impl InGameScreen {
 			InGameScreen
 			MenuScreen
 			MenuController
+			BackgroundColor(menu_region_wash())
 			Node {
 				width: percent(100),
 				height: percent(100),

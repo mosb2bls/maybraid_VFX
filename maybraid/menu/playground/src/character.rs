@@ -19,7 +19,7 @@ use maybraid_skill_map::{
 	spawn_skill_map_spin_reveal_image, SkillMapSpinRevealHud, SkillMapSpinRevealHudView,
 	SkillMapTileMaterialPlugin,
 };
-use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
+use menu_components::theme::{menu_region_wash, CORNER_BOTTOM, CORNER_INSET};
 use menu_components::{
 	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
 	HudOverlayMenu, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer, MenuModalStack,
@@ -301,6 +301,7 @@ fn spawn_character_ui_shell(commands: &mut Commands) -> (Entity, Entity, Entity)
 					overflow: Overflow::clip(),
 					..default()
 				},
+				BackgroundColor(menu_region_wash()),
 				Pickable::IGNORE,
 			))
 			.with_children(|shell| {

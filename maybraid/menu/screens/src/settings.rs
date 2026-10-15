@@ -11,9 +11,9 @@ use maybraid_world::render_scale::{VisualStyle, VisualStyleAutoReason};
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
-	screen_back_scene, set_brand_mode_title, set_info_box_for_menu, BrandModeLine, BrandModeTitle,
-	MenuFocus, MenuInfoBox, MenuInfoBoxLabel, MenuStep, TextColumnAlign, TextColumnAnchor,
-	TextCursorRow, TextMenuPlugin, TextMenuSystems,
+	menu_region_wash, screen_back_scene, set_brand_mode_title, set_info_box_for_menu,
+	BrandModeLine, BrandModeTitle, MenuFocus, MenuInfoBox, MenuInfoBoxLabel, MenuStep,
+	TextColumnAlign, TextColumnAnchor, TextCursorRow, TextMenuPlugin, TextMenuSystems,
 };
 use serde::{Deserialize, Serialize};
 
@@ -438,6 +438,7 @@ impl InGameSettingsScreen {
 			InGameSettingsScreen
 			MenuScreen
 			MenuController
+			BackgroundColor(menu_region_wash())
 			Node {
 				width: percent(100),
 				height: percent(100),

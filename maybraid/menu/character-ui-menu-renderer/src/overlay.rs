@@ -8,8 +8,8 @@ use crate::sink::{MaybraidMenuSink, MenuSink, MenuThumbnailContext, RenderContex
 use crate::widgets::CloseOverlaySelect;
 use crate::MenuJustify;
 use menu_components::{
-	spawn_header_line, spawn_text_button, HudFonts, MenuModal, PANEL_HEADER_FONT_SIZE,
-	PANEL_ROW_GAP,
+	menu_region_wash, spawn_header_line, spawn_text_button, HudFonts, MenuModal,
+	PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP,
 };
 
 /// Catalog nodes that can show a selected name on a header.
@@ -52,15 +52,10 @@ pub fn primary_select<'a, E>(children: &'a [MenuNode<E>]) -> Option<&'a MenuNode
 pub fn is_picker_only<E>(node: &MenuNode<E>) -> bool {
 	match node {
 		MenuNode::SectionSelect { .. } | MenuNode::BlockAsset { .. } => true,
-		MenuNode::ItemMultiSelect { .. } | MenuNode::GridCatalog { .. } => false,
 		MenuNode::Section { children, .. } => {
 			let flat = flatten_nodes(children);
 			flat.len() == 1 && is_select_node(flat[0]) && is_picker_only(flat[0])
 		}
-		MenuNode::ShortText { .. }
-		| MenuNode::Action { .. }
-		| MenuNode::LabeledValue { .. }
-		| MenuNode::StatGrid { .. } => false,
 		_ => false,
 	}
 }
@@ -82,14 +77,7 @@ pub fn find_overlay_node<'a, E>(nodes: &'a [MenuNode<E>], key: &str) -> Option<&
 fn find_in_node<'a, E>(node: &'a MenuNode<E>, key: &str) -> Option<&'a MenuNode<E>> {
 	match node {
 		MenuNode::Fragment(children) => find_overlay_node(children, key),
-		MenuNode::Section { label, children } => {
-			if *label == key {
-				Some(node)
-			} else {
-				find_overlay_node(children, key)
-			}
-		}
-		MenuNode::SectionSelect { label, children, .. } => {
+		MenuNode::Section { label, children } | MenuNode::SectionSelect { label, children, .. } => {
 			if *label == key {
 				Some(node)
 			} else {
@@ -233,7 +221,7 @@ pub fn spawn_overlay_shell(
 					height: Val::Percent(100.0),
 					..default()
 				},
-				BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.88)),
+				BackgroundColor(menu_region_wash()),
 			));
 			root.spawn((
 				Node {

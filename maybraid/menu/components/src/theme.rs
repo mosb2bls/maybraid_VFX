@@ -25,6 +25,21 @@ pub const ITEM_FONT_SIZE: f32 = 48.0;
 /// Full-screen menu wash (home and other title screens).
 pub const MENU_CLEAR: Color = Color::srgb(0.08, 0.10, 0.14);
 
+/// Deep navy: inverted-tag text on [`TEXT_YELLOW`], and the RGB of
+/// [`menu_region_wash`]. Tune RGB here; in-game wash alpha is
+/// [`MENU_REGION_WASH_ALPHA`].
+pub const TEXT_DEEP_BLUE: Color = Color::srgb(0.07, 0.14, 0.40);
+
+/// Alpha of the in-game menu-region wash. RGB is [`TEXT_DEEP_BLUE`].
+pub const MENU_REGION_WASH_ALPHA: f32 = 0.72;
+
+/// Semi-transparent deep-blue wash behind pause / in-game menus and modals.
+///
+/// Full-screen shells that already clear to [`MENU_CLEAR`] should not use this.
+pub fn menu_region_wash() -> Color {
+	TEXT_DEEP_BLUE.with_alpha(MENU_REGION_WASH_ALPHA)
+}
+
 /// Idle menu yellow.
 pub const TEXT_YELLOW: Color = Color::srgb(1.0, 0.86, 0.22);
 
@@ -80,11 +95,17 @@ pub const HINT_ICON_SIZE: f32 = 24.0;
 /// Gap between the hint mark and the hint copy.
 pub const HINT_ICON_GAP: f32 = 10.0;
 
-/// Mark beside a text-cursor row (sits against [`ITEM_FONT_SIZE`] labels).
-pub const CURSOR_ICON_SIZE: f32 = 36.0;
+/// Horizontal padding inside a focused-row tag. The chip hugs the label.
+pub const FOCUS_TAG_PAD_X: f32 = 10.0;
 
-/// Gap between the cursor mark and the row label.
-pub const CURSOR_ICON_GAP: f32 = 12.0;
+/// Vertical padding inside a focused-row tag.
+pub const FOCUS_TAG_PAD_Y: f32 = 2.0;
+
+/// Corner radius on a focused-row tag.
+pub const FOCUS_TAG_RADIUS: f32 = 6.0;
+
+/// Gap between a focused-row tag and a sibling objective chip.
+pub const FOCUS_TAG_GAP: f32 = 10.0;
 
 /// Maybraid mark, under `maybraid/assets`. Author file: `art/iconography/maybraid_logo_icon.blend`.
 pub const MAYBRAID_LOGO: &str = "iconography/maybraid_logo_icon.png";
@@ -112,15 +133,6 @@ pub const MAP_WATER_ICON: &str = "iconography/kenney/cartography/lake.png";
 
 /// Kenney game-icons white arrow. Rotated toward off-screen anchors.
 pub const MAP_ARROW_ICON: &str = "iconography/kenney/game-icons/arrow_up.png";
-
-/// Blink period for animated marks, in seconds.
-pub const ICON_BLINK_SECS: f32 = 1.2;
-
-/// Animated-mark alpha at the dim end of the blink.
-pub const ICON_BLINK_ALPHA_MIN: f32 = 0.18;
-
-/// Animated-mark alpha at the bright end of the blink.
-pub const ICON_BLINK_ALPHA_MAX: f32 = 0.92;
 
 /// Inset from the bottom of the window for the description pane.
 pub const DESCRIPTION_BOTTOM: f32 = 48.0;
@@ -233,15 +245,6 @@ pub const PANEL_VALUE_FONT_SIZE: f32 = PANEL_ITEM_FONT_SIZE;
 /// Subheading above a grouped select list.
 pub const PANEL_GROUP_FONT_SIZE: f32 = 16.0;
 
-/// Cursor mark beside a field or option row.
-pub const PANEL_CURSOR_ICON_SIZE: f32 = 20.0;
-
-/// Cursor mark beside a section or overlay-summary header.
-pub const PANEL_HEADER_CURSOR_ICON_SIZE: f32 = 28.0;
-
-/// Gap between the panel cursor mark and the row label.
-pub const PANEL_CURSOR_ICON_GAP: f32 = 10.0;
-
 /// Color chip size in a panel swatch row.
 pub const PANEL_SWATCH_SIZE: f32 = 22.0;
 
@@ -274,3 +277,24 @@ pub const SCROLLBAR_TRACK: Color = Color::srgba(1.0, 0.86, 0.22, 0.16);
 
 /// Thumb on a HUD scrollbar.
 pub const SCROLLBAR_THUMB: Color = Color::srgba(1.0, 0.86, 0.22, 0.72);
+
+#[cfg(test)]
+mod tests {
+	use super::{menu_region_wash, MENU_REGION_WASH_ALPHA, TEXT_DEEP_BLUE, TEXT_YELLOW};
+
+	#[test]
+	fn wash_reuses_deep_blue_rgb() {
+		let navy = TEXT_DEEP_BLUE.to_srgba();
+		let wash = menu_region_wash().to_srgba();
+		assert!((navy.red - wash.red).abs() < f32::EPSILON);
+		assert!((navy.green - wash.green).abs() < f32::EPSILON);
+		assert!((navy.blue - wash.blue).abs() < f32::EPSILON);
+		assert!((wash.alpha - MENU_REGION_WASH_ALPHA).abs() < f32::EPSILON);
+	}
+
+	#[test]
+	fn inverted_tag_is_navy_on_yellow() {
+		assert_ne!(TEXT_DEEP_BLUE, TEXT_YELLOW);
+		assert!(TEXT_DEEP_BLUE.to_srgba().blue > TEXT_DEEP_BLUE.to_srgba().red);
+	}
+}
