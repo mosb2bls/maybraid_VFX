@@ -94,6 +94,8 @@ mod tests {
 		"origin-picker.jsonl",
 		"dusk-spawn.jsonl",
 		"death-picker.jsonl",
+		"character-switch-spawn.jsonl",
+		"poi-picker-cycle.jsonl",
 		"mob-spawns.jsonl",
 		"visual-style-idle.jsonl",
 		"visual-style-idle-watercolor.jsonl",
@@ -118,6 +120,10 @@ mod tests {
 		"smoke-player-down.jsonl",
 		"smoke-menu-home.jsonl",
 		"smoke-mobs-guard.jsonl",
+		"menu-home-focus.jsonl",
+		"menu-home-characters.jsonl",
+		"menu-home-settings.jsonl",
+		"menu-pause-back.jsonl",
 	];
 
 	#[test]
@@ -173,6 +179,23 @@ mod tests {
 					idx + 1
 				);
 			}
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn home_first_scripts_do_not_take_a_leading_start() -> anyhow::Result<()> {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
+		for name in [
+			"character-switch-spawn.jsonl",
+			"poi-picker-cycle.jsonl",
+			"menu-home-focus.jsonl",
+			"menu-create-back-mid-spin.jsonl",
+			"menu-mash-home-42.jsonl",
+		] {
+			let mut commands =
+				read_script_commands(&root.join(name)).map_err(|e| anyhow::anyhow!("{e}"))?;
+			assert_eq!(take_leading_start(&mut commands), None, "{name}");
 		}
 		Ok(())
 	}

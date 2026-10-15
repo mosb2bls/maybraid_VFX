@@ -136,12 +136,12 @@ impl Plugin for CombatHudPlugin {
 /// Shared meter content for the persistent player health widget.
 fn configure_health_content(app: &mut App) {
 	app.init_resource::<ContinuousHealthConfig>().add_systems(
-			PostUpdate,
-			(update_continuous_health_bar_content, trigger_completion_flash)
-				.chain()
-				.in_set(CombatHudSystems::Health)
-				.after(sync_player_vitals),
-		);
+		PostUpdate,
+		(update_continuous_health_bar_content, trigger_completion_flash)
+			.chain()
+			.in_set(CombatHudSystems::Health)
+			.after(sync_player_vitals),
+	);
 }
 
 /// Bottom-left player name + health bar (reuses continuous health bar).

@@ -352,7 +352,8 @@ mod tests {
 		let hold = peak();
 		let cover = cover_tip(&jab, hold);
 		assert!(
-			(cover.x - -0.1203).abs() < 1e-3 && (cover.y - 0.9349).abs() < 1e-3
+			(cover.x - -0.1203).abs() < 1e-3
+				&& (cover.y - 0.9349).abs() < 1e-3
 				&& (cover.z - 0.5251).abs() < 1e-3,
 			"cover hand tip at hold should stay tucked, got {:?}",
 			cover

@@ -152,7 +152,8 @@ impl<G: RichmondGround> RichmondDevelopment<G> {
 		if !site.is_filled() {
 			return false;
 		}
-		cx.get_or_generate::<Self>(id).is_some_and(|development| development.is_filled())
+		cx.get_or_generate::<Self>(id)
+			.is_some_and(|development| development.is_filled())
 	}
 
 	/// Pad nodes of the filled `developments` affecting `region`, merged

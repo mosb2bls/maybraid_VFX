@@ -175,8 +175,7 @@ fn perf_presentation_try_entries() {
 	let per_entry_calls = ROUNDS * BATCH;
 	eprintln!(
 		"perf_presentation_try_entries: {} rounds × {} ids ({per_entry_calls} lookups)",
-		ROUNDS,
-		BATCH,
+		ROUNDS, BATCH,
 	);
 	eprintln!(
 		"  try_entry loop: {:?} ({:.1?} per lookup)",

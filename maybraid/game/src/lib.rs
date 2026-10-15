@@ -28,13 +28,12 @@ use maybraid_world::{
 	resume_discovery_from_saved_waypoints, AdapterKind, AgentDrive, Durham,
 	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
 	TerrainStreaming, VisualStyle, VisualStyleAutoReason, VisualStyleSetting, VisualStyleSignals,
-	WorldGameplayEnabled, WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout,
-	WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV,
-	VISUAL_STYLE_ENV,
+	WorldGameplayEnabled, WorldMenuShell, WorldMobHudEnabled, WorldPlaySessionEnded,
+	WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
+	DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
-	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-	TextMenuSystems, MENU_CLEAR,
+	consume_screen_back, MenuModalStack, ScreenBackPressed, TextMenuSystems, MENU_CLEAR,
 };
 use menu_playground::{
 	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState,
@@ -56,6 +55,7 @@ impl Plugin for GamePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(WorldPlugin::game())
 			.insert_resource(WorldGameplayEnabled(false))
+			.insert_resource(WorldMenuShell(true))
 			.insert_resource(InventoryEditCameraFollow(false))
 			.insert_resource(PlayerPhysicsEnabled(false))
 			.insert_resource(TerrainStreaming::<Durham>::new(false))
@@ -93,10 +93,11 @@ impl Plugin for GamePlugin {
 					apply_shell_look,
 					detach_preview_camera,
 					crate::load::arm_first_load,
-					load_active_player_loadout.before(resume_discovery_from_saved_waypoints),
+					load_active_player_loadout,
 					reset_first_spawn_offer,
 					resume_discovery_from_saved_waypoints,
-				),
+				)
+					.chain(),
 			)
 			.add_systems(
 				OnExit(GameFlow::LoadingWorld),
@@ -489,16 +490,14 @@ fn visual_style_readout(
 fn home_settings_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
 	screens: Query<(), With<InGameSettingsScreen>>,
 ) {
 	if screens.is_empty() {
 		return;
 	}
-	if !consume_screen_back(nav.as_ref(), &overlay, modal.is_open(), &consumed, &mut backs) {
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	request_show_home(&mut commands);
@@ -509,20 +508,15 @@ fn home_settings_back(
 fn pause_menu_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
 	settings: Query<(), With<InGameSettingsScreen>>,
 	character: Query<(), With<CharacterScreen>>,
 ) {
-	if !consume_screen_back(
-		nav.as_ref(),
-		&overlay,
-		modal.is_open() || !character.is_empty(),
-		&consumed,
-		&mut backs,
-	) {
+	if settings.is_empty() && character.is_empty() {
+		return;
+	}
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	if !settings.is_empty() {
@@ -574,21 +568,12 @@ fn character_back(
 	mut route: ShellRoute,
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
-	character: Query<(), With<CharacterScreen>>,
 	spin: Query<(), With<SpinRevealScreen>>,
 	gallery: Query<(), With<GalleryScreen>>,
 ) {
-	if !consume_screen_back(
-		nav.as_ref(),
-		&overlay,
-		modal.is_open() || !character.is_empty(),
-		&consumed,
-		&mut backs,
-	) {
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	if !spin.is_empty() {
@@ -970,9 +955,7 @@ mod tests {
 	fn pause_back_leaves_the_editor_to_its_leave_prompt() -> anyhow::Result<()> {
 		use crate::pause_menu_back;
 		use maybraid_input::{MenuNav, MenuNavPad};
-		use menu_components::{
-			ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-		};
+		use menu_components::{MenuModalStack, ScreenBackPressed};
 		use menu_playground::CharacterScreen;
 		use menu_screens::{MenuScreen, MenuShowRequest};
 
@@ -981,9 +964,7 @@ mod tests {
 		let mut nav = MenuNavPad::default();
 		nav.events.push(MenuNav::Back);
 		world.insert_resource(nav);
-		world.init_resource::<ActiveOverlayKey>();
-		world.init_resource::<ShortTextModal>();
-		world.init_resource::<MenuBackConsumed>();
+		world.init_resource::<MenuModalStack>();
 		world.insert_resource(CharacterEditorReturn::InGame);
 		world.spawn((CharacterScreen, MenuScreen));
 		world
