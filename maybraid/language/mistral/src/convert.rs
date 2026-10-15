@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use maybraid_language_core::{
 	Argument, Aspect, Clause, ConceptId, ConceptUniverse, Definiteness, Modifier, Mood, Number,
-	Polarity, Pos, Referent, ReferentId, SemanticRole, SemanticValue, Tense, Utterance,
+	OverlayTag, Polarity, Pos, Referent, ReferentId, SemanticRole, SemanticValue, Tense, Utterance,
 };
 
 use crate::error::MistralLanguageError;
@@ -393,7 +393,7 @@ impl ConceptUniverse for OverlayConcepts {
 	}
 
 	fn resolve_english(&self, term: &str) -> Vec<ConceptId> {
-		vec![ConceptId::overlay(overlay_tag(&normalize_lemma(term)))]
+		vec![OverlayTag::from_key(&normalize_lemma(term)).concept_id()]
 	}
 
 	fn neighborhood(
@@ -403,13 +403,4 @@ impl ConceptUniverse for OverlayConcepts {
 	) -> Vec<maybraid_language_core::ConceptRelation> {
 		Vec::new()
 	}
-}
-
-fn overlay_tag(lemma: &str) -> u32 {
-	let mut hash = 2166136261_u32;
-	for byte in lemma.as_bytes() {
-		hash ^= u32::from(*byte);
-		hash = hash.wrapping_mul(16777619);
-	}
-	hash & 0x00FF_FFFF
 }
