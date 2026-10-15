@@ -42,6 +42,12 @@ impl MenuModalId {
 	pub fn is_auto(self) -> bool {
 		matches!(self, Self::OVERLAY_SELECT | Self::SHORT_TEXT)
 	}
+
+	/// Confirm / text layers take directional nav, stick, and wheel away from
+	/// the parent list. Overlay select *is* the focused catalog, so it does not.
+	pub fn owns_nav(self) -> bool {
+		matches!(self, Self::SHORT_TEXT | Self::ITEM_DROP | Self::CHARACTER_LEAVE)
+	}
 }
 
 /// One open popup. Higher [`order`](Self::order) is closer to the user.
@@ -131,6 +137,15 @@ impl MenuModalStack {
 
 	pub fn consumed(&self) -> bool {
 		self.consumed
+	}
+
+	/// Top layer steals stick / D-pad / keyboard / wheel from the parent HUD.
+	pub fn owns_nav(&self) -> bool {
+		self.nav_owner().is_some()
+	}
+
+	pub fn nav_owner(&self) -> Option<MenuModalId> {
+		self.top().map(|layer| layer.id).filter(|id| id.owns_nav())
 	}
 
 	pub fn blocks_screen_back(&self) -> bool {
@@ -244,6 +259,47 @@ pub fn tick_menu_modal_holds(
 	stack.tick_buttons(back_down, start_down);
 }
 
+/// HudMenu under the exclusive nav owner. Short text uses the keypad pad.
+pub fn hud_menu_under_modal(
+	id: MenuModalId,
+	roots: &Query<(Entity, &MenuModal)>,
+	menus: &Query<Entity, With<crate::HudMenu>>,
+	children: &Query<&Children>,
+) -> Option<Entity> {
+	for (root, modal) in roots.iter() {
+		if modal.id != id {
+			continue;
+		}
+		if menus.contains(root) {
+			return Some(root);
+		}
+		if let Some(menu) = children.iter_descendants(root).find(|entity| menus.contains(*entity)) {
+			return Some(menu);
+		}
+	}
+	None
+}
+
+/// True when `entity` sits under the stack's exclusive nav owner (or none is open).
+pub fn entity_under_nav_owner(
+	entity: Entity,
+	stack: &MenuModalStack,
+	roots: &Query<(Entity, &MenuModal)>,
+	child_of: &Query<&ChildOf>,
+) -> bool {
+	let Some(id) = stack.nav_owner() else {
+		return true;
+	};
+	let mut current = Some(entity);
+	while let Some(here) = current {
+		if roots.get(here).is_ok_and(|(_, modal)| modal.id == id) {
+			return true;
+		}
+		current = child_of.get(here).ok().map(ChildOf::parent);
+	}
+	false
+}
+
 /// Click on [`crate::ScreenBack`], or pad B, while no modal is holding Back.
 pub fn consume_screen_back(
 	nav: &MenuNavPad,
@@ -278,6 +334,63 @@ mod tests {
 		assert_eq!(stack.top().map(|layer| layer.id), Some(MenuModalId::ITEM_DROP));
 		stack.open(MenuModalLayer::CHARACTER_LEAVE);
 		assert_eq!(stack.top().map(|layer| layer.id), Some(MenuModalId::CHARACTER_LEAVE));
+	}
+
+	#[test]
+	fn entity_under_nav_owner_hides_the_parent_catalog() {
+		use super::{entity_under_nav_owner, MenuModal};
+		use crate::HudMenu;
+		use bevy::ecs::system::RunSystemOnce;
+
+		let mut world = World::new();
+		world.init_resource::<MenuModalStack>();
+		let catalog = world.spawn(HudMenu::new(3)).id();
+		let drop_item = world.spawn_empty().id();
+		let drop_root = world.spawn(MenuModal::ITEM_DROP).id();
+		world.entity_mut(drop_root).add_child(drop_item);
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::ITEM_DROP);
+		let (under_drop, under_catalog) = world
+			.run_system_once(
+				move |stack: Res<MenuModalStack>,
+				      roots: Query<(Entity, &MenuModal)>,
+				      child_of: Query<&ChildOf>| {
+					(
+						entity_under_nav_owner(drop_item, &stack, &roots, &child_of),
+						entity_under_nav_owner(catalog, &stack, &roots, &child_of),
+					)
+				},
+			)
+			.expect("under");
+		assert!(under_drop);
+		assert!(!under_catalog);
+		world.resource_mut::<MenuModalStack>().close(MenuModalId::ITEM_DROP);
+		let restored = world
+			.run_system_once(
+				move |stack: Res<MenuModalStack>,
+				      roots: Query<(Entity, &MenuModal)>,
+				      child_of: Query<&ChildOf>| {
+					entity_under_nav_owner(catalog, &stack, &roots, &child_of)
+				},
+			)
+			.expect("restored");
+		assert!(restored);
+	}
+
+	#[test]
+	fn confirm_layers_own_nav_and_overlay_does_not() {
+		assert!(!MenuModalId::OVERLAY_SELECT.owns_nav());
+		assert!(MenuModalId::SHORT_TEXT.owns_nav());
+		assert!(MenuModalId::ITEM_DROP.owns_nav());
+		assert!(MenuModalId::CHARACTER_LEAVE.owns_nav());
+		let mut stack = MenuModalStack::default();
+		stack.open(MenuModalLayer::OVERLAY_SELECT);
+		assert!(!stack.owns_nav());
+		assert_eq!(stack.nav_owner(), None);
+		stack.open(MenuModalLayer::ITEM_DROP);
+		assert!(stack.owns_nav());
+		assert_eq!(stack.nav_owner(), Some(MenuModalId::ITEM_DROP));
+		stack.close(MenuModalId::ITEM_DROP);
+		assert!(!stack.owns_nav());
 	}
 
 	#[test]

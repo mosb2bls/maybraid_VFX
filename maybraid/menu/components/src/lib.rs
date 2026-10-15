@@ -43,9 +43,9 @@ pub use loading::{
 	LoadingExplainer, LoadingPanel, LoadingStack,
 };
 pub use modal::{
-	begin_menu_modal_frame, consume_menu_modal_back, consume_screen_back, sync_menu_modal_stack,
-	tick_menu_modal_holds, MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer,
-	MenuModalStack, MenuModalSystems,
+	begin_menu_modal_frame, consume_menu_modal_back, consume_screen_back, entity_under_nav_owner,
+	hud_menu_under_modal, sync_menu_modal_stack, tick_menu_modal_holds, MenuModal,
+	MenuModalDismiss, MenuModalId, MenuModalLayer, MenuModalStack, MenuModalSystems,
 };
 pub use single_select::{
 	apply_text_menu_nav, emit_menu_activate_on_click, emit_menu_activate_on_enter,
