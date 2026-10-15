@@ -3,7 +3,7 @@
 mod diagnostics;
 mod eviction;
 mod reads;
-mod store;
+pub(in crate::hcsg) mod store;
 mod writes;
 
 use std::sync::Arc;
