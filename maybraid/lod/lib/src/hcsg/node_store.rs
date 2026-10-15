@@ -157,6 +157,16 @@ impl<T> NodeStore<T> {
 		Some(entry)
 	}
 
+	/// Ids that would be dropped by [`Self::retain_overlapping`], without mutating.
+	pub(super) fn ids_outside(&self, regions: &[Aabb3d]) -> Vec<Id> {
+		let keep = KeepRegions::new(regions);
+		self.entries
+			.iter()
+			.filter(|(id, entry)| **id != Id::Universal && !keep.overlaps(entry.bounds))
+			.map(|(id, _)| *id)
+			.collect()
+	}
+
 	/// Removes entries outside `regions` and bumps the membership revision.
 	pub(super) fn evict_outside(&mut self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
 		if regions.is_empty() {

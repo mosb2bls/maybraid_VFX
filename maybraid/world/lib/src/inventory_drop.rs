@@ -8,8 +8,8 @@
 use bevy::prelude::*;
 use character_inventory_user::InventoryUser;
 use character_items::{
-	ActiveInventoryDropPolicy, Inventory, InventoryDropRefused, InventoryDropRequest,
-	InventoryDropped, InventoryMenuDropped,
+	ActiveInventoryDropPolicy, Inventory, InventoryDropPolicy, InventoryDropRefused,
+	InventoryDropRequest, InventoryDropped, InventoryMenuDropped,
 };
 use player::{look_forward, PlayerLook};
 use world_player::Player as VegetationPlayer;
@@ -47,19 +47,22 @@ pub(crate) struct StashToss {
 }
 
 pub(crate) fn configure(app: &mut App) {
-	app.init_resource::<ActiveInventoryDropPolicy>()
-		.init_resource::<MenuDropScatter>()
-		.add_message::<InventoryDropRequest>()
-		.add_message::<InventoryDropped>()
-		.add_message::<InventoryDropRefused>()
-		.add_message::<InventoryMenuDropped>()
-		.configure_sets(Update, InventoryDropSystems)
-		.add_systems(
-			Update,
-			(apply_inventory_drop_requests, spawn_menu_inventory_pickups, tick_stash_tosses)
-				.chain()
-				.in_set(InventoryDropSystems),
-		);
+	app.insert_resource(ActiveInventoryDropPolicy(InventoryDropPolicy {
+		spawn_world_pickup: true,
+		..InventoryDropPolicy::PLACEHOLDER
+	}))
+	.init_resource::<MenuDropScatter>()
+	.add_message::<InventoryDropRequest>()
+	.add_message::<InventoryDropped>()
+	.add_message::<InventoryDropRefused>()
+	.add_message::<InventoryMenuDropped>()
+	.configure_sets(Update, InventoryDropSystems)
+	.add_systems(
+		Update,
+		(apply_inventory_drop_requests, spawn_menu_inventory_pickups, tick_stash_tosses)
+			.chain()
+			.in_set(InventoryDropSystems),
+	);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -68,18 +71,13 @@ pub(crate) fn apply_inventory_drop_requests(
 	mut dropped: MessageWriter<InventoryDropped>,
 	mut refused: MessageWriter<InventoryDropRefused>,
 	mut commands: Commands,
+	mut menu_drops: MessageWriter<InventoryMenuDropped>,
 	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
-	settings: Option<Res<WorldStashSettings>>,
-	assets: Option<Res<AssetServer>>,
-	users: Query<(Entity, &InventoryUser, Option<&Transform>, Has<VegetationPlayer>)>,
+	users: Query<(&InventoryUser, Has<VegetationPlayer>)>,
 	mut bags: Query<&mut Inventory>,
 ) {
-	let assets = assets.as_deref();
-	let ephemeral = settings.as_ref().map(|settings| settings.ephemeral_policy());
 	for request in requests.read() {
-		let Some((owner, user, transform, is_player)) =
-			users.iter().find(|(entity, _, _, _)| *entity == request.owner)
-		else {
+		let Ok((user, is_player)) = users.get(request.owner) else {
 			refused.write(InventoryDropRefused {
 				owner: request.owner,
 				index: request.index,
@@ -87,6 +85,7 @@ pub(crate) fn apply_inventory_drop_requests(
 			});
 			continue;
 		};
+		let owner = request.owner;
 		let Ok(mut bag) = bags.get_mut(user.bag) else {
 			refused.write(InventoryDropRefused {
 				owner,
@@ -105,16 +104,10 @@ pub(crate) fn apply_inventory_drop_requests(
 					}
 				}
 				if outcome.spawn_world_pickup {
-					if let Some(origin) = transform.map(|transform| transform.translation) {
-						let policy = ephemeral.unwrap_or_default();
-						spawn_world_stash(
-							&mut commands,
-							Transform::from_translation(origin + Vec3::Y * 0.05),
-							visual_drop_bag(outcome.item.clone()),
-							policy,
-							assets,
-						);
-					}
+					menu_drops.write(InventoryMenuDropped {
+						item: outcome.item.clone(),
+						index: outcome.index,
+					});
 				}
 				dropped.write(InventoryDropped { owner, bag: user.bag, outcome });
 			}
@@ -291,6 +284,7 @@ mod tests {
 		world.init_resource::<Messages<InventoryDropRequest>>();
 		world.init_resource::<Messages<InventoryDropped>>();
 		world.init_resource::<Messages<InventoryDropRefused>>();
+		world.init_resource::<Messages<InventoryMenuDropped>>();
 		world.init_resource::<ActiveInventoryCyclingCategory>();
 		world.init_resource::<MenuDropScatter>();
 		world.init_resource::<Time>();
@@ -401,10 +395,14 @@ mod tests {
 
 	#[test]
 	fn pickup_flag_spawns_a_stash_without_touching_combat_hud() -> anyhow::Result<()> {
+		use crate::stash::WorldStashSettings;
+
 		let (mut world, owner, bag) = drop_world(queued_loadout());
+		world.init_resource::<WorldStashSettings>();
 		let policy =
 			InventoryDropPolicy { spawn_world_pickup: true, ..InventoryDropPolicy::PLACEHOLDER };
 		run_drop(&mut world, owner, 2, policy)?;
+		spawn_menu_drops(&mut world)?;
 		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), 1);
 		let leftover = world.get::<Inventory>(bag).ok_or_else(|| anyhow::anyhow!("bag"))?;
 		assert_eq!(leftover.weapons, vec![1]);
@@ -599,6 +597,21 @@ mod tests {
 			.ok_or_else(|| anyhow::anyhow!("stash pose"))?;
 		assert!((landed.y - TOSS_FLOOR_Y).abs() < 1e-3);
 		assert!((Vec2::new(landed.x, landed.z) - Vec2::new(start.x, start.z)).length() > 0.8);
+		Ok(())
+	}
+
+	#[test]
+	fn request_policy_is_enforced_at_the_bag_mutation() -> anyhow::Result<()> {
+		let (mut world, owner, bag) = drop_world(queued_loadout());
+		let no_equipped =
+			InventoryDropPolicy { allow_equipped: false, ..InventoryDropPolicy::PLACEHOLDER };
+		run_drop(&mut world, owner, 1, no_equipped)?;
+		assert_eq!(
+			world.get::<Inventory>(bag).ok_or_else(|| anyhow::anyhow!("bag"))?.weapons,
+			vec![1, 2]
+		);
+		let refusals = world.resource_mut::<Messages<InventoryDropRefused>>().drain().count();
+		assert_eq!(refusals, 1);
 		Ok(())
 	}
 

@@ -4,6 +4,7 @@ pub mod controller;
 pub mod dispatch;
 
 pub use controller::MenuController;
+pub use dispatch::{exclusive_nav_menu, ExclusiveNav};
 
 use bevy::prelude::*;
 use maybraid_input::{

@@ -11,11 +11,14 @@
 //! These are **not** finalized. [`InventoryDropPolicy::PLACEHOLDER`] is the
 //! conservative stand-in so gameplay can ship without locking design:
 //!
-//! 1. **World pickup.** Default `spawn_world_pickup` is `false` on the bag
-//!    mutation itself. In-game editor confirms emit [`InventoryMenuDropped`];
-//!    the world adapter spawns an ephemeral stash with a loot-TTL despawn
-//!    cool-off. Gallery / create drops stay delete-only. Tab still explodes
-//!    the whole bag through the stash module.
+//! 1. **World pickup.** Default `spawn_world_pickup` is `false` on
+//!    [`InventoryDropPolicy::PLACEHOLDER`]. The world host inserts an
+//!    [`ActiveInventoryDropPolicy`] with the flag on so live drops can toss a
+//!    claimable stash. The adapter is the sole commit: it applies `try_drop`
+//!    under the request policy and emits [`InventoryMenuDropped`] only when
+//!    that policy asks for a pickup. Gallery / create stay on the pure bag
+//!    mutation and remain delete-only. Tab still explodes the whole bag
+//!    through the stash module.
 //! 2. **Undroppable items.** Lubikans are not bag items (ledger + charge live
 //!    elsewhere). Starter items have no durable flag. Default allows equipped
 //!    items and an empty leftover bag. Flip [`InventoryDropPolicy::allow_equipped`]
@@ -60,11 +63,12 @@ impl Default for InventoryDropPolicy {
 	}
 }
 
-const _: () = {
-	assert!(InventoryDropPolicy::PLACEHOLDER.require_confirm);
-	assert!(!InventoryDropPolicy::PLACEHOLDER.spawn_world_pickup);
-	assert!(InventoryDropPolicy::PLACEHOLDER.allow_equipped);
-	assert!(InventoryDropPolicy::PLACEHOLDER.allow_empty_bag);
+/// Always-allow removal used to apply an already-accepted drop to a snapshot.
+pub const ACCEPTED_DROP_REMOVAL: InventoryDropPolicy = InventoryDropPolicy {
+	spawn_world_pickup: false,
+	require_confirm: false,
+	allow_equipped: true,
+	allow_empty_bag: true,
 };
 
 /// Process-wide default policy so menus and world adapters share one knob.

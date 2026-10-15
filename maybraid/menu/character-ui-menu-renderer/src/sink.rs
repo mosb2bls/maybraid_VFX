@@ -532,45 +532,47 @@ impl MaybraidMenuSink {
 		thumbnail_tint: Color,
 		viewport: Option<Entity>,
 		swatch: Option<Color>,
-		event: E,
+		event: Option<E>,
 	) {
 		let item = context.stamp_hud_item();
 		let thumb_px = context.catalog_thumb_px;
 		if context.interactive {
-			spawn_grid_catalog_tile(
-				parent,
-				context.fonts,
-				label,
-				detail,
-				selected,
-				rank,
-				thumbnail,
-				thumbnail_tint,
-				viewport,
-				swatch,
-				false,
-				thumb_px,
-				(MenuButton(event), item),
-			);
-		} else {
-			// Read-only tiles stay in the focus list so pad / keyboard can
-			// scroll them into view. Activate extras (equip / drop) stay off.
-			spawn_grid_catalog_tile(
-				parent,
-				context.fonts,
-				label,
-				detail,
-				selected,
-				rank,
-				thumbnail,
-				thumbnail_tint,
-				viewport,
-				swatch,
-				false,
-				thumb_px,
-				item,
-			);
+			if let Some(event) = event {
+				spawn_grid_catalog_tile(
+					parent,
+					context.fonts,
+					label,
+					detail,
+					selected,
+					rank,
+					thumbnail,
+					thumbnail_tint,
+					viewport,
+					swatch,
+					false,
+					thumb_px,
+					(MenuButton(event), item),
+				);
+				return;
+			}
 		}
+		// Read-only tiles stay in the focus list so pad / keyboard can
+		// scroll them into view. Activate extras (equip / drop) stay off.
+		spawn_grid_catalog_tile(
+			parent,
+			context.fonts,
+			label,
+			detail,
+			selected,
+			rank,
+			thumbnail,
+			thumbnail_tint,
+			viewport,
+			swatch,
+			false,
+			thumb_px,
+			item,
+		);
 	}
 
 	fn select_grid<E: Copy + Send + Sync + 'static, C: MenuThumbnailContext>(

@@ -444,21 +444,9 @@ mod tests {
 		primary_select,
 	};
 	use character_ui_menu::{MenuNode, PreviewColor, SelectChoice, SelectGroup};
-	use menu_components::{
-		CATALOG_THUMB_PX, INVENTORY_THUMB_PX, INVENTORY_TILE_COLUMNS, PANEL_TILE_COLUMNS,
-	};
 
 	fn clip() -> MenuNode<u8> {
 		MenuNode::BlockAsset { label: "Clip", preview: PreviewColor::WHITE, choices: vec![] }
-	}
-
-	#[test]
-	fn inventory_uses_four_smaller_columns() {
-		assert_eq!(INVENTORY_TILE_COLUMNS, 4);
-		assert_eq!(INVENTORY_THUMB_PX, 52.0);
-		assert_eq!(PANEL_TILE_COLUMNS, 3);
-		assert_eq!(CATALOG_THUMB_PX, 72.0);
-		assert!(INVENTORY_THUMB_PX < CATALOG_THUMB_PX);
 	}
 
 	#[test]
@@ -528,7 +516,7 @@ mod tests {
 			image_key: None,
 			selected: false,
 			rank: None,
-			event: 0u8,
+			event: Some(0u8),
 		};
 		let node = MenuNode::<u8>::Section {
 			label: "Inventory",

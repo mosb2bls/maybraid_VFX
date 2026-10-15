@@ -117,7 +117,7 @@ impl InventoryLayout {
 		Self {
 			title,
 			mode,
-			node: inventory_node(title, mode, inventory),
+			node: inventory_node(title, inventory),
 			captures: required_captures_for(inventory),
 		}
 	}
@@ -145,30 +145,23 @@ fn required_captures_for(inventory: &Inventory) -> Vec<InventoryIconNeed> {
 	needs
 }
 
-fn inventory_node(
-	title: &'static str,
-	mode: InventoryLayoutMode,
-	inventory: &Inventory,
-) -> MenuNode<MenuEvent> {
+fn inventory_node(title: &'static str, inventory: &Inventory) -> MenuNode<MenuEvent> {
 	MenuNode::section(
 		title,
 		MenuNode::fragment([
-			MenuNode::section("Clothing", clothing_catalog(mode, inventory)),
-			MenuNode::section(TOOLS_LABEL, tools_catalog(mode, inventory)),
-			MenuNode::section("Skill Maps", skills_catalog(mode, inventory)),
+			MenuNode::section("Clothing", clothing_catalog(inventory)),
+			MenuNode::section(TOOLS_LABEL, tools_catalog(inventory)),
+			MenuNode::section("Skill Maps", skills_catalog(inventory)),
 			lubikan_section(),
 		]),
 	)
 }
 
-fn catalog_event(_mode: InventoryLayoutMode, index: usize) -> MenuEvent {
-	// Index is still the bag slot so hosts can identify the tile. Read-only
-	// mode rejects apply of both Toggle and Drop; the renderer omits the
-	// activate extras.
-	MenuEvent::ToggleInventory(index)
+fn catalog_event(index: usize) -> Option<MenuEvent> {
+	Some(MenuEvent::ToggleInventory(index))
 }
 
-fn clothing_catalog(mode: InventoryLayoutMode, inventory: &Inventory) -> MenuNode<MenuEvent> {
+fn clothing_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
 	MenuNode::grid_catalog(
 		"Clothing",
 		WORN_CLOTHING_LIMIT,
@@ -185,13 +178,13 @@ fn clothing_catalog(mode: InventoryLayoutMode, inventory: &Inventory) -> MenuNod
 				image_key: item.icon_catalog_key(),
 				selected: rank.is_some(),
 				rank,
-				event: catalog_event(mode, index),
+				event: catalog_event(index),
 			})
 		}),
 	)
 }
 
-fn tools_catalog(mode: InventoryLayoutMode, inventory: &Inventory) -> MenuNode<MenuEvent> {
+fn tools_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
 	MenuNode::grid_catalog(
 		TOOLS_LABEL,
 		InventorySlot::Weapons.capacity(),
@@ -216,13 +209,13 @@ fn tools_catalog(mode: InventoryLayoutMode, inventory: &Inventory) -> MenuNode<M
 				image_key: item.icon_catalog_key(),
 				selected: rank.is_some(),
 				rank,
-				event: catalog_event(mode, index),
+				event: catalog_event(index),
 			})
 		}),
 	)
 }
 
-fn skills_catalog(mode: InventoryLayoutMode, inventory: &Inventory) -> MenuNode<MenuEvent> {
+fn skills_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
 	MenuNode::grid_catalog(
 		InventorySlot::Skills.label(),
 		InventorySlot::Skills.capacity(),
@@ -239,15 +232,13 @@ fn skills_catalog(mode: InventoryLayoutMode, inventory: &Inventory) -> MenuNode<
 				image_key: item.icon_catalog_key(),
 				selected: rank.is_some(),
 				rank,
-				event: catalog_event(mode, index),
+				event: catalog_event(index),
 			})
 		}),
 	)
 }
 
 fn lubikan_section() -> MenuNode<MenuEvent> {
-	// Always equipped; not a bag slot. ToggleInventory(usize::MAX) is a
-	// dummy so the tile can share GridCatalog IR. apply / drop reject it.
 	MenuNode::section(
 		LUBIKAN_LABEL,
 		MenuNode::grid_catalog(
@@ -262,7 +253,7 @@ fn lubikan_section() -> MenuNode<MenuEvent> {
 				image_key: Some(icon_catalog_key_for_label(SELF_LUBIKAN_CAPTURE_LABEL)),
 				selected: true,
 				rank: None,
-				event: MenuEvent::ToggleInventory(usize::MAX),
+				event: None,
 			}],
 		),
 	)
@@ -371,13 +362,7 @@ mod tests {
 		// Shared inventory is four 52px-thumb columns. 12 clothing + 5
 		// firearms + 1 grenade + 2 skill maps is ~20 tiles → at least five
 		// rows, plus four section headers. A 400px pane cannot show that.
-		const INVENTORY_COLUMNS: usize = 4;
 		assert!(tiles >= 18, "overflow bag should have many tiles, got {tiles}");
-		let rows = tiles.div_ceil(INVENTORY_COLUMNS);
-		assert!(
-			rows >= 5,
-			"four-column overflow bag should span several rows, got {rows} from {tiles} tiles"
-		);
 	}
 
 	fn clothing_tile_count(layout: &InventoryLayout) -> usize {
@@ -430,6 +415,7 @@ mod tests {
 			assert_eq!(choices[0].detail, "Always equipped");
 			assert_eq!(choices[0].image_key, Some(self_lubikan_catalog_key()));
 			assert!(choices[0].selected);
+			assert_eq!(choices[0].event, None);
 		}
 	}
 

@@ -917,6 +917,12 @@ fn drop_inventory_removes_an_item_and_unequips_it() -> anyhow::Result<()> {
 	assert_eq!(inventory.clothing, vec![0]);
 	assert_eq!(inventory.items[0].mesh(), Some(ClothingMesh::TankTop));
 	assert!(!menu.apply(MenuEvent::DropInventory(9)));
+	let no_equipped = character_items::InventoryDropPolicy {
+		allow_equipped: false,
+		..character_items::InventoryDropPolicy::PLACEHOLDER
+	};
+	assert!(!menu.apply_drop(0, no_equipped));
+	assert_eq!(menu.inventory.as_ref().map(|bag| bag.items.len()), Some(2));
 	Ok(())
 }
 

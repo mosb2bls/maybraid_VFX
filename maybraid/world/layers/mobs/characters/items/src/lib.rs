@@ -31,6 +31,7 @@ pub use clothing_roll::{generate_clothing_stats, ClothingBuff, ClothingPriors};
 pub use drop::{
 	ActiveInventoryDropPolicy, InventoryDrop, InventoryDropError, InventoryDropPolicy,
 	InventoryDropRefused, InventoryDropRequest, InventoryDropped, InventoryMenuDropped,
+	ACCEPTED_DROP_REMOVAL,
 };
 pub use firearm::{
 	FirearmBarrel, FirearmGrip, FirearmKitSpec, FirearmLooks, FirearmMesh, FirearmScales,

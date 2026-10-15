@@ -425,7 +425,7 @@ mod tests {
 
 	use super::{sync_hover_tiles, tile_caption, tile_grid_columns, tile_node, HoverTile};
 	use crate::controls::hud_menu::{HudMenu, HudMenuItem};
-	use crate::theme::{INVENTORY_TILE_COLUMNS, PANEL_TILE_COLUMNS, TEXT_DEEP_BLUE, TEXT_YELLOW};
+	use crate::theme::{PANEL_TILE_COLUMNS, TEXT_DEEP_BLUE, TEXT_YELLOW};
 
 	#[test]
 	fn short_caption_unchanged() {
@@ -442,12 +442,6 @@ mod tests {
 		assert_eq!(PANEL_TILE_COLUMNS, 3);
 		assert_eq!(tile_grid_columns(PANEL_TILE_COLUMNS).len(), 1);
 		assert_eq!(tile_node().width, Val::Percent(100.0));
-	}
-
-	#[test]
-	fn inventory_grid_is_four_columns() {
-		assert_eq!(INVENTORY_TILE_COLUMNS, 4);
-		assert_eq!(tile_grid_columns(INVENTORY_TILE_COLUMNS).len(), 1);
 	}
 
 	#[test]

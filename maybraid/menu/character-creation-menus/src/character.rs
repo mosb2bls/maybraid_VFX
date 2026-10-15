@@ -1,4 +1,4 @@
-use character_items::{Inventory, InventoryItem};
+use character_items::{Inventory, InventoryDropPolicy, InventoryItem};
 use character_ui_menu::{
 	CameraFocus, LabelOption, ListValues, MenuComponent, MenuNode, SingleSelect,
 };
@@ -320,10 +320,35 @@ impl CharacterMenu {
 			}
 		};
 		menu.name = name;
-		menu.inventory = Some(inventory);
+		menu.set_inventory(inventory);
 		menu.appearance_locked = true;
-		menu.sync_inventory_clothing();
 		menu
+	}
+
+	/// Replace the bag copy and keep species clothing menus in sync.
+	pub fn set_inventory(&mut self, inventory: Inventory) {
+		self.inventory = Some(inventory);
+		self.sync_inventory_clothing();
+	}
+
+	/// Remove `index` under `policy`. Hosts pass the resolved drop policy so
+	/// this mutation is authoritative — not a hardcoded placeholder.
+	pub fn apply_drop(&mut self, index: usize, policy: InventoryDropPolicy) -> bool {
+		let Some(inventory) = self.inventory.as_mut() else {
+			return false;
+		};
+		if inventory.try_drop(index, policy).is_err() {
+			return false;
+		}
+		self.sync_inventory_clothing();
+		true
+	}
+
+	pub fn apply_with_policy(&mut self, event: MenuEvent, policy: InventoryDropPolicy) -> bool {
+		match event {
+			MenuEvent::DropInventory(index) => self.apply_drop(index, policy),
+			other => self.apply(other),
+		}
 	}
 
 	pub fn appearance(&self) -> CharacterAppearance {
@@ -1630,17 +1655,7 @@ impl CharacterMenu {
 				return true;
 			}
 			MenuEvent::DropInventory(index) => {
-				let Some(inventory) = self.inventory.as_mut() else {
-					return false;
-				};
-				if inventory
-					.try_drop(index, character_items::InventoryDropPolicy::PLACEHOLDER)
-					.is_err()
-				{
-					return false;
-				}
-				self.sync_inventory_clothing();
-				return true;
+				return self.apply_drop(index, InventoryDropPolicy::PLACEHOLDER);
 			}
 			MenuEvent::ToggleClothing(_) if self.inventory.is_some() => return false,
 			MenuEvent::ToggleSection(_) => return false,

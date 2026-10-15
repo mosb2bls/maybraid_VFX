@@ -87,7 +87,13 @@ impl CharacterEditBaseline {
 	/// Put the editor back to the snapshot taken when it opened or last saved.
 	pub fn restore_into(&self, menu: &mut CharacterMenu) {
 		menu.name.clone_from(&self.name);
-		menu.inventory = Some(self.inventory.clone());
+		menu.set_inventory(self.inventory.clone());
+	}
+
+	/// Remove an already-accepted bag index without adopting the live
+	/// selection queues. Discard can still restore earlier equip changes.
+	pub fn apply_accepted_drop(&mut self, index: usize) {
+		let _ = self.inventory.try_drop(index, character_items::ACCEPTED_DROP_REMOVAL);
 	}
 }
 
@@ -544,8 +550,7 @@ fn sync_overlay_select(
 		let Ok(mut slot) = commands.get_entity(slot) else {
 			return;
 		};
-		let prompts =
-			(key == INVENTORY_LABEL).then_some((asset_server.as_ref(), *prompt_device));
+		let prompts = (key == INVENTORY_LABEL).then_some((asset_server.as_ref(), *prompt_device));
 		slot.with_children(|slot| {
 			viewport = spawn_overlay_shell(slot, &fonts, key, title_color, prompts);
 		});

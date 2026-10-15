@@ -202,7 +202,7 @@ fn inventory_catalog(menu: &ClothingMenu, owned: &[InventoryItem]) -> MenuNode<M
 					.iter()
 					.position(|worn| *worn == mesh)
 					.map(|position| (position + 1) as u8),
-				event: MenuEvent::ToggleInventory(index),
+				event: Some(MenuEvent::ToggleInventory(index)),
 			})
 		}),
 	)

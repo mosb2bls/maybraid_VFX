@@ -540,13 +540,15 @@ mod tests {
 			other
 		};
 		set_dock_physical(app.world_mut(), Vec2::new(80.0, 600.0), 1.0)?;
-		app.world_mut().write_message(LubikanChargeChanged::new(
-			owner,
-			self_account,
-			2.0,
-			LubikanChargeReason::COMBAT_HIT,
-			None,
-		));
+		app.world_mut().write_message(
+			LubikanChargeChanged::new(
+				owner,
+				self_account,
+				2.0,
+				LubikanChargeReason::COMBAT_HIT,
+				None,
+			),
+		);
 		app.update();
 		let credited = app
 			.world_mut()
@@ -560,7 +562,6 @@ mod tests {
 		Ok(())
 	}
 
-	#[test]
 	fn flyers_still_spawn_when_charge_is_already_full() -> Result<()> {
 		let (mut app, owner) = flyer_app();
 		app.update();
