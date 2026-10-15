@@ -6,8 +6,11 @@ use bevy::scene::prelude::bsn;
 use character_items::{ClothingHost, ClothingMesh, InventoryItem, ItemColor};
 use character_shaders::{ClothingShaderMaterial, FaceShaderMaterial};
 use characters::{
-	add_character_components_host, character_bounds, CharacterComponents,
-	CharacterComponentsPlugin, ClothingLayer, ComponentsOnly, Layers, PartNode,
+	add_character_components_host, character_bounds, spawn_fixed_character_assembly,
+	species::braidman::BraidmanConfig, AnimClip, AnimMailbox, AnimProgress, AnimRef, AnimRefRoot,
+	CharacterComponents, CharacterComponentsPlugin, CharacterHostsPlugin, CharacterMotionSystems,
+	CharacterRecipe, CharacterRig, CharacterRigRole, ClothingLayer, ComponentsOnly, Layers,
+	PartNode,
 };
 use firearm_user::GeneratedFirearm;
 use firearms_components::{
@@ -22,7 +25,9 @@ use lod::{
 	LodRefreshMembership,
 };
 use material_ref::MaterialRefApplied;
-use screen_capture::{CaptureHostReady, CaptureHostRoot, CaptureId, CaptureSilhouetteRoot};
+use screen_capture::{
+	CaptureHostReady, CaptureHostRoot, CaptureId, CaptureSilhouetteRoot, HOST_REPRESENTATIVE_POSE,
+};
 use std::collections::HashMap;
 
 pub const HOST_FIREARM: &str = "generated-firearm";
@@ -47,6 +52,35 @@ impl ItemCaptureSubjects {
 	pub fn items(&self) -> impl Iterator<Item = &InventoryItem> {
 		self.items.values()
 	}
+}
+
+/// Clip + progress for a [`HOST_REPRESENTATIVE_POSE`] capture host.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PoseCaptureSpec {
+	pub clip: AnimClip,
+	pub progress: f32,
+}
+
+#[derive(Resource, Default, Debug)]
+pub struct PoseCaptureSubjects {
+	poses: HashMap<CaptureId, PoseCaptureSpec>,
+}
+
+impl PoseCaptureSubjects {
+	pub fn remember(&mut self, id: CaptureId, spec: PoseCaptureSpec) {
+		self.poses.insert(id, spec);
+	}
+
+	pub fn get(&self, id: &CaptureId) -> Option<PoseCaptureSpec> {
+		self.poses.get(id).copied()
+	}
+}
+
+/// Stamp the live clip onto a realized representative-pose host.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct CapturePoseSpec {
+	pub clip: AnimClip,
+	pub progress: f32,
 }
 
 #[derive(Component)]
@@ -88,9 +122,13 @@ pub fn install_capture_hosts(app: &mut App) {
 		app.add_plugins(CharacterComponentsPlugin);
 	}
 	add_character_components_host::<ClothingIconPreview>(app);
+	if !app.is_plugin_added::<CharacterHostsPlugin>() {
+		app.add_plugins(CharacterHostsPlugin);
+	}
 	if !app.is_plugin_added::<GrenadeMaterialPlugin>() {
 		app.add_plugins(GrenadeMaterialPlugin);
 	}
+	app.add_systems(Update, pose_representative_hosts.before(CharacterMotionSystems::Anim));
 }
 
 pub fn remember_item(subjects: &mut ItemCaptureSubjects, item: &InventoryItem) {
@@ -105,16 +143,62 @@ pub fn realize_capture_hosts(
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut grenade_materials: Option<ResMut<Assets<GrenadeMaterial>>>,
 	subjects: Res<ItemCaptureSubjects>,
+	poses: Res<PoseCaptureSubjects>,
 	hosts: Query<(Entity, &CaptureHostRoot), Without<CaptureHostRealized>>,
 ) {
 	for (root, host) in &hosts {
-		let Some(item) = subjects.get(&host.id) else {
+		if let Some(item) = subjects.get(&host.id) {
+			if spawn_item_host(
+				&mut commands,
+				&mut meshes,
+				grenade_materials.as_deref_mut(),
+				root,
+				item,
+			) {
+				commands.entity(root).try_insert(CaptureHostRealized);
+			}
+			continue;
+		}
+		if host.kind != HOST_REPRESENTATIVE_POSE {
+			continue;
+		}
+		let Some(spec) = poses.get(&host.id) else {
 			continue;
 		};
-		if spawn_item_host(&mut commands, &mut meshes, grenade_materials.as_deref_mut(), root, item)
-		{
-			commands.entity(root).try_insert(CaptureHostRealized);
+		if spawn_pose_host(&mut commands, root) {
+			commands.entity(root).try_insert((
+				CaptureHostRealized,
+				CapturePoseSpec { clip: spec.clip, progress: spec.progress },
+			));
 		}
+	}
+}
+
+pub fn pose_representative_hosts(
+	mut commands: Commands,
+	hosts: Query<(Entity, &CapturePoseSpec), With<CaptureHostRealized>>,
+	children: Query<&Children>,
+	rigs: Query<&CharacterRig>,
+	anims: Query<&AnimRefRoot>,
+) {
+	for (root, spec) in &hosts {
+		visit_descendants(root, &children, &mut |entity| {
+			let Ok(rig) = rigs.get(entity) else {
+				return;
+			};
+			if rig.role != CharacterRigRole::Body {
+				return;
+			}
+			let desired = AnimRef::new(spec.clip);
+			let needs = match anims.get(entity) {
+				Ok(root) => root.0 != desired,
+				Err(_) => true,
+			};
+			if needs {
+				commands.entity(entity).try_insert(AnimRefRoot(desired));
+			}
+			commands.entity(entity).try_insert(AnimProgress(spec.progress));
+		});
 	}
 }
 
@@ -135,6 +219,8 @@ pub fn mark_capture_hosts_ready(
 	grenades: Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: Query<(), With<ActiveRigPose>>,
 	posed: Query<(), With<PoseApplied>>,
+	pose_specs: Query<(), With<CapturePoseSpec>>,
+	mailboxes: Query<&AnimMailbox>,
 ) {
 	for root in &hosts {
 		if host_tree_ready(
@@ -150,6 +236,8 @@ pub fn mark_capture_hosts_ready(
 			&grenades,
 			&poses,
 			&posed,
+			pose_specs.get(root).is_ok(),
+			&mailboxes,
 		) {
 			commands.entity(root).try_insert(CaptureHostReady);
 		}
@@ -265,6 +353,15 @@ fn pin_capture_host(commands: &mut Commands, entity: Entity, root: Entity) {
 	));
 }
 
+fn spawn_pose_host(commands: &mut Commands, root: Entity) -> bool {
+	// Same runtime assembly as in-game characters (not a nested LodScene host).
+	// Capture-only apps may lack a unique LodViewer, which would stall LOD fulfill.
+	let preview = BraidmanConfig::default_preview().clothed();
+	let entity = spawn_fixed_character_assembly(commands, &preview, Transform::IDENTITY);
+	pin_capture_host(commands, entity, root);
+	true
+}
+
 fn spawn_clothing_icon(commands: &mut Commands, preview: &ClothingIconPreview) -> Entity {
 	let bounds = character_bounds(preview);
 	let identity = Transform::IDENTITY;
@@ -299,12 +396,15 @@ fn host_tree_ready(
 	grenades: &Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: &Query<(), With<ActiveRigPose>>,
 	posed: &Query<(), With<PoseApplied>>,
+	require_mailbox: bool,
+	mailboxes: &Query<&AnimMailbox>,
 ) -> bool {
 	let mut found_mesh = false;
 	let mut pending = false;
 	let mut unpainted = false;
 	let mut needs_pose = false;
 	let mut pose_ready = false;
+	let mut mailbox_ready = !require_mailbox;
 	visit_descendants(root, children, &mut |entity| {
 		if pending_spawn.get(entity).is_ok() || pending_root.get(entity).is_ok() {
 			pending = true;
@@ -314,6 +414,9 @@ fn host_tree_ready(
 		}
 		if posed.get(entity).is_ok() {
 			pose_ready = true;
+		}
+		if require_mailbox && mailboxes.get(entity).is_ok_and(AnimMailbox::settled) {
+			mailbox_ready = true;
 		}
 		if meshes.get(entity).is_err() {
 			return;
@@ -328,7 +431,7 @@ fn host_tree_ready(
 			unpainted = true;
 		}
 	});
-	found_mesh && !pending && !unpainted && (!needs_pose || pose_ready)
+	found_mesh && !pending && !unpainted && (!needs_pose || pose_ready) && mailbox_ready
 }
 
 fn visit_descendants(root: Entity, children: &Query<&Children>, visit: &mut impl FnMut(Entity)) {
@@ -399,5 +502,10 @@ mod tests {
 		let domain = LodRefreshDomain::of::<CaptureHostRoot>();
 		assert_eq!(domain, LodRefreshDomain::of::<CaptureHostRoot>());
 		assert_ne!(domain, LodRefreshDomain::of::<GeneratedFirearm>());
+	}
+
+	#[test]
+	fn representative_pose_host_kind_is_stable() {
+		assert_eq!(HOST_REPRESENTATIVE_POSE, "representative-pose");
 	}
 }

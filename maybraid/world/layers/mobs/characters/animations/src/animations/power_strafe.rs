@@ -67,6 +67,12 @@ impl PowerStrafe {
 		Progress(progress).clamp()
 	}
 
+	/// Mid-slide / glide still used for Tanz icons. Follows [`DROP_END`] /
+	/// [`SLIDE_END`] so choreography edits move the icon beat automatically.
+	pub fn representative_progress() -> f32 {
+		(DROP_END + SLIDE_END) * 0.5
+	}
+
 	/// 0 at rest, 1 through the slide window.
 	pub fn stance_amount(&self, progress: f32) -> f32 {
 		let t = Self::clamped(progress);
@@ -171,6 +177,16 @@ mod tests {
 		assert!(strafe.stance_amount(0.0) < 0.05);
 		assert!(strafe.stance_amount(0.5) > 0.95);
 		assert!(strafe.stance_amount(1.0) < 0.05);
+	}
+
+	#[test]
+	fn representative_progress_is_the_glide() {
+		assert!(
+			(PowerStrafe::representative_progress() - (DROP_END + SLIDE_END) * 0.5).abs() < 1e-6
+		);
+		assert!(
+			PowerStrafe::default().stance_amount(PowerStrafe::representative_progress()) > 0.95
+		);
 	}
 
 	#[test]

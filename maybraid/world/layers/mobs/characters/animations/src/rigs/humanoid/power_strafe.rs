@@ -83,7 +83,6 @@ mod tests {
 	use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 
 	use super::*;
-	use crate::animations::power_strafe::{DROP_END, SLIDE_END};
 	use crate::animations::transition::Transition;
 	use crate::animations::Idle;
 	use crate::animations::PowerStrafe;
@@ -119,7 +118,7 @@ mod tests {
 	}
 
 	fn peak_progress() -> f32 {
-		(DROP_END + SLIDE_END) * 0.5
+		PowerStrafe::representative_progress()
 	}
 
 	#[test]

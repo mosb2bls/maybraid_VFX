@@ -6,6 +6,7 @@ mod prune;
 use bevy::prelude::*;
 use character_items::{icon_catalog_key_for_label, Inventory, InventoryItem};
 use character_persist::SaveRoot;
+use characters::AnimClip;
 use firearms_components::firearm_preview_camera;
 use host::{
 	install_capture_hosts, keep_capture_hosts_visible, mark_capture_hosts_ready,
@@ -17,12 +18,17 @@ use screen_capture::{
 	ScreenCapturePlugin, ScreenCaptureSystems,
 };
 
-pub use host::{CaptureHostRealized, ItemCaptureSubjects, HOST_GRENADE, HOST_SKILL_MAP};
+pub use host::{
+	CaptureHostRealized, CapturePoseSpec, ItemCaptureSubjects, PoseCaptureSpec,
+	PoseCaptureSubjects, HOST_GRENADE, HOST_SKILL_MAP,
+};
 pub use prune::{
 	kept_icon_file_names, prune_icon_cache, prune_icon_cache_to_saved_inventories,
 	RequestPruneItemIconCache,
 };
-pub use screen_capture::{CaptureClient, CaptureId, CaptureMode};
+pub use screen_capture::{
+	CaptureClient, CaptureId, CaptureMode, RepresentativePose, HOST_REPRESENTATIVE_POSE,
+};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::PathBuf;
@@ -33,6 +39,8 @@ pub const ITEM_ICON_RESOLUTION: CaptureResolution = CaptureResolution::ICON;
 pub const FIREARM_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(256, 112);
 /// Square HUD / catalog charge. The in-world grenade is a sphere.
 pub const GRENADE_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(128, 128);
+/// Tanz / representative-pose HUD silhouette. Matches the retired 128px assets.
+pub const POSE_ICON_RESOLUTION: CaptureResolution = CaptureResolution::new(128, 128);
 
 /// Clothing inspect camera (catalog thumbnail).
 const CLOTHING_EYE: Vec3 = Vec3::new(0.0, 0.75, 2.5);
@@ -127,12 +135,11 @@ impl Plugin for ItemIconPlugin {
 		if !app.is_plugin_added::<ScreenCapturePlugin>() {
 			app.add_plugins(ScreenCapturePlugin::new(discover_icon_cache_dir()));
 		}
-		if app.get_sub_app(bevy::render::RenderApp).is_some() {
-			install_capture_hosts(app);
-		}
+		install_capture_hosts(app);
 		app.init_resource::<ItemIconCache>()
 			.init_resource::<ItemIconDiscovery>()
 			.init_resource::<ItemCaptureSubjects>()
+			.init_resource::<PoseCaptureSubjects>()
 			.configure_sets(Update, ItemIconSystems::Store.after(ItemIconSystems::Discover))
 			.add_systems(Update, realize_capture_hosts)
 			.add_systems(Update, prune::prune_icon_cache_on_request)
@@ -271,6 +278,41 @@ pub fn request_inventory_icons(
 	{
 		client.request(request);
 	}
+}
+
+/// Silhouette request for a [`RepresentativePose`] still. Hosts spawn the
+/// default nude Braidman and scrub the live clip to `progress`.
+pub fn pose_icon_request(subject: &impl RepresentativePose) -> CaptureRequest {
+	CaptureRequest::from_subject(
+		subject,
+		CaptureMode::Silhouette,
+		POSE_ICON_RESOLUTION,
+		CaptureLighting::studio(),
+		CaptureRevision::CURRENT,
+	)
+	.with_file_stem(subject.pose_label().as_ref())
+	.with_framing(CaptureFraming::ICON)
+}
+
+pub fn request_pose_icon(
+	subject: &impl RepresentativePose,
+	clip: AnimClip,
+	progress: f32,
+	discovery: &mut ItemIconDiscovery,
+	poses: &mut PoseCaptureSubjects,
+	client: &mut CaptureClient,
+) {
+	let revision = CaptureRevision::CURRENT;
+	if discovery.revision != revision {
+		discovery.requested.clear();
+		discovery.revision = revision;
+	}
+	let id = subject.capture_id();
+	if !discovery.requested.insert(id.clone()) {
+		return;
+	}
+	poses.remember(id, PoseCaptureSpec { clip, progress });
+	client.request(pose_icon_request(subject));
 }
 
 pub fn pending_inventory_icons(
@@ -571,6 +613,41 @@ mod tests {
 		assert!(cache.silhouette_for_item(&item).is_none());
 		assert!(cache.failed(&subject.capture_id(), CaptureMode::Silhouette));
 		assert!(!cache.failed(&subject.capture_id(), CaptureMode::Shaded));
+		Ok(())
+	}
+
+	#[derive(Clone)]
+	struct DemoPose;
+
+	impl RepresentativePose for DemoPose {
+		fn clip_key(&self) -> std::borrow::Cow<'static, str> {
+			std::borrow::Cow::Borrowed("power-dash")
+		}
+
+		fn clip_progress(&self) -> f32 {
+			0.5
+		}
+
+		fn pose_label(&self) -> std::borrow::Cow<'static, str> {
+			std::borrow::Cow::Borrowed("forward_dash")
+		}
+
+		fn pose_revision(&self) -> u64 {
+			0x11
+		}
+	}
+
+	#[test]
+	fn pose_icon_request_is_a_silhouette_host() -> anyhow::Result<()> {
+		let request = pose_icon_request(&DemoPose);
+		assert_eq!(request.mode, CaptureMode::Silhouette);
+		assert_eq!(request.resolution, POSE_ICON_RESOLUTION);
+		assert_eq!(request.framing, CaptureFraming::ICON);
+		assert_eq!(request.file_stem, "forward-dash");
+		assert!(matches!(
+			request.scene,
+			CaptureScene::Host { kind, .. } if kind == HOST_REPRESENTATIVE_POSE
+		));
 		Ok(())
 	}
 }

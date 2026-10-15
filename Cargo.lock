@@ -11366,10 +11366,12 @@ dependencies = [
  "bevy",
  "characters",
  "damage",
+ "item-icons",
  "maybraid-character-controller",
  "maybraid-input",
  "maybraid-skill-map",
  "player",
+ "screen-capture",
 ]
 
 [[package]]
