@@ -1,0 +1,16 @@
+# Stationary visual-style measure at origin after Discovery stream-in.
+# Set the mode with a leading `visual_style` (or MAYBRAID_VISUAL_STYLE).
+# Warmup is excluded from the Tracy measure window.
+
+{"cmd":"visual_style","style":"impressionist"}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":18}
+{"cmd":"scenario","name":"visual-style-idle-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"visual-style-idle","mark":"start"}
+{"cmd":"wait","secs":4}
+{"cmd":"console","line":"screenshot profiling/captures/screenshots/visual-style-idle-impressionist.png"}
+{"cmd":"wait","secs":16}
+{"cmd":"scenario","name":"visual-style-idle","mark":"end"}
+{"cmd":"quit"}

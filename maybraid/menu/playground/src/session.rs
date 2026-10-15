@@ -12,7 +12,7 @@ use menu_components::info::description::{set_description_for_menu, TextMenuDescr
 use menu_components::{MenuActivate, MenuObjectiveMarker, ScreenEditPressed};
 use menu_screens::{
 	request_show_create_character_id, request_show_gallery, request_show_in_game,
-	CreateCharacterReady, GalleryChoice, GalleryScreen, GalleryScreenPlugin,
+	CreateCharacterReady, GalleryChoice, GalleryScreen, GalleryScreenPlugin, MenuScreenSystems,
 };
 
 use crate::character::{
@@ -47,6 +47,13 @@ impl CharacterEditorReturn {
 	/// Pause-menu edit shows the live world player instead of a preview mesh.
 	pub fn uses_live_world_player(self) -> bool {
 		matches!(self, Self::InGame)
+	}
+
+	fn request_leave(self, commands: &mut Commands) {
+		match self {
+			Self::InGame => request_show_in_game(commands),
+			Self::Gallery => request_show_gallery(commands),
+		}
 	}
 }
 
@@ -88,7 +95,8 @@ impl Plugin for CharacterSessionPlugin {
 					sync_gallery_active_caption,
 					sync_gallery_selected_tag,
 				),
-			);
+			)
+			.add_systems(PostUpdate, finish_character_editor_exit.after(MenuScreenSystems::Show));
 	}
 }
 
@@ -99,11 +107,20 @@ type SessionQuery<'w, 's> = Query<
 	With<CharacterSession>,
 >;
 
-fn despawn_sessions(commands: &mut Commands, sessions: &SessionQuery) {
-	for (host, model_user, inventory_user) in sessions.iter() {
-		commands.entity(model_user.model).despawn();
-		commands.entity(inventory_user.bag).despawn();
-		commands.entity(host).despawn();
+/// Set while the editor HUD is being torn down. Cleared once
+/// [`CharacterScreen`] is gone so [`CharacterEditorReturn`] can stay live
+/// until then — dropping it earlier makes preview / pause look treat the
+/// still-open in-game editor as a gallery spawn and panic on dead entities.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CharacterEditorExit;
+
+impl CharacterSession {
+	pub(crate) fn despawn_hosts(commands: &mut Commands, sessions: &SessionQuery) {
+		for (host, model_user, inventory_user) in sessions.iter() {
+			commands.entity(model_user.model).try_despawn();
+			commands.entity(inventory_user.bag).try_despawn();
+			commands.entity(host).try_despawn();
+		}
 	}
 }
 
@@ -115,7 +132,7 @@ fn spawn_session(
 	appearance: characters::CharacterAppearance,
 	inventory: Inventory,
 ) {
-	despawn_sessions(commands, sessions);
+	CharacterSession::despawn_hosts(commands, sessions);
 	let host = commands.spawn(CharacterSession).id();
 	spawn_model(commands, host, CharacterModel::new(id, name, appearance));
 	spawn_bag(commands, host, inventory);
@@ -136,13 +153,35 @@ pub fn save_editing_character(
 }
 
 /// Close the editor without writing. Gallery is the default; pause-menu edits
-/// return in-game.
+/// return in-game. [`CharacterEditorReturn`] stays until the HUD is gone.
 pub fn leave_character_editor(commands: &mut Commands, return_to: Option<CharacterEditorReturn>) {
 	match return_to {
-		Some(CharacterEditorReturn::InGame) => request_show_in_game(commands),
-		_ => request_show_gallery(commands),
+		Some(return_to) => return_to.request_leave(commands),
+		None => request_show_gallery(commands),
 	}
+	end_character_editor(commands);
+}
+
+/// Drop the editing session once the HUD is gone, without routing to another
+/// screen. For hosts that tear the menu down themselves (unpause, leave world).
+pub fn end_character_editor(commands: &mut Commands) {
+	commands.insert_resource(CharacterEditorExit);
+}
+
+pub(crate) fn finish_character_editor_exit(
+	screens: Query<(), With<CharacterScreen>>,
+	exit: Option<Res<CharacterEditorExit>>,
+	sessions: SessionQuery,
+	mut commands: Commands,
+) {
+	if exit.is_none() || !screens.is_empty() {
+		return;
+	}
+	CharacterSession::despawn_hosts(&mut commands, &sessions);
 	commands.remove_resource::<CharacterEditorReturn>();
+	commands.remove_resource::<CharacterEditorExit>();
+	commands.remove_resource::<EditingCharacter>();
+	commands.remove_resource::<CharacterEditBaseline>();
 }
 
 pub fn set_active_character(commands: &mut Commands, root: &SaveRoot, id: CharacterId) {
@@ -326,6 +365,7 @@ fn open_saved_editor(
 	};
 	commands.insert_resource(EditingCharacter { id });
 	commands.insert_resource(return_to);
+	commands.remove_resource::<CharacterEditorExit>();
 	spawn_session(
 		commands,
 		sessions,
@@ -351,6 +391,7 @@ fn open_create_character_hud(
 	let inventory = Inventory::with_starter_outfit(ready.items.clone());
 	commands.insert_resource(EditingCharacter { id: ready.id });
 	commands.remove_resource::<CharacterEditBaseline>();
+	commands.remove_resource::<CharacterEditorExit>();
 	spawn_session(
 		&mut commands,
 		&sessions,
@@ -402,10 +443,17 @@ fn gallery_select_opens_edit(active: Option<CharacterId>, picked: CharacterId) -
 
 #[cfg(test)]
 mod tests {
-	use super::{gallery_select_opens_edit, save_editing_character, CharacterSessionPlugin};
-	use crate::character::CharacterMenuState;
+	use super::{
+		finish_character_editor_exit, gallery_select_opens_edit, leave_character_editor,
+		save_editing_character, CharacterEditorExit, CharacterEditorReturn, CharacterSession,
+		CharacterSessionPlugin, SessionQuery,
+	};
+	use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
+	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
-	use character_items::{random_starter_loadout, ItemRng};
+	use character_inventory_user::InventoryUser;
+	use character_items::{Inventory, ItemRng};
+	use character_model_user::CharacterModelUser;
 	use character_persist::{CharacterId, SaveRoot};
 
 	fn scratch_root() -> SaveRoot {
@@ -428,7 +476,8 @@ mod tests {
 	fn a_freshly_created_character_saves_and_loads() -> Result<(), Box<dyn std::error::Error>> {
 		let root = scratch_root();
 		for seed in 1..=16 {
-			let items = random_starter_loadout(&mut ItemRng::from_seed(seed));
+			let mut rng = ItemRng::from_seed(seed);
+			let items = rng.random_starter_loadout();
 			let menu = CharacterMenuState::for_create(items);
 			let id = CharacterId::new();
 			save_editing_character(&root, id, &menu.0)?;
@@ -452,5 +501,84 @@ mod tests {
 	fn in_game_return_uses_the_live_world_player() {
 		assert!(super::CharacterEditorReturn::InGame.uses_live_world_player());
 		assert!(!super::CharacterEditorReturn::Gallery.uses_live_world_player());
+	}
+
+	#[test]
+	fn leave_keeps_return_until_the_hud_is_gone() -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = World::new();
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.spawn(CharacterScreen);
+		world
+			.run_system_once(|mut commands: Commands| {
+				leave_character_editor(&mut commands, Some(CharacterEditorReturn::InGame));
+			})
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		if world.get_resource::<CharacterEditorReturn>().is_none() {
+			return Err("return must stay until CharacterScreen despawns".into());
+		}
+		if world.get_resource::<CharacterEditorExit>().is_none() {
+			return Err("leave should mark the editor as exiting".into());
+		}
+		world.clear_entities();
+		world
+			.run_system_once(finish_character_editor_exit)
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		if world.get_resource::<CharacterEditorReturn>().is_some() {
+			return Err("return should clear once the HUD is gone".into());
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn despawn_hosts_ignores_missing_model_and_bag() -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = World::new();
+		let model = world.spawn_empty().id();
+		let bag = world.spawn_empty().id();
+		world.spawn((
+			CharacterSession,
+			CharacterModelUser::of(model),
+			InventoryUser::carrying(bag),
+		));
+		world.despawn(model);
+		world.despawn(bag);
+		world
+			.run_system_once(|mut commands: Commands, sessions: SessionQuery| {
+				CharacterSession::despawn_hosts(&mut commands, &sessions);
+			})
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		world
+			.run_system_once(|mut commands: Commands, sessions: SessionQuery| {
+				CharacterSession::despawn_hosts(&mut commands, &sessions);
+			})
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		Ok(())
+	}
+
+	#[test]
+	fn finish_exit_drops_editing_resources() -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = World::new();
+		world.insert_resource(CharacterEditorExit);
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.insert_resource(super::EditingCharacter { id: CharacterId(3) });
+		world.insert_resource(CharacterEditBaseline {
+			name: String::from("Roamer"),
+			inventory: Inventory::default(),
+		});
+		world
+			.run_system_once(finish_character_editor_exit)
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		if world.get_resource::<CharacterEditorReturn>().is_some()
+			|| world.get_resource::<CharacterEditorExit>().is_some()
+			|| world.get_resource::<super::EditingCharacter>().is_some()
+			|| world.get_resource::<CharacterEditBaseline>().is_some()
+		{
+			return Err("exit should drop editor session resources".into());
+		}
+		Ok(())
 	}
 }

@@ -7,6 +7,8 @@
 use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 
+mod gamecontroller_lifecycle;
+
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod gamecontroller;
 
@@ -54,11 +56,13 @@ pub(crate) fn configure_backend(app: &mut App) {
 	}
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) fn value_changed(previous: Option<f32>, value: f32) -> bool {
 	const EPS: f32 = 1e-4;
 	previous.is_none_or(|old| (old - value).abs() > EPS)
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 #[cfg(test)]
 mod tests {
 	use super::*;

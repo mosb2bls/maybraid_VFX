@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use character_persist::SaveRoot;
 use maybraid_menu_controller::MenuController;
+use maybraid_world::render_scale::{VisualStyle, VisualStyleAutoReason};
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
@@ -17,19 +18,21 @@ use menu_components::{
 use serde::{Deserialize, Serialize};
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::{GameMode, MenuScreen};
 
 pub use catalog::{
 	classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, PersistPolicy, Preference,
 };
 pub use persist::{
-	apply_seed, apply_shadows_env, load_machine_settings, parse_render_scale_env,
-	parse_shadows_env, save_machine_settings, QualitySeeded, ENV_RENDER_SCALE, ENV_SHADOWS,
+	apply_seed, apply_shadows_env, apply_unsaved_visual_style_default, load_machine_settings,
+	load_machine_settings_ex, parse_render_scale_env, parse_shadows_env, save_machine_settings,
+	LoadedMachineSettings, QualitySeeded, ENV_RENDER_SCALE, ENV_SHADOWS,
 };
 
 /// Queue an in-game settings spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Default, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowInGameSettings {
 	pub selected: Option<InGameSettingsChoice>,
 }
@@ -67,7 +70,98 @@ impl InGameShadowQuality {
 	}
 }
 
-/// 3D shading scale. `Auto` is `1 / window.scale_factor()` (logical on Retina).
+/// Visual style presentation mode. Machine-scoped.
+///
+/// Persist values are lowercase (`native`, `sharp`, …). Settings files at
+/// version 1 stored today's direct-window path as `sharp`; load remaps that
+/// string to [`Self::Native`] so existing players keep the same look. Version 2
+/// writes `native` / `sharp` with the new meanings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InGameVisualStyle {
+	#[default]
+	Native,
+	Sharp,
+	Impressionist,
+	Watercolor,
+	Retro,
+	Antediluvian,
+	#[serde(rename = "pre_post_modern")]
+	PrePostModern,
+}
+
+impl InGameVisualStyle {
+	pub const ALL: [Self; 7] = [
+		Self::Native,
+		Self::Sharp,
+		Self::Impressionist,
+		Self::Watercolor,
+		Self::Retro,
+		Self::Antediluvian,
+		Self::PrePostModern,
+	];
+
+	pub fn step(self, delta: i32) -> Self {
+		let index = Self::ALL.iter().position(|&value| value == self).unwrap_or(0) as i32;
+		let n = Self::ALL.len() as i32;
+		Self::ALL[(index + delta).rem_euclid(n) as usize]
+	}
+
+	pub fn cycle(self) -> Self {
+		self.step(1)
+	}
+
+	pub fn label(self) -> &'static str {
+		match self {
+			Self::Native => "Native",
+			Self::Impressionist => "Impressionist",
+			Self::Watercolor => "Watercolor",
+			Self::Sharp => "Sharp",
+			Self::Retro => "Retro",
+			Self::Antediluvian => "Antediluvian",
+			Self::PrePostModern => "Pre-post-modern",
+		}
+	}
+
+	pub fn to_visual_style(self) -> VisualStyle {
+		match self {
+			Self::Native => VisualStyle::Native,
+			Self::Impressionist => VisualStyle::Impressionist,
+			Self::Watercolor => VisualStyle::Watercolor,
+			Self::Sharp => VisualStyle::Sharp,
+			Self::Retro => VisualStyle::Retro,
+			Self::Antediluvian => VisualStyle::Antediluvian,
+			Self::PrePostModern => VisualStyle::PrePostModern,
+		}
+	}
+
+	pub fn from_visual_style(style: VisualStyle) -> Self {
+		match style {
+			VisualStyle::Native => Self::Native,
+			VisualStyle::Impressionist => Self::Impressionist,
+			VisualStyle::Watercolor => Self::Watercolor,
+			VisualStyle::Sharp => Self::Sharp,
+			VisualStyle::Retro => Self::Retro,
+			VisualStyle::Antediluvian => Self::Antediluvian,
+			VisualStyle::PrePostModern => Self::PrePostModern,
+		}
+	}
+
+	pub fn subtext(self) -> String {
+		self.label().to_string()
+	}
+
+	/// Migrate a legacy InGameRenderScale value to InGameVisualStyle.
+	pub fn from_legacy_render_scale(scale: InGameRenderScale) -> Self {
+		match scale {
+			InGameRenderScale::Auto | InGameRenderScale::Native => Self::Native,
+			InGameRenderScale::Half => Self::Impressionist,
+			InGameRenderScale::ThreeQuarter => Self::PrePostModern,
+		}
+	}
+}
+
+/// LEGACY: 3D shading scale. Preserved for backward compatibility during migration.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InGameRenderScale {
 	#[default]
@@ -138,27 +232,43 @@ impl InGameRenderScale {
 	}
 }
 
+/// Whether `visual_style` was an explicit saved choice. First run / legacy auto
+/// stay `false` so the host heuristic can pick Sharp or Native.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VisualStyleSaved(pub bool);
+
+/// First-run auto-pick, when [`VisualStyleSaved`] is false and the game ran the
+/// host heuristic. Cleared when the player steps Visual Style.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct VisualStyleAutoPick {
+	pub reason: Option<VisualStyleAutoReason>,
+}
+
 /// Live 3D scale + window sizes for the Settings row. The game fills this.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
 pub struct RenderScaleReadout {
-	pub effective: f32,
+	pub style: VisualStyle,
+	pub effective_scale: f32,
 	pub window_physical: UVec2,
 	pub target_physical: UVec2,
-	pub env_override: Option<f32>,
+	pub env_override: Option<VisualStyle>,
+	pub auto_reason: Option<VisualStyleAutoReason>,
 }
 
 impl Default for RenderScaleReadout {
 	fn default() -> Self {
 		Self {
-			effective: 1.0,
+			style: VisualStyle::Native,
+			effective_scale: 1.0,
 			window_physical: UVec2::ZERO,
 			target_physical: UVec2::ZERO,
 			env_override: None,
+			auto_reason: None,
 		}
 	}
 }
 
-fn format_render_scale_info(readout: RenderScaleReadout) -> String {
+fn format_visual_style_info(readout: RenderScaleReadout) -> String {
 	let target = if readout.target_physical.x == 0 {
 		readout.window_physical
 	} else {
@@ -167,16 +277,24 @@ fn format_render_scale_info(readout: RenderScaleReadout) -> String {
 	if target.x == 0 || target.y == 0 {
 		return String::from("Rendered at display size.");
 	}
-	if target == readout.window_physical {
+	let pixels = if target == readout.window_physical {
 		format!("Rendered at {} x {}.", target.x, target.y)
 	} else {
 		format!("Rendered at {} x {}. Upscaled to display.", target.x, target.y)
+	};
+	if readout.env_override.is_some() {
+		return pixels;
+	}
+	if let Some(reason) = readout.auto_reason {
+		format!("{pixels} Auto-picked for this machine ({}).", reason.as_str())
+	} else {
+		pixels
 	}
 }
 
 fn settings_info_copy(choice: InGameSettingsChoice, readout: RenderScaleReadout) -> String {
 	match choice {
-		InGameSettingsChoice::RenderScale => format_render_scale_info(readout),
+		InGameSettingsChoice::VisualStyle => format_visual_style_info(readout),
 		other => other.description().to_string(),
 	}
 }
@@ -189,7 +307,7 @@ fn settings_info_copy(choice: InGameSettingsChoice, readout: RenderScaleReadout)
 pub struct InGameSettings {
 	pub mob_hud: bool,
 	pub shadows: InGameShadowQuality,
-	pub render_scale: InGameRenderScale,
+	pub visual_style: InGameVisualStyle,
 }
 
 impl Default for InGameSettings {
@@ -210,7 +328,7 @@ impl InGameSettings {
 	pub fn state_label(self, choice: InGameSettingsChoice) -> String {
 		match choice {
 			InGameSettingsChoice::Shadows => self.shadows.label().to_string(),
-			InGameSettingsChoice::RenderScale => self.render_scale.subtext(),
+			InGameSettingsChoice::VisualStyle => self.visual_style.subtext(),
 			InGameSettingsChoice::MobHud => self.mob_hud_state_label().to_string(),
 		}
 	}
@@ -233,7 +351,7 @@ struct SettingsStep {
 }
 
 /// Settings rows. Activate toggles or cycles the matching [`InGameSettings`] field.
-/// Render Scale also steps on left/right.
+/// Visual Style also steps on left/right.
 ///
 /// In-screen: [`MenuFocus<Self>`] / [`menu_components::MenuActivate<Self>`] bubble
 /// to this root. Outside the screen: [`republish_menu_activate`] copies activate
@@ -242,17 +360,17 @@ struct SettingsStep {
 pub enum InGameSettingsChoice {
 	#[default]
 	Shadows,
-	RenderScale,
+	VisualStyle,
 	MobHud,
 }
 
 impl InGameSettingsChoice {
-	pub const ALL: [Self; 3] = [Self::Shadows, Self::RenderScale, Self::MobHud];
+	pub const ALL: [Self; 3] = [Self::Shadows, Self::VisualStyle, Self::MobHud];
 
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Shadows => "Shadows",
-			Self::RenderScale => "Render Scale",
+			Self::VisualStyle => "Visual Style",
 			Self::MobHud => "Mob HUD",
 		}
 	}
@@ -262,7 +380,9 @@ impl InGameSettingsChoice {
 			Self::Shadows => {
 				"Sun cascade shadows. High is four maps to 150 m. Low is four maps to 60 m. Off disables the sun's shadow maps."
 			}
-			Self::RenderScale => "How sharp the 3D world is drawn.",
+			Self::VisualStyle => {
+				"Presentation mode: native (window) or sharp (1080p offscreen, height-fit). First run auto-picks Sharp on weaker machines. Stylized modes are opt-in: impressionist / watercolor (painterly), retro / antediluvian (nearest-neighbor), or pre-post-modern (color-print)."
+			}
 			Self::MobHud => {
 				"Pins and colored poles on presented mob hosts. Use this to find where groups should stand."
 			}
@@ -288,7 +408,7 @@ impl InGameSettingsScreen {
 					InGameSettingsChoice::ALL.into_iter().map(|choice| {
 						let row = TextCursorRow::new(choice.label(), choice)
 							.with_subtext(settings.state_label(choice));
-						if choice == InGameSettingsChoice::RenderScale {
+						if choice == InGameSettingsChoice::VisualStyle {
 							row.stepper()
 						} else {
 							row
@@ -349,6 +469,8 @@ impl Plugin for InGameSettingsPlugin {
 		app.init_resource::<GameMode>()
 			.init_resource::<InGameSettings>()
 			.init_resource::<RenderScaleReadout>()
+			.init_resource::<VisualStyleSaved>()
+			.init_resource::<VisualStyleAutoPick>()
 			.init_resource::<persist::MachineSettings>()
 			.add_message::<SettingsStep>()
 			.add_plugins(TextMenuPlugin::<InGameSettingsChoice>::default())
@@ -364,11 +486,11 @@ impl Plugin for InGameSettingsPlugin {
 			)
 			.add_systems(
 				Update,
-				(apply_show_in_game_settings, sync_in_game_settings_brand)
-					.chain()
+				sync_in_game_settings_brand
 					.in_set(InGameSettingsSystems::Show)
 					.after(InGameSettingsSystems::ApplyChoice),
 			);
+		add_menu_show_systems(app, apply_show_in_game_settings);
 	}
 }
 
@@ -377,6 +499,8 @@ fn apply_in_game_settings_choice(
 	mut steps: MessageReader<SettingsStep>,
 	mut settings: ResMut<InGameSettings>,
 	mut machine: ResMut<persist::MachineSettings>,
+	mut visual_style_saved: ResMut<VisualStyleSaved>,
+	mut auto_pick: ResMut<VisualStyleAutoPick>,
 	save_root: Option<Res<SaveRoot>>,
 	mut commands: Commands,
 ) {
@@ -384,6 +508,7 @@ fn apply_in_game_settings_choice(
 	let choice = choices.read().last().copied();
 	if let Some(step) = step {
 		if apply_settings_step(step, &mut settings, &mut machine, save_root.as_deref()) {
+			mark_visual_style_saved(&mut visual_style_saved, &mut auto_pick);
 			request_show_in_game_settings_at(&mut commands, step.choice);
 			return;
 		}
@@ -400,11 +525,12 @@ fn apply_in_game_settings_choice(
 				save_root.as_deref(),
 			);
 		}
-		InGameSettingsChoice::RenderScale => {
-			settings.render_scale = settings.render_scale.cycle();
-			persist::write_machine_preference::<catalog::RenderScalePref>(
+		InGameSettingsChoice::VisualStyle => {
+			settings.visual_style = settings.visual_style.cycle();
+			mark_visual_style_saved(&mut visual_style_saved, &mut auto_pick);
+			persist::write_machine_preference::<catalog::VisualStylePref>(
 				Some(&mut machine),
-				settings.render_scale,
+				settings.visual_style,
 				save_root.as_deref(),
 			);
 		}
@@ -426,31 +552,35 @@ fn apply_settings_step(
 	machine: &mut persist::MachineSettings,
 	save_root: Option<&SaveRoot>,
 ) -> bool {
-	if step.choice != InGameSettingsChoice::RenderScale {
+	if step.choice != InGameSettingsChoice::VisualStyle {
 		return false;
 	}
-	settings.render_scale = settings.render_scale.step(step.delta);
-	persist::write_machine_preference::<catalog::RenderScalePref>(
+	settings.visual_style = settings.visual_style.step(step.delta);
+	persist::write_machine_preference::<catalog::VisualStylePref>(
 		Some(machine),
-		settings.render_scale,
+		settings.visual_style,
 		save_root,
 	);
 	true
 }
 
+fn mark_visual_style_saved(saved: &mut VisualStyleSaved, auto: &mut VisualStyleAutoPick) {
+	saved.0 = true;
+	auto.reason = None;
+}
+
 fn apply_show_in_game_settings(
 	mut commands: Commands,
-	requests: Query<(Entity, &RequestShowInGameSettings)>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<&RequestShowInGameSettings>,
+	screens: MenuScreens,
 	mode: Res<GameMode>,
 	settings: Res<InGameSettings>,
 	readout: Res<RenderScaleReadout>,
 ) {
-	let selected = requests.iter().last().and_then(|(_, request)| request.selected);
-	if !take_menu_show_request(&mut commands, requests.iter().map(|(entity, _)| entity), &existing)
-	{
+	let Some(request) = screens.take(&mut commands, &requests) else {
 		return;
-	}
+	};
+	let selected = requests.get(request).ok().and_then(|request| request.selected);
 	commands.spawn_scene(InGameSettingsScreen::scene(
 		&mode,
 		*settings,
@@ -495,8 +625,9 @@ mod tests {
 	use menu_components::TextCursorRow;
 
 	use super::{
-		apply_settings_step, format_render_scale_info, persist, InGameRenderScale, InGameSettings,
-		InGameSettingsChoice, InGameShadowQuality, RenderScaleReadout, SettingsStep,
+		apply_settings_step, format_visual_style_info, persist, InGameSettings,
+		InGameSettingsChoice, InGameShadowQuality, InGameVisualStyle, RenderScaleReadout,
+		SettingsStep,
 	};
 
 	#[test]
@@ -508,12 +639,12 @@ mod tests {
 	}
 
 	#[test]
-	fn render_scale_row_is_a_stepper() {
+	fn visual_style_row_is_a_stepper() {
 		let rows: Vec<_> = InGameSettingsChoice::ALL
 			.into_iter()
 			.map(|choice| {
 				let row = TextCursorRow::new(choice.label(), choice);
-				if choice == InGameSettingsChoice::RenderScale {
+				if choice == InGameSettingsChoice::VisualStyle {
 					row.stepper()
 				} else {
 					row
@@ -523,7 +654,7 @@ mod tests {
 		assert!(!rows[0].stepper);
 		assert!(rows[1].stepper);
 		assert!(!rows[2].stepper);
-		assert_eq!(rows[1].action, InGameSettingsChoice::RenderScale);
+		assert_eq!(rows[1].action, InGameSettingsChoice::VisualStyle);
 	}
 
 	#[test]
@@ -533,7 +664,7 @@ mod tests {
 			InGameSettings {
 				mob_hud: false,
 				shadows: InGameShadowQuality::High,
-				render_scale: InGameRenderScale::Auto,
+				visual_style: InGameVisualStyle::Impressionist,
 			}
 			.mob_hud_state_label(),
 			"Off"
@@ -542,7 +673,7 @@ mod tests {
 			InGameSettings {
 				mob_hud: true,
 				shadows: InGameShadowQuality::High,
-				render_scale: InGameRenderScale::Auto,
+				visual_style: InGameVisualStyle::Impressionist,
 			}
 			.mob_hud_state_label(),
 			"On"
@@ -563,23 +694,24 @@ mod tests {
 		let mut settings = InGameSettings {
 			mob_hud: false,
 			shadows: InGameShadowQuality::Off,
-			render_scale: InGameRenderScale::Auto,
+			visual_style: InGameVisualStyle::Native,
 		};
 		let mut machine = persist::MachineSettings::default();
 		assert!(apply_settings_step(
-			SettingsStep { choice: InGameSettingsChoice::RenderScale, delta: 1 },
+			SettingsStep { choice: InGameSettingsChoice::VisualStyle, delta: 1 },
 			&mut settings,
 			&mut machine,
 			None,
 		));
-		assert_eq!(settings.render_scale, InGameRenderScale::Native);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+		assert!(machine.visual_style_saved);
 		assert!(apply_settings_step(
-			SettingsStep { choice: InGameSettingsChoice::RenderScale, delta: -1 },
+			SettingsStep { choice: InGameSettingsChoice::VisualStyle, delta: -1 },
 			&mut settings,
 			&mut machine,
 			None,
 		));
-		assert_eq!(settings.render_scale, InGameRenderScale::Auto);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Native);
 		assert!(!apply_settings_step(
 			SettingsStep { choice: InGameSettingsChoice::Shadows, delta: 1 },
 			&mut settings,
@@ -589,59 +721,84 @@ mod tests {
 	}
 
 	#[test]
-	fn render_scale_starts_auto_and_cycles() -> anyhow::Result<()> {
-		assert_eq!(InGameSettings::default().render_scale, InGameRenderScale::Auto);
-		assert_eq!(InGameRenderScale::Auto.cycle(), InGameRenderScale::Native);
-		assert_eq!(InGameRenderScale::Native.cycle(), InGameRenderScale::ThreeQuarter);
-		assert_eq!(InGameRenderScale::ThreeQuarter.cycle(), InGameRenderScale::Half);
-		assert_eq!(InGameRenderScale::Half.cycle(), InGameRenderScale::Auto);
-		assert_eq!(InGameRenderScale::Auto.step(-1), InGameRenderScale::Half);
-		assert_eq!(InGameRenderScale::Half.step(1), InGameRenderScale::Auto);
-		assert_eq!(InGameRenderScale::from_factor(1.0), InGameRenderScale::Native);
-		assert_eq!(InGameRenderScale::from_factor(0.75), InGameRenderScale::ThreeQuarter);
-		assert_eq!(InGameRenderScale::from_factor(0.5), InGameRenderScale::Half);
-		assert_eq!(InGameRenderScale::from_factor(0.6), InGameRenderScale::Half);
-		assert_eq!(InGameRenderScale::Auto.requested(), None);
-		assert_eq!(InGameRenderScale::ThreeQuarter.requested(), Some(0.75));
-		assert_eq!(InGameRenderScale::Auto.live_request(None), None);
-		assert_eq!(InGameRenderScale::Auto.live_request(Some(0.75)), Some(0.75));
-		assert_eq!(InGameRenderScale::Half.live_request(Some(1.0)), Some(1.0));
+	fn visual_style_starts_native_and_cycles() -> anyhow::Result<()> {
+		assert_eq!(InGameSettings::default().visual_style, InGameVisualStyle::Native);
+		assert_eq!(InGameVisualStyle::Native.cycle(), InGameVisualStyle::Sharp);
+		assert_eq!(InGameVisualStyle::Sharp.cycle(), InGameVisualStyle::Impressionist);
+		assert_eq!(InGameVisualStyle::Impressionist.cycle(), InGameVisualStyle::Watercolor);
+		assert_eq!(InGameVisualStyle::Watercolor.cycle(), InGameVisualStyle::Retro);
+		assert_eq!(InGameVisualStyle::Retro.cycle(), InGameVisualStyle::Antediluvian);
+		assert_eq!(InGameVisualStyle::Antediluvian.cycle(), InGameVisualStyle::PrePostModern);
+		assert_eq!(InGameVisualStyle::PrePostModern.cycle(), InGameVisualStyle::Native);
+		assert_eq!(InGameVisualStyle::Native.step(-1), InGameVisualStyle::PrePostModern);
+		assert_eq!(InGameVisualStyle::PrePostModern.step(1), InGameVisualStyle::Native);
 		Ok(())
 	}
 
 	#[test]
-	fn render_scale_select_is_just_the_step() {
-		assert_eq!(InGameRenderScale::Half.subtext(), "50%");
-		assert_eq!(InGameRenderScale::Auto.subtext(), "Auto");
+	fn visual_style_select_is_just_the_label() {
+		assert_eq!(InGameVisualStyle::Retro.subtext(), "Retro");
+		assert_eq!(InGameVisualStyle::Impressionist.subtext(), "Impressionist");
 		assert_eq!(
-			InGameSettings::default().state_label(InGameSettingsChoice::RenderScale),
-			"Auto"
+			InGameSettings::default().state_label(InGameSettingsChoice::VisualStyle),
+			"Native"
 		);
 	}
 
 	#[test]
-	fn render_scale_info_is_a_short_pixel_line() -> anyhow::Result<()> {
+	fn visual_style_info_is_a_short_pixel_line() -> anyhow::Result<()> {
 		let retina = RenderScaleReadout {
-			effective: 0.5,
+			style: InGameVisualStyle::Impressionist.to_visual_style(),
+			effective_scale: 0.5,
 			window_physical: UVec2::new(3024, 1964),
 			target_physical: UVec2::new(1512, 982),
 			env_override: None,
+			auto_reason: None,
 		};
 		assert_eq!(
-			format_render_scale_info(retina),
+			format_visual_style_info(retina),
 			"Rendered at 1512 x 982. Upscaled to display."
 		);
 		let native = RenderScaleReadout {
-			effective: 1.0,
+			style: InGameVisualStyle::Native.to_visual_style(),
+			effective_scale: 1.0,
 			window_physical: UVec2::new(1280, 720),
 			target_physical: UVec2::new(1280, 720),
 			env_override: None,
+			auto_reason: None,
 		};
-		assert_eq!(format_render_scale_info(native), "Rendered at 1280 x 720.");
+		assert_eq!(format_visual_style_info(native), "Rendered at 1280 x 720.");
 		assert_eq!(
-			format_render_scale_info(RenderScaleReadout::default()),
+			format_visual_style_info(RenderScaleReadout::default()),
 			"Rendered at display size."
 		);
 		Ok(())
+	}
+
+	#[test]
+	fn visual_style_info_mentions_auto_pick_unless_env_wins() {
+		use maybraid_world::VisualStyleAutoReason;
+
+		let auto = RenderScaleReadout {
+			style: InGameVisualStyle::Sharp.to_visual_style(),
+			effective_scale: 1080.0 / 1440.0,
+			window_physical: UVec2::new(2560, 1440),
+			target_physical: UVec2::new(1920, 1080),
+			env_override: None,
+			auto_reason: Some(VisualStyleAutoReason::UnifiedMemoryBelow24GiB),
+		};
+		assert_eq!(
+			format_visual_style_info(auto),
+			"Rendered at 1920 x 1080. Upscaled to display. Auto-picked for this machine (unified memory below 24 GB)."
+		);
+
+		let env_wins = RenderScaleReadout {
+			env_override: Some(InGameVisualStyle::Sharp.to_visual_style()),
+			..auto
+		};
+		assert_eq!(
+			format_visual_style_info(env_wins),
+			"Rendered at 1920 x 1080. Upscaled to display."
+		);
 	}
 }

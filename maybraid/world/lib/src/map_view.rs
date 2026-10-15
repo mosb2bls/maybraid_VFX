@@ -228,7 +228,8 @@ impl Plugin for WorldMapViewPlugin {
 					sync_map_player_marker,
 					sync_map_death_bones,
 					sync_respawn_picker_title,
-					sync_respawn_spawn_knobs,
+					sync_respawn_spawn_knobs.run_if(respawn_picker_prompt_visible),
+					despawn_leftover_respawn_spawn_knobs.run_if(leftover_respawn_spawn_knobs),
 					sync_respawn_selection_marker,
 					draw_highlighted_poi,
 				)
@@ -309,8 +310,7 @@ pub(crate) fn toggle_map_view(
 	for intent in intents.read() {
 		match intent {
 			CharacterIntent::ToggleMap if map.open => close = true,
-			CharacterIntent::ToggleMap | CharacterIntent::OpenMap => open = true,
-			CharacterIntent::CloseMap => close = true,
+			CharacterIntent::ToggleMap => open = true,
 			_ => {}
 		}
 	}
@@ -437,13 +437,20 @@ fn quantize_map_axis(value: f32) -> i32 {
 	(value / MAP_PIN_QUANT_M).round() as i32
 }
 
+type MapCameraQuery<'w, 's> = Query<
+	'w,
+	's,
+	(&'static Camera, &'static GlobalTransform),
+	(With<Camera3d>, With<FollowCamera>),
+>;
+
 fn prepare_map_presentation(
 	map: Res<WorldMapView>,
 	gameplay: Res<WorldGameplayEnabled>,
 	overlay: Res<LanguageOverlay>,
 	registry: Option<Res<PoiRegistry>>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
-	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
+	camera: MapCameraQuery,
 	surface: DurhamSurface,
 	places: Query<(Entity, &DiscoverablePlace, &GlobalTransform)>,
 	mut presentation: ResMut<MapPresentation>,
@@ -1425,7 +1432,7 @@ fn sync_map_player_marker(
 	map: Res<WorldMapView>,
 	gameplay: Res<WorldGameplayEnabled>,
 	players: Query<&Transform, With<VegetationPlayer>>,
-	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
+	camera: MapCameraQuery,
 	surface: DurhamSurface,
 	hud: Query<Entity, With<MapNameHud>>,
 	mut markers: Query<(&mut Node, &mut Visibility), With<MapPlayerMarker>>,
@@ -1587,6 +1594,33 @@ fn picker_prompt_visible(map: &WorldMapView, gameplay: bool) -> bool {
 	gameplay && map.open && map.close_locked
 }
 
+/// Death-picker UI only. Live combat must not construct `DurhamSurface` /
+/// camera / `PoiRegistry` params for a closed picker ([#1209](https://github.com/ramate-io/maybraid/issues/1209)).
+fn respawn_picker_prompt_visible(
+	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
+) -> bool {
+	picker_prompt_visible(&map, gameplay.0)
+}
+
+/// One leftover-knob sweep after the picker closes, not every idle frame.
+fn leftover_respawn_spawn_knobs(
+	map: Res<WorldMapView>,
+	gameplay: Res<WorldGameplayEnabled>,
+	knobs: Query<(), With<MapSpawnKnob>>,
+) -> bool {
+	!picker_prompt_visible(&map, gameplay.0) && !knobs.is_empty()
+}
+
+fn despawn_leftover_respawn_spawn_knobs(
+	knobs: Query<Entity, With<MapSpawnKnob>>,
+	mut commands: Commands,
+) {
+	for entity in &knobs {
+		commands.entity(entity).despawn();
+	}
+}
+
 fn pending_is_first_life(pending: Option<&WorldPlayerRespawnState>) -> bool {
 	pending
 		.and_then(|state| state.pending.as_ref())
@@ -1624,8 +1658,6 @@ fn picker_highlighted(pending: Option<&WorldPlayerRespawnState>) -> Option<PoiId
 }
 
 fn sync_respawn_spawn_knobs(
-	map: Res<WorldMapView>,
-	gameplay: Res<WorldGameplayEnabled>,
 	registry: Option<Res<PoiRegistry>>,
 	pending: Option<Res<WorldPlayerRespawnState>>,
 	camera: Query<(&Camera, &GlobalTransform), (With<Camera3d>, With<FollowCamera>)>,
@@ -1640,12 +1672,6 @@ fn sync_respawn_spawn_knobs(
 	)>,
 	mut commands: Commands,
 ) {
-	if !picker_prompt_visible(&map, gameplay.0) {
-		for (entity, _, _, _, _, _) in &knobs {
-			commands.entity(entity).despawn();
-		}
-		return;
-	}
 	let Ok((camera, camera_transform)) = camera.single() else {
 		for (_, _, _, _, _, mut visibility) in &mut knobs {
 			*visibility = Visibility::Hidden;
@@ -2005,7 +2031,7 @@ mod tests {
 	}
 
 	#[test]
-	fn dpad_down_closes_an_unlocked_map() -> anyhow::Result<()> {
+	fn toggle_map_closes_an_unlocked_map() -> anyhow::Result<()> {
 		let mut world = World::new();
 		world.insert_resource(PlaygroundMode::Character);
 		world.insert_resource(WorldGameplayEnabled(true));
@@ -2018,7 +2044,7 @@ mod tests {
 			begin_life: false,
 		});
 		world.init_resource::<Messages<CharacterIntent>>();
-		world.write_message(CharacterIntent::CloseMap);
+		world.write_message(CharacterIntent::ToggleMap);
 		world
 			.run_system_once(toggle_map_view)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -2236,6 +2262,43 @@ mod tests {
 			true
 		));
 		assert!(!picker_prompt_visible(&WorldMapView::default(), true));
+	}
+
+	#[test]
+	fn leftover_spawn_knob_condition_tracks_picker_and_knobs() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldMapView>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		let needed = world
+			.run_system_once(leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!needed, "no knobs and a closed picker need no sweep");
+
+		world.spawn(MapSpawnKnob { id: PoiId(1) });
+		let needed = world
+			.run_system_once(leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(needed, "closed picker with leftover knobs must sweep once");
+
+		world.insert_resource(WorldMapView { open: true, close_locked: true, ..default() });
+		let needed = world
+			.run_system_once(leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!needed, "an open picker owns the knobs via sync");
+		Ok(())
+	}
+
+	#[test]
+	fn leftover_spawn_knobs_despawn_when_the_picker_is_closed() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<WorldMapView>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		let knob = world.spawn(MapSpawnKnob { id: PoiId(1) }).id();
+		world
+			.run_system_once(despawn_leftover_respawn_spawn_knobs)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.entities().contains(knob));
+		Ok(())
 	}
 
 	#[test]

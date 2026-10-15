@@ -107,6 +107,9 @@ pub struct LodChunkFulfillBudget {
 	pub cull_weights_per_frame: u32,
 	/// Max ready roots/hosts that may recursive-despawn in one frame even when
 	/// their spawned weight exceeds [`Self::cull_weights_per_frame`].
+	///
+	/// Also the per-`Last` cap for HCSG [`crate::hcsg::RetiredHost`] teardown
+	/// ([`Self::retired_host_despawns_per_frame`]).
 	pub cull_root_despawns_per_frame: u32,
 	/// Max new fulfill jobs started per frame (shared across all host `T`).
 	pub begins_per_frame: u32,
@@ -131,6 +134,25 @@ pub struct LodChunkFulfillBudget {
 	/// every ready job; only the visibility swap is capped so a completion wave
 	/// does not reveal hundreds of already-built subtrees in one propagate.
 	pub completes_per_frame: u32,
+}
+
+impl LodChunkFulfillBudget {
+	/// Retired HCSG hosts the `Last` despawn pass may recursive-despawn this frame.
+	///
+	/// Shares [`Self::cull_root_despawns_per_frame`] so playgrounds that raise
+	/// cull teardown also drain Leave waves faster. At least one host so a
+	/// zeroed cull cap cannot stall retirement.
+	pub fn retired_host_despawns_per_frame(self) -> u32 {
+		self.cull_root_despawns_per_frame.max(1)
+	}
+
+	/// Wall-clock stop for exclusive retired-host despawn after the first host.
+	///
+	/// Reuses [`Self::spawn_time_per_frame`] (default 2 ms), the same hitch
+	/// clock exclusive chunk drain already honors.
+	pub fn retired_host_time_per_frame(self) -> Duration {
+		self.spawn_time_per_frame
+	}
 }
 
 impl Default for LodChunkFulfillBudget {

@@ -1,27 +1,210 @@
-//! Internal 3D render scale: shade at `scale ×` window physical size, present at native size.
+//! Visual style presentation modes with distinct resolution targets and artistic treatments.
 //!
-//! Scale `1.0` renders the follow camera straight to the window (zero extra cost).
-//! Below that, the 3D camera writes an offscreen image that a higher-order `Camera2d`
-//! upscales with linear filtering. UI stays on the window-sized present camera.
+//! Replaces the legacy render scale system. Styles render at characteristic resolutions
+//! (preserving aspect ratio) and apply effects during presentation:
+//! - **Native**: native resolution, no treatment, drawn direct to the window.
+//!   Default on stronger machines (and when no host signal says otherwise).
+//! - **Sharp** (~1920×1080): untreated 1080p offscreen, linear present, height-fit.
+//!   First-run default on weaker machines; see [`device_tier`].
+//! - **Impressionist** (~700×394): painterly softening, tighter wash than Watercolor
+//! - **Watercolor** (~1280×720): full-strength painterly wash, more source detail
+//! - **Retro** (~540×304): nearest-neighbor, performance
+//! - **Antediluvian** (~400×225): nearest-neighbor, extreme performance
+//! - **Pre-post-modern** (~1280×720): misregistered color-print effect
 //!
-//! Default is the Retina-friendly `1 / window.scale_factor()` (logical resolution).
-//! `MAYBRAID_RENDER_SCALE` and `/render scale <f>` set an explicit factor in
-//! [`RenderScale::MIN`]..=[`RenderScale::MAX`].
+//! UI stays on the window-sized present camera. HUD, menus, and text remain at native resolution.
 
+pub mod device_tier;
+mod presentation;
 mod target;
+pub mod visual_style;
+
+pub use presentation::PresentationMaterialsPlugin;
 
 use bevy::prelude::*;
 
+pub use device_tier::{
+	host_memory_bytes, parse_device_tier_env, parse_meminfo_total_bytes, pick_default_visual_style,
+	window_above_1080p, AdapterKind, DeviceTier, VisualStyleAutoReason, VisualStylePick,
+	VisualStyleSignals, DEVICE_TIER_ENV, UNIFIED_MEMORY_NATIVE_BYTES,
+};
 pub use target::{map_render_to_window, map_window_to_render};
+pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
 
-/// `MAYBRAID_RENDER_SCALE=0.75` (or `auto`) at process start.
+/// `MAYBRAID_VISUAL_STYLE=retro` (or `native` by default) at process start.
+/// Wins over the first-run host heuristic and any saved preference.
+pub const VISUAL_STYLE_ENV: &str = "MAYBRAID_VISUAL_STYLE";
+/// Optional override so a capture can keep a style's resolution without its treatment.
+pub const PRESENTATION_TREATMENT_ENV: &str = "MAYBRAID_PRESENTATION_TREATMENT";
+/// Keep the offscreen blit at the style's target size, including Native at window size.
+pub const FORCE_OFFSCREEN_ENV: &str = "MAYBRAID_FORCE_OFFSCREEN";
+
+/// Console / env request to set an explicit visual style.
+#[derive(Debug, Clone, Copy)]
+pub struct RequestVisualStyle(pub VisualStyle);
+
+impl Message for RequestVisualStyle {}
+
+/// Console / env request to force the offscreen present path.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct RequestForceOffscreen(pub bool);
+
+/// Offscreen image resize or blit/camera recreate. Agent writes these to events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationChurn {
+	pub action: PresentationAction,
+	pub window: UVec2,
+	pub target: UVec2,
+	pub style: Option<VisualStyle>,
+}
+
+impl Message for PresentationChurn {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PresentationAction {
+	Resize,
+	Recreate,
+}
+
+impl PresentationAction {
+	pub fn as_str(self) -> &'static str {
+		match self {
+			Self::Resize => "resize",
+			Self::Recreate => "recreate",
+		}
+	}
+}
+
+/// Active visual style setting.
+#[derive(Resource, Clone, Debug, PartialEq)]
+pub struct VisualStyleSetting {
+	requested: Option<VisualStyle>,
+	treatment_override: Option<PresentationTreatment>,
+	force_offscreen: bool,
+}
+
+impl Default for VisualStyleSetting {
+	fn default() -> Self {
+		Self { requested: None, treatment_override: None, force_offscreen: false }
+	}
+}
+
+impl VisualStyleSetting {
+	/// Read [`VISUAL_STYLE_ENV`]. Empty → default [`VisualStyle::Native`].
+	pub fn from_env() -> Self {
+		Self {
+			requested: parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref()),
+			treatment_override: parse_presentation_treatment_env(
+				std::env::var(PRESENTATION_TREATMENT_ENV).ok().as_deref(),
+			),
+			force_offscreen: parse_force_offscreen_env(
+				std::env::var(FORCE_OFFSCREEN_ENV).ok().as_deref(),
+			),
+		}
+	}
+
+	pub fn requested(&self) -> Option<VisualStyle> {
+		self.requested
+	}
+
+	pub fn treatment_override(&self) -> Option<PresentationTreatment> {
+		self.treatment_override
+	}
+
+	pub fn force_offscreen(&self) -> bool {
+		self.force_offscreen
+	}
+
+	pub fn set(&mut self, style: VisualStyle) {
+		self.requested = Some(style);
+	}
+
+	pub fn set_treatment_override(&mut self, treatment: Option<PresentationTreatment>) {
+		self.treatment_override = treatment;
+	}
+
+	pub fn set_force_offscreen(&mut self, force: bool) {
+		self.force_offscreen = force;
+	}
+
+	pub fn clear_to_default(&mut self) {
+		self.requested = None;
+	}
+
+	pub fn effective(&self) -> VisualStyle {
+		self.requested.unwrap_or_default()
+	}
+
+	pub fn plan(&self, window_physical: UVec2, window_scale_factor: f32) -> VisualStylePlan {
+		let mut plan = self.effective().plan(window_physical, window_scale_factor);
+		if let Some(treatment) = self.treatment_override {
+			plan.treatment = treatment;
+		}
+		plan.force_offscreen = plan.force_offscreen || self.force_offscreen;
+		plan
+	}
+}
+
+/// Parse `MAYBRAID_PRESENTATION_TREATMENT`. Empty → keep the style's treatment.
+pub fn parse_presentation_treatment_env(raw: Option<&str>) -> Option<PresentationTreatment> {
+	let Some(raw) = raw else {
+		return None;
+	};
+	let raw = raw.trim();
+	if raw.is_empty() {
+		return None;
+	}
+	match raw {
+		"none" => Some(PresentationTreatment::None),
+		"impressionist" => Some(PresentationTreatment::Impressionist),
+		"nearest" | "nearest_neighbor" => Some(PresentationTreatment::NearestNeighbor),
+		"pre_post_modern" => Some(PresentationTreatment::PrePostModern),
+		other => {
+			eprintln!(
+				"[{PRESENTATION_TREATMENT_ENV}] unknown {other:?} (use none, impressionist, nearest, or pre_post_modern)"
+			);
+			None
+		}
+	}
+}
+
+/// Parse `MAYBRAID_FORCE_OFFSCREEN`. Empty / missing → false.
+pub fn parse_force_offscreen_env(raw: Option<&str>) -> bool {
+	let Some(raw) = raw else {
+		return false;
+	};
+	matches!(raw.trim().to_ascii_lowercase().as_str(), "1" | "true" | "on" | "yes")
+}
+
+/// Parse `MAYBRAID_VISUAL_STYLE`. Empty → `None` (default Native).
+pub fn parse_visual_style_env(raw: Option<&str>) -> Option<VisualStyle> {
+	let Some(raw) = raw else {
+		return None;
+	};
+	let raw = raw.trim();
+	if raw.is_empty() {
+		return None;
+	}
+	match VisualStyle::from_script_id(raw) {
+		Some(style) => Some(style),
+		None => {
+			eprintln!(
+				"[{VISUAL_STYLE_ENV}] unknown {raw:?} (use native, sharp, impressionist, watercolor, retro, antediluvian, or pre_post_modern)"
+			);
+			None
+		}
+	}
+}
+
+/// LEGACY: `MAYBRAID_RENDER_SCALE=0.75` (or `auto`) at process start.
 pub const RENDER_SCALE_ENV: &str = "MAYBRAID_RENDER_SCALE";
 
-/// Console / env request to set an explicit factor (already clamped by the applier).
+/// LEGACY: Console / env request to set an explicit factor (already clamped by the applier).
 #[derive(Component, Debug, Clone, Copy)]
 pub struct RequestRenderScale(pub f32);
 
-/// 3D shading scale relative to the window's physical size.
+/// LEGACY: 3D shading scale relative to the window's physical size.
+/// Preserved for backward compatibility. New code should use [`VisualStyleSetting`].
 #[derive(Resource, Clone, Debug, PartialEq)]
 pub struct RenderScale {
 	/// `None` derives [`Self::retina_default`] from the live window scale factor.
@@ -162,12 +345,66 @@ pub fn parse_render_scale_env(raw: Option<&str>) -> Option<f32> {
 }
 
 pub(crate) fn configure(app: &mut App) {
-	app.insert_resource(RenderScale::from_env())
+	app.add_plugins(presentation::PresentationMaterialsPlugin)
+		.add_message::<RequestVisualStyle>()
+		.add_message::<PresentationChurn>()
+		.insert_resource(VisualStyleSetting::from_env())
+		.insert_resource(RenderScale::from_env())
 		.init_resource::<target::AppliedRenderScale>()
 		.add_systems(
 			Update,
-			(apply_render_scale_requests, target::sync_render_scale_target).chain(),
+			(
+				apply_visual_style_requests,
+				apply_force_offscreen_requests,
+				apply_render_scale_requests,
+				target::sync_render_scale_target,
+				target::stamp_present_ui_layers,
+			)
+				.chain(),
 		);
+}
+
+/// Read RequestVisualStyle messages and apply them.
+pub(crate) fn apply_visual_style_requests(
+	mut requests: MessageReader<RequestVisualStyle>,
+	mut style: ResMut<VisualStyleSetting>,
+	mut status: Option<ResMut<game_commands::ui::GameCommandStatusText>>,
+) {
+	let mut last = None;
+	for request in requests.read() {
+		style.set(request.0);
+		last = Some(request.0);
+	}
+	let Some(value) = last else {
+		return;
+	};
+	let line = format!("visual style {}", value.label());
+	if let Some(status) = status.as_mut() {
+		status.0 = line.clone();
+	}
+	info!("{line}");
+}
+
+pub(crate) fn apply_force_offscreen_requests(
+	mut commands: Commands,
+	requests: Query<(Entity, &RequestForceOffscreen)>,
+	mut style: ResMut<VisualStyleSetting>,
+	mut status: Option<ResMut<game_commands::ui::GameCommandStatusText>>,
+) {
+	let mut last = None;
+	for (entity, request) in &requests {
+		style.set_force_offscreen(request.0);
+		last = Some(request.0);
+		commands.entity(entity).despawn();
+	}
+	let Some(value) = last else {
+		return;
+	};
+	let line = format!("force offscreen {value}");
+	if let Some(status) = status.as_mut() {
+		status.0 = line.clone();
+	}
+	info!("{line}");
 }
 
 pub(crate) fn apply_render_scale_requests(
@@ -196,6 +433,99 @@ pub(crate) fn apply_render_scale_requests(
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn visual_style_parses_script_ids() -> anyhow::Result<()> {
+		assert_eq!(parse_visual_style_env(None), None);
+		assert_eq!(parse_visual_style_env(Some("")), None);
+		assert_eq!(parse_visual_style_env(Some("native")), Some(VisualStyle::Native));
+		assert_eq!(parse_visual_style_env(Some("impressionist")), Some(VisualStyle::Impressionist));
+		assert_eq!(parse_visual_style_env(Some("watercolor")), Some(VisualStyle::Watercolor));
+		assert_eq!(parse_visual_style_env(Some("sharp")), Some(VisualStyle::Sharp));
+		assert_eq!(parse_visual_style_env(Some("retro")), Some(VisualStyle::Retro));
+		assert_eq!(parse_visual_style_env(Some("antediluvian")), Some(VisualStyle::Antediluvian));
+		assert_eq!(
+			parse_visual_style_env(Some("pre_post_modern")),
+			Some(VisualStyle::PrePostModern)
+		);
+		assert_eq!(parse_visual_style_env(Some("unknown")), None);
+		Ok(())
+	}
+
+	#[test]
+	fn visual_style_setting_defaults_to_native() -> anyhow::Result<()> {
+		let setting = VisualStyleSetting::default();
+		assert_eq!(setting.effective(), VisualStyle::Native);
+		Ok(())
+	}
+
+	#[test]
+	fn force_offscreen_env_parses_common_flags() -> anyhow::Result<()> {
+		assert!(!parse_force_offscreen_env(None));
+		assert!(!parse_force_offscreen_env(Some("")));
+		assert!(parse_force_offscreen_env(Some("1")));
+		assert!(parse_force_offscreen_env(Some("on")));
+		assert!(parse_force_offscreen_env(Some("TRUE")));
+		Ok(())
+	}
+
+	#[test]
+	fn force_offscreen_keeps_native_and_requires_blit() -> anyhow::Result<()> {
+		let mut setting = VisualStyleSetting::default();
+		setting.set(VisualStyle::Native);
+		setting.set_force_offscreen(true);
+		let window = UVec2::new(1920, 1080);
+		let plan = setting.plan(window, 1.0);
+		assert_eq!(plan.target_size, window);
+		assert_eq!(plan.treatment, PresentationTreatment::None);
+		assert!(plan.requires_offscreen(window));
+		Ok(())
+	}
+
+	#[test]
+	fn sharp_plan_stays_offscreen_without_the_force_flag() -> anyhow::Result<()> {
+		let mut setting = VisualStyleSetting::default();
+		setting.set(VisualStyle::Sharp);
+		let window = UVec2::new(1920, 1080);
+		let plan = setting.plan(window, 1.0);
+		assert_eq!(plan.target_size, window);
+		assert_eq!(plan.treatment, PresentationTreatment::None);
+		assert!(plan.force_offscreen);
+		assert!(plan.requires_offscreen(window));
+		Ok(())
+	}
+
+	#[test]
+	fn treatment_override_keeps_style_resolution() -> anyhow::Result<()> {
+		let mut setting = VisualStyleSetting::default();
+		setting.set(VisualStyle::Impressionist);
+		setting.set_treatment_override(Some(PresentationTreatment::None));
+		let window = UVec2::new(1920, 1080);
+		let plan = setting.plan(window, 1.0);
+		assert_eq!(plan.target_size, UVec2::new(700, 394));
+		assert_eq!(plan.treatment, PresentationTreatment::None);
+		assert!(plan.requires_offscreen(window));
+		assert_eq!(
+			parse_presentation_treatment_env(Some("none")),
+			Some(PresentationTreatment::None)
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn apply_visual_style_request_is_consumed() -> anyhow::Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
+
+		let mut world = World::new();
+		world.init_resource::<Messages<RequestVisualStyle>>();
+		world.insert_resource(VisualStyleSetting::default());
+		world.write_message(RequestVisualStyle(VisualStyle::Retro));
+		world
+			.run_system_once(apply_visual_style_requests)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(world.resource::<VisualStyleSetting>().requested(), Some(VisualStyle::Retro));
+		Ok(())
+	}
 
 	#[test]
 	fn clamp_rejects_out_of_range_and_non_finite() -> anyhow::Result<()> {

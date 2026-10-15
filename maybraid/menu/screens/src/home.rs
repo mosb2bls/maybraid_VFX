@@ -13,11 +13,12 @@ use menu_components::TextMenuPlugin;
 use menu_components::{MenuObjectiveKind, TextCursorRow};
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::MenuScreen;
 
 /// Queue a home-screen spawn (despawns any existing home UI first).
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowHome;
 
 /// Marker on the spawned home-screen root.
@@ -126,18 +127,18 @@ pub struct HomeScreenPlugin;
 impl Plugin for HomeScreenPlugin {
 	fn build(&self, app: &mut App) {
 		add_menu_input(app);
-		app.add_plugins(TextMenuPlugin::<HomeMenuChoice>::default())
-			.add_systems(Update, apply_show_home);
+		app.add_plugins(TextMenuPlugin::<HomeMenuChoice>::default());
+		add_menu_show_systems(app, apply_show_home);
 	}
 }
 
 fn apply_show_home(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowHome>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowHome>>,
+	screens: MenuScreens,
 	save_root: Option<Res<SaveRoot>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	let has_characters = roster_has_characters(save_root.as_deref());
@@ -227,9 +228,6 @@ mod tests {
 		super::request_show_home(&mut commands);
 		world.flush();
 		assert_eq!(world.query::<&super::RequestShowHome>().iter(&world).count(), 1);
-		assert_eq!(
-			world.query::<&item_icons::RequestPruneItemIconCache>().iter(&world).count(),
-			1
-		);
+		assert_eq!(world.query::<&item_icons::RequestPruneItemIconCache>().iter(&world).count(), 1);
 	}
 }

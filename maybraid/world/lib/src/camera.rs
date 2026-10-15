@@ -26,6 +26,19 @@ const WORLD_CAMERA_FAR: f32 = 8_000.0;
 const WORLD_CAMERA_NEAR: f32 = 0.1;
 const WORLD_FREE_CAMERA_SPEED: f32 = 40.0;
 
+type PlayerFollowQuery<'w, 's> = Query<
+	'w,
+	's,
+	(Entity, &'static Transform),
+	(With<Player>, With<CameraFollow>, Without<Camera3d>),
+>;
+type CameraFollowQuery<'w, 's> = Query<
+	'w,
+	's,
+	(&'static mut Transform, &'static CameraController, &'static FollowCamera),
+	(With<Camera3d>, Without<Player>),
+>;
+
 #[derive(Component)]
 struct WorldFreeCamera {
 	speed: f32,
@@ -166,11 +179,8 @@ fn fly_world_camera(
 pub(crate) fn obstruct_world_camera(
 	mode: Res<PlaygroundMode>,
 	spatial: SpatialQuery,
-	players: Query<(Entity, &Transform), (With<Player>, With<CameraFollow>, Without<Camera3d>)>,
-	mut cameras: Query<
-		(&mut Transform, &CameraController, &FollowCamera),
-		(With<Camera3d>, Without<Player>),
-	>,
+	players: PlayerFollowQuery,
+	mut cameras: CameraFollowQuery,
 ) {
 	if *mode != PlaygroundMode::Character {
 		return;

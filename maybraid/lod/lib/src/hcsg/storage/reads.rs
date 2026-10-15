@@ -24,6 +24,7 @@ impl HcsgStorage {
 	}
 
 	/// Stored ids of `T` whose bounds intersect `region`, in id order.
+	#[cfg(any(test, feature = "test-support"))]
 	fn blocking_overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
 		self.store::<T>()
 			.map(|store| read(&store.nodes).overlapping(region))
@@ -50,14 +51,18 @@ impl HcsgStorage {
 		self.blocking_entry::<T>(id)
 	}
 
-	#[cfg(any(test, feature = "test-support"))]
-	pub fn contains<T: HcsgValue>(&self, id: Id) -> bool {
+	fn contains_impl<T: HcsgValue>(&self, id: Id) -> bool {
 		self.store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
 	}
 
 	#[cfg(not(any(test, feature = "test-support")))]
-	pub(crate) fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
-		self.blocking_overlapping::<T>(region)
+	pub(crate) fn contains<T: HcsgValue>(&self, id: Id) -> bool {
+		self.contains_impl::<T>(id)
+	}
+
+	#[cfg(any(test, feature = "test-support"))]
+	pub fn contains<T: HcsgValue>(&self, id: Id) -> bool {
+		self.contains_impl::<T>(id)
 	}
 
 	#[cfg(any(test, feature = "test-support"))]
@@ -78,6 +83,25 @@ impl HcsgStorage {
 		};
 		let entry = try_read(&store.nodes)?.entry(id).cloned();
 		Ok(entry)
+	}
+
+	/// Like [`Self::try_entry`] for each id in `ids`, resolving the typed store
+	/// once and holding one store read lock for the whole batch. `Err(Busy)`
+	/// only when the registry lock is busy; if the store read lock is busy, the
+	/// returned vec is empty (same as failing on the first id in a
+	/// [`Self::try_entry`] loop).
+	pub fn try_entries<T: HcsgValue>(
+		&self,
+		ids: &[Id],
+	) -> Result<Vec<Option<StoredEntry<Arc<T>>>>, Busy> {
+		let Some(store) = self.try_store::<T>()? else {
+			return Ok(vec![None; ids.len()]);
+		};
+		let nodes = match try_read(&store.nodes) {
+			Ok(nodes) => nodes,
+			Err(Busy) => return Ok(Vec::new()),
+		};
+		Ok(ids.iter().map(|id| nodes.entry(*id).cloned()).collect())
 	}
 
 	/// [`Self::overlapping`] for the frame: never waits on a lock.

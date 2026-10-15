@@ -35,6 +35,15 @@ pub enum AgentEventBody {
 		yaw: f32,
 		#[serde(rename = "move")]
 		r#move: [f32; 2],
+		/// Composed Durham height under the capsule, when that cell is published.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		ground: Option<f32>,
+		/// Overhead map is visible (player-toggled or locked picker).
+		#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+		map_open: bool,
+		/// Locked first-life / death spawn picker (`map.open && close_locked`).
+		#[serde(default, skip_serializing_if = "std::ops::Not::not")]
+		picker: bool,
 	},
 	Command {
 		id: u32,
@@ -62,6 +71,24 @@ pub enum AgentEventBody {
 		hosts: u32,
 		bodies: u32,
 		brains: u32,
+		/// Lowest / highest mob-body Y when `bodies > 0`.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		min_y: Option<f32>,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		max_y: Option<f32>,
+		/// Composed height under the lowest body, when that cell is published.
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		ground_at_min_y: Option<f32>,
+	},
+	/// Locked first-life / death spawn picker opened or closed.
+	Picker {
+		open: bool,
+	},
+	/// Offscreen present image resize or blit/camera recreate.
+	Presentation {
+		action: String,
+		window: [u32; 2],
+		target: [u32; 2],
 	},
 	Quit,
 }
@@ -89,9 +116,25 @@ impl AgentEvent {
 				Some(format!("agent.waypoint #{id} {status} {:.1},{:.1}", xz[0], xz[1]))
 			}
 			AgentEventBody::Ready { detail } => Some(format!("agent.ready {detail}")),
-			AgentEventBody::Actors { hosts, bodies, brains } => {
-				Some(format!("agent.actors hosts={hosts} bodies={bodies} brains={brains}"))
+			AgentEventBody::Picker { open } => Some(format!("agent.picker open={open}")),
+			AgentEventBody::Actors { hosts, bodies, brains, min_y, max_y, ground_at_min_y } => {
+				let mut message =
+					format!("agent.actors hosts={hosts} bodies={bodies} brains={brains}");
+				if let Some(min_y) = min_y {
+					message.push_str(&format!(" min_y={min_y:.1}"));
+				}
+				if let Some(max_y) = max_y {
+					message.push_str(&format!(" max_y={max_y:.1}"));
+				}
+				if let Some(ground) = ground_at_min_y {
+					message.push_str(&format!(" ground={ground:.1}"));
+				}
+				Some(message)
 			}
+			AgentEventBody::Presentation { action, window, target } => Some(format!(
+				"agent.presentation {action} window {}x{} target {}x{}",
+				window[0], window[1], target[0], target[1]
+			)),
 			_ => None,
 		}
 	}
@@ -106,7 +149,16 @@ mod tests {
 		let event = AgentEvent {
 			t: 1.25,
 			frame: 74,
-			body: AgentEventBody::Player { x: 3.0, y: 12.5, z: -1.0, yaw: 0.4, r#move: [0.0, 1.0] },
+			body: AgentEventBody::Player {
+				x: 3.0,
+				y: 12.5,
+				z: -1.0,
+				yaw: 0.4,
+				r#move: [0.0, 1.0],
+				ground: Some(11.4),
+				map_open: false,
+				picker: false,
+			},
 		};
 		let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
 		let parsed = AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -120,15 +172,70 @@ mod tests {
 		let event = AgentEvent {
 			t: 30.0,
 			frame: 1800,
-			body: AgentEventBody::Actors { hosts: 4, bodies: 61, brains: 61 },
+			body: AgentEventBody::Actors {
+				hosts: 4,
+				bodies: 61,
+				brains: 61,
+				min_y: Some(-2.0),
+				max_y: Some(14.0),
+				ground_at_min_y: Some(0.5),
+			},
 		};
 		let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert!(line.contains(r#""kind":"actors""#));
 		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
 		assert_eq!(
 			event.tracy_message().as_deref(),
-			Some("agent.actors hosts=4 bodies=61 brains=61")
+			Some("agent.actors hosts=4 bodies=61 brains=61 min_y=-2.0 max_y=14.0 ground=0.5")
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn older_player_and_actors_lines_still_parse() -> anyhow::Result<()> {
+		let player = AgentEvent::parse_line(
+			r#"{"t":1.0,"frame":10,"kind":"player","x":0.0,"y":1.4,"z":0.0,"yaw":0.0,"move":[0,0]}"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(matches!(
+			player.body,
+			AgentEventBody::Player { ground: None, map_open: false, picker: false, .. }
+		));
+		let actors = AgentEvent::parse_line(
+			r#"{"t":2.0,"frame":20,"kind":"actors","hosts":1,"bodies":3,"brains":3}"#,
+		)
+		.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(matches!(
+			actors.body,
+			AgentEventBody::Actors { min_y: None, max_y: None, ground_at_min_y: None, .. }
+		));
+		Ok(())
+	}
+
+	#[test]
+	fn picker_roundtrip_and_tracy_message() -> anyhow::Result<()> {
+		let event = AgentEvent { t: 8.0, frame: 480, body: AgentEventBody::Picker { open: true } };
+		let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(line.contains(r#""kind":"picker""#));
+		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
+		assert_eq!(event.tracy_message().as_deref(), Some("agent.picker open=true"));
+		Ok(())
+	}
+
+	#[test]
+	fn presentation_roundtrip() -> anyhow::Result<()> {
+		let event = AgentEvent {
+			t: 12.0,
+			frame: 700,
+			body: AgentEventBody::Presentation {
+				action: "resize".into(),
+				window: [1920, 1052],
+				target: [719, 394],
+			},
+		};
+		let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(line.contains(r#""kind":"presentation""#));
+		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
 		Ok(())
 	}
 

@@ -90,6 +90,25 @@ mod tests {
 		"biome-traverse.jsonl",
 		"locomotion-mix.jsonl",
 		"remote-start.jsonl",
+		"origin-first-spawn.jsonl",
+		"origin-picker.jsonl",
+		"dusk-spawn.jsonl",
+		"death-picker.jsonl",
+		"character-switch-spawn.jsonl",
+		"poi-picker-cycle.jsonl",
+		"mob-spawns.jsonl",
+		"visual-style-idle.jsonl",
+		"visual-style-idle-watercolor.jsonl",
+		"visual-style-idle-native.jsonl",
+		"visual-style-idle-sharp.jsonl",
+		"visual-style-idle-offscreen.jsonl",
+		"visual-style-idle-retro.jsonl",
+		"visual-style-idle-antediluvian.jsonl",
+		"visual-style-idle-pre-post-modern.jsonl",
+		"visual-style-traverse.jsonl",
+		"visual-style-traverse-native.jsonl",
+		"visual-style-traverse-sharp.jsonl",
+		"visual-style-traverse-antediluvian.jsonl",
 	];
 
 	#[test]
@@ -111,8 +130,8 @@ mod tests {
 
 	#[test]
 	fn no_start_leaves_commands() -> anyhow::Result<()> {
-		let mut commands =
-			read_script_text("{\"cmd\":\"wait\",\"secs\":1}\n").map_err(|e| anyhow::anyhow!("{e}"))?;
+		let mut commands = read_script_text("{\"cmd\":\"wait\",\"secs\":1}\n")
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(take_leading_start(&mut commands), None);
 		assert_eq!(commands.len(), 1);
 		Ok(())
@@ -145,6 +164,17 @@ mod tests {
 					idx + 1
 				);
 			}
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn home_first_scripts_do_not_take_a_leading_start() -> anyhow::Result<()> {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
+		for name in ["character-switch-spawn.jsonl", "poi-picker-cycle.jsonl"] {
+			let mut commands =
+				read_script_commands(&root.join(name)).map_err(|e| anyhow::anyhow!("{e}"))?;
+			assert_eq!(take_leading_start(&mut commands), None, "{name}");
 		}
 		Ok(())
 	}

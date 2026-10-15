@@ -119,7 +119,7 @@ impl ThreatKnowledge {
 		known.confidence = known.confidence.max(confidence);
 		known.sources.insert(source);
 		known.last_confirmed_at = now;
-		known.memberships = record.affiliations.clone();
+		known.memberships.replace_if_changed(&record.affiliations);
 		Some(known)
 	}
 
@@ -162,7 +162,7 @@ impl ThreatKnowledge {
 				known.entity = Some(record.entity);
 				known.last_known_position = record.position;
 				known.salience = record.salience;
-				known.memberships = record.affiliations.clone();
+				known.memberships.replace_if_changed(&record.affiliations);
 			} else {
 				known.entity = None;
 			}
@@ -256,7 +256,8 @@ impl ThreatIntelligenceUser {
 		spotting: &SpottingUser,
 	) -> bool {
 		let range = self.alert_spotting_range(knowledge, spotting);
-		self.idle_spotting_range <= 0.0 || spotting.directives.iter().any(|directive| directive.range != range)
+		self.idle_spotting_range <= 0.0
+			|| spotting.directives.iter().any(|directive| directive.range != range)
 	}
 
 	/// Stretch or restore spotting directives so hinted subjects can be probed.

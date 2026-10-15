@@ -44,7 +44,9 @@ pub(crate) fn queue_downed_member_deaths(
 			.unwrap_or_else(MobRespawn::never);
 		// Always queue the corpse. Roster misses used to `continue` first, so a
 		// stale live pointer left a 0-HP plant that `apply_hits` then ignored.
-		commands.entity(entity).try_insert(DespawnAfter::seconds(policy.corpse_secs));
+		if let Ok(mut commands) = commands.get_entity(entity) {
+			commands.try_insert(DespawnAfter::seconds(policy.corpse_secs));
+		}
 		let Ok((mut roster, _)) = rosters.get_mut(membership.mob) else {
 			continue;
 		};
@@ -110,12 +112,14 @@ fn roster_needs_writeback(
 	host: Entity,
 	live: &[(Entity, Entity, u16, Vec3, Option<Health>)],
 ) -> bool {
-	roster.iter().any(|(slot, member)| match live_snapshot(live, host, slot, member.entity) {
-		Some((pose, health)) => {
-			member.pose != pose || health.is_some_and(|health| member.health != health)
-		}
-		None => member.entity.is_some(),
-	})
+	roster
+		.iter()
+		.any(|(slot, member)| match live_snapshot(live, host, slot, member.entity) {
+			Some((pose, health)) => {
+				member.pose != pose || health.is_some_and(|health| member.health != health)
+			}
+			None => member.entity.is_some(),
+		})
 }
 
 fn live_snapshot(

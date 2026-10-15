@@ -23,8 +23,8 @@ pub use durham::{TerrainCoverage, WorldBaseTerrain, WORLD_FINE_HALF_EXTENT_CELLS
 pub use game_commands::command::PendingStartupCommand;
 pub use player::{
 	holding_elevation, player_position_above_surface, player_spawn_point_at, spawn_player_body,
-	AwaitingTerrainSurface, CharacterCameraFollowEnabled, CharacterLocomotion, Jumping, MoveWish,
-	MovementAction, OffTerrainAnchor, PadMovementEnabled, Player, PlayerCapsule,
+	surface_or_hold_at, AwaitingTerrainSurface, CharacterCameraFollowEnabled, CharacterLocomotion,
+	Jumping, MoveWish, MovementAction, OffTerrainAnchor, PadMovementEnabled, Player, PlayerCapsule,
 	PlayerControlSystems, PlayerPhysicsEnabled, PlayerPlugin, PlayerSpawnXz, PlaygroundMode,
 	VegetationPlayerMotor,
 };
@@ -42,7 +42,7 @@ use camera::{
 use character::{apply_set_character, drive_player_locomotion};
 use characters::{CharacterHostsPlugin, CharacterMotionSystems};
 use durham::DurhamSurface;
-use game_commands::command::{TextEntryBlocked, TextEntryFocus};
+use game_commands::command::TextEntryFocus;
 use game_commands::ui::GameCommandStatusText;
 use maybraid_input::{PadGameplayEnabled, VirtualPadPlugin, VirtualPadSystems};
 use player::{respawn_player_on_layout, snap_player_to_composed_surface};
@@ -136,13 +136,10 @@ fn apply_mode_commands(
 	}
 }
 
-fn sync_pad_gameplay(
-	focus: Option<Res<TextEntryFocus>>,
-	blocked: Option<Res<TextEntryBlocked>>,
-	mut enabled: ResMut<PadGameplayEnabled>,
-) {
-	let text = focus.is_some_and(|focus| focus.0) || blocked.is_some_and(|blocked| blocked.0);
-	enabled.0 = !text;
+fn sync_pad_gameplay(focus: Option<Res<TextEntryFocus>>, mut enabled: ResMut<PadGameplayEnabled>) {
+	// Only the console focus lane. A name-modal sets `TextEntryBlocked` so `/`
+	// stays off the field; the pad must stay up for the keypad.
+	enabled.set_text(!focus.is_some_and(|focus| focus.0));
 }
 
 #[cfg(test)]

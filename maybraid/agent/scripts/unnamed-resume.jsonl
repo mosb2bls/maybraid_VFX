@@ -1,0 +1,33 @@
+# Home-first: Characters → Unnamed (93fb9809), then Discovery.
+# Unnamed's last sample is underground (930.8, -150.7, 1391.5).
+# No leading `start` / `--start-at`. Do not send `stats vsync`.
+# Gallery order with wa active: wa, nader, qader, dew, Unnamed (4 downs).
+
+{"cmd":"scenario","name":"unnamed-resume-warmup","mark":"start"}
+{"cmd":"wait","secs":1}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":1}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":1}
+{"cmd":"press","button":"stance"}
+{"cmd":"wait","secs":2}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":28}
+{"cmd":"scenario","name":"unnamed-resume-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"unnamed-resume","mark":"start"}
+{"cmd":"wait","secs":12}
+{"cmd":"scenario","name":"unnamed-resume","mark":"end"}
+{"cmd":"quit"}

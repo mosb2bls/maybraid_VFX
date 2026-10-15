@@ -23,8 +23,14 @@ use world_player::{
 use crate::map_view::WorldMapView;
 
 /// When `false`, world movement / POV intents are ignored (menus, pause overlay).
+/// Pause must not be treated as a play-session teardown.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorldGameplayEnabled(pub bool);
+
+/// Explicit play-session teardown. The game shell writes this when leaving
+/// to Home. Pause must not write it.
+#[derive(Message, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorldPlaySessionEnded;
 
 /// Keep third-person follow while the in-game inventory editor is open.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -49,6 +55,11 @@ impl Default for WorldSceneryVisible {
 /// Local spawn collider + composed height are ready for Discovery drop-in.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct WorldSurfaceReady(pub bool);
+
+/// Home / Characters shell. The game sets this from [`GameFlow`] so the agent
+/// can start Home-first scripts without inferring the menu from streaming.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct WorldMenuShell(pub bool);
 
 /// Terrain column under the player. The shell unveils after this.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,15 +97,55 @@ fn discovery_xz(
 	layout.region_center_xz().xz()
 }
 
+type WorldOnlyPlayerQuery<'w, 's> =
+	Query<'w, 's, Entity, (With<Player>, Without<MaybraidPlayer>, Added<Player>)>;
+
+/// Mark the world capsule as a Lubikan owner. [`lubikans::LubikansPlugin`]
+/// attaches the Self ledger in `LubikanSystems::Owner`; do not insert
+/// `LubikanLedger::with_self` here. [#1112](https://github.com/ramate-io/maybraid/issues/1112)
+/// can drop its temporary attach once this grant is on the stack.
+///
+/// Also inserts `player::Player` (the generic player marker from the player crate)
+/// so that `combat-hud` vitals and continuous bars can query this entity.
+pub fn grant_world_player_lubikan_owner(
+	mut commands: Commands,
+	// Match world players that don't have generic player::Player marker
+	// This runs when the world player spawns AND when it respawns after death
+	world_only: WorldOnlyPlayerQuery,
+) {
+	for player in &world_only {
+		commands.entity(player).insert((
+			MaybraidPlayer, // This is player::Player
+			lubikans::LubikanOwner,
+		));
+	}
+}
+
+pub fn sync_lubikan_session(
+	mut ended: MessageReader<WorldPlaySessionEnded>,
+	mut lives: MessageWriter<lubikans::LubikanOwnerLifetime>,
+) {
+	if ended.read().next().is_none() {
+		return;
+	}
+	lives.write(lubikans::LubikanOwnerLifetime::new(
+		None,
+		None,
+		lubikans::LubikanOwnerLifetimeKind::RestartSession,
+	));
+}
+
 pub(crate) fn sync_combat_hud_visible(
 	gameplay: Res<WorldGameplayEnabled>,
+	map: Option<Res<WorldMapView>>,
 	hud: Option<ResMut<combat_hud::CombatHudVisible>>,
 ) {
 	let Some(mut hud) = hud else {
 		return;
 	};
-	if hud.0 != gameplay.0 {
-		hud.0 = gameplay.0;
+	let next = gameplay.0 && !map.is_some_and(|map| map.open);
+	if hud.0 != next {
+		hud.0 = next;
 	}
 }
 
@@ -246,20 +297,26 @@ pub(crate) fn stamp_vegetation_motor_traction(
 	}
 }
 
+type PlayerMotorMissingQuery<'w, 's> =
+	Query<'w, 's, Entity, (With<Player>, Without<CharacterController>)>;
+type PlayerMotorPresentQuery<'w, 's> = Query<
+	'w,
+	's,
+	(
+		Entity,
+		Option<&'static CharacterStance>,
+		Option<&'static RestLocomotionCapsule>,
+		Option<&'static LocomotionCapsule>,
+	),
+	(With<Player>, With<CharacterController>),
+>;
+
 /// Put the world player on the player-crate capsule motor so column buoyancy runs.
 pub(crate) fn stamp_world_player_motor(
 	physics: Res<PlayerPhysicsEnabled>,
 	mut commands: Commands,
-	missing: Query<Entity, (With<Player>, Without<CharacterController>)>,
-	present: Query<
-		(
-			Entity,
-			Option<&CharacterStance>,
-			Option<&RestLocomotionCapsule>,
-			Option<&LocomotionCapsule>,
-		),
-		(With<Player>, With<CharacterController>),
-	>,
+	missing: PlayerMotorMissingQuery,
+	present: PlayerMotorPresentQuery,
 ) {
 	if physics.0 {
 		for entity in &missing {
@@ -412,5 +469,48 @@ mod tests {
 		world.run_system_once(stamp_world_player_motor).expect("restore stance");
 		assert!(world.get::<CharacterStance>(player).is_some());
 		assert!(world.get::<RestLocomotionCapsule>(player).is_some());
+	}
+
+	#[test]
+	fn grant_marks_vegetation_player_without_inserting_a_ledger() {
+		use bevy::ecs::system::RunSystemOnce;
+		use lubikans::{LubikanLedger, LubikanOwner};
+
+		let mut world = World::new();
+		let player = world.spawn(Player).id();
+		world.run_system_once(grant_world_player_lubikan_owner).expect("grant owner");
+		assert!(world.get::<LubikanOwner>(player).is_some());
+		assert!(world.get::<LubikanLedger>(player).is_none());
+		world
+			.run_system_once(grant_world_player_lubikan_owner)
+			.expect("grant is idempotent");
+		assert!(world.get::<LubikanOwner>(player).is_some());
+	}
+
+	#[test]
+	fn pause_does_not_end_the_play_session() {
+		use bevy::ecs::system::RunSystemOnce;
+		use lubikans::{LubikanOwnerLifetime, LubikanOwnerLifetimeKind};
+
+		fn take_notices(
+			mut notices: MessageReader<LubikanOwnerLifetime>,
+		) -> Vec<LubikanOwnerLifetime> {
+			notices.read().copied().collect()
+		}
+
+		let mut world = World::new();
+		world.init_resource::<Messages<LubikanOwnerLifetime>>();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.run_system_once(sync_lubikan_session).expect("initial sync");
+		world.resource_mut::<WorldGameplayEnabled>().0 = false;
+		world.run_system_once(sync_lubikan_session).expect("paused sync");
+		let paused = world.run_system_once(take_notices).expect("read pause notices");
+		assert!(paused.is_empty());
+		world.write_message(WorldPlaySessionEnded);
+		world.run_system_once(sync_lubikan_session).expect("ended sync");
+		let notices = world.run_system_once(take_notices).expect("read restart notices");
+		assert_eq!(notices.len(), 1);
+		assert_eq!(notices[0].kind, LubikanOwnerLifetimeKind::RestartSession);
 	}
 }

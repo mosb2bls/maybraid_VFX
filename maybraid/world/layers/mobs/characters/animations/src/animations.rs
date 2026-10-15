@@ -42,8 +42,8 @@ pub use idle::Idle;
 pub use jab::{Jab, DEFAULT_BACKSWING, DEFAULT_JAB_TARGET};
 pub use land::Land;
 pub use lateral_undulation::LateralUndulation;
-pub use leap::{Leap, AIR_END, TAKEOFF_END};
-pub use mix::{burst_envelope, smoothstep, Mix, Smooth, DEFAULT_BURST_EDGE};
+pub use leap::{Leap, LeapPhase, LeapTimeline, AIR_END, TAKEOFF_END};
+pub use mix::{burst_envelope, smoothstep, LinearBlend, Mix, Smooth, DEFAULT_BURST_EDGE};
 pub use prone::Prone;
 pub use quadruped_bray::{
 	EpiphantBray, MOUTH_EMIT_NECK_LOCAL, MOUTH_EMIT_SOCKET, SONIC_EMIT_NORM,

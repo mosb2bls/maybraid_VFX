@@ -31,11 +31,12 @@ pub fn apply_hits(
 			.get(target)
 			.map(|(transform, band)| band.scale(transform, hit.point, hit.amount))
 			.unwrap_or(hit.amount);
-		pool.apply_damage(amount);
+		let lost = pool.take_damage(amount);
 		applied.write(DamageApplied {
 			target,
 			source: hit.source,
 			amount,
+			applied: lost,
 			remaining: pool.current,
 			point: hit.point,
 		});
@@ -95,6 +96,27 @@ mod tests {
 	}
 
 	#[test]
+	fn overkill_reports_applied_hp_not_requested() -> Result<()> {
+		let mut app = App::new();
+		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
+		app.add_systems(Update, apply_hits);
+		let target = app.world_mut().spawn(Health::from_max(10.0)).id();
+		app.world_mut().write_message(Hit {
+			target,
+			source: None,
+			amount: 25.0,
+			point: Vec3::ZERO,
+			allow_self: false,
+		});
+		app.update();
+		let remaining = app.world().get::<Health>(target).map(|health| health.current);
+		if remaining != Some(0.0) {
+			return Err(anyhow!("overkill should empty the pool, got {remaining:?}"));
+		}
+		Ok(())
+	}
+
+	#[test]
 	fn already_dead_health_ignores_further_hits() -> Result<()> {
 		let mut app = App::new();
 		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
@@ -115,6 +137,62 @@ mod tests {
 		let died: Vec<_> = app.world_mut().resource_mut::<Messages<Died>>().drain().collect();
 		if !died.is_empty() {
 			return Err(anyhow!("already-dead hits must not emit Died, got {}", died.len()));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn burst_on_child_hulls_remounts_and_kills_once() -> Result<()> {
+		let mut app = App::new();
+		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
+		app.add_systems(Update, apply_hits);
+		let parent = app.world_mut().spawn(Health::from_max(18.0)).id();
+		let body = app.world_mut().spawn(ChildOf(parent)).id();
+		let head = app.world_mut().spawn(ChildOf(parent)).id();
+		for target in [body, head, body, head, body, head] {
+			app.world_mut().write_message(Hit {
+				target,
+				source: None,
+				amount: 7.0,
+				point: Vec3::new(0.0, 1.6, 0.0),
+				allow_self: false,
+			});
+		}
+		app.update();
+		let remaining = app.world().get::<Health>(parent).map(|health| health.current);
+		if remaining != Some(0.0) {
+			return Err(anyhow!("child hull burst should empty parent health, got {remaining:?}"));
+		}
+		let died: Vec<_> = app.world_mut().resource_mut::<Messages<Died>>().drain().collect();
+		if died.len() != 1 || died[0].entity != parent {
+			return Err(anyhow!("parent should die once, got {died:?}"));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn burst_of_hits_in_one_frame_emits_one_death() -> Result<()> {
+		let mut app = App::new();
+		app.add_message::<Hit>().add_message::<DamageApplied>().add_message::<Died>();
+		app.add_systems(Update, apply_hits);
+		let target = app.world_mut().spawn(Health::from_max(20.0)).id();
+		for _ in 0..8 {
+			app.world_mut().write_message(Hit {
+				target,
+				source: None,
+				amount: 6.0,
+				point: Vec3::new(1.0, 1.8, 0.0),
+				allow_self: false,
+			});
+		}
+		app.update();
+		let remaining = app.world().get::<Health>(target).map(|health| health.current);
+		if remaining != Some(0.0) {
+			return Err(anyhow!("burst should empty the pool, got {remaining:?}"));
+		}
+		let died: Vec<_> = app.world_mut().resource_mut::<Messages<Died>>().drain().collect();
+		if died.len() != 1 {
+			return Err(anyhow!("one killing blow should emit one Died, got {}", died.len()));
 		}
 		Ok(())
 	}
