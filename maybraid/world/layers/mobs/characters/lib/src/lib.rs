@@ -64,9 +64,10 @@ pub use components::{
 };
 pub use concepts::ConceptAnimation;
 pub use fixed::{
-	drain_character_assembly, fixed_character_assembly_chunks, spawn_fixed_character_assembly,
-	spawn_fixed_character_visual, CharacterAssemblyBudget, CharacterAssemblyDiagnostics,
-	PendingCharacterAssembly, FIXED_ASSEMBLY_CHUNK_WEIGHT,
+	drain_character_assembly, drain_character_assembly_now, fixed_character_assembly_chunks,
+	spawn_fixed_character_assembly, spawn_fixed_character_visual, CharacterAssemblyBudget,
+	CharacterAssemblyDiagnostics, HiddenUntilSceneReady, PendingCharacterAssembly,
+	FIXED_ASSEMBLY_CHUNK_WEIGHT,
 };
 pub use hosts::CharacterHostsPlugin;
 pub use layer::{Layer, Layers};

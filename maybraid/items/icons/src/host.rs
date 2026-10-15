@@ -1,16 +1,18 @@
 //! Realize posed, painted inventory subjects into isolated capture roots.
 
 use bevy::ecs::entity_disabling::Disabled;
+use bevy::ecs::query::Allow;
 use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
 use character_items::{ClothingHost, ClothingMesh, InventoryItem, ItemColor};
 use character_shaders::{ClothingShaderMaterial, FaceShaderMaterial};
 use characters::{
-	add_character_components_host, character_bounds, spawn_fixed_character_assembly,
-	species::braidman::BraidmanConfig, AnimClip, AnimMailbox, AnimProgress, AnimRef, AnimRefRoot,
-	CharacterComponents, CharacterComponentsPlugin, CharacterHostsPlugin, CharacterMotionSystems,
-	CharacterRecipe, CharacterRig, CharacterRigRole, ClothingLayer, ComponentsOnly, Layers,
-	PartNode,
+	add_character_components_host, character_bounds, drain_character_assembly_now,
+	spawn_fixed_character_assembly, species::braidman::BraidmanConfig, AnimClip, AnimMailbox,
+	AnimProgress, AnimRef, AnimRefRoot, AnimateBones, AnimateEffects, CharacterComponents,
+	CharacterComponentsPlugin, CharacterHostsPlugin, CharacterMotionSystems, CharacterRecipe,
+	CharacterRig, CharacterRigRole, ClothingLayer, ComponentsOnly, HiddenUntilSceneReady, Layers,
+	PartNode, PendingCharacterAssembly,
 };
 use firearm_user::GeneratedFirearm;
 use firearms_components::{
@@ -86,6 +88,11 @@ pub struct CapturePoseSpec {
 #[derive(Component)]
 pub struct CaptureHostRealized;
 
+/// Fixed-assembly visual under a pose capture host. Drained without the world
+/// streaming budget so isolated stills do not wait behind nearby mobs.
+#[derive(Component)]
+struct CapturePoseAssembly;
+
 /// Bind-pose garment with catalog material — same inspect path as the menu preview.
 #[derive(Clone, PartialEq, Component)]
 struct ClothingIconPreview {
@@ -128,7 +135,14 @@ pub fn install_capture_hosts(app: &mut App) {
 	if !app.is_plugin_added::<GrenadeMaterialPlugin>() {
 		app.add_plugins(GrenadeMaterialPlugin);
 	}
-	app.add_systems(Update, pose_representative_hosts.before(CharacterMotionSystems::Anim));
+	app.add_systems(
+		Update,
+		(
+			drain_capture_pose_assemblies,
+			pose_representative_hosts.before(CharacterMotionSystems::Anim),
+			log_pose_host_wait,
+		),
+	);
 }
 
 pub fn remember_item(subjects: &mut ItemCaptureSubjects, item: &InventoryItem) {
@@ -197,7 +211,11 @@ pub fn pose_representative_hosts(
 			if needs {
 				commands.entity(entity).try_insert(AnimRefRoot(desired));
 			}
-			commands.entity(entity).try_insert(AnimProgress(spec.progress));
+			commands.entity(entity).try_insert((
+				AnimProgress(spec.progress),
+				AnimateBones,
+				AnimateEffects,
+			));
 		});
 	}
 }
@@ -209,9 +227,16 @@ pub fn mark_capture_hosts_ready(
 		(With<CaptureHostRoot>, With<CaptureHostRealized>, Without<CaptureHostReady>),
 	>,
 	children: Query<&Children>,
-	pending_spawn: Query<(), With<LodLevelSpawnRequest>>,
-	pending_root: Query<(), With<LodLevelRootPending>>,
-	meshes: Query<Entity, With<Mesh3d>>,
+	pending: Query<
+		(),
+		Or<(
+			With<LodLevelSpawnRequest>,
+			With<LodLevelRootPending>,
+			With<PendingCharacterAssembly>,
+			With<HiddenUntilSceneReady>,
+		)>,
+	>,
+	meshes: Query<Entity, (With<Mesh3d>, Allow<Disabled>)>,
 	applied: Query<(), With<MaterialRefApplied>>,
 	standard: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
 	clothing: Query<(), With<MeshMaterial3d<ClothingShaderMaterial>>>,
@@ -226,8 +251,7 @@ pub fn mark_capture_hosts_ready(
 		if host_tree_ready(
 			root,
 			&children,
-			&pending_spawn,
-			&pending_root,
+			&pending,
 			&meshes,
 			&applied,
 			&standard,
@@ -239,6 +263,9 @@ pub fn mark_capture_hosts_ready(
 			pose_specs.get(root).is_ok(),
 			&mailboxes,
 		) {
+			if pose_specs.get(root).is_ok() {
+				info!(root = ?root, "pose capture host ready");
+			}
 			commands.entity(root).try_insert(CaptureHostReady);
 		}
 	}
@@ -358,8 +385,71 @@ fn spawn_pose_host(commands: &mut Commands, root: Entity) -> bool {
 	// Capture-only apps may lack a unique LodViewer, which would stall LOD fulfill.
 	let preview = BraidmanConfig::default_preview().clothed();
 	let entity = spawn_fixed_character_assembly(commands, &preview, Transform::IDENTITY);
+	commands.entity(entity).try_insert(CapturePoseAssembly);
 	pin_capture_host(commands, entity, root);
 	true
+}
+
+/// Capture stills need every kit this frame. World streaming's 2 ms budget
+/// otherwise leaves `PendingCharacterAssembly` on the host until SceneNotReady.
+fn log_pose_host_wait(
+	hosts: Query<
+		(Entity, &CaptureHostRoot),
+		(With<CapturePoseSpec>, With<CaptureHostRealized>, Without<CaptureHostReady>),
+	>,
+	children: Query<&Children>,
+	pending_assembly: Query<(), With<PendingCharacterAssembly>>,
+	hidden_until: Query<(), With<HiddenUntilSceneReady>>,
+	meshes: Query<Entity, (With<Mesh3d>, Allow<Disabled>)>,
+	mailboxes: Query<&AnimMailbox>,
+	mut frames: Local<u32>,
+) {
+	if hosts.is_empty() {
+		return;
+	}
+	*frames += 1;
+	if *frames % 60 != 1 {
+		return;
+	}
+	for (root, host) in &hosts {
+		let mut pending = 0_u32;
+		let mut hidden = 0_u32;
+		let mut mesh_count = 0_u32;
+		let mut mailbox_settled = false;
+		visit_descendants(root, &children, &mut |entity| {
+			if pending_assembly.get(entity).is_ok() {
+				pending += 1;
+			}
+			if hidden_until.get(entity).is_ok() {
+				hidden += 1;
+			}
+			if meshes.get(entity).is_ok() {
+				mesh_count += 1;
+			}
+			if mailboxes.get(entity).is_ok_and(AnimMailbox::settled) {
+				mailbox_settled = true;
+			}
+		});
+		info!(
+			id = %host.id.as_str(),
+			pending,
+			hidden,
+			meshes = mesh_count,
+			mailbox_settled,
+			"pose capture host waiting"
+		);
+	}
+}
+
+fn drain_capture_pose_assemblies(world: &mut World) {
+	let roots: Vec<Entity> = world
+		.query_filtered::<Entity, (With<PendingCharacterAssembly>, With<CapturePoseAssembly>)>()
+		.iter(world)
+		.collect();
+	if roots.is_empty() {
+		return;
+	}
+	drain_character_assembly_now(world, roots);
 }
 
 fn spawn_clothing_icon(commands: &mut Commands, preview: &ClothingIconPreview) -> Entity {
@@ -386,9 +476,16 @@ fn spawn_clothing_icon(commands: &mut Commands, preview: &ClothingIconPreview) -
 fn host_tree_ready(
 	root: Entity,
 	children: &Query<&Children>,
-	pending_spawn: &Query<(), With<LodLevelSpawnRequest>>,
-	pending_root: &Query<(), With<LodLevelRootPending>>,
-	meshes: &Query<Entity, With<Mesh3d>>,
+	pending: &Query<
+		(),
+		Or<(
+			With<LodLevelSpawnRequest>,
+			With<LodLevelRootPending>,
+			With<PendingCharacterAssembly>,
+			With<HiddenUntilSceneReady>,
+		)>,
+	>,
+	meshes: &Query<Entity, (With<Mesh3d>, Allow<Disabled>)>,
 	applied: &Query<(), With<MaterialRefApplied>>,
 	standard: &Query<(), With<MeshMaterial3d<StandardMaterial>>>,
 	clothing: &Query<(), With<MeshMaterial3d<ClothingShaderMaterial>>>,
@@ -400,14 +497,14 @@ fn host_tree_ready(
 	mailboxes: &Query<&AnimMailbox>,
 ) -> bool {
 	let mut found_mesh = false;
-	let mut pending = false;
+	let mut is_pending = false;
 	let mut unpainted = false;
 	let mut needs_pose = false;
 	let mut pose_ready = false;
 	let mut mailbox_ready = !require_mailbox;
 	visit_descendants(root, children, &mut |entity| {
-		if pending_spawn.get(entity).is_ok() || pending_root.get(entity).is_ok() {
-			pending = true;
+		if pending.get(entity).is_ok() {
+			is_pending = true;
 		}
 		if poses.get(entity).is_ok() {
 			needs_pose = true;
@@ -431,7 +528,7 @@ fn host_tree_ready(
 			unpainted = true;
 		}
 	});
-	found_mesh && !pending && !unpainted && (!needs_pose || pose_ready) && mailbox_ready
+	found_mesh && !is_pending && !unpainted && (!needs_pose || pose_ready) && mailbox_ready
 }
 
 fn visit_descendants(root: Entity, children: &Query<&Children>, visit: &mut impl FnMut(Entity)) {
