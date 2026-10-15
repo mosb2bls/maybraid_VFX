@@ -2,7 +2,6 @@
 
 mod animation;
 pub mod camera;
-mod capture;
 pub mod character;
 pub mod commands;
 mod skinning;
@@ -49,8 +48,6 @@ impl Plugin for CharactersPlaygroundPlugin {
 					draw_authoring_gizmos.after(apply_joint_preview),
 					dump_bones_to_console,
 					ui::sync_command_status_text.before(game_commands::ui::update_debug_ui),
-					capture::drive_tanz_icon_capture
-						.run_if(resource_exists::<capture::TanzIconCapture>),
 				),
 			);
 	}

@@ -6,6 +6,7 @@ mod callout;
 mod execute;
 mod hud;
 mod input;
+mod pose;
 mod stack;
 
 use bevy::prelude::*;

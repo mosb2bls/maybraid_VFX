@@ -5,11 +5,11 @@
 
 use bevy::prelude::*;
 use character_animations::animations::{
-	BallisticJump, DorsoventralUndulation, FixedTuck, Flapping, FlipDirection, Gallop,
-	LateralUndulation, Leap, PowerDash, QuadrupedRun, Run, Soaring, TuckProfile, TuckedFlip,
-	TwoFootedJump, Walk, AIR_END, DEFAULT_BACKSWING, DEFAULT_DESCENT_SPEED, DEFAULT_GRAVITY,
-	DEFAULT_JAB_TARGET, DEFAULT_JUMP_HEIGHT, DEFAULT_LANDING_SQUAT_SPEED, DEFAULT_PRE_SQUAT_SPEED,
-	DEFAULT_SPRING_DURATION, TAKEOFF_END,
+	BallisticJump, DorsoventralUndulation, FixedTuck, Flapping, FlipDirection, Gallop, Jab,
+	LateralUndulation, Leap, PowerDash, PowerStrafe, QuadrupedRun, Run, Soaring, TuckProfile,
+	TuckedFlip, TwoFootedJump, Walk, AIR_END, DEFAULT_BACKSWING, DEFAULT_DESCENT_SPEED,
+	DEFAULT_GRAVITY, DEFAULT_JAB_TARGET, DEFAULT_JUMP_HEIGHT, DEFAULT_LANDING_SQUAT_SPEED,
+	DEFAULT_PRE_SQUAT_SPEED, DEFAULT_SPRING_DURATION, TAKEOFF_END,
 };
 use character_animations::{ClipTimePolicy, SampleAddress};
 use character_rigs::Side;
@@ -330,6 +330,30 @@ impl AnimClip {
 		Self::power_strafe(Side::Right)
 	}
 
+	/// Cache / capture identity, including laterality for mirrored clips.
+	pub fn capture_key(self) -> String {
+		match self {
+			Self::PowerDash(_) => String::from("power-dash"),
+			Self::PowerStrafe(params) => match params.side {
+				Side::Left => String::from("power-strafe-left"),
+				Side::Right => String::from("power-strafe-right"),
+			},
+			Self::Jab(_) => String::from("jab"),
+			other => format!("{:?}", other.id()).to_ascii_lowercase(),
+		}
+	}
+
+	/// Readable still on the live sampler. Tanz icons (and any other
+	/// representative capture) must use this instead of a guessed Euler pose.
+	pub fn representative_progress(self) -> f32 {
+		match self {
+			Self::PowerDash(_) => PowerDash::representative_progress(),
+			Self::PowerStrafe(_) => PowerStrafe::representative_progress(),
+			Self::Jab(_) => Jab::representative_progress(),
+			_ => 0.5,
+		}
+	}
+
 	pub fn squat() -> Self {
 		Self::Squat
 	}
@@ -436,6 +460,22 @@ mod tests {
 		assert_eq!(AnimClip::leap().id(), AnimId::Leap);
 		assert_eq!(AnimClip::leap().default_speed(), LEAP_CYCLE_SPEED);
 		assert_ne!(AnimClip::leap().id(), AnimClip::jump().id());
+	}
+
+	#[test]
+	fn representative_progress_reads_the_live_clip() {
+		assert_eq!(
+			AnimClip::power_dash().representative_progress(),
+			PowerDash::representative_progress()
+		);
+		assert_eq!(
+			AnimClip::power_strafe_left().representative_progress(),
+			PowerStrafe::representative_progress()
+		);
+		assert_eq!(AnimClip::jab().representative_progress(), Jab::representative_progress());
+		assert_eq!(AnimClip::power_strafe_left().capture_key(), "power-strafe-left");
+		assert_eq!(AnimClip::power_strafe_right().capture_key(), "power-strafe-right");
+		assert_eq!(AnimClip::power_dash().capture_key(), "power-dash");
 	}
 
 	#[test]
