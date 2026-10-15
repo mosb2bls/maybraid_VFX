@@ -3,11 +3,11 @@
 
 use bevy::prelude::*;
 
+use crate::HudFonts;
 use crate::theme::{
 	PANEL_GROUP_FONT_SIZE, PANEL_ROW_GAP, PROMPT_KEY_DROP, PROMPT_KEY_SELECT, PROMPT_PAD_DROP,
 	PROMPT_PAD_SELECT, TEXT_YELLOW,
 };
-use crate::HudFonts;
 
 /// Last device that produced a press. Starts on keyboard so headless shots
 /// show key chips until a pad speaks.
@@ -35,29 +35,32 @@ impl InputPromptDevice {
 }
 
 /// Which inventory action a chip illustrates.
+///
+/// Select toggles wear / queue, so equip and unequip share one chip.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InventoryPromptKind {
 	Equip,
-	Unequip,
 	Drop,
 }
 
 impl InventoryPromptKind {
 	pub fn label(self) -> &'static str {
 		match self {
-			Self::Equip => "Equip",
-			Self::Unequip => "Unequip",
+			Self::Equip => "Equip/Unequip",
 			Self::Drop => "Drop",
 		}
 	}
 
 	pub fn icon(self, device: InputPromptDevice) -> &'static str {
 		match self {
-			Self::Equip | Self::Unequip => device.select_icon(),
+			Self::Equip => device.select_icon(),
 			Self::Drop => device.drop_icon(),
 		}
 	}
 }
+
+const INVENTORY_PROMPT_KINDS: [InventoryPromptKind; 2] =
+	[InventoryPromptKind::Equip, InventoryPromptKind::Drop];
 
 /// Image on an inventory action chip so a device change can swap the glyph.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,11 +93,7 @@ pub fn spawn_inventory_action_prompts(
 			Pickable::IGNORE,
 		))
 		.with_children(|row| {
-			for kind in [
-				InventoryPromptKind::Equip,
-				InventoryPromptKind::Unequip,
-				InventoryPromptKind::Drop,
-			] {
+			for kind in INVENTORY_PROMPT_KINDS {
 				spawn_prompt_chip(row, fonts, assets, device, kind);
 			}
 		});
@@ -179,11 +178,11 @@ pub fn sync_inventory_prompt_glyphs(
 
 #[cfg(test)]
 mod tests {
-	use super::{InputPromptDevice, InventoryPromptKind};
+	use super::{INVENTORY_PROMPT_KINDS, InputPromptDevice, InventoryPromptKind};
 	use crate::theme::{PROMPT_KEY_DROP, PROMPT_KEY_SELECT, PROMPT_PAD_DROP, PROMPT_PAD_SELECT};
 	use bevy::prelude::KeyCode;
 	use maybraid_input::{
-		PadButton, INVENTORY_DROP_KEYS, INVENTORY_DROP_PAD, MENU_SELECT_KEYS, MENU_SELECT_PAD,
+		INVENTORY_DROP_KEYS, INVENTORY_DROP_PAD, MENU_SELECT_KEYS, MENU_SELECT_PAD, PadButton,
 	};
 
 	#[test]
@@ -192,11 +191,10 @@ mod tests {
 		assert_eq!(MENU_SELECT_KEYS, [KeyCode::Enter]);
 		assert_eq!(InputPromptDevice::Pad.select_icon(), PROMPT_PAD_SELECT);
 		assert_eq!(InputPromptDevice::Keyboard.select_icon(), PROMPT_KEY_SELECT);
+		assert_eq!(InventoryPromptKind::Equip.label(), "Equip/Unequip");
 		assert_eq!(InventoryPromptKind::Equip.icon(InputPromptDevice::Pad), PROMPT_PAD_SELECT);
-		assert_eq!(
-			InventoryPromptKind::Unequip.icon(InputPromptDevice::Keyboard),
-			PROMPT_KEY_SELECT
-		);
+		assert_eq!(InventoryPromptKind::Equip.icon(InputPromptDevice::Keyboard), PROMPT_KEY_SELECT);
+		assert_eq!(INVENTORY_PROMPT_KINDS, [InventoryPromptKind::Equip, InventoryPromptKind::Drop]);
 	}
 
 	#[test]
