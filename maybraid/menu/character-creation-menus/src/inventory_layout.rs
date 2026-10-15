@@ -6,10 +6,11 @@
 //! (equip + drop). Tools is a UI grouping; the domain slot stays Weapons.
 
 use character_items::{
-	icon_catalog_key_for_label, Inventory, InventoryItem, InventorySlot,
+	icon_catalog_key_for_label, self_lubikan_catalog_key, Inventory, InventoryItem, InventorySlot,
 	SELF_LUBIKAN_CAPTURE_LABEL, WORN_CLOTHING_LIMIT,
 };
 use character_ui_menu::{AssetOption, GridCatalogChoice, MenuNode, PreviewColor, ThumbnailCamera};
+use std::time::Duration;
 
 use crate::event::MenuEvent;
 
@@ -45,12 +46,55 @@ impl InventoryLayoutMode {
 	}
 }
 
+/// Scene-capture the layout waits on before painting tiles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InventoryIconNeed {
+	pub key: u64,
+	pub silhouette: bool,
+}
+
+impl InventoryIconNeed {
+	pub fn shaded(key: u64) -> Self {
+		Self { key, silhouette: false }
+	}
+
+	pub fn silhouette(key: u64) -> Self {
+		Self { key, silhouette: true }
+	}
+}
+
+/// Whether the shared inventory should still show the loading wheel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InventoryPaint {
+	Loading,
+	Ready,
+}
+
+/// Give up and paint placeholders rather than spin forever.
+pub const INVENTORY_CAPTURE_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// Loading until every required capture reports filled or failed, or timeout.
+pub fn inventory_paint_state(
+	reported: impl IntoIterator<Item = bool>,
+	waited: Duration,
+	timeout: Duration,
+) -> InventoryPaint {
+	let reported: Vec<bool> = reported.into_iter().collect();
+	if reported.iter().all(|&done| done) || waited >= timeout {
+		InventoryPaint::Ready
+	} else {
+		InventoryPaint::Loading
+	}
+}
+
 /// One sectioned inventory tree plus the chrome title and interactivity.
 #[derive(Clone, Debug, PartialEq)]
 pub struct InventoryLayout {
 	pub title: &'static str,
 	pub mode: InventoryLayoutMode,
 	pub node: MenuNode<MenuEvent>,
+	/// Clothing / tool / Self Lubikan captures. Skill maps are not scene-captured.
+	pub captures: Vec<InventoryIconNeed>,
 }
 
 impl InventoryLayout {
@@ -70,7 +114,12 @@ impl InventoryLayout {
 		mode: InventoryLayoutMode,
 		inventory: &Inventory,
 	) -> Self {
-		Self { title, mode, node: inventory_node(title, mode, inventory) }
+		Self {
+			title,
+			mode,
+			node: inventory_node(title, mode, inventory),
+			captures: required_captures_for(inventory),
+		}
 	}
 
 	pub fn allows(&self, event: MenuEvent) -> bool {
@@ -81,6 +130,19 @@ impl InventoryLayout {
 	pub fn section_labels(&self) -> Vec<&'static str> {
 		section_labels(&self.node)
 	}
+}
+
+fn required_captures_for(inventory: &Inventory) -> Vec<InventoryIconNeed> {
+	let mut needs = vec![InventoryIconNeed::silhouette(self_lubikan_catalog_key())];
+	for item in &inventory.items {
+		if matches!(item, InventoryItem::SkillMap { .. }) {
+			continue;
+		}
+		if let Some(key) = item.icon_catalog_key() {
+			needs.push(InventoryIconNeed::shaded(key));
+		}
+	}
+	needs
 }
 
 fn inventory_node(
@@ -361,5 +423,51 @@ mod tests {
 			assert_eq!(choices[0].image_key, Some(self_lubikan_catalog_key()));
 			assert!(choices[0].selected);
 		}
+	}
+
+	#[test]
+	fn layout_stays_loading_until_every_capture_reports() {
+		use super::{inventory_paint_state, InventoryPaint, INVENTORY_CAPTURE_TIMEOUT};
+		use std::time::Duration;
+
+		let layout = InventoryLayout::starter_kit(sample_items());
+		assert!(!layout.captures.is_empty());
+		assert_eq!(
+			inventory_paint_state(
+				layout.captures.iter().map(|_| false),
+				Duration::ZERO,
+				INVENTORY_CAPTURE_TIMEOUT
+			),
+			InventoryPaint::Loading
+		);
+		let mut some = vec![false; layout.captures.len()];
+		some[0] = true;
+		assert_eq!(
+			inventory_paint_state(some, Duration::ZERO, INVENTORY_CAPTURE_TIMEOUT),
+			InventoryPaint::Loading
+		);
+		assert_eq!(
+			inventory_paint_state(
+				layout.captures.iter().map(|_| true),
+				Duration::ZERO,
+				INVENTORY_CAPTURE_TIMEOUT
+			),
+			InventoryPaint::Ready
+		);
+	}
+
+	#[test]
+	fn timeout_reveals_without_every_report() {
+		use super::{inventory_paint_state, InventoryPaint, INVENTORY_CAPTURE_TIMEOUT};
+
+		let layout = InventoryLayout::starter_kit(sample_items());
+		assert_eq!(
+			inventory_paint_state(
+				layout.captures.iter().map(|_| false),
+				INVENTORY_CAPTURE_TIMEOUT,
+				INVENTORY_CAPTURE_TIMEOUT
+			),
+			InventoryPaint::Ready
+		);
 	}
 }

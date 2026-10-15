@@ -24,12 +24,12 @@ use character_items::{
 use character_ui_menu::MenuComponent;
 use item_icons::{
 	request_self_lubikan_icon, CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed,
-	CaptureHostReady, CaptureHostRealized, CaptureHostRoot, ItemIconCache,
-	ItemIconDiscovery, ItemIconPlugin,
+	CaptureHostReady, CaptureHostRealized, CaptureHostRoot, ItemIconCache, ItemIconDiscovery,
+	ItemIconPlugin,
 };
 use maybraid_character_ui_menu_renderer::{
-	fill_inventory_layout, find_overlay_node, spawn_overlay_shell, spawn_starter_kit_shell,
-	MenuThumbnailContext,
+	fill_inventory_layout, fill_inventory_loading, find_overlay_node, spawn_overlay_shell,
+	spawn_starter_kit_shell, MenuThumbnailContext,
 };
 use menu_components::theme::TEXT_YELLOW;
 use menu_components::{
@@ -79,6 +79,7 @@ struct CaptureShots {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum CaptureScene {
 	#[default]
+	Loading,
 	WaitingForIcon,
 	RealStarterKit,
 	OverflowFixtureTop,
@@ -91,6 +92,7 @@ enum CaptureScene {
 impl CaptureScene {
 	fn next(self) -> Self {
 		match self {
+			Self::Loading => Self::WaitingForIcon,
 			Self::WaitingForIcon => Self::RealStarterKit,
 			Self::RealStarterKit => Self::OverflowFixtureTop,
 			Self::OverflowFixtureTop => Self::OverflowFixtureScrolled,
@@ -102,6 +104,7 @@ impl CaptureScene {
 
 	fn file_stem(self) -> &'static str {
 		match self {
+			Self::Loading => "inventory_loading",
 			Self::WaitingForIcon => "waiting",
 			Self::RealStarterKit => "real_starter_kit",
 			Self::OverflowFixtureTop => "overflow_fixture_top",
@@ -138,6 +141,14 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 			cache.silhouette_for_key(key)
 		} else {
 			cache.shaded_for_key(key)
+		}
+	}
+
+	fn tint_for_key(&mut self, key: u64) -> Color {
+		if key == self_lubikan_catalog_key() {
+			TEXT_YELLOW
+		} else {
+			Color::WHITE
 		}
 	}
 }
@@ -184,7 +195,7 @@ fn setup(mut commands: Commands, dir: Res<CaptureDir>) {
 }
 
 fn allow_slow_braidman_icon(mut cache: ResMut<CaptureCacheRoot>) {
-	cache.max_wait_frames = 720;
+	cache.max_wait_frames = 3600;
 }
 
 fn request_icon(mut discovery: ResMut<ItemIconDiscovery>, mut client: CaptureClient) {
@@ -345,7 +356,7 @@ fn spawn_icon_closeup(commands: &mut Commands, fonts: &HudFonts, image: Option<H
 			root.spawn((
 				Node { width: Val::Px(384.0), height: Val::Px(384.0), ..default() },
 				match image {
-					Some(image) => ImageNode::new(image),
+					Some(image) => ImageNode { image, color: TEXT_YELLOW, ..default() },
 					None => ImageNode::default(),
 				},
 				BackgroundColor(Color::srgb(0.12, 0.13, 0.16)),
@@ -377,6 +388,26 @@ fn spawn_scene(
 			let image =
 				icons.and_then(|cache| cache.silhouette_for_key(self_lubikan_catalog_key()));
 			spawn_icon_closeup(commands, fonts, image);
+		}
+		CaptureScene::Loading => {
+			let mut viewport = Entity::PLACEHOLDER;
+			commands
+				.spawn((
+					CaptureRoot,
+					SpinRevealScreen,
+					Node {
+						width: Val::Percent(100.0),
+						height: Val::Percent(100.0),
+						flex_direction: FlexDirection::Column,
+						..default()
+					},
+					BackgroundColor(Color::srgb(0.04, 0.05, 0.07)),
+				))
+				.with_children(|root| {
+					viewport =
+						spawn_starter_kit_shell(root, fonts, STARTER_KIT_LABEL, TEXT_YELLOW, ());
+				});
+			fill_inventory_loading(commands, viewport, fonts);
 		}
 		CaptureScene::WaitingForIcon | CaptureScene::Done => {}
 	}
@@ -417,6 +448,10 @@ fn capture_scene(
 		return;
 	}
 	if roots.is_empty() {
+		if shots.scene == CaptureScene::Loading {
+			let fonts = HudFonts::load(assets.as_ref());
+			spawn_scene(&mut commands, &fonts, shots.scene, Some(cache.as_ref()));
+		}
 		return;
 	}
 	if shots.shown_at.is_none() {

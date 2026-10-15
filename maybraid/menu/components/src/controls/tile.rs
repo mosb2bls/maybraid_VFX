@@ -117,6 +117,7 @@ pub fn spawn_grid_catalog_tile(
 	selected: bool,
 	rank: Option<u8>,
 	thumbnail: Option<Handle<Image>>,
+	thumbnail_tint: Color,
 	viewport: Option<Entity>,
 	swatch: Option<Color>,
 	muted: bool,
@@ -200,14 +201,16 @@ pub fn spawn_grid_catalog_tile(
 					));
 				} else if let Some(thumbnail) = thumbnail {
 					slot.spawn((
-						ImageNode::new(thumbnail),
+						ImageNode { image: thumbnail, color: thumbnail_tint, ..default() },
 						Node { width: Val::Percent(100.0), aspect_ratio: Some(1.0), ..default() },
 						Pickable::IGNORE,
 					));
 				}
 				if let Some(rank) = rank {
 					spawn_rank_tag(slot, fonts, rank, mark);
-				} else if selected {
+				} else if selected && !pictured {
+					// Clothing without a thumbnail uses the Maybraid son.
+					// A pictured tile is just the icon — no select overlay.
 					crate::icons::Icon::maybraid(22.0, mark).spawn(
 						slot,
 						fonts.logo.clone(),

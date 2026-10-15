@@ -1,7 +1,10 @@
 //! Right-justified character-creator panel over the playground camera.
 
 use bevy::prelude::*;
-use character_creation_menus::{CharacterMenu, MenuEvent};
+use character_creation_menus::{
+	inventory_paint_state, CharacterMenu, InventoryLayout, InventoryPaint, MenuEvent,
+	INVENTORY_CAPTURE_TIMEOUT, INVENTORY_LABEL,
+};
 use character_items::{self_lubikan_catalog_key, Inventory};
 use character_ui_menu::{AssetThumbnailDisplay, MenuComponent};
 use item_icons::{
@@ -9,10 +12,11 @@ use item_icons::{
 	ItemIconCache, ItemIconDiscovery, ItemIconPlugin, ItemIconSystems,
 };
 use maybraid_character_ui_menu_renderer::{
-	fill_inventory_layout, find_overlay_node, overlay_closes_on_pick, spawn_overlay_shell,
-	CharacterHudSystems, CharacterMenuEvent, MaybraidCharacterMenuRendererPlugin, MaybraidMenuSink,
-	MenuButton, MenuJustify, MenuSink, MenuThumbnailContext, OverlayClose, OverlayOpen,
-	OverlaySelectRoot, OverlaySelectViewport, RenderContext,
+	fill_inventory_layout, fill_inventory_loading, find_overlay_node, overlay_closes_on_pick,
+	spawn_overlay_shell, CharacterHudSystems, CharacterMenuEvent,
+	MaybraidCharacterMenuRendererPlugin, MaybraidMenuSink, MenuButton, MenuJustify, MenuSink,
+	MenuThumbnailContext, OverlayClose, OverlayOpen, OverlaySelectRoot, OverlaySelectViewport,
+	RenderContext,
 };
 use maybraid_menu_controller::MenuController;
 use maybraid_skill_map::{SkillMapSpinRevealHud, SkillMapTileMaterialPlugin};
@@ -25,6 +29,7 @@ use menu_components::{
 use menu_screens::{
 	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealItems,
 };
+use std::time::Duration;
 
 use crate::drop_prompt::CharacterDropPromptPlugin;
 use crate::leave_prompt::CharacterLeavePromptPlugin;
@@ -116,6 +121,8 @@ pub(crate) struct OverlayUiSyncState {
 	open: Option<&'static str>,
 	pub(crate) menu_dirty: bool,
 	icon_generation: u64,
+	wait_started: Option<Duration>,
+	showing_loading: bool,
 }
 
 #[derive(Component)]
@@ -148,6 +155,14 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 			cache.silhouette_for_key(key)
 		} else {
 			cache.shaded_for_key(key)
+		}
+	}
+
+	fn tint_for_key(&mut self, key: u64) -> Color {
+		if key == self_lubikan_catalog_key() {
+			TEXT_YELLOW
+		} else {
+			Color::WHITE
 		}
 	}
 
@@ -441,6 +456,7 @@ fn populate_character_ui_panel(
 fn sync_overlay_select(
 	mut commands: Commands,
 	asset_server: Res<AssetServer>,
+	time: Res<Time>,
 	screens: Query<Entity, With<CharacterScreen>>,
 	overlays: Query<Entity, With<OverlaySelectRoot>>,
 	viewports: Query<(Entity, Option<&HudMenu>), With<OverlaySelectViewport>>,
@@ -457,7 +473,15 @@ fn sync_overlay_select(
 		|| menu_state.is_changed()
 		|| overlay_sync.icon_generation != icon_generation;
 	let open_changed = overlay_sync.open != overlay.open;
-	if !open_changed && !menu_changed {
+	let inventory_ready = inventory_overlay_ready(
+		&menu_state.0,
+		overlay.open,
+		icons.as_deref(),
+		overlay_sync.wait_started,
+		time.elapsed(),
+	);
+	let loading_flip = overlay_sync.showing_loading && inventory_ready;
+	if !open_changed && !menu_changed && !loading_flip {
 		return;
 	}
 	overlay_sync.open = overlay.open;
@@ -468,8 +492,13 @@ fn sync_overlay_select(
 		for entity in &overlays {
 			commands.entity(entity).try_despawn();
 		}
+		overlay_sync.wait_started = None;
+		overlay_sync.showing_loading = false;
 		return;
 	};
+	if open_changed && key == INVENTORY_LABEL {
+		overlay_sync.wait_started = Some(time.elapsed());
+	}
 
 	let fonts = HudFonts::load(asset_server.as_ref());
 	let nodes = menu_state.0.menu_nodes();
@@ -494,6 +523,7 @@ fn sync_overlay_select(
 			viewport = spawn_overlay_shell(root, &fonts, key, title_color);
 		});
 		drop(root);
+		overlay_sync.showing_loading = !inventory_ready;
 		populate_overlay_viewport(
 			&mut commands,
 			viewport,
@@ -502,11 +532,13 @@ fn sync_overlay_select(
 			None,
 			menu_state.0.overlay_editable(key),
 			icons.as_deref(),
+			inventory_ready,
 		);
 		return;
 	}
 
 	for (viewport, menu) in &viewports {
+		overlay_sync.showing_loading = !inventory_ready;
 		populate_overlay_viewport(
 			&mut commands,
 			viewport,
@@ -515,8 +547,42 @@ fn sync_overlay_select(
 			menu.copied(),
 			menu_state.0.overlay_editable(key),
 			icons.as_deref(),
+			inventory_ready,
 		);
 	}
+}
+
+fn inventory_overlay_ready(
+	menu: &CharacterMenu,
+	open: Option<&'static str>,
+	icons: Option<&ItemIconCache>,
+	wait_started: Option<Duration>,
+	now: Duration,
+) -> bool {
+	if open != Some(INVENTORY_LABEL) {
+		return true;
+	}
+	let Some(inventory) = menu.inventory.as_ref() else {
+		return true;
+	};
+	let layout = InventoryLayout::character_menu(inventory);
+	let reports = layout
+		.captures
+		.iter()
+		.map(|need| icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette)));
+	let waited = wait_started
+		.map(|started| now.saturating_sub(started))
+		.unwrap_or(Duration::ZERO);
+	if waited >= INVENTORY_CAPTURE_TIMEOUT
+		&& !layout.captures.iter().all(|need| {
+			icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette))
+		}) {
+		warn!(
+			waited_secs = waited.as_secs_f32(),
+			"inventory icons timed out; showing the layout without every capture"
+		);
+	}
+	inventory_paint_state(reports, waited, INVENTORY_CAPTURE_TIMEOUT) == InventoryPaint::Ready
 }
 
 fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
@@ -527,9 +593,22 @@ fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
 	previous: Option<HudMenu>,
 	interactive: bool,
 	icons: Option<&ItemIconCache>,
+	ready: bool,
 ) {
-	let mut thumbnails = CatalogThumbs { icons };
-	fill_inventory_layout(commands, viewport, fonts, node, interactive, previous, &mut thumbnails);
+	if ready {
+		let mut thumbnails = CatalogThumbs { icons };
+		fill_inventory_layout(
+			commands,
+			viewport,
+			fonts,
+			node,
+			interactive,
+			previous,
+			&mut thumbnails,
+		);
+	} else {
+		fill_inventory_loading(commands, viewport, fonts);
+	}
 	if let Ok(mut entity) = commands.get_entity(viewport) {
 		entity.insert(HudOverlayMenu);
 	}
@@ -714,6 +793,7 @@ mod tests {
 		use character_items::{self_lubikan_catalog_key, SELF_LUBIKAN_CAPTURE_LABEL};
 		use item_icons::{CaptureId, ItemIconCache};
 		use maybraid_character_ui_menu_renderer::MenuThumbnailContext;
+		use menu_components::theme::TEXT_YELLOW;
 
 		let key = self_lubikan_catalog_key();
 		let mut cache = ItemIconCache::default();
@@ -724,6 +804,9 @@ mod tests {
 		let mut ready = CatalogThumbs { icons: Some(&cache) };
 		if ready.image_for_key(key).is_none() {
 			anyhow::bail!("Self Lubikan tile should show the silhouette");
+		}
+		if ready.tint_for_key(key) != TEXT_YELLOW {
+			anyhow::bail!("Self Lubikan silhouette should tint yellow in the inventory");
 		}
 		let mut shaded_only = ItemIconCache::default();
 		shaded_only.insert_shaded(

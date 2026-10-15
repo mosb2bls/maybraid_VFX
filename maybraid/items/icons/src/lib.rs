@@ -64,6 +64,7 @@ pub struct ItemIconCache {
 	shaded_by_key: HashMap<u64, Handle<Image>>,
 	silhouette_by_key: HashMap<u64, Handle<Image>>,
 	failed: HashSet<(CaptureId, CaptureMode)>,
+	failed_by_key: HashSet<(u64, CaptureMode)>,
 	/// Bumps when a handle is stored or a capture fails so hosts can rebuild UI.
 	pub generation: u64,
 }
@@ -97,6 +98,20 @@ impl ItemIconCache {
 		self.failed.contains(&(id.clone(), mode))
 	}
 
+	pub fn failed_for_key(&self, key: u64, mode: CaptureMode) -> bool {
+		self.failed_by_key.contains(&(key, mode))
+	}
+
+	/// Filled handle or a reported failure — hosts can stop waiting.
+	pub fn filled_or_failed(&self, key: u64, silhouette: bool) -> bool {
+		if silhouette {
+			self.silhouette_for_key(key).is_some()
+				|| self.failed_for_key(key, CaptureMode::Silhouette)
+		} else {
+			self.shaded_for_key(key).is_some() || self.failed_for_key(key, CaptureMode::Shaded)
+		}
+	}
+
 	pub fn insert_shaded(&mut self, id: CaptureId, image: Handle<Image>) {
 		let key = icon_catalog_key_for_label(id.as_str());
 		self.shaded_by_key.insert(key, image.clone());
@@ -112,6 +127,8 @@ impl ItemIconCache {
 	}
 
 	fn mark_failed(&mut self, id: CaptureId, mode: CaptureMode) {
+		let key = icon_catalog_key_for_label(id.as_str());
+		self.failed_by_key.insert((key, mode));
 		self.failed.insert((id, mode));
 		self.generation = self.generation.wrapping_add(1);
 	}

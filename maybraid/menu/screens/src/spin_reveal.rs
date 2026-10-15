@@ -1,10 +1,16 @@
 //! Starter Kit: the shared inventory layout in read-only mode.
 
 use bevy::prelude::*;
-use character_creation_menus::InventoryLayout;
-use character_items::InventoryItem;
+use character_creation_menus::{
+	inventory_paint_state, InventoryLayout, InventoryPaint, INVENTORY_CAPTURE_TIMEOUT,
+};
+use character_items::{self_lubikan_catalog_key, Inventory, InventoryItem};
+use item_icons::{
+	request_inventory_icons, CaptureClient, ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery,
+	ItemIconPlugin,
+};
 use maybraid_character_ui_menu_renderer::{
-	fill_inventory_layout, spawn_starter_kit_shell, NoThumbnails,
+	fill_inventory_layout, fill_inventory_loading, spawn_starter_kit_shell, MenuThumbnailContext,
 };
 use maybraid_input::{MenuNav, MenuNavImpulse};
 use maybraid_menu_controller::MenuController;
@@ -12,6 +18,7 @@ use menu_components::{
 	spawn_hud_action, spawn_hud_text, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu,
 	MenuComponentsPlugin, ScreenBack, MENU_CLEAR, TEXT_YELLOW,
 };
+use std::time::Duration;
 
 use crate::input::add_menu_input;
 use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
@@ -77,13 +84,21 @@ impl Plugin for SpinRevealScreenPlugin {
 		if !app.is_plugin_added::<MenuComponentsPlugin>() {
 			app.add_plugins(MenuComponentsPlugin);
 		}
+		if !app.is_plugin_added::<ItemIconPlugin>() {
+			app.add_plugins(ItemIconPlugin);
+		}
 		app.add_message::<SpinRevealChoice>()
 			.add_message::<SpinRevealFinished>()
 			.add_observer(click_starter_kit_continue)
 			.add_observer(select_starter_kit_continue)
 			.add_systems(
 				Update,
-				(enter_starter_kit_continue, finish_spin_reveal, drop_stale_gallery)
+				(
+					enter_starter_kit_continue,
+					finish_spin_reveal,
+					drop_stale_gallery,
+					reveal_starter_kit_icons,
+				)
 					.chain()
 					.in_set(SpinRevealSystems::Apply),
 			);
@@ -97,6 +112,10 @@ fn apply_show_spin_reveal(
 	screens: MenuScreens,
 	items: Option<Res<SpinRevealItems>>,
 	assets: Res<AssetServer>,
+	time: Res<Time>,
+	mut discovery: ResMut<ItemIconDiscovery>,
+	mut subjects: ResMut<ItemCaptureSubjects>,
+	mut client: CaptureClient,
 ) {
 	if screens.take(&mut commands, &requests).is_none() {
 		return;
@@ -104,7 +123,9 @@ fn apply_show_spin_reveal(
 	let Some(items) = items else {
 		return;
 	};
-	spawn_starter_kit(&mut commands, &items, &HudFonts::load(assets.as_ref()));
+	let bag = Inventory { items: items.0.clone(), ..Inventory::default() };
+	request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client);
+	spawn_starter_kit(&mut commands, &items, &HudFonts::load(assets.as_ref()), time.elapsed());
 }
 
 /// If another screen replaced the Starter Kit, drop the current-item binding so
@@ -118,10 +139,17 @@ fn drop_stale_gallery(
 		return;
 	}
 	commands.remove_resource::<SpinRevealCurrent>();
+	commands.remove_resource::<StarterKitIconWait>();
 }
 
-fn spawn_starter_kit(commands: &mut Commands, items: &SpinRevealItems, fonts: &HudFonts) {
-	commands.insert_resource(SpinRevealCurrent { items: items.0.clone(), revealed: true });
+fn spawn_starter_kit(
+	commands: &mut Commands,
+	items: &SpinRevealItems,
+	fonts: &HudFonts,
+	started: Duration,
+) {
+	commands.insert_resource(SpinRevealCurrent { items: items.0.clone(), revealed: false });
+	commands.insert_resource(StarterKitIconWait { started, revealed: false });
 	let layout = InventoryLayout::starter_kit(items.0.clone());
 	let mut viewport = Entity::PLACEHOLDER;
 	let mut continue_parent = Entity::PLACEHOLDER;
@@ -174,9 +202,8 @@ fn spawn_starter_kit(commands: &mut Commands, items: &SpinRevealItems, fonts: &H
 				);
 			});
 		});
-	let mut thumbs = NoThumbnails;
-	let count =
-		fill_inventory_layout(commands, viewport, fonts, &layout.node, false, None, &mut thumbs);
+	fill_inventory_loading(commands, viewport, fonts);
+	let count = 0;
 	if let Ok(mut footer) = commands.get_entity(continue_parent) {
 		footer.with_children(|footer| {
 			spawn_hud_action(
@@ -187,6 +214,107 @@ fn spawn_starter_kit(commands: &mut Commands, items: &SpinRevealItems, fonts: &H
 				(StarterKitContinue, HudMenuItem { index: count, menu: viewport }),
 			);
 		});
+	}
+	if let Ok(mut entity) = commands.get_entity(viewport) {
+		entity.insert((HudMenu::retain(count + 1, None), HudOverlayMenu));
+	}
+}
+
+#[derive(Resource, Debug)]
+struct StarterKitIconWait {
+	started: Duration,
+	revealed: bool,
+}
+
+struct CatalogThumbs<'a> {
+	icons: Option<&'a ItemIconCache>,
+}
+
+impl MenuThumbnailContext for CatalogThumbs<'_> {
+	fn image_for_asset(
+		&mut self,
+		_label: &'static str,
+		_asset_path: &'static str,
+		_color: Color,
+		_camera: character_ui_menu::ThumbnailCamera,
+	) -> Option<Handle<Image>> {
+		None
+	}
+
+	fn image_for_key(&mut self, key: u64) -> Option<Handle<Image>> {
+		let cache = self.icons?;
+		if key == self_lubikan_catalog_key() {
+			cache.silhouette_for_key(key)
+		} else {
+			cache.shaded_for_key(key)
+		}
+	}
+
+	fn tint_for_key(&mut self, key: u64) -> Color {
+		if key == self_lubikan_catalog_key() {
+			TEXT_YELLOW
+		} else {
+			Color::WHITE
+		}
+	}
+}
+
+fn reveal_starter_kit_icons(
+	mut commands: Commands,
+	time: Res<Time>,
+	assets: Res<AssetServer>,
+	cache: Option<Res<ItemIconCache>>,
+	current: Option<Res<SpinRevealCurrent>>,
+	wait: Option<ResMut<StarterKitIconWait>>,
+	viewports: Query<Entity, With<StarterKitViewport>>,
+	continues: Query<Entity, With<StarterKitContinue>>,
+) {
+	let Some(mut wait) = wait else {
+		return;
+	};
+	if wait.revealed {
+		return;
+	}
+	let Some(current) = current else {
+		return;
+	};
+	let Ok(viewport) = viewports.single() else {
+		return;
+	};
+	let layout = InventoryLayout::starter_kit(current.items.clone());
+	let icons = cache.as_deref();
+	let reports = layout
+		.captures
+		.iter()
+		.map(|need| icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette)));
+	let waited = time.elapsed().saturating_sub(wait.started);
+	if inventory_paint_state(reports, waited, INVENTORY_CAPTURE_TIMEOUT) != InventoryPaint::Ready {
+		return;
+	}
+	if waited >= INVENTORY_CAPTURE_TIMEOUT
+		&& !layout.captures.iter().all(|need| {
+			icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette))
+		}) {
+		warn!(
+			waited_secs = waited.as_secs_f32(),
+			"starter kit icons timed out; showing the layout without every capture"
+		);
+	}
+	let fonts = HudFonts::load(assets.as_ref());
+	let mut thumbs = CatalogThumbs { icons };
+	let count = fill_inventory_layout(
+		&mut commands,
+		viewport,
+		&fonts,
+		&layout.node,
+		false,
+		None,
+		&mut thumbs,
+	);
+	wait.revealed = true;
+	commands.insert_resource(SpinRevealCurrent { items: current.items.clone(), revealed: true });
+	for entity in &continues {
+		commands.entity(entity).try_insert(HudMenuItem { index: count, menu: viewport });
 	}
 	if let Ok(mut entity) = commands.get_entity(viewport) {
 		entity.insert((HudMenu::retain(count + 1, None), HudOverlayMenu));
@@ -255,6 +383,7 @@ fn finish_spin_reveal(
 	};
 	finished.write(SpinRevealFinished { items: items.0.clone() });
 	commands.remove_resource::<SpinRevealCurrent>();
+	commands.remove_resource::<StarterKitIconWait>();
 }
 
 impl SpinRevealScreen {

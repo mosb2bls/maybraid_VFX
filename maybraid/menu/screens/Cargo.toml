@@ -13,6 +13,7 @@ rust-version = { workspace = true }
 bevy = { workspace = true }
 character-creation-menus = { workspace = true }
 character-items = { workspace = true }
+character-ui-menu = { workspace = true }
 character-model-user = { workspace = true }
 character-persist = { workspace = true }
 item-icons = { workspace = true }

@@ -6,12 +6,12 @@ use character_ui_menu::{
 	StatCard, StatTone, SwatchChoice, ThumbnailRequest,
 };
 use menu_components::{
-	CursorRow, HudFonts, HudMenu, HudMenuItem, PANEL_BLOCK_FONT_SIZE, PANEL_HEADER_FONT_SIZE,
-	PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, ShortTextField, ShortTextKey,
-	TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT, spawn_asset_tile,
-	spawn_grid_catalog_tile, spawn_group_label, spawn_header_line, spawn_hud_action,
-	spawn_hud_plain, spawn_hud_text, spawn_labeled_row, spawn_section_header,
+	spawn_asset_tile, spawn_grid_catalog_tile, spawn_group_label, spawn_header_line,
+	spawn_hud_action, spawn_hud_plain, spawn_hud_text, spawn_labeled_row, spawn_section_header,
 	spawn_short_text_button, spawn_stepper, spawn_swatch, spawn_swatch_row, spawn_tile_grid,
+	CursorRow, HudFonts, HudMenu, HudMenuItem, ShortTextField, ShortTextKey, PANEL_BLOCK_FONT_SIZE,
+	PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP,
+	TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 
 use crate::justify::MenuJustify;
@@ -30,6 +30,11 @@ pub trait MenuThumbnailContext {
 
 	fn image_for_key(&mut self, _key: u64) -> Option<Handle<Image>> {
 		None
+	}
+
+	/// Multiply the catalog PNG. White leaves shaded art; yellow tints a silhouette.
+	fn tint_for_key(&mut self, _key: u64) -> Color {
+		Color::WHITE
 	}
 
 	/// Off-screen [`Camera2d`] for a catalog [`bevy::ui::widget::ViewportNode`].
@@ -84,10 +89,10 @@ impl<T> RenderContext<'_, T> {
 			&& !matches!(
 				label,
 				"Inventory"
-					| "Starter Kit"
-					| "Clothing" | "Weapons"
-					| "Tools" | "Skill Maps"
-					| "Lubikan" | "Loadout"
+					| "Starter Kit" | "Clothing"
+					| "Weapons" | "Tools"
+					| "Skill Maps" | "Lubikan"
+					| "Loadout"
 			) {
 			TEXT_YELLOW_FAINT
 		} else {
@@ -96,7 +101,11 @@ impl<T> RenderContext<'_, T> {
 	}
 
 	pub fn face_color(&self) -> Color {
-		if self.interactive { TEXT_YELLOW } else { TEXT_YELLOW_FAINT }
+		if self.interactive {
+			TEXT_YELLOW
+		} else {
+			TEXT_YELLOW_FAINT
+		}
 	}
 }
 
@@ -516,6 +525,7 @@ impl MaybraidMenuSink {
 		selected: bool,
 		rank: Option<u8>,
 		thumbnail: Option<Handle<Image>>,
+		thumbnail_tint: Color,
 		viewport: Option<Entity>,
 		swatch: Option<Color>,
 		event: E,
@@ -530,6 +540,7 @@ impl MaybraidMenuSink {
 				selected,
 				rank,
 				thumbnail,
+				thumbnail_tint,
 				viewport,
 				swatch,
 				false,
@@ -546,6 +557,7 @@ impl MaybraidMenuSink {
 				selected,
 				rank,
 				thumbnail,
+				thumbnail_tint,
 				viewport,
 				swatch,
 				false,
@@ -594,6 +606,10 @@ impl MaybraidMenuSink {
 				} else {
 					grid_catalog_thumbnail(choice, bevy_color(choice.preview), context)
 				};
+				let tint = choice
+					.image_key
+					.map(|key| context.thumbnails.tint_for_key(key))
+					.unwrap_or(Color::WHITE);
 				let swatch = choice.path.is_empty().then_some(bevy_color(choice.preview));
 				self.catalog_tile(
 					grid,
@@ -603,6 +619,7 @@ impl MaybraidMenuSink {
 					choice.selected,
 					choice.rank,
 					thumbnail,
+					tint,
 					viewport,
 					swatch,
 					choice.event,

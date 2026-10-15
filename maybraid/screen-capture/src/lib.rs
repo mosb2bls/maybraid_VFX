@@ -32,8 +32,7 @@ pub use plugin::{CaptureCacheRoot, CaptureClient, ScreenCapturePlugin, ScreenCap
 pub use queue::CaptureTicket;
 pub use request::{CaptureRequest, CaptureResolution, CaptureRevision};
 pub use session::{
-	CaptureExtents, CaptureHostReady, CaptureHostRoot, CapturePreserveMaterial,
-	CaptureSilhouetteRoot, CAPTURE_RENDER_LAYER,
+	CaptureExtents, CaptureHostReady, CaptureHostRoot, CaptureSilhouetteRoot, CAPTURE_RENDER_LAYER,
 };
 pub use subject::{CaptureMesh, CaptureMeshKind, CaptureScene, CaptureSubject, MeshCaptureSubject};
 pub use view::{CaptureFraming, CaptureProjection, CaptureView};

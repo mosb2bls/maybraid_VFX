@@ -9,7 +9,7 @@ use crate::widgets::CloseOverlaySelect;
 use crate::MenuJustify;
 use menu_components::{
 	spawn_header_line, spawn_text_button, HudFonts, HudMenu, MenuModal, PANEL_HEADER_FONT_SIZE,
-	PANEL_ROW_GAP,
+	PANEL_ROW_GAP, TEXT_YELLOW,
 };
 
 /// Catalog nodes that can show a selected name on a header.
@@ -342,6 +342,40 @@ pub fn fill_inventory_layout<E: Copy + Send + Sync + 'static, C: MenuThumbnailCo
 		entity.insert(HudMenu::retain(item_count, previous));
 	}
 	item_count
+}
+
+/// Centered spinning mark while catalog captures are still filling.
+pub fn fill_inventory_loading(commands: &mut Commands, viewport: Entity, fonts: &HudFonts) {
+	let Ok(mut entity) = commands.get_entity(viewport) else {
+		return;
+	};
+	entity.despawn_related::<Children>();
+	entity.with_children(|body| {
+		body.spawn((
+			Node {
+				width: Val::Percent(100.0),
+				min_height: Val::Px(220.0),
+				flex_grow: 1.0,
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			Pickable::IGNORE,
+		))
+		.with_children(|center| {
+			let (icon, spinning) = menu_components::SpinningIcon::maybraid(48.0, TEXT_YELLOW);
+			center.spawn((
+				icon,
+				spinning,
+				ImageNode { image: fonts.logo.clone(), color: TEXT_YELLOW, ..default() },
+				Node { width: Val::Px(48.0), height: Val::Px(48.0), flex_shrink: 0.0, ..default() },
+				Pickable::IGNORE,
+			));
+		});
+	});
+	if let Ok(mut entity) = commands.get_entity(viewport) {
+		entity.insert(HudMenu::retain(0, None));
+	}
 }
 
 /// Full-screen Starter Kit chrome: title + growing scroll pane. The host
