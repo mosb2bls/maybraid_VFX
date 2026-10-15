@@ -23,8 +23,9 @@ use maybraid_skill_map::{SkillMapSpinRevealHud, SkillMapTileMaterialPlugin};
 use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
 use menu_components::{
 	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
-	HudOverlayMenu, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer, MenuModalStack,
-	ScreenBack, ShortTextChange, PANEL_ROW_GAP, TEXT_YELLOW, TEXT_YELLOW_FAINT,
+	HudOverlayMenu, InputPromptDevice, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer,
+	MenuModalStack, ScreenBack, ShortTextChange, CATALOG_THUMB_PX, PANEL_ROW_GAP,
+	PANEL_TILE_COLUMNS, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use menu_screens::{
 	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealItems,
@@ -444,6 +445,8 @@ fn populate_character_ui_panel(
 		hud_item_count: 0,
 		interactive: true,
 		lock_appearance: menu_state.0.appearance_locked(),
+		catalog_columns: PANEL_TILE_COLUMNS,
+		catalog_thumb_px: CATALOG_THUMB_PX,
 	};
 	MaybraidMenuSink::new(MenuJustify::Right).render_nodes(
 		&menu_state.0.menu_nodes(),
@@ -464,6 +467,7 @@ fn sync_overlay_select(
 	overlay: Res<OverlaySelectState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	icons: Option<Res<ItemIconCache>>,
+	prompt_device: Res<InputPromptDevice>,
 ) {
 	let Ok(screen) = screens.single() else {
 		return;
@@ -520,7 +524,9 @@ fn sync_overlay_select(
 			return;
 		};
 		root.with_children(|root| {
-			viewport = spawn_overlay_shell(root, &fonts, key, title_color);
+			let prompts =
+				(key == INVENTORY_LABEL).then_some((asset_server.as_ref(), *prompt_device));
+			viewport = spawn_overlay_shell(root, &fonts, key, title_color, prompts);
 		});
 		drop(root);
 		overlay_sync.showing_loading = !inventory_ready;

@@ -9,9 +9,10 @@ use menu_components::{
 	spawn_asset_tile, spawn_grid_catalog_tile, spawn_group_label, spawn_header_line,
 	spawn_hud_action, spawn_hud_plain, spawn_hud_text, spawn_labeled_row, spawn_section_header,
 	spawn_short_text_button, spawn_stepper, spawn_swatch, spawn_swatch_row, spawn_tile_grid,
-	CursorRow, HudFonts, HudMenu, HudMenuItem, ShortTextField, ShortTextKey, PANEL_BLOCK_FONT_SIZE,
-	PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP,
-	TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
+	spawn_tile_grid_columns, CursorRow, HudFonts, HudMenu, HudMenuItem, ShortTextField,
+	ShortTextKey, PANEL_BLOCK_FONT_SIZE, PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE,
+	PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW,
+	TEXT_YELLOW_FAINT,
 };
 
 use crate::justify::MenuJustify;
@@ -71,6 +72,9 @@ pub struct RenderContext<'a, T> {
 	pub interactive: bool,
 	/// Saved-character HUD: appearance headers use a dampened yellow.
 	pub lock_appearance: bool,
+	/// Inventory uses four columns; appearance pickers stay at three.
+	pub catalog_columns: u16,
+	pub catalog_thumb_px: f32,
 }
 
 impl<T> RenderContext<'_, T> {
@@ -531,6 +535,7 @@ impl MaybraidMenuSink {
 		event: E,
 	) {
 		let item = context.stamp_hud_item();
+		let thumb_px = context.catalog_thumb_px;
 		if context.interactive {
 			spawn_grid_catalog_tile(
 				parent,
@@ -544,6 +549,7 @@ impl MaybraidMenuSink {
 				viewport,
 				swatch,
 				false,
+				thumb_px,
 				(MenuButton(event), item),
 			);
 		} else {
@@ -561,6 +567,7 @@ impl MaybraidMenuSink {
 				viewport,
 				swatch,
 				false,
+				thumb_px,
 				item,
 			);
 		}
@@ -597,7 +604,7 @@ impl MaybraidMenuSink {
 		parent: &mut ChildSpawnerCommands,
 		context: &mut RenderContext<'_, C>,
 	) {
-		spawn_tile_grid(parent, self.justify.content(), |grid| {
+		spawn_tile_grid_columns(parent, self.justify.content(), context.catalog_columns, |grid| {
 			for choice in choices {
 				let viewport =
 					choice.image_key.and_then(|key| context.thumbnails.viewport_for_key(key));

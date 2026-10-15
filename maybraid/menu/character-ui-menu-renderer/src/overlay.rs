@@ -8,8 +8,9 @@ use crate::sink::{MaybraidMenuSink, MenuSink, MenuThumbnailContext, RenderContex
 use crate::widgets::CloseOverlaySelect;
 use crate::MenuJustify;
 use menu_components::{
-	spawn_header_line, spawn_text_button, HudFonts, HudMenu, MenuModal, PANEL_HEADER_FONT_SIZE,
-	PANEL_ROW_GAP, TEXT_YELLOW,
+	spawn_header_line, spawn_inventory_action_prompts, spawn_text_button, HudFonts, HudMenu,
+	InputPromptDevice, MenuModal, INVENTORY_THUMB_PX, INVENTORY_TILE_COLUMNS,
+	PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW,
 };
 
 /// Catalog nodes that can show a selected name on a header.
@@ -203,11 +204,15 @@ fn selected_select_label<E>(groups: &[SelectGroup<E>]) -> Option<&'static str> {
 }
 
 /// Full-screen picker chrome. The host fills the returned viewport.
+///
+/// `action_prompts` is only for the interactive Inventory modal. The
+/// read-only Starter Kit uses [`spawn_starter_kit_shell`] and has no chips.
 pub fn spawn_overlay_shell(
 	parent: &mut ChildSpawnerCommands,
 	fonts: &HudFonts,
 	title: &str,
 	title_color: Color,
+	action_prompts: Option<(&AssetServer, InputPromptDevice)>,
 ) -> Entity {
 	let mut viewport = Entity::PLACEHOLDER;
 	parent
@@ -281,6 +286,9 @@ pub fn spawn_overlay_shell(
 					AlignItems::FlexStart,
 					PANEL_ROW_GAP,
 				);
+				if let Some((assets, device)) = action_prompts {
+					spawn_inventory_action_prompts(panel, fonts, assets, device);
+				}
 			});
 		});
 	viewport
@@ -333,6 +341,8 @@ pub fn fill_inventory_layout<E: Copy + Send + Sync + 'static, C: MenuThumbnailCo
 			hud_item_count: 0,
 			interactive,
 			lock_appearance: !interactive,
+			catalog_columns: INVENTORY_TILE_COLUMNS,
+			catalog_thumb_px: INVENTORY_THUMB_PX,
 		};
 		render_overlay_body(node, body, &mut context, MenuJustify::Left);
 		item_count = context.hud_item_count;
@@ -379,7 +389,8 @@ pub fn fill_inventory_loading(commands: &mut Commands, viewport: Entity, fonts: 
 }
 
 /// Full-screen Starter Kit chrome: title + growing scroll pane. The host
-/// adds Continue under the returned viewport.
+/// adds Continue under the returned viewport. No action prompts — this
+/// surface is read-only.
 pub fn spawn_starter_kit_shell(
 	parent: &mut ChildSpawnerCommands,
 	fonts: &HudFonts,
@@ -445,9 +456,21 @@ mod tests {
 		primary_select,
 	};
 	use character_ui_menu::{MenuNode, PreviewColor, SelectChoice, SelectGroup};
+	use menu_components::{
+		CATALOG_THUMB_PX, INVENTORY_THUMB_PX, INVENTORY_TILE_COLUMNS, PANEL_TILE_COLUMNS,
+	};
 
 	fn clip() -> MenuNode<u8> {
 		MenuNode::BlockAsset { label: "Clip", preview: PreviewColor::WHITE, choices: vec![] }
+	}
+
+	#[test]
+	fn inventory_uses_four_smaller_columns() {
+		assert_eq!(INVENTORY_TILE_COLUMNS, 4);
+		assert_eq!(INVENTORY_THUMB_PX, 52.0);
+		assert_eq!(PANEL_TILE_COLUMNS, 3);
+		assert_eq!(CATALOG_THUMB_PX, 72.0);
+		assert!(INVENTORY_THUMB_PX < CATALOG_THUMB_PX);
 	}
 
 	#[test]

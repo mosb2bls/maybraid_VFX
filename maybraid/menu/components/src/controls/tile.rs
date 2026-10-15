@@ -5,7 +5,7 @@ use bevy::text::{Justify, LineBreak, LineHeight, TextBounds, TextSpan};
 use bevy::ui::widget::ViewportNode;
 
 use crate::theme::{
-	MENU_CLEAR, OBJECTIVE_MARKER_BORDER, OBJECTIVE_MARKER_RADIUS, PANEL_CHIP_GAP,
+	CATALOG_THUMB_PX, MENU_CLEAR, OBJECTIVE_MARKER_BORDER, OBJECTIVE_MARKER_RADIUS, PANEL_CHIP_GAP,
 	PANEL_GROUP_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_TILE_COLUMNS, PANEL_TILE_MIN_HEIGHT,
 	TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_HOVER, TILE_FOCUS_PAD,
 };
@@ -23,8 +23,8 @@ pub fn tile_caption(label: &str) -> String {
 	menu_display_name(label)
 }
 
-fn tile_grid_columns() -> Vec<RepeatedGridTrack> {
-	RepeatedGridTrack::flex(PANEL_TILE_COLUMNS, 1.0)
+fn tile_grid_columns(count: u16) -> Vec<RepeatedGridTrack> {
+	RepeatedGridTrack::flex(count, 1.0)
 }
 
 fn tile_node() -> Node {
@@ -121,12 +121,13 @@ pub fn spawn_grid_catalog_tile(
 	viewport: Option<Entity>,
 	swatch: Option<Color>,
 	muted: bool,
+	thumb_px: f32,
 	extra: impl Bundle,
 ) {
 	let face = tile_face(selected, muted);
 	let mark = if muted { TEXT_YELLOW_FAINT } else { TEXT_YELLOW };
 	let pictured = thumbnail.is_some() || viewport.is_some();
-	const THUMB_PX: f32 = 72.0;
+	let thumb_px = if thumb_px > 0.0 { thumb_px } else { CATALOG_THUMB_PX };
 	let mut tile = parent.spawn((
 		Button,
 		HoverTile { equipped: selected, preserve_fill: false },
@@ -146,7 +147,7 @@ pub fn spawn_grid_catalog_tile(
 					width: if pictured { Val::Percent(100.0) } else { Val::Px(48.0) },
 					height: if pictured { Val::Auto } else { Val::Px(48.0) },
 					aspect_ratio: pictured.then_some(1.0),
-					min_height: Val::Px(if pictured { THUMB_PX } else { 48.0 }),
+					min_height: Val::Px(if pictured { thumb_px } else { 48.0 }),
 					position_type: PositionType::Relative,
 					justify_content: JustifyContent::Center,
 					align_items: AlignItems::Center,
@@ -366,12 +367,21 @@ pub fn spawn_tile_grid(
 	justify: JustifyContent,
 	children: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
+	spawn_tile_grid_columns(parent, justify, PANEL_TILE_COLUMNS, children);
+}
+
+pub fn spawn_tile_grid_columns(
+	parent: &mut ChildSpawnerCommands,
+	justify: JustifyContent,
+	columns: u16,
+	children: impl FnOnce(&mut ChildSpawnerCommands),
+) {
 	parent
 		.spawn((
 			Node {
 				display: Display::Grid,
 				width: Val::Percent(100.0),
-				grid_template_columns: tile_grid_columns(),
+				grid_template_columns: tile_grid_columns(columns),
 				column_gap: Val::Px(PANEL_CHIP_GAP),
 				row_gap: Val::Px(PANEL_CHIP_GAP),
 				align_items: AlignItems::Stretch,
@@ -391,7 +401,7 @@ mod tests {
 
 	use super::{sync_hover_tiles, tile_caption, tile_grid_columns, tile_node, HoverTile};
 	use crate::controls::hud_menu::{HudMenu, HudMenuItem};
-	use crate::theme::PANEL_TILE_COLUMNS;
+	use crate::theme::{INVENTORY_TILE_COLUMNS, PANEL_TILE_COLUMNS};
 
 	#[test]
 	fn short_caption_unchanged() {
@@ -406,8 +416,14 @@ mod tests {
 	#[test]
 	fn tile_grid_is_three_columns() {
 		assert_eq!(PANEL_TILE_COLUMNS, 3);
-		assert_eq!(tile_grid_columns().len(), 1);
+		assert_eq!(tile_grid_columns(PANEL_TILE_COLUMNS).len(), 1);
 		assert_eq!(tile_node().width, Val::Percent(100.0));
+	}
+
+	#[test]
+	fn inventory_grid_is_four_columns() {
+		assert_eq!(INVENTORY_TILE_COLUMNS, 4);
+		assert_eq!(tile_grid_columns(INVENTORY_TILE_COLUMNS).len(), 1);
 	}
 
 	#[test]

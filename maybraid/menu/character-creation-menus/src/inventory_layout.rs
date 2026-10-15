@@ -291,8 +291,9 @@ mod tests {
 	};
 	use character_ui_menu::MenuNode;
 
-	/// Test-only bag large enough that Clothing + Tools overflow a short pane.
-	/// Never used by generation or the real Starter Kit.
+	/// Test-only bag large enough that Clothing + Tools overflow a short pane
+	/// even at four 52px-thumb columns. Never used by generation or the real
+	/// Starter Kit.
 	fn overflow_inventory_items() -> Vec<InventoryItem> {
 		let mut items: Vec<InventoryItem> = ClothingMesh::VALUES
 			.iter()
@@ -367,9 +368,16 @@ mod tests {
 				_ => 0,
 			})
 			.sum();
-		// 12 clothing + 5 firearms + 1 grenade + 2 skill maps. A 400px pane
-		// cannot show ~20 catalog tiles plus four headers at once.
+		// Shared inventory is four 52px-thumb columns. 12 clothing + 5
+		// firearms + 1 grenade + 2 skill maps is ~20 tiles → at least five
+		// rows, plus four section headers. A 400px pane cannot show that.
+		const INVENTORY_COLUMNS: usize = 4;
 		assert!(tiles >= 18, "overflow bag should have many tiles, got {tiles}");
+		let rows = tiles.div_ceil(INVENTORY_COLUMNS);
+		assert!(
+			rows >= 5,
+			"four-column overflow bag should span several rows, got {rows} from {tiles} tiles"
+		);
 	}
 
 	fn clothing_tile_count(layout: &InventoryLayout) -> usize {

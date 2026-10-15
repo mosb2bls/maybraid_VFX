@@ -34,6 +34,7 @@ use maybraid_character_ui_menu_renderer::{
 use menu_components::theme::TEXT_YELLOW;
 use menu_components::{
 	spawn_header_line, spawn_hud_action, HudFonts, HudMenuItem, HudScrollViewport,
+	InputPromptDevice,
 };
 use menu_screens::SpinRevealScreen;
 
@@ -84,6 +85,7 @@ enum CaptureScene {
 	RealStarterKit,
 	OverflowFixtureTop,
 	OverflowFixtureScrolled,
+	ModalInventory,
 	ModalLubikan,
 	IconCloseup,
 	Done,
@@ -96,7 +98,8 @@ impl CaptureScene {
 			Self::WaitingForIcon => Self::RealStarterKit,
 			Self::RealStarterKit => Self::OverflowFixtureTop,
 			Self::OverflowFixtureTop => Self::OverflowFixtureScrolled,
-			Self::OverflowFixtureScrolled => Self::ModalLubikan,
+			Self::OverflowFixtureScrolled => Self::ModalInventory,
+			Self::ModalInventory => Self::ModalLubikan,
 			Self::ModalLubikan => Self::IconCloseup,
 			Self::IconCloseup | Self::Done => Self::Done,
 		}
@@ -109,6 +112,7 @@ impl CaptureScene {
 			Self::RealStarterKit => "real_starter_kit",
 			Self::OverflowFixtureTop => "overflow_fixture_top",
 			Self::OverflowFixtureScrolled => "overflow_fixture_scrolled",
+			Self::ModalInventory => "inventory_modal",
 			Self::ModalLubikan => "inventory_modal_lubikan",
 			Self::IconCloseup => "self_lubikan_icon_closeup",
 			Self::Done => "done",
@@ -316,7 +320,12 @@ fn spawn_grant_scene(
 	}
 }
 
-fn spawn_modal_scene(commands: &mut Commands, fonts: &HudFonts, icons: Option<&ItemIconCache>) {
+fn spawn_modal_scene(
+	commands: &mut Commands,
+	fonts: &HudFonts,
+	assets: &AssetServer,
+	icons: Option<&ItemIconCache>,
+) {
 	let menu = sample_menu(real_starter_items());
 	let nodes = menu.menu_nodes();
 	let Some(node) = find_overlay_node(&nodes, "Inventory").cloned() else {
@@ -330,7 +339,13 @@ fn spawn_modal_scene(commands: &mut Commands, fonts: &HudFonts, icons: Option<&I
 			BackgroundColor(Color::srgb(0.07, 0.08, 0.10)),
 		))
 		.with_children(|root| {
-			viewport = spawn_overlay_shell(root, fonts, "Inventory", TEXT_YELLOW);
+			viewport = spawn_overlay_shell(
+				root,
+				fonts,
+				"Inventory",
+				TEXT_YELLOW,
+				Some((assets, InputPromptDevice::Keyboard)),
+			);
 		});
 	let mut thumbs = CatalogThumbs { icons };
 	fill_inventory_layout(commands, viewport, fonts, &node, true, None, &mut thumbs);
@@ -367,6 +382,7 @@ fn spawn_icon_closeup(commands: &mut Commands, fonts: &HudFonts, image: Option<H
 fn spawn_scene(
 	commands: &mut Commands,
 	fonts: &HudFonts,
+	assets: &AssetServer,
 	scene: CaptureScene,
 	icons: Option<&ItemIconCache>,
 ) {
@@ -383,7 +399,9 @@ fn spawn_scene(
 				icons,
 			);
 		}
-		CaptureScene::ModalLubikan => spawn_modal_scene(commands, fonts, icons),
+		CaptureScene::ModalInventory | CaptureScene::ModalLubikan => {
+			spawn_modal_scene(commands, fonts, assets, icons);
+		}
 		CaptureScene::IconCloseup => {
 			let image =
 				icons.and_then(|cache| cache.silhouette_for_key(self_lubikan_catalog_key()));
@@ -443,14 +461,14 @@ fn capture_scene(
 			info!(have, secs = time.elapsed_secs(), "self-lubikan icon wait finished");
 			shots.scene = CaptureScene::RealStarterKit;
 			let fonts = HudFonts::load(assets.as_ref());
-			spawn_scene(&mut commands, &fonts, shots.scene, Some(cache.as_ref()));
+			spawn_scene(&mut commands, &fonts, assets.as_ref(), shots.scene, Some(cache.as_ref()));
 		}
 		return;
 	}
 	if roots.is_empty() {
 		if shots.scene == CaptureScene::Loading {
 			let fonts = HudFonts::load(assets.as_ref());
-			spawn_scene(&mut commands, &fonts, shots.scene, Some(cache.as_ref()));
+			spawn_scene(&mut commands, &fonts, assets.as_ref(), shots.scene, Some(cache.as_ref()));
 		}
 		return;
 	}
@@ -514,5 +532,5 @@ fn advance_after_shot(
 		return;
 	}
 	let fonts = HudFonts::load(assets.as_ref());
-	spawn_scene(&mut commands, &fonts, shots.scene, Some(cache.as_ref()));
+	spawn_scene(&mut commands, &fonts, assets.as_ref(), shots.scene, Some(cache.as_ref()));
 }
