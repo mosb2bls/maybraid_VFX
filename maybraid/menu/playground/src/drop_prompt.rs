@@ -5,23 +5,26 @@
 //! [`character_items::Inventory::try_drop`] does the mutation; this file only
 //! prompts. Section headers and the read-only Lubikan row have no bag index.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy::text::Justify;
 use character_creation_menus::MenuEvent;
-use character_items::ActiveInventoryDropPolicy;
+use character_items::{ActiveInventoryDropPolicy, InventoryItem, InventoryMenuDropped};
 use maybraid_character_ui_menu_renderer::{CharacterMenuEvent, MenuButton, OverlaySelectViewport};
 use maybraid_input::{MenuNav, MenuNavImpulse, PadButton, VirtualPad};
 use menu_components::theme::{HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW};
 use menu_components::{
-	ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu, MenuModal, MenuModalDismiss,
-	MenuModalId, MenuModalLayer, MenuModalStack, MenuModalSystems, TextMenuInputLock,
-	TextMenuSystems, spawn_hud_action, spawn_hud_text,
+	spawn_hud_action, spawn_hud_text, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
+	HudOverlayMenu, MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer, MenuModalStack,
+	MenuModalSystems, TextMenuInputLock, TextMenuSystems,
 };
 
 use crate::character::{
-	CharacterMenuState, CharacterScreen, CharacterUiSyncState, OverlayUiSyncState,
+	CharacterEditBaseline, CharacterMenuState, CharacterScreen, CharacterUiSyncState,
+	OverlayUiSyncState,
 };
 use crate::leave_prompt::CharacterLeavePrompt;
+use crate::session::CharacterEditorReturn;
 
 /// Open confirm card while a catalog overlay is up. Empty while idle.
 #[derive(Resource, Debug, Default, Clone, PartialEq, Eq)]
@@ -67,6 +70,7 @@ impl Plugin for CharacterDropPromptPlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<CharacterDropPrompt>()
 			.init_resource::<ActiveInventoryDropPolicy>()
+			.add_message::<InventoryMenuDropped>()
 			.add_observer(on_drop_prompt_click)
 			.add_observer(on_drop_prompt_nav)
 			.add_systems(Update, close_drop_on_modal_dismiss.in_set(MenuModalSystems::Apply))
@@ -97,6 +101,26 @@ pub fn drop_index_from_event(event: MenuEvent) -> Option<usize> {
 	}
 }
 
+#[derive(SystemParam)]
+struct LiveWorldDrop<'w> {
+	menu_drops: MessageWriter<'w, InventoryMenuDropped>,
+	return_to: Option<Res<'w, CharacterEditorReturn>>,
+	baseline: Option<ResMut<'w, CharacterEditBaseline>>,
+}
+
+impl LiveWorldDrop<'_> {
+	fn commit(&mut self, item: InventoryItem, index: usize, menu_state: &CharacterMenuState) {
+		commit_live_world_drop(
+			item,
+			index,
+			menu_state,
+			self.return_to.as_deref(),
+			self.baseline.as_deref_mut(),
+			&mut self.menu_drops,
+		);
+	}
+}
+
 #[allow(clippy::too_many_arguments)]
 fn intercept_catalog_drop_edges(
 	mut prompt: ResMut<CharacterDropPrompt>,
@@ -110,6 +134,7 @@ fn intercept_catalog_drop_edges(
 	mut ui_sync: ResMut<CharacterUiSyncState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut menu_events: MessageWriter<CharacterMenuEvent<MenuEvent>>,
+	mut live: LiveWorldDrop,
 	screens: Query<(), With<CharacterScreen>>,
 	viewports: Query<(Entity, &HudMenu), With<OverlaySelectViewport>>,
 	items: Query<(&HudMenuItem, &MenuButton<MenuEvent>)>,
@@ -149,7 +174,15 @@ fn intercept_catalog_drop_edges(
 		prompt.open(index, label, &mut stack);
 		return;
 	}
-	apply_drop_inventory(index, &mut menu_state, &mut ui_sync, &mut overlay_sync, &mut menu_events);
+	if let Some(item) = apply_drop_inventory(
+		index,
+		&mut menu_state,
+		&mut ui_sync,
+		&mut overlay_sync,
+		&mut menu_events,
+	) {
+		live.commit(item, index, &menu_state);
+	}
 }
 
 fn close_drop_prompt_without_character(
@@ -315,6 +348,7 @@ fn on_drop_prompt_click(
 	mut ui_sync: ResMut<CharacterUiSyncState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut menu_events: MessageWriter<CharacterMenuEvent<MenuEvent>>,
+	mut live: LiveWorldDrop,
 	mut commands: Commands,
 ) {
 	if pointer_target(&click, &child_of, |entity| confirms.contains(entity)).is_some() {
@@ -328,6 +362,7 @@ fn on_drop_prompt_click(
 			&mut ui_sync,
 			&mut overlay_sync,
 			&mut menu_events,
+			&mut live,
 			&mut commands,
 		);
 		return;
@@ -343,6 +378,7 @@ fn on_drop_prompt_click(
 			&mut ui_sync,
 			&mut overlay_sync,
 			&mut menu_events,
+			&mut live,
 			&mut commands,
 		);
 	}
@@ -359,6 +395,7 @@ fn on_drop_prompt_nav(
 	mut ui_sync: ResMut<CharacterUiSyncState>,
 	mut overlay_sync: ResMut<OverlayUiSyncState>,
 	mut menu_events: MessageWriter<CharacterMenuEvent<MenuEvent>>,
+	mut live: LiveWorldDrop,
 	mut commands: Commands,
 ) {
 	let Ok(menu) = menus.get(impulse.entity) else {
@@ -386,6 +423,7 @@ fn on_drop_prompt_nav(
 				&mut ui_sync,
 				&mut overlay_sync,
 				&mut menu_events,
+				&mut live,
 				&mut commands,
 			);
 		}
@@ -403,6 +441,7 @@ fn on_drop_prompt_nav(
 				&mut ui_sync,
 				&mut overlay_sync,
 				&mut menu_events,
+				&mut live,
 				&mut commands,
 			);
 		}
@@ -426,11 +465,16 @@ fn apply_drop_prompt(
 	ui_sync: &mut CharacterUiSyncState,
 	overlay_sync: &mut OverlayUiSyncState,
 	menu_events: &mut MessageWriter<CharacterMenuEvent<MenuEvent>>,
+	live: &mut LiveWorldDrop,
 	commands: &mut Commands,
 ) {
 	if action == DropPromptAction::Confirm {
 		if let Some(index) = prompt.index {
-			apply_drop_inventory(index, menu_state, ui_sync, overlay_sync, menu_events);
+			if let Some(item) =
+				apply_drop_inventory(index, menu_state, ui_sync, overlay_sync, menu_events)
+			{
+				live.commit(item, index, menu_state);
+			}
 		}
 	}
 	close_drop_prompt(prompt, stack, roots, commands);
@@ -442,14 +486,42 @@ fn apply_drop_inventory(
 	ui_sync: &mut CharacterUiSyncState,
 	overlay_sync: &mut OverlayUiSyncState,
 	menu_events: &mut MessageWriter<CharacterMenuEvent<MenuEvent>>,
-) {
+) -> Option<InventoryItem> {
+	let item = menu_state
+		.0
+		.inventory
+		.as_ref()
+		.and_then(|inventory| inventory.items.get(index).cloned());
 	let event = MenuEvent::DropInventory(index);
 	if !menu_state.0.apply(event) {
-		return;
+		return None;
 	}
 	ui_sync.menu_dirty = true;
 	overlay_sync.menu_dirty = true;
 	menu_events.write(CharacterMenuEvent::Menu(event));
+	item
+}
+
+/// In-game pause edits already persist the leftover bag. Recapture the
+/// inventory baseline so discard cannot duplicate a spawned pickup, and
+/// tell the world adapter to place an ephemeral stash.
+fn commit_live_world_drop(
+	item: InventoryItem,
+	index: usize,
+	menu_state: &CharacterMenuState,
+	return_to: Option<&CharacterEditorReturn>,
+	baseline: Option<&mut CharacterEditBaseline>,
+	menu_drops: &mut MessageWriter<InventoryMenuDropped>,
+) {
+	if !return_to.is_some_and(|return_to| return_to.uses_live_world_player()) {
+		return;
+	}
+	if let Some(baseline) = baseline {
+		if let Some(inventory) = menu_state.0.inventory.clone() {
+			baseline.inventory = inventory;
+		}
+	}
+	menu_drops.write(InventoryMenuDropped { item, index });
 }
 
 fn close_drop_prompt(
@@ -485,12 +557,17 @@ fn pointer_target(
 #[cfg(test)]
 mod tests {
 	use super::{
-		CharacterDropPrompt, apply_drop_inventory, catalog_drop_edge, drop_index_from_event,
+		apply_drop_inventory, catalog_drop_edge, commit_live_world_drop, drop_index_from_event,
+		CharacterDropPrompt,
 	};
-	use crate::character::{CharacterMenuState, CharacterUiSyncState, OverlayUiSyncState};
+	use crate::character::{
+		CharacterEditBaseline, CharacterMenuState, CharacterUiSyncState, OverlayUiSyncState,
+	};
+	use crate::session::CharacterEditorReturn;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
 	use character_creation_menus::MenuEvent;
+	use character_items::InventoryMenuDropped;
 	use character_items::{
 		ClothingMaterial, ClothingMesh, FirearmMesh, InventoryDropPolicy, InventoryItem, ItemColor,
 	};
@@ -567,6 +644,110 @@ mod tests {
 			Some(FirearmMesh::Reltor)
 		);
 		assert!(world.resource::<CharacterUiSyncState>().menu_dirty);
+		Ok(())
+	}
+
+	#[test]
+	fn in_game_drop_recaptures_baseline_and_asks_for_a_world_pickup() -> anyhow::Result<()> {
+		let items = vec![
+			InventoryItem::clothing(
+				ClothingMesh::Pants,
+				ClothingMaterial::Cloth,
+				ItemColor::Natural,
+			),
+			InventoryItem::firearm(FirearmMesh::Bullpup),
+		];
+		let mut world = World::new();
+		world.init_resource::<Messages<CharacterMenuEvent<MenuEvent>>>();
+		world.init_resource::<Messages<InventoryMenuDropped>>();
+		world.insert_resource(CharacterMenuState::for_create(items.clone()));
+		let menu = world.resource::<CharacterMenuState>().0.clone();
+		world.insert_resource(CharacterEditBaseline::capture(&menu));
+		world.init_resource::<CharacterUiSyncState>();
+		world.init_resource::<OverlayUiSyncState>();
+		world
+			.run_system_once(
+				|mut menu_state: ResMut<CharacterMenuState>,
+				 mut ui_sync: ResMut<CharacterUiSyncState>,
+				 mut overlay_sync: ResMut<OverlayUiSyncState>,
+				 mut menu_events: MessageWriter<CharacterMenuEvent<MenuEvent>>,
+				 mut menu_drops: MessageWriter<InventoryMenuDropped>,
+				 mut baseline: ResMut<CharacterEditBaseline>| {
+					let item = apply_drop_inventory(
+						1,
+						&mut menu_state,
+						&mut ui_sync,
+						&mut overlay_sync,
+						&mut menu_events,
+					)
+					.expect("dropped");
+					commit_live_world_drop(
+						item,
+						1,
+						&menu_state,
+						Some(&CharacterEditorReturn::InGame),
+						Some(&mut baseline),
+						&mut menu_drops,
+					);
+				},
+			)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let leftover = world
+			.resource::<CharacterMenuState>()
+			.0
+			.inventory
+			.as_ref()
+			.ok_or_else(|| anyhow::anyhow!("inventory"))?;
+		assert_eq!(leftover.items.len(), 1);
+		assert_eq!(
+			world.resource::<CharacterEditBaseline>().inventory.items.len(),
+			leftover.items.len()
+		);
+		assert!(!world
+			.resource::<CharacterEditBaseline>()
+			.is_dirty(&world.resource::<CharacterMenuState>().0));
+		let drops = world.resource_mut::<Messages<InventoryMenuDropped>>().drain().count();
+		assert_eq!(drops, 1);
+		Ok(())
+	}
+
+	#[test]
+	fn gallery_drop_does_not_ask_for_a_world_pickup() -> anyhow::Result<()> {
+		let items = vec![InventoryItem::firearm(FirearmMesh::Bullpup)];
+		let mut world = World::new();
+		world.init_resource::<Messages<CharacterMenuEvent<MenuEvent>>>();
+		world.init_resource::<Messages<InventoryMenuDropped>>();
+		world.insert_resource(CharacterMenuState::for_create(items));
+		world.init_resource::<CharacterUiSyncState>();
+		world.init_resource::<OverlayUiSyncState>();
+		world
+			.run_system_once(
+				|mut menu_state: ResMut<CharacterMenuState>,
+				 mut ui_sync: ResMut<CharacterUiSyncState>,
+				 mut overlay_sync: ResMut<OverlayUiSyncState>,
+				 mut menu_events: MessageWriter<CharacterMenuEvent<MenuEvent>>,
+				 mut menu_drops: MessageWriter<InventoryMenuDropped>| {
+					let item = apply_drop_inventory(
+						0,
+						&mut menu_state,
+						&mut ui_sync,
+						&mut overlay_sync,
+						&mut menu_events,
+					)
+					.expect("dropped");
+					commit_live_world_drop(
+						item,
+						0,
+						&menu_state,
+						Some(&CharacterEditorReturn::Gallery),
+						None,
+						&mut menu_drops,
+					);
+				},
+			)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let drops = world.resource_mut::<Messages<InventoryMenuDropped>>().drain().count();
+		assert_eq!(drops, 0);
 		Ok(())
 	}
 

@@ -14,18 +14,18 @@ use character_items::{ClothingHost, ClothingMesh, FirearmSpec, ItemColor};
 use character_persist::SaveRoot;
 use character_ui_menu::{CameraFocus, FocusRig};
 use characters::{
-	ActiveRigPose, AnimRef, AnimRefRoot, ApplyTerrainPitch, BoneMap, CharacterComponents,
-	CharacterHostSystems, CharacterMembers, CharacterRecipe, CharacterRig, CharacterRigRole,
-	ClothingLayer, ComponentsOnly, Layers, PartNode, ResolvedPoseApplied, RigBindScales,
-	SocketRefApplied, SocketRefRoot, add_character_components_host, character_bounds,
+	add_character_components_host, character_bounds, ActiveRigPose, AnimRef, AnimRefRoot,
+	ApplyTerrainPitch, BoneMap, CharacterComponents, CharacterHostSystems, CharacterMembers,
+	CharacterRecipe, CharacterRig, CharacterRigRole, ClothingLayer, ComponentsOnly, Layers,
+	PartNode, ResolvedPoseApplied, RigBindScales, SocketRefApplied, SocketRefRoot,
 };
 use characters_playground::CameraController;
 use firearm_user::GeneratedFirearm;
 use firearms_components::{
-	FirearmComponentsPlugin, FirearmRoot, add_firearm_components_host, firearm_bounds,
-	firearm_preview_camera, spawn_firearm_components,
+	add_firearm_components_host, firearm_bounds, firearm_preview_camera, spawn_firearm_components,
+	FirearmComponentsPlugin, FirearmRoot,
 };
-use grenades::{GrenadeMaterial, GrenadeMaterialPlugin, grenade_material, grenade_mesh};
+use grenades::{grenade_material, grenade_mesh, GrenadeMaterial, GrenadeMaterialPlugin};
 use lod::lod_ref::LodRef;
 use lod::scene::LodScene;
 use lod::scene::LodSceneLevel;
@@ -816,10 +816,10 @@ mod tests {
 	use super::*;
 	use std::f32::consts::FRAC_PI_4;
 
-	use character_creation_menus::BODY_FOCUS;
 	use character_creation_menus::focus::{
-		EYE_FOCUS, HEAD_ROOT_FOCUS, spin_reveal_firearm_focus, spin_reveal_grenade_focus,
+		spin_reveal_firearm_focus, spin_reveal_grenade_focus, EYE_FOCUS, HEAD_ROOT_FOCUS,
 	};
+	use character_creation_menus::BODY_FOCUS;
 
 	const EPS: f32 = 1e-4;
 
@@ -927,8 +927,8 @@ mod tests {
 	}
 
 	#[test]
-	fn head_focus_waits_for_the_socket_and_ignores_the_clip()
-	-> Result<(), Box<dyn std::error::Error>> {
+	fn head_focus_waits_for_the_socket_and_ignores_the_clip(
+	) -> Result<(), Box<dyn std::error::Error>> {
 		let mut fixture = Fixture::new();
 		fixture.world.entity_mut(fixture.body).insert(ResolvedPoseApplied);
 		assert_eq!(fixture.resolve()?, Err(FocusWait::Attach(fixture.head)));

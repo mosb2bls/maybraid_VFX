@@ -195,7 +195,6 @@ mod tests {
 		Ok(())
 	}
 
-	#[test]
 	/// Gamepad left stick still navigates. Keyboard WASD does not — it never
 	/// reaches the stick under [`crate::KeyboardPadMap::Menu`].
 	#[test]

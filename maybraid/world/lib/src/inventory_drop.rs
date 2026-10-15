@@ -9,11 +9,11 @@ use bevy::prelude::*;
 use character_inventory_user::InventoryUser;
 use character_items::{
 	ActiveInventoryDropPolicy, Inventory, InventoryDropRefused, InventoryDropRequest,
-	InventoryDropped,
+	InventoryDropped, InventoryMenuDropped,
 };
 use world_player::Player as VegetationPlayer;
 
-use crate::stash::{spawn_world_stash, WorldStashSettings};
+use crate::stash::{WorldStashSettings, spawn_world_stash};
 use crate::weapon::{AppliedWorldPlayerLoadout, WorldPlayerLoadout};
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -24,8 +24,13 @@ pub(crate) fn configure(app: &mut App) {
 		.add_message::<InventoryDropRequest>()
 		.add_message::<InventoryDropped>()
 		.add_message::<InventoryDropRefused>()
+		.add_message::<InventoryMenuDropped>()
 		.configure_sets(Update, InventoryDropSystems)
-		.add_systems(Update, apply_inventory_drop_requests.in_set(InventoryDropSystems));
+		.add_systems(
+			Update,
+			(apply_inventory_drop_requests, spawn_menu_inventory_pickups)
+				.in_set(InventoryDropSystems),
+		);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -88,6 +93,32 @@ pub(crate) fn apply_inventory_drop_requests(
 				refused.write(InventoryDropRefused { owner, index: request.index, reason });
 			}
 		}
+	}
+}
+
+fn spawn_menu_inventory_pickups(
+	mut drops: MessageReader<InventoryMenuDropped>,
+	mut commands: Commands,
+	settings: Option<Res<WorldStashSettings>>,
+	assets: Option<Res<AssetServer>>,
+	players: Query<&Transform, With<VegetationPlayer>>,
+) {
+	let Some(origin) = players.iter().next().map(|transform| transform.translation) else {
+		return;
+	};
+	let assets = assets.as_deref();
+	let policy = settings
+		.as_ref()
+		.map(|settings| settings.ephemeral_policy())
+		.unwrap_or_default();
+	for drop in drops.read() {
+		spawn_world_stash(
+			&mut commands,
+			Transform::from_translation(origin + Vec3::Y * 0.05),
+			visual_drop_bag(drop.item.clone()),
+			policy,
+			assets,
+		);
 	}
 }
 
@@ -258,6 +289,34 @@ mod tests {
 		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), 1);
 		let leftover = world.get::<Inventory>(bag).ok_or_else(|| anyhow::anyhow!("bag"))?;
 		assert_eq!(leftover.weapons, vec![1]);
+		Ok(())
+	}
+
+	#[test]
+	fn menu_drop_spawns_an_ephemeral_stash_with_despawn_cool_off() -> anyhow::Result<()> {
+		use crate::stash::{StashPolicy, WorldStashSettings};
+		use character_items::InventoryMenuDropped;
+		use damage::DespawnAfter;
+
+		let (mut world, _, _) = drop_world(queued_loadout());
+		world.init_resource::<WorldStashSettings>();
+		world.init_resource::<Messages<InventoryMenuDropped>>();
+		let item = queued_loadout().items[2].clone();
+		world
+			.run_system_once(move |mut writer: MessageWriter<InventoryMenuDropped>| {
+				writer.write(InventoryMenuDropped { item: item.clone(), index: 2 });
+			})
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(super::spawn_menu_inventory_pickups)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), 1);
+		let ttl = world
+			.query::<&DespawnAfter>()
+			.iter(&world)
+			.next()
+			.ok_or_else(|| anyhow::anyhow!("despawn cool-off"))?;
+		assert!((ttl.remaining_secs() - StashPolicy::default().loot_secs).abs() < 0.01);
 		Ok(())
 	}
 

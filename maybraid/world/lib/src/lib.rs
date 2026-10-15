@@ -46,7 +46,7 @@ pub use world_furnished::WorldFurnished;
 pub use agent::AgentDrive;
 pub use character_items::{
 	ActiveInventoryDropPolicy, InventoryDrop, InventoryDropError, InventoryDropPolicy,
-	InventoryDropRefused, InventoryDropRequest, InventoryDropped,
+	InventoryDropRefused, InventoryDropRequest, InventoryDropped, InventoryMenuDropped,
 };
 #[cfg(feature = "debug-commands")]
 pub use commands::{
