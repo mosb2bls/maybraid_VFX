@@ -15,7 +15,7 @@ use player::{look_forward, PlayerLook};
 use world_player::Player as VegetationPlayer;
 
 use crate::stash::{spawn_world_stash, WorldStashSettings};
-use crate::weapon::{AppliedWorldPlayerLoadout, WorldPlayerLoadout};
+use crate::weapon::WorldPlayerLoadout;
 
 /// Spawn just outside the capsule, into the third-person gap beside the overlay.
 const TOSS_START_FORWARD: f32 = 0.55;
@@ -70,7 +70,6 @@ pub(crate) fn apply_inventory_drop_requests(
 	mut requests: MessageReader<InventoryDropRequest>,
 	mut dropped: MessageWriter<InventoryDropped>,
 	mut refused: MessageWriter<InventoryDropRefused>,
-	mut commands: Commands,
 	mut menu_drops: MessageWriter<InventoryMenuDropped>,
 	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
 	users: Query<(&InventoryUser, Has<VegetationPlayer>)>,
@@ -99,8 +98,9 @@ pub(crate) fn apply_inventory_drop_requests(
 				let snapshot = bag.clone();
 				if is_player {
 					if let Some(loadout) = loadout.as_deref_mut() {
+						// Leave AppliedWorldPlayerLoadout stale so arm_world_player
+						// re-holds the promoted primary and refreshes clothing/stats.
 						loadout.retarget_inventory(snapshot.clone());
-						commands.entity(owner).insert(AppliedWorldPlayerLoadout(loadout.clone()));
 					}
 				}
 				if outcome.spawn_world_pickup {
@@ -253,12 +253,16 @@ mod tests {
 	};
 	use character_persist::{CharacterId, SaveRoot};
 	use characters::CharacterAppearance;
+	use firearm_user::FirearmUser;
+	use grenade_user::GrenadeUser;
 	use maybraid_character_controller::InventoryCyclingCategory;
 
 	use super::*;
 	use crate::inventory_cycling::ActiveInventoryCyclingCategory;
 	use crate::stash::WorldStash;
-	use crate::weapon::WorldPlayerLoadout;
+	use crate::weapon::{
+		hold_primary_weapon, teardown_held_weapon, AppliedWorldPlayerLoadout, WorldPlayerLoadout,
+	};
 
 	fn queued_loadout() -> Inventory {
 		Inventory {
@@ -361,6 +365,76 @@ mod tests {
 				.primary_weapon()
 				.and_then(InventoryItem::firearm_mesh),
 			Some(FirearmMesh::Reltor)
+		);
+		Ok(())
+	}
+
+	fn gun_then_grenade() -> Inventory {
+		Inventory {
+			items: vec![
+				InventoryItem::firearm(FirearmMesh::Bullpup),
+				InventoryItem::standard_grenade(),
+			],
+			clothing: Vec::new(),
+			weapons: vec![0, 1],
+			skills: Vec::new(),
+		}
+	}
+
+	#[test]
+	fn drop_equipped_primary_replaces_the_live_weapon() -> anyhow::Result<()> {
+		let (mut world, owner, _) = drop_world(gun_then_grenade());
+		let held = world.spawn_empty().id();
+		let armed = world.resource::<WorldPlayerLoadout>().clone();
+		world
+			.entity_mut(owner)
+			.insert((FirearmUser::holding(held), AppliedWorldPlayerLoadout(armed)));
+		run_drop(&mut world, owner, 0, InventoryDropPolicy::PLACEHOLDER)?;
+
+		let applied = world
+			.get::<AppliedWorldPlayerLoadout>(owner)
+			.ok_or_else(|| anyhow::anyhow!("applied"))?;
+		let loadout = world.resource::<WorldPlayerLoadout>();
+		assert_eq!(
+			applied.0.inventory.primary_weapon().and_then(InventoryItem::firearm_mesh),
+			Some(FirearmMesh::Bullpup)
+		);
+		assert!(
+			matches!(loadout.inventory.primary_weapon(), Some(InventoryItem::Grenade { .. })),
+			"loadout must promote the leftover grenade"
+		);
+		assert_ne!(
+			&applied.0, loadout,
+			"adapter must not mark the leftover applied; arm_world_player should reconcile"
+		);
+		assert_eq!(
+			world.get::<FirearmUser>(owner).map(|user| user.held),
+			Some(held),
+			"live hold stays stale until reconciliation"
+		);
+
+		let leftover = loadout.inventory.clone();
+		world
+			.run_system_once(
+				move |mut commands: Commands,
+				      users: Query<(Entity, Option<&FirearmUser>, Option<&GrenadeUser>)>| {
+					let Ok((player, firearm, grenade)) = users.get(owner) else {
+						return;
+					};
+					teardown_held_weapon(&mut commands, player, firearm, grenade);
+					hold_primary_weapon(&mut commands, player, &leftover);
+				},
+			)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+		assert!(
+			!world.entities().contains(held),
+			"dropping the equipped primary must despawn the held gun"
+		);
+		assert!(world.get::<FirearmUser>(owner).is_none());
+		assert!(
+			world.get::<GrenadeUser>(owner).is_some(),
+			"live weapon must change to the leftover primary"
 		);
 		Ok(())
 	}

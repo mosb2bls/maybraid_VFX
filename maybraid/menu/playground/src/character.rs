@@ -511,6 +511,23 @@ fn sync_overlay_select(
 		overlay_sync.wait_started,
 		time.elapsed(),
 	);
+	if inventory_overlay_should_warn_timeout(
+		overlay_sync.showing_loading,
+		&menu_state.0,
+		overlay.open,
+		icons.as_deref(),
+		overlay_sync.wait_started,
+		time.elapsed(),
+	) {
+		let waited = overlay_sync
+			.wait_started
+			.map(|started| time.elapsed().saturating_sub(started))
+			.unwrap_or(Duration::ZERO);
+		warn!(
+			waited_secs = waited.as_secs_f32(),
+			"inventory icons timed out; showing the layout without every capture"
+		);
+	}
 	let loading_flip = overlay_sync.showing_loading && inventory_ready;
 	if !open_changed && !menu_changed && !loading_flip {
 		return;
@@ -605,16 +622,31 @@ fn inventory_overlay_ready(
 	let waited = wait_started
 		.map(|started| now.saturating_sub(started))
 		.unwrap_or(Duration::ZERO);
-	if waited >= INVENTORY_CAPTURE_TIMEOUT
+	inventory_paint_state(reports, waited, INVENTORY_CAPTURE_TIMEOUT) == InventoryPaint::Ready
+}
+
+fn inventory_overlay_should_warn_timeout(
+	showing_loading: bool,
+	menu: &CharacterMenu,
+	open: Option<&'static str>,
+	icons: Option<&ItemIconCache>,
+	wait_started: Option<Duration>,
+	now: Duration,
+) -> bool {
+	if !showing_loading || open != Some(INVENTORY_LABEL) {
+		return false;
+	}
+	let Some(inventory) = menu.inventory.as_ref() else {
+		return false;
+	};
+	let layout = InventoryLayout::character_menu(inventory);
+	let waited = wait_started
+		.map(|started| now.saturating_sub(started))
+		.unwrap_or(Duration::ZERO);
+	waited >= INVENTORY_CAPTURE_TIMEOUT
 		&& !layout.captures.iter().all(|need| {
 			icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette))
-		}) {
-		warn!(
-			waited_secs = waited.as_secs_f32(),
-			"inventory icons timed out; showing the layout without every capture"
-		);
-	}
-	inventory_paint_state(reports, waited, INVENTORY_CAPTURE_TIMEOUT) == InventoryPaint::Ready
+		})
 }
 
 fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
@@ -848,6 +880,42 @@ mod tests {
 		let mut wrong = CatalogThumbs { icons: Some(&shaded_only) };
 		if wrong.image_for_key(key).is_some() {
 			anyhow::bail!("Self Lubikan tile must not use the shaded handle");
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn inventory_timeout_warns_only_on_loading_fallback() -> anyhow::Result<()> {
+		use super::{inventory_overlay_ready, inventory_overlay_should_warn_timeout};
+		use character_creation_menus::{INVENTORY_CAPTURE_TIMEOUT, INVENTORY_LABEL};
+		use character_items::{FirearmMesh, InventoryItem};
+		use std::time::Duration;
+
+		let menu = CharacterMenu::for_create(vec![InventoryItem::firearm(FirearmMesh::Bullpup)]);
+		let started = Some(Duration::ZERO);
+		let now = INVENTORY_CAPTURE_TIMEOUT + Duration::from_secs(1);
+		if !inventory_overlay_ready(&menu, Some(INVENTORY_LABEL), None, started, now) {
+			anyhow::bail!("timeout must paint the fallback layout");
+		}
+		if !inventory_overlay_should_warn_timeout(
+			true,
+			&menu,
+			Some(INVENTORY_LABEL),
+			None,
+			started,
+			now,
+		) {
+			anyhow::bail!("loading -> timeout-fallback should warn once");
+		}
+		if inventory_overlay_should_warn_timeout(
+			false,
+			&menu,
+			Some(INVENTORY_LABEL),
+			None,
+			started,
+			now,
+		) {
+			anyhow::bail!("fallback already showing must not warn every frame");
 		}
 		Ok(())
 	}

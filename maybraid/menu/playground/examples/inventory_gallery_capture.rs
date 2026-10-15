@@ -18,14 +18,14 @@ use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Capturing, Screenshot};
 use character_creation_menus::{CharacterMenu, InventoryLayout, STARTER_KIT_LABEL};
 use character_items::{
-	self_lubikan_catalog_key, ClothingMaterial, ClothingMesh, FirearmMesh, InventoryItem,
-	ItemColor, ItemRng, SkillMapKind, SkillMapSpec,
+	self_lubikan_catalog_key, ClothingMaterial, ClothingMesh, FirearmMesh, Inventory,
+	InventoryItem, ItemColor, ItemRng, SkillMapKind, SkillMapSpec,
 };
 use character_ui_menu::MenuComponent;
 use item_icons::{
-	request_self_lubikan_icon, CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed,
-	CaptureHostReady, CaptureHostRealized, CaptureHostRoot, ItemIconCache, ItemIconDiscovery,
-	ItemIconPlugin,
+	request_inventory_icons, CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed,
+	CaptureHostReady, CaptureHostRealized, CaptureHostRoot, ItemCaptureSubjects, ItemIconCache,
+	ItemIconDiscovery, ItemIconPlugin,
 };
 use maybraid_character_ui_menu_renderer::{
 	fill_inventory_layout, fill_inventory_loading, find_overlay_node, spawn_overlay_shell,
@@ -202,8 +202,21 @@ fn allow_slow_braidman_icon(mut cache: ResMut<CaptureCacheRoot>) {
 	cache.max_wait_frames = 3600;
 }
 
-fn request_icon(mut discovery: ResMut<ItemIconDiscovery>, mut client: CaptureClient) {
-	request_self_lubikan_icon(&mut discovery, &mut client);
+fn request_icon(
+	mut discovery: ResMut<ItemIconDiscovery>,
+	mut subjects: ResMut<ItemCaptureSubjects>,
+	mut client: CaptureClient,
+) {
+	for inventory in capture_icon_inventories() {
+		request_inventory_icons(&inventory, &mut discovery, &mut subjects, &mut client);
+	}
+}
+
+fn capture_icon_inventories() -> [Inventory; 2] {
+	[
+		Inventory::with_starter_outfit(real_starter_items()),
+		Inventory::with_starter_outfit(overflow_fixture_items()),
+	]
 }
 
 fn log_capture_outcome(
@@ -264,7 +277,18 @@ fn log_host_progress(
 }
 
 fn icon_ready(cache: &ItemIconCache) -> bool {
-	cache.silhouette_for_key(self_lubikan_catalog_key()).is_some()
+	capture_icon_inventories().iter().all(|inventory| {
+		InventoryLayout::starter_kit(inventory.items.clone())
+			.captures
+			.iter()
+			.all(|need| cache.filled_or_failed(need.key, need.silhouette))
+	})
+}
+
+const SCENE_DEADLINE: Duration = Duration::from_secs(48);
+
+fn scene_deadline_hit(shown_at: Option<Duration>, now: Duration) -> bool {
+	shown_at.is_some_and(|at| now > at + SCENE_DEADLINE)
 }
 
 fn spawn_grant_scene(
@@ -506,7 +530,9 @@ fn advance_after_shot(
 		return;
 	}
 	if !shots.requested {
-		if shots.scene != CaptureScene::WaitingForIcon && time.elapsed_secs() > 48.0 {
+		if shots.scene != CaptureScene::WaitingForIcon
+			&& scene_deadline_hit(shots.shown_at, time.elapsed())
+		{
 			exit.write(AppExit::Success);
 		}
 		return;
@@ -516,7 +542,7 @@ fn advance_after_shot(
 		*ready_at = Some(time.elapsed());
 	}
 	if !(ready_at.is_some_and(|at| time.elapsed() > at + Duration::from_millis(250))
-		|| time.elapsed_secs() > 48.0)
+		|| scene_deadline_hit(shots.shown_at, time.elapsed()))
 	{
 		return;
 	}
@@ -533,4 +559,42 @@ fn advance_after_shot(
 	}
 	let fonts = HudFonts::load(assets.as_ref());
 	spawn_scene(&mut commands, &fonts, assets.as_ref(), shots.scene, Some(cache.as_ref()));
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use character_items::SELF_LUBIKAN_CAPTURE_LABEL;
+	use item_icons::CaptureId;
+
+	#[test]
+	fn gallery_waits_for_starter_and_overflow_captures() {
+		let mut cache = ItemIconCache::default();
+		assert!(!icon_ready(&cache));
+		cache.insert_silhouette(CaptureId::new(SELF_LUBIKAN_CAPTURE_LABEL), Handle::default());
+		assert!(
+			!icon_ready(&cache),
+			"clothing / firearm / grenade captures must enter the wait set"
+		);
+		for inventory in capture_icon_inventories() {
+			for item in &inventory.items {
+				if matches!(item, InventoryItem::SkillMap { .. }) {
+					continue;
+				}
+				let Some(label) = item.capture_id_label() else {
+					continue;
+				};
+				cache.insert_shaded(CaptureId::new(label), Handle::default());
+			}
+		}
+		assert!(icon_ready(&cache));
+	}
+
+	#[test]
+	fn scene_deadlines_use_shown_at_not_total_app_time() {
+		let shown_at = Some(Duration::from_secs(50));
+		assert!(!scene_deadline_hit(shown_at, Duration::from_secs(60)));
+		assert!(scene_deadline_hit(shown_at, Duration::from_secs(99)));
+		assert!(!scene_deadline_hit(None, Duration::from_secs(90)));
+	}
 }

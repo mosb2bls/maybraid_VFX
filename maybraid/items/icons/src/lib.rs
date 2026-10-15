@@ -318,17 +318,20 @@ pub fn request_self_lubikan_icon(discovery: &mut ItemIconDiscovery, client: &mut
 	if !discovery.requested.insert(subject.capture_id()) {
 		return;
 	}
-	client.request(
-		CaptureRequest::from_subject(
-			&subject,
-			CaptureMode::Silhouette,
-			ITEM_ICON_RESOLUTION,
-			CaptureLighting::studio(),
-			revision,
-		)
-		.with_file_stem("self-lubikan")
-		.with_framing(CaptureFraming::ICON),
-	);
+	client.request(self_lubikan_icon_request(revision));
+}
+
+/// Silhouette request for the shared Self Lubikan catalog tile.
+pub(crate) fn self_lubikan_icon_request(revision: CaptureRevision) -> CaptureRequest {
+	CaptureRequest::from_subject(
+		&SelfLubikanSubject,
+		CaptureMode::Silhouette,
+		ITEM_ICON_RESOLUTION,
+		CaptureLighting::studio(),
+		revision,
+	)
+	.with_file_stem("self-lubikan")
+	.with_framing(CaptureFraming::ICON)
 }
 
 #[derive(Clone, Debug)]
@@ -569,15 +572,7 @@ mod tests {
 			subject.capture_scene(),
 			CaptureScene::Host { kind, .. } if kind == HOST_SELF_LUBIKAN
 		));
-		let request = CaptureRequest::from_subject(
-			&subject,
-			CaptureMode::Silhouette,
-			ITEM_ICON_RESOLUTION,
-			CaptureLighting::studio(),
-			CaptureRevision::CURRENT,
-		)
-		.with_file_stem("self-lubikan")
-		.with_framing(CaptureFraming::ICON);
+		let request = self_lubikan_icon_request(CaptureRevision::CURRENT);
 		assert_eq!(request.mode, CaptureMode::Silhouette);
 		assert_eq!(request.framing, CaptureFraming::ICON);
 		assert_eq!(request.resolution, ITEM_ICON_RESOLUTION);

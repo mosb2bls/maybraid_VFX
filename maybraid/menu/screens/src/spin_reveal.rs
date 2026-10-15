@@ -16,7 +16,7 @@ use maybraid_input::{MenuNav, MenuNavImpulse};
 use maybraid_menu_controller::MenuController;
 use menu_components::{
 	spawn_hud_action, spawn_hud_text, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu,
-	MenuComponentsPlugin, ScreenBack, MENU_CLEAR, TEXT_YELLOW,
+	KeyboardMenuNav, MenuComponentsPlugin, ScreenBack, TextMenuInputLock, MENU_CLEAR, TEXT_YELLOW,
 };
 use std::time::Duration;
 
@@ -323,21 +323,24 @@ fn reveal_starter_kit_icons(
 
 fn click_starter_kit_continue(
 	click: On<Pointer<Click>>,
+	lock: Res<TextMenuInputLock>,
 	continues: Query<(), With<StarterKitContinue>>,
 	mut choices: MessageWriter<SpinRevealChoice>,
 ) {
-	if continues.get(click.entity).is_ok() {
-		choices.write(SpinRevealChoice::Advance);
+	if lock.0 || continues.get(click.entity).is_err() {
+		return;
 	}
+	choices.write(SpinRevealChoice::Advance);
 }
 
 fn select_starter_kit_continue(
 	impulse: On<MenuNavImpulse>,
+	lock: Res<TextMenuInputLock>,
 	menus: Query<&HudMenu, With<StarterKitViewport>>,
 	items: Query<(&HudMenuItem, Option<&StarterKitContinue>)>,
 	mut choices: MessageWriter<SpinRevealChoice>,
 ) {
-	if impulse.event().nav != MenuNav::Select {
+	if lock.0 || impulse.event().nav != MenuNav::Select {
 		return;
 	}
 	let Ok(menu) = menus.get(impulse.entity) else {
@@ -352,11 +355,13 @@ fn select_starter_kit_continue(
 
 fn enter_starter_kit_continue(
 	keyboard: Res<ButtonInput<KeyCode>>,
+	keyboard_nav: Res<KeyboardMenuNav>,
+	lock: Res<TextMenuInputLock>,
 	menus: Query<(Entity, &HudMenu), With<StarterKitViewport>>,
 	items: Query<(&HudMenuItem, Option<&StarterKitContinue>)>,
 	mut choices: MessageWriter<SpinRevealChoice>,
 ) {
-	if !keyboard.just_pressed(KeyCode::Enter) {
+	if !keyboard_nav.is_enabled() || lock.0 || !keyboard.just_pressed(KeyCode::Enter) {
 		return;
 	}
 	let Some((menu_entity, menu)) = menus.iter().next() else {
@@ -395,8 +400,9 @@ impl SpinRevealScreen {
 #[cfg(test)]
 mod tests {
 	use super::{
-		drop_stale_gallery, finish_spin_reveal, SpinRevealChoice, SpinRevealCurrent,
-		SpinRevealFinished, SpinRevealItems, SpinRevealScreen,
+		drop_stale_gallery, enter_starter_kit_continue, finish_spin_reveal, SpinRevealChoice,
+		SpinRevealCurrent, SpinRevealFinished, SpinRevealItems, SpinRevealScreen,
+		StarterKitContinue, StarterKitViewport,
 	};
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
@@ -466,6 +472,62 @@ mod tests {
 			.map_err(|error| format!("{error:?}"))?;
 		if got.as_ref() != Some(&items) {
 			return Err("finished items must be the whole grant".into());
+		}
+		Ok(())
+	}
+
+	fn continue_world(lock: bool, keyboard_nav: bool) -> World {
+		use menu_components::{HudMenu, HudMenuItem, KeyboardMenuNav, TextMenuInputLock};
+
+		let mut world = World::new();
+		world.insert_resource(TextMenuInputLock(lock));
+		world.insert_resource(KeyboardMenuNav(keyboard_nav));
+		world.init_resource::<Messages<SpinRevealChoice>>();
+		let mut keys = ButtonInput::<KeyCode>::default();
+		keys.press(KeyCode::Enter);
+		world.insert_resource(keys);
+		let menu = world.spawn((HudMenu::retain(1, None), StarterKitViewport)).id();
+		world.spawn((HudMenuItem { index: 0, menu }, StarterKitContinue));
+		world
+	}
+
+	fn continue_choices(world: &mut World) -> usize {
+		world.resource_mut::<Messages<SpinRevealChoice>>().drain().count()
+	}
+
+	#[test]
+	fn locked_text_input_does_not_advance_on_enter() -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = continue_world(true, true);
+		world
+			.run_system_once(enter_starter_kit_continue)
+			.map_err(|error| format!("{error:?}"))?;
+		if continue_choices(&mut world) != 0 {
+			return Err("console / text lock must not activate Continue".into());
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn disabled_keyboard_nav_does_not_advance_on_enter() -> Result<(), Box<dyn std::error::Error>> {
+		let mut world = continue_world(false, false);
+		world
+			.run_system_once(enter_starter_kit_continue)
+			.map_err(|error| format!("{error:?}"))?;
+		if continue_choices(&mut world) != 0 {
+			return Err("controller-owned Enter must not be handled twice".into());
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn unlocked_enter_advances_when_continue_is_focused() -> Result<(), Box<dyn std::error::Error>>
+	{
+		let mut world = continue_world(false, true);
+		world
+			.run_system_once(enter_starter_kit_continue)
+			.map_err(|error| format!("{error:?}"))?;
+		if continue_choices(&mut world) != 1 {
+			return Err("unlocked keyboard Enter should activate Continue".into());
 		}
 		Ok(())
 	}
