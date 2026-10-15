@@ -17,32 +17,33 @@ use world_player::Player as VegetationPlayer;
 use crate::stash::{spawn_world_stash, WorldStashSettings};
 use crate::weapon::{AppliedWorldPlayerLoadout, WorldPlayerLoadout};
 
-/// Ahead of the player, into the third-person gap beside the inventory overlay.
-const TOSS_FORWARD: f32 = 1.15;
-const TOSS_CAMERA_RIGHT: f32 = 0.55;
-const TOSS_SPREAD: f32 = 0.22;
-const TOSS_START_Y: f32 = 0.85;
-const TOSS_LAND_Y: f32 = 0.05;
-const TOSS_APEX: f32 = 0.55;
-const TOSS_SECS: f32 = 0.38;
-const TOSS_SPIN: f32 = 7.0;
-/// Golden-angle step so sequential landings do not stack.
+/// Spawn just outside the capsule, into the third-person gap beside the overlay.
+const TOSS_START_FORWARD: f32 = 0.55;
+const TOSS_START_RIGHT: f32 = 0.28;
+const TOSS_START_Y: f32 = 0.95;
+const TOSS_START_FAN: f32 = 0.22;
+const TOSS_SPEED: f32 = 3.6;
+const TOSS_CAMERA_RIGHT: f32 = 1.4;
+const TOSS_UP: f32 = 4.2;
+const TOSS_SPREAD: f32 = 2.2;
+const TOSS_SPIN: f32 = 8.0;
+const TOSS_GRAVITY: f32 = -9.81;
+const TOSS_FLOOR_Y: f32 = 0.05;
+/// Golden-angle step so sequential launches do not share a velocity.
 const TOSS_GOLDEN: f32 = 2.399_963_2;
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct InventoryDropSystems;
 
-/// Sequential menu-drop index. Each confirm lands on a different spot in the ring.
+/// Sequential menu-drop index. Each confirm gets a different launch velocity.
 #[derive(Resource, Default, Debug)]
 pub(crate) struct MenuDropScatter(u32);
 
-/// Kinematic arc from chest height into the open world view.
+/// Ballistic toss integrated on [`Time`] so it still falls while gameplay is paused.
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct StashToss {
-	pub(crate) start: Vec3,
-	pub(crate) end: Vec3,
-	elapsed: f32,
-	duration: f32,
+	pub(crate) velocity: Vec3,
+	floor_y: f32,
 }
 
 pub(crate) fn configure(app: &mut App) {
@@ -147,8 +148,8 @@ fn spawn_menu_inventory_pickups(
 	for drop in drops.read() {
 		let n = scatter.0;
 		scatter.0 = scatter.0.wrapping_add(1);
-		let start = menu_drop_start(origin);
-		let end = menu_drop_landing(origin, forward, right, n);
+		let start = menu_drop_start(origin, forward, right, n);
+		let velocity = menu_drop_impulse(forward, right, n);
 		let Some(host) = spawn_world_stash(
 			&mut commands,
 			Transform::from_translation(start),
@@ -160,7 +161,7 @@ fn spawn_menu_inventory_pickups(
 		};
 		commands
 			.entity(host)
-			.insert(StashToss { start, end, elapsed: 0.0, duration: TOSS_SECS });
+			.insert(StashToss { velocity, floor_y: origin.y + TOSS_FLOOR_Y });
 	}
 }
 
@@ -170,15 +171,18 @@ fn tick_stash_tosses(
 	mut tosses: Query<(Entity, &mut Transform, &mut StashToss)>,
 ) {
 	let dt = time.delta_secs();
+	if dt <= 0.0 {
+		return;
+	}
 	for (entity, mut transform, mut toss) in &mut tosses {
-		toss.elapsed += dt;
-		let t = (toss.elapsed / toss.duration.max(1e-4)).min(1.0);
-		transform.translation = toss_sample(toss.start, toss.end, t);
+		toss.velocity.y += TOSS_GRAVITY * dt;
+		transform.translation += toss.velocity * dt;
 		transform.rotate_y(dt * TOSS_SPIN);
-		if t >= 1.0 {
-			transform.translation = toss.end;
-			commands.entity(entity).remove::<StashToss>();
+		if transform.translation.y > toss.floor_y || toss.velocity.y > 0.0 {
+			continue;
 		}
+		transform.translation.y = toss.floor_y;
+		commands.entity(entity).remove::<StashToss>();
 	}
 }
 
@@ -222,23 +226,17 @@ fn flatten_xz(dir: Vec3) -> Vec3 {
 	}
 }
 
-fn menu_drop_start(origin: Vec3) -> Vec3 {
-	origin + Vec3::Y * TOSS_START_Y
-}
-
-fn menu_drop_landing(origin: Vec3, forward: Vec3, right: Vec3, n: u32) -> Vec3 {
+fn menu_drop_start(origin: Vec3, forward: Vec3, right: Vec3, n: u32) -> Vec3 {
 	let angle = n as f32 * TOSS_GOLDEN;
-	let spread = TOSS_SPREAD * (1.0 + n as f32 * 0.08).min(1.6);
-	origin
-		+ forward * TOSS_FORWARD
-		+ right * TOSS_CAMERA_RIGHT
-		+ (right * angle.cos() + forward * angle.sin()) * spread
-		+ Vec3::Y * TOSS_LAND_Y
+	let fan = (right * angle.cos() + forward * angle.sin()) * TOSS_START_FAN;
+	origin + forward * TOSS_START_FORWARD + right * TOSS_START_RIGHT + fan + Vec3::Y * TOSS_START_Y
 }
 
-fn toss_sample(start: Vec3, end: Vec3, t: f32) -> Vec3 {
-	let t = t.clamp(0.0, 1.0);
-	start.lerp(end, t) + Vec3::Y * (4.0 * t * (1.0 - t) * TOSS_APEX)
+fn menu_drop_impulse(forward: Vec3, right: Vec3, n: u32) -> Vec3 {
+	let angle = n as f32 * TOSS_GOLDEN;
+	let spread = TOSS_SPREAD * (1.0 + n as f32 * 0.25).min(2.6);
+	let lateral = (right * angle.cos() + forward * angle.sin()) * spread;
+	forward * TOSS_SPEED + right * TOSS_CAMERA_RIGHT + lateral + Vec3::Y * TOSS_UP
 }
 
 fn visual_drop_bag(item: character_items::InventoryItem) -> Inventory {
@@ -459,37 +457,41 @@ mod tests {
 		world.init_resource::<Messages<InventoryMenuDropped>>();
 		write_menu_drop(&mut world, queued_loadout().items[2].clone(), 2)?;
 		spawn_menu_drops(&mut world)?;
-		let toss = world
-			.query::<&StashToss>()
-			.iter(&world)
-			.next()
-			.copied()
-			.ok_or_else(|| anyhow::anyhow!("stash toss"))?;
 		let origin = Vec3::new(3.0, 0.0, 1.0);
-		assert!((toss.start - menu_drop_start(origin)).length() < 1e-4);
-		// Identity facing is −Z, right is +X — into the open strip, not underfoot.
-		assert!(toss.end.z < origin.z - 0.8);
-		assert!(toss.end.x > origin.x + 0.4);
-		assert!((toss.end.y - TOSS_LAND_Y).abs() < 1e-4);
+		let start = menu_drop_start(origin, Vec3::NEG_Z, Vec3::X, 0);
 		let pose = world
 			.query::<(&Transform, &WorldStash)>()
 			.iter(&world)
 			.next()
 			.map(|(transform, _)| *transform)
 			.ok_or_else(|| anyhow::anyhow!("stash pose"))?;
-		assert!((pose.translation - toss.start).length() < 1e-4);
+		assert!((pose.translation - start).length() < 1e-4);
+		let toss = world
+			.query::<&StashToss>()
+			.iter(&world)
+			.next()
+			.copied()
+			.ok_or_else(|| anyhow::anyhow!("stash toss"))?;
+		// Identity facing is −Z, right is +X — into the open strip, not underfoot.
+		assert!(toss.velocity.z < -2.0);
+		assert!(toss.velocity.x > 2.0);
+		assert!(
+			toss.velocity.y > 2.5,
+			"toss should leave the hand with upward speed, got {toss:?}"
+		);
 		Ok(())
 	}
 
 	#[test]
-	fn menu_drop_landing_follows_player_yaw() {
+	fn menu_drop_impulse_follows_player_yaw() {
 		let origin = Vec3::new(3.0, 0.0, 1.0);
 		let yawed = Transform::from_translation(origin)
 			.with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2));
 		let (forward, right) = menu_drop_axes(&yawed, None, None);
-		let end = menu_drop_landing(origin, forward, right, 0);
-		assert!(end.x < origin.x - 0.8, "yaw π/2 faces −X, got {end:?}");
-		assert!(end.z < origin.z - 0.4, "camera-right fallback is −Z, got {end:?}");
+		let impulse = menu_drop_impulse(forward, right, 0);
+		assert!(impulse.x < -2.0, "yaw π/2 faces −X, got {impulse:?}");
+		assert!(impulse.z < -0.5, "camera-right fallback is −Z, got {impulse:?}");
+		assert!(impulse.y > 2.5);
 	}
 
 	#[test]
@@ -509,24 +511,24 @@ mod tests {
 		let camera =
 			Transform::from_xyz(-4.0, 2.0, 0.0).looking_at(Vec3::new(0.0, 0.8, 0.0), Vec3::Y);
 		let (forward, right) = menu_drop_axes(&player, None, Some(&camera));
-		let end = menu_drop_landing(player.translation, forward, right, 0);
-		let player_right_end = menu_drop_landing(player.translation, Vec3::NEG_Z, Vec3::X, 0);
+		let impulse = menu_drop_impulse(forward, right, 0);
+		let player_right = menu_drop_impulse(Vec3::NEG_Z, Vec3::X, 0);
 		assert!(
 			right.dot(Vec3::Z) > 0.7,
 			"camera on −X looking at the player has +Z right, got {right:?}"
 		);
 		assert!(
-			end.z > player_right_end.z + 0.4,
-			"camera-right should pull the landing toward +Z, got {end:?} vs {player_right_end:?}"
+			impulse.z > player_right.z + 1.5,
+			"camera-right should pull the toss toward +Z, got {impulse:?} vs {player_right:?}"
 		);
 		assert!(
-			end.x < player_right_end.x - 0.4,
-			"should not use player-right +X as the strip, got {end:?} vs {player_right_end:?}"
+			impulse.x < player_right.x - 1.5,
+			"should not use player-right +X as the strip, got {impulse:?} vs {player_right:?}"
 		);
 	}
 
 	#[test]
-	fn sequential_menu_drops_land_apart() -> anyhow::Result<()> {
+	fn sequential_menu_drops_launch_apart() -> anyhow::Result<()> {
 		use crate::stash::WorldStashSettings;
 		use character_items::InventoryMenuDropped;
 
@@ -541,18 +543,18 @@ mod tests {
 			})
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		spawn_menu_drops(&mut world)?;
-		let ends: Vec<Vec3> =
-			world.query::<&StashToss>().iter(&world).map(|toss| toss.end).collect();
-		assert_eq!(ends.len(), 2);
+		let velocities: Vec<Vec3> =
+			world.query::<&StashToss>().iter(&world).map(|toss| toss.velocity).collect();
+		assert_eq!(velocities.len(), 2);
 		assert!(
-			(ends[0] - ends[1]).length() > 0.25,
-			"sequential drops should not stack, got {ends:?}"
+			(velocities[0] - velocities[1]).length() > 2.0,
+			"sequential drops should not share a launch, got {velocities:?}"
 		);
 		Ok(())
 	}
 
 	#[test]
-	fn stash_toss_arcs_then_settles() -> anyhow::Result<()> {
+	fn stash_toss_falls_under_gravity_then_settles() -> anyhow::Result<()> {
 		use crate::stash::WorldStashSettings;
 		use character_items::InventoryMenuDropped;
 		use std::time::Duration;
@@ -562,37 +564,32 @@ mod tests {
 		world.init_resource::<Messages<InventoryMenuDropped>>();
 		write_menu_drop(&mut world, queued_loadout().items[2].clone(), 2)?;
 		spawn_menu_drops(&mut world)?;
-		let toss = world
-			.query::<&StashToss>()
-			.iter(&world)
-			.next()
-			.copied()
-			.ok_or_else(|| anyhow::anyhow!("stash toss"))?;
-		let mid = toss_sample(toss.start, toss.end, 0.5);
-		let chord = toss.start.lerp(toss.end, 0.5);
-		assert!(
-			mid.y > chord.y + 0.4,
-			"apex should lift above the start–end chord, got {mid:?} vs {chord:?}"
-		);
-
-		world
-			.resource_mut::<Time>()
-			.advance_by(Duration::from_secs_f32(TOSS_SECS * 0.5));
-		world
-			.run_system_once(tick_stash_tosses)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		let halfway = world
+		let start = world
 			.query::<(&Transform, &WorldStash)>()
 			.iter(&world)
 			.next()
 			.map(|(transform, _)| transform.translation)
 			.ok_or_else(|| anyhow::anyhow!("stash pose"))?;
-		assert!(halfway.y > chord.y + 0.2);
 
-		world.resource_mut::<Time>().advance_by(Duration::from_secs_f32(TOSS_SECS));
+		world.resource_mut::<Time>().advance_by(Duration::from_secs_f32(0.15));
 		world
 			.run_system_once(tick_stash_tosses)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let mid = world
+			.query::<(&Transform, &StashToss, &WorldStash)>()
+			.iter(&world)
+			.next()
+			.map(|(transform, toss, _)| (transform.translation, toss.velocity))
+			.ok_or_else(|| anyhow::anyhow!("in-flight toss"))?;
+		assert!(mid.0.y > start.y, "first beat should still be climbing, got {mid:?}");
+		assert!(mid.1.y < TOSS_UP, "gravity should bleed upward speed, got {mid:?}");
+
+		for _ in 0..20 {
+			world.resource_mut::<Time>().advance_by(Duration::from_secs_f32(0.1));
+			world
+				.run_system_once(tick_stash_tosses)
+				.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		}
 		assert_eq!(world.query::<&StashToss>().iter(&world).count(), 0);
 		let landed = world
 			.query::<(&Transform, &WorldStash)>()
@@ -600,7 +597,8 @@ mod tests {
 			.next()
 			.map(|(transform, _)| transform.translation)
 			.ok_or_else(|| anyhow::anyhow!("stash pose"))?;
-		assert!((landed - toss.end).length() < 1e-3);
+		assert!((landed.y - TOSS_FLOOR_Y).abs() < 1e-3);
+		assert!((Vec2::new(landed.x, landed.z) - Vec2::new(start.x, start.z)).length() > 0.8);
 		Ok(())
 	}
 

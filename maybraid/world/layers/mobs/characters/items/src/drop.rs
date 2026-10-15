@@ -21,8 +21,8 @@
 //!    items and an empty leftover bag. Flip [`InventoryDropPolicy::allow_equipped`]
 //!    or [`InventoryDropPolicy::allow_empty_bag`] when those rules exist.
 //! 3. **Confirm.** Default `require_confirm` is `true`. The domain does not
-//!    prompt; UI reads the flag. A follow-up inventory modal can keep or drop
-//!    the confirm without changing this API.
+//!    prompt; UI reads the flag. In-game pause edits skip the card because
+//!    the world pile is recoverable. Gallery / create still confirm.
 
 use bevy::prelude::*;
 

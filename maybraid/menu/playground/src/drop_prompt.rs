@@ -1,9 +1,9 @@
-//! Thin confirm for dropping a focused catalog item.
+//! Catalog drop: pad **X** / keyboard **X** or **E** on the Inventory overlay.
 //!
-//! Catalog tiles still toggle on A. Pad **X** / keyboard **X** or **E** on the
-//! Inventory overlay asks to drop that bag index.
-//! [`character_items::Inventory::try_drop`] does the mutation; this file only
-//! prompts. Section headers and the read-only Lubikan row have no bag index.
+//! In-game pause edits drop immediately — the world pile is recoverable.
+//! Gallery / create still confirm because the item is deleted. Catalog tiles
+//! still toggle on A. [`character_items::Inventory::try_drop`] does the
+//! mutation. Section headers and the read-only Lubikan row have no bag index.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -101,6 +101,11 @@ pub fn drop_index_from_event(event: MenuEvent) -> Option<usize> {
 	}
 }
 
+/// In-game world drops can be picked up again, so the confirm card stays closed.
+pub fn drop_needs_confirm(require_confirm: bool, recoverable: bool) -> bool {
+	require_confirm && !recoverable
+}
+
 #[derive(SystemParam)]
 struct LiveWorldDrop<'w> {
 	menu_drops: MessageWriter<'w, InventoryMenuDropped>,
@@ -165,7 +170,11 @@ fn intercept_catalog_drop_edges(
 	if inventory.can_drop(index, policy.0).is_err() {
 		return;
 	}
-	if policy.0.require_confirm {
+	let recoverable = live
+		.return_to
+		.as_ref()
+		.is_some_and(|return_to| return_to.uses_live_world_player());
+	if drop_needs_confirm(policy.0.require_confirm, recoverable) {
 		let label = inventory
 			.items
 			.get(index)
@@ -558,7 +567,7 @@ fn pointer_target(
 mod tests {
 	use super::{
 		apply_drop_inventory, catalog_drop_edge, commit_live_world_drop, drop_index_from_event,
-		CharacterDropPrompt,
+		drop_needs_confirm, CharacterDropPrompt,
 	};
 	use crate::character::{
 		CharacterEditBaseline, CharacterMenuState, CharacterUiSyncState, OverlayUiSyncState,
@@ -776,5 +785,12 @@ mod tests {
 				allow_empty_bag: true,
 			}
 		);
+	}
+
+	#[test]
+	fn recoverable_world_drops_skip_the_confirm_card() {
+		assert!(drop_needs_confirm(true, false));
+		assert!(!drop_needs_confirm(true, true));
+		assert!(!drop_needs_confirm(false, false));
 	}
 }
