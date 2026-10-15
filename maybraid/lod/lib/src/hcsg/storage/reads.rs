@@ -87,9 +87,8 @@ impl HcsgStorage {
 
 	/// Like [`Self::try_entry`] for each id in `ids`, resolving the typed store
 	/// once and holding one store read lock for the whole batch. `Err(Busy)`
-	/// only when the registry lock is busy; if the store read lock is busy, the
-	/// returned vec is empty (same as failing on the first id in a
-	/// [`Self::try_entry`] loop).
+	/// when the registry or store read lock is busy, same as a
+	/// [`Self::try_entry`] loop would return on the first id.
 	pub fn try_entries<T: HcsgValue>(
 		&self,
 		ids: &[Id],
@@ -97,10 +96,7 @@ impl HcsgStorage {
 		let Some(store) = self.try_store::<T>()? else {
 			return Ok(vec![None; ids.len()]);
 		};
-		let nodes = match try_read(&store.nodes) {
-			Ok(nodes) => nodes,
-			Err(Busy) => return Ok(Vec::new()),
-		};
+		let nodes = try_read(&store.nodes)?;
 		Ok(ids.iter().map(|id| nodes.entry(*id).cloned()).collect())
 	}
 
