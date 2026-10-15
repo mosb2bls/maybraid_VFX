@@ -25,6 +25,68 @@ pub const ITEM_FONT_SIZE: f32 = 48.0;
 /// Full-screen menu wash (home and other title screens).
 pub const MENU_CLEAR: Color = Color::srgb(0.08, 0.10, 0.14);
 
+/// Deep navy: inverted-tag text on [`TEXT_YELLOW`].
+pub const TEXT_DEEP_BLUE: Color = Color::srgb(0.07, 0.14, 0.40);
+
+/// Alpha of the in-game modal dimmer. RGB is [`MENU_CLEAR`].
+pub const MENU_REGION_WASH_ALPHA: f32 = 0.72;
+
+/// Semi-transparent home-screen blue behind in-game list panels and modal dimmers.
+///
+/// Full-screen shells that already clear to [`MENU_CLEAR`] should not use this.
+pub fn menu_region_wash() -> Color {
+	MENU_CLEAR.with_alpha(MENU_REGION_WASH_ALPHA)
+}
+
+/// Corner radius on in-game menu-item lists and modal cards.
+pub const MENU_LIST_RADIUS: f32 = 16.0;
+
+/// Padding inside a rounded menu-item list so focus tags sit off the corners.
+pub const MENU_LIST_PAD: f32 = 16.0;
+
+/// Right-justified character HUD panel width.
+pub const CHARACTER_PANEL_WIDTH: f32 = 480.0;
+
+/// Inset of the character HUD from the window top and right.
+pub const CHARACTER_PANEL_INSET: f32 = 10.0;
+
+/// Gap between an overlay picker and the character HUD.
+pub const CHARACTER_OVERLAY_GAP: f32 = 16.0;
+
+/// Two-column character screen: leftover preview / picker (`1fr`) | HUD (480px).
+///
+/// Overlay and HUD are cells of this grid so they cannot overlap. Corner chrome
+/// (Back / Save) stays absolutely positioned on the same root.
+pub fn character_screen_grid_node() -> Node {
+	Node {
+		width: Val::Percent(100.0),
+		height: Val::Percent(100.0),
+		display: Display::Grid,
+		grid_template_columns: vec![GridTrack::flex(1.0), GridTrack::px(CHARACTER_PANEL_WIDTH)],
+		column_gap: Val::Px(CHARACTER_OVERLAY_GAP),
+		padding: UiRect {
+			left: Val::Px(CHARACTER_PANEL_INSET),
+			right: Val::Px(CHARACTER_PANEL_INSET),
+			top: Val::Px(CHARACTER_PANEL_INSET),
+			bottom: Val::Px(COLUMN_BOTTOM),
+			..default()
+		},
+		..default()
+	}
+}
+
+/// Rounded list / modal-card chrome. Pair with [`menu_region_wash`].
+pub fn menu_list_panel_node(align_items: AlignItems) -> Node {
+	Node {
+		flex_direction: FlexDirection::Column,
+		align_items,
+		padding: UiRect::all(Val::Px(MENU_LIST_PAD)),
+		border_radius: BorderRadius::all(Val::Px(MENU_LIST_RADIUS)),
+		overflow: Overflow::clip(),
+		..default()
+	}
+}
+
 /// Idle menu yellow.
 pub const TEXT_YELLOW: Color = Color::srgb(1.0, 0.86, 0.22);
 
@@ -80,11 +142,17 @@ pub const HINT_ICON_SIZE: f32 = 24.0;
 /// Gap between the hint mark and the hint copy.
 pub const HINT_ICON_GAP: f32 = 10.0;
 
-/// Mark beside a text-cursor row (sits against [`ITEM_FONT_SIZE`] labels).
-pub const CURSOR_ICON_SIZE: f32 = 36.0;
+/// Horizontal padding inside a focused-row tag. The chip hugs the label.
+pub const FOCUS_TAG_PAD_X: f32 = 10.0;
 
-/// Gap between the cursor mark and the row label.
-pub const CURSOR_ICON_GAP: f32 = 12.0;
+/// Vertical padding inside a focused-row tag.
+pub const FOCUS_TAG_PAD_Y: f32 = 2.0;
+
+/// Corner radius on a focused-row tag.
+pub const FOCUS_TAG_RADIUS: f32 = 6.0;
+
+/// Gap between a focused-row tag and a sibling objective chip.
+pub const FOCUS_TAG_GAP: f32 = 10.0;
 
 /// Maybraid mark, under `maybraid/assets`. Author file: `art/iconography/maybraid_logo_icon.blend`.
 pub const MAYBRAID_LOGO: &str = "iconography/maybraid_logo_icon.png";
@@ -112,15 +180,6 @@ pub const MAP_WATER_ICON: &str = "iconography/kenney/cartography/lake.png";
 
 /// Kenney game-icons white arrow. Rotated toward off-screen anchors.
 pub const MAP_ARROW_ICON: &str = "iconography/kenney/game-icons/arrow_up.png";
-
-/// Blink period for animated marks, in seconds.
-pub const ICON_BLINK_SECS: f32 = 1.2;
-
-/// Animated-mark alpha at the dim end of the blink.
-pub const ICON_BLINK_ALPHA_MIN: f32 = 0.18;
-
-/// Animated-mark alpha at the bright end of the blink.
-pub const ICON_BLINK_ALPHA_MAX: f32 = 0.92;
 
 /// Inset from the bottom of the window for the description pane.
 pub const DESCRIPTION_BOTTOM: f32 = 48.0;
@@ -233,15 +292,6 @@ pub const PANEL_VALUE_FONT_SIZE: f32 = PANEL_ITEM_FONT_SIZE;
 /// Subheading above a grouped select list.
 pub const PANEL_GROUP_FONT_SIZE: f32 = 16.0;
 
-/// Cursor mark beside a field or option row.
-pub const PANEL_CURSOR_ICON_SIZE: f32 = 20.0;
-
-/// Cursor mark beside a section or overlay-summary header.
-pub const PANEL_HEADER_CURSOR_ICON_SIZE: f32 = 28.0;
-
-/// Gap between the panel cursor mark and the row label.
-pub const PANEL_CURSOR_ICON_GAP: f32 = 10.0;
-
 /// Color chip size in a panel swatch row.
 pub const PANEL_SWATCH_SIZE: f32 = 22.0;
 
@@ -274,3 +324,46 @@ pub const SCROLLBAR_TRACK: Color = Color::srgba(1.0, 0.86, 0.22, 0.16);
 
 /// Thumb on a HUD scrollbar.
 pub const SCROLLBAR_THUMB: Color = Color::srgba(1.0, 0.86, 0.22, 0.72);
+
+#[cfg(test)]
+mod tests {
+	use bevy::prelude::*;
+
+	use super::{
+		character_screen_grid_node, menu_list_panel_node, menu_region_wash, CHARACTER_OVERLAY_GAP,
+		CHARACTER_PANEL_WIDTH, MENU_CLEAR, MENU_LIST_RADIUS, MENU_REGION_WASH_ALPHA,
+		TEXT_DEEP_BLUE, TEXT_YELLOW,
+	};
+
+	#[test]
+	fn wash_reuses_home_screen_rgb() {
+		let home = MENU_CLEAR.to_srgba();
+		let wash = menu_region_wash().to_srgba();
+		assert!((home.red - wash.red).abs() < f32::EPSILON);
+		assert!((home.green - wash.green).abs() < f32::EPSILON);
+		assert!((home.blue - wash.blue).abs() < f32::EPSILON);
+		assert!((wash.alpha - MENU_REGION_WASH_ALPHA).abs() < f32::EPSILON);
+	}
+
+	#[test]
+	fn list_panel_is_rounded_home_blue() {
+		let panel = menu_list_panel_node(AlignItems::Center);
+		assert_eq!(panel.border_radius, BorderRadius::all(Val::Px(MENU_LIST_RADIUS)));
+		assert_eq!(panel.overflow, Overflow::clip());
+	}
+
+	#[test]
+	fn character_screen_is_a_two_column_grid() {
+		let grid = character_screen_grid_node();
+		assert_eq!(grid.display, Display::Grid);
+		assert_eq!(grid.grid_template_columns.len(), 2);
+		assert_eq!(grid.column_gap, Val::Px(CHARACTER_OVERLAY_GAP));
+		assert_eq!(grid.grid_template_columns[1], GridTrack::px(CHARACTER_PANEL_WIDTH));
+	}
+
+	#[test]
+	fn inverted_tag_is_navy_on_yellow() {
+		assert_ne!(TEXT_DEEP_BLUE, TEXT_YELLOW);
+		assert!(TEXT_DEEP_BLUE.to_srgba().blue > TEXT_DEEP_BLUE.to_srgba().red);
+	}
+}

@@ -32,7 +32,7 @@ use lod::scene::LodSceneLevel;
 use maybraid_character_ui_menu_renderer::CharacterMenuEvent;
 use maybraid_input::produce::gamepad::GamepadAxes;
 use maybraid_input::{Deadzone, VirtualPadConfig};
-use menu_components::DESCRIPTION_PANE_LEFT_PERCENT;
+use menu_components::{CHARACTER_PANEL_WIDTH, DESCRIPTION_PANE_LEFT_PERCENT};
 use menu_screens::{
 	GalleryScreen, HomeScreen, SpinRevealCurrent, SpinRevealScreen, SpinRevealSystems,
 };
@@ -64,8 +64,6 @@ struct PreviewSyncState {
 /// Menu preview vertical FOV; gameplay leaves its own hip / ADS FOV on the
 /// shared world camera.
 const PREVIEW_FOV: f32 = CameraFocus::BODY_PREVIEW_FOV;
-/// Right-justified character HUD panel; keep the body in the leftover preview.
-const CHARACTER_PANEL_WIDTH_PX: f32 = 480.0;
 const ORBIT_YAW_SPEED: f32 = 2.4;
 const ORBIT_PITCH_SPEED: f32 = 1.6;
 /// Elevation cap so the orbit never reaches the `looking_at` up-vector pole.
@@ -805,7 +803,7 @@ fn offset_camera_for_character_panel(
 	let depth = transform.translation.distance(look_at).max(0.1);
 	let half_height = (perspective.fov * 0.5).tan() * depth;
 	let half_width = half_height * aspect.max(0.1);
-	let visible = (window_width - CHARACTER_PANEL_WIDTH_PX).max(1.0);
+	let visible = (window_width - CHARACTER_PANEL_WIDTH).max(1.0);
 	let pane_center = (visible * 0.5) / window_width.max(1.0);
 	let ndc_x = pane_center * 2.0 - 1.0;
 	transform.translation -= *transform.right() * ndc_x * half_width;
