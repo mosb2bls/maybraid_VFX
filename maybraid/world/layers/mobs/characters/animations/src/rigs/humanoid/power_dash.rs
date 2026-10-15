@@ -1,9 +1,8 @@
 //! Humanoid mapping for [`UprightPowerDash`](crate::animations::UprightPowerDash).
 //!
-//! Cartoon earthbending dash: chambered horse-stance wind-up, a stomping
-//! straight-arm strike, then a low hip-driven dash that settles back to rest.
-
-use std::f32::consts::FRAC_PI_2;
+//! Asymmetric earthbending dash: one fist beside the face, opposite arm on a
+//! rear diagonal, a bent supporting leg, and a trailing leg. The held silhouette
+//! is authored first; other keys blend toward and away from it.
 
 use bevy::prelude::Vec3;
 use character_rigs::authoring::{ArmAim, ArmatureOffset, HumanoidPose};
@@ -11,50 +10,19 @@ use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use character_rigs::Side;
 
 use crate::animations::{
-	smoothstep, UprightPowerDash, JAB_PHASE_END, JAB_PROGRESS_AT_HANDOFF, STRIDE_PHASE_END,
+	smoothstep, UprightPowerDash, BRAKE_END, COMPRESS_END, HOLD_END, PUSH_END,
 };
 use crate::rigs::mix::blend_clips;
 use crate::{Animation, Effects, Progress};
 
-const STRIDE_BLEND: f32 = 0.18;
-/// Slide-phase progress where the dash hold yields to settle.
-const SLIDE_SETTLE_START: f32 = 0.48;
-const WINDUP_DROP: f32 = 0.34;
-const STOMP_DROP: f32 = 0.42;
-const DASH_DROP: f32 = 0.38;
-const DASH_FORWARD: f32 = 0.10;
-const STOMP_LIFT_START: f32 = 0.22;
-const STOMP_LIFT_PEAK: f32 = 0.28;
-const STOMP_LIFT_END: f32 = 0.34;
-
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-	a + (b - a) * t
-}
-
-fn lerp_vec3(a: Vec3, b: Vec3, t: f32) -> Vec3 {
-	a + (b - a) * t
-}
-
-/// Reach 1 by `attack` and hold. `t` is 0..1 inside a phase.
-fn attack_hold(t: f32, attack: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	if t < attack {
-		smoothstep(t / attack.max(f32::EPSILON))
-	} else {
-		1.0
-	}
-}
-
-/// Brief trail-foot stomp lift. Zero at the requested review frames (0.20, 0.35+).
-fn stomp_lift(progress: f32) -> f32 {
-	if progress <= STOMP_LIFT_START || progress >= STOMP_LIFT_END {
-		0.0
-	} else if progress < STOMP_LIFT_PEAK {
-		smoothstep((progress - STOMP_LIFT_START) / (STOMP_LIFT_PEAK - STOMP_LIFT_START))
-	} else {
-		1.0 - smoothstep((progress - STOMP_LIFT_PEAK) / (STOMP_LIFT_END - STOMP_LIFT_PEAK))
-	}
-}
+const HELD_DROP: f32 = 0.28;
+const HELD_FORWARD: f32 = 0.08;
+/// Compact guard / ready starts at identity so locomotion entry does not pop.
+const READY_DROP: f32 = 0.0;
+/// Mid-push key so the rear arm sweeps back instead of slerping out to the side.
+const PUSH_MID: f32 = 0.175;
+/// Mid-recovery key so arms drop forward instead of passing through a T-pose.
+const RECOVER_MID: f32 = 0.925;
 
 fn apply_aimed_arm(
 	pose: &mut HumanoidPose,
@@ -82,291 +50,387 @@ impl UprightPowerDash {
 		self.jab.side.opposite()
 	}
 
-	fn punch_roll(&self, side: Side) -> f32 {
-		FRAC_PI_2 * side.sign()
+	/// Shoulder-to-elbow: forward, down and slightly outside — a high-guard humerus,
+	/// not a punch.
+	fn guard_along(&self) -> Vec3 {
+		Vec3::new(0.18 * self.lead().sign(), -0.42, 0.82)
 	}
 
-	/// Punching hand drawn back. Roll 0 keeps the fist on its own side.
-	fn chamber_along(&self) -> Vec3 {
-		Vec3::new(-0.12 * self.lead().sign(), -0.18, -1.0)
+	/// ~120° elbow so the forearm can fold up to the cheek from a lowered elbow.
+	fn guard_elbow(&self) -> f32 {
+		2.10
 	}
 
-	/// Straight-arm punch / palm along +Z at shoulder height, inboard.
-	fn strike_along(&self) -> Vec3 {
-		Vec3::new(-0.22 * self.lead().sign(), 0.28, 1.0)
+	/// Right-lead wants a *positive* humerus roll (not the jab −π/2 punch plane).
+	fn guard_roll(&self) -> f32 {
+		-0.48 * self.lead().sign()
 	}
 
-	/// Off-hand at the hip: inboard, slightly down, slightly back.
-	fn hip_chamber_along(&self, side: Side) -> Vec3 {
-		Vec3::new(-0.22 * side.sign(), -0.22, -0.18)
+	/// Rear diagonal: outward, slightly up, back.
+	fn rear_along(&self) -> Vec3 {
+		Vec3::new(0.58 * self.trail().sign(), 0.12, -0.82)
 	}
 
-	/// Strike arm stays forward and inboard through the dash.
-	fn dash_lead_along(&self) -> Vec3 {
-		Vec3::new(-0.18 * self.lead().sign(), 0.16, 0.88)
+	fn rear_elbow(&self) -> f32 {
+		0.25
 	}
 
-	fn apply_hip_chamber(&self, pose: &mut HumanoidPose, side: Side, amount: f32) {
-		if amount < 1e-4 {
-			return;
-		}
-		apply_aimed_arm(
-			pose,
-			side,
-			self.hip_chamber_along(side),
-			0.0,
-			0.04 * amount,
-			1.05 * amount,
-		);
+	fn rear_roll(&self) -> f32 {
+		0.22 * self.trail().sign()
 	}
 
-	fn apply_horse_legs(
-		&self,
-		pose: &mut HumanoidPose,
-		lead_f: f32,
-		trail_f: f32,
-		lead_k: f32,
-		trail_k: f32,
-		abduct: f32,
-		lead_fold: f32,
-		trail_fold: f32,
-	) {
-		let lead = self.lead();
-		let trail = self.trail();
-		pose.apply_leg(lead, lead_f, lead_k);
-		pose.apply_leg(trail, trail_f, trail_k);
-		// Femur flex X is mirrored on the right; sign so both feet go wide.
-		pose.leg_mut(lead).hip_abduction += abduct * lead.sign();
-		pose.leg_mut(trail).hip_abduction += abduct * trail.sign();
-		pose.apply_hip_fold(lead, lead_fold);
-		pose.apply_hip_fold(trail, trail_fold);
+	fn apply_look_forward(&self, pose: &mut HumanoidPose, lean: f32, yaw: f32) {
+		// Cancel hip lean so the face looks along +Z, not into the ground.
+		let nod = (-0.50 * lean).clamp(-0.32, 0.0);
+		// Counter-rotate the neck against torso yaw.
+		pose.apply_neck_twisted(-yaw * 0.85, 0.0, nod, -yaw * 0.40, 0.0, nod * 0.45);
 	}
 
-	fn apply_look_forward(&self, pose: &mut HumanoidPose, lean: f32) {
-		// Negative nod counters a hip lean so the head stays up, looking +Z.
-		let nod = (-0.55 * lean).clamp(-0.28, 0.0);
-		pose.apply_neck_twisted(0.0, 0.0, nod, 0.0, 0.0, nod * 0.65);
+	fn apply_torso_yaw(&self, pose: &mut HumanoidPose, yaw: f32) {
+		// Right-lead: positive authored yaw sends the right shoulder forward.
+		let signed = yaw * -self.lead().sign();
+		pose.spine.add_turn(signed);
+		pose.leg_mut(self.lead()).pelvis_turn += signed * 0.45;
+		pose.leg_mut(self.trail()).pelvis_turn += signed * 0.20;
 	}
 
-	fn apply_punch_turn(&self, pose: &mut HumanoidPose, amount: f32) {
-		let yaw = amount * -self.lead().sign();
-		pose.spine.add_turn(yaw);
-		pose.leg_mut(self.lead()).pelvis_turn += yaw * 0.55;
-		pose.leg_mut(self.trail()).pelvis_turn += yaw * 0.28;
-	}
-
-	fn apply_windup_pose(&self, rig: &mut HumanoidV0Rig, u: f32, lift: f32) {
-		let u = u.clamp(0.0, 1.0);
+	/// Held earthbending-dash silhouette. Sampled as-is from 0.25 through 0.68.
+	fn held_pose(&self) -> HumanoidPose {
 		let mut pose = HumanoidPose::default();
 		let lead = self.lead();
 		let trail = self.trail();
-		// Squat-signed femurs plant both feet; a short positive trail swing is the stomp lift.
-		let lead_f = -0.64 * u;
-		let trail_f = lerp(-0.54 * u, 0.22, lift);
-		let lead_k = self.windup_knee * u;
-		let trail_k = lerp(self.windup_knee * 0.96 * u, 0.26, lift);
-		self.apply_horse_legs(
-			&mut pose,
-			lead_f,
-			trail_f,
-			lead_k,
-			trail_k,
-			self.hip_abduct * u,
-			0.22 * u,
-			0.20 * u * (1.0 - lift),
-		);
-		pose.apply_root(0.10 * u);
-		if u > 1e-4 {
-			apply_aimed_arm(&mut pose, lead, self.chamber_along(), 0.0, -0.20 * u, 0.95 * u);
-			self.apply_hip_chamber(&mut pose, trail, u);
-		}
-		self.apply_look_forward(&mut pose, 0.08 * u);
-		rig.write_pose(&pose);
-	}
+		let drive = self.drive;
 
-	fn apply_stride_pose(&self, rig: &mut HumanoidV0Rig, u: f32, lift: f32) {
-		let u = u.clamp(0.0, 1.0);
-		let stomp = 1.0 - (1.0 - u).powi(3);
-		let mut pose = HumanoidPose::default();
-		let lead = self.lead();
-		let trail = self.trail();
+		pose.apply_leg(lead, self.support_femur * drive, self.support_knee * drive);
+		pose.apply_leg(trail, self.trail_femur * drive, self.trail_knee);
+		pose.leg_mut(lead).hip_abduction += self.hip_abduct * 0.55 * lead.sign();
+		pose.leg_mut(trail).hip_abduction += self.hip_abduct * trail.sign();
+		pose.apply_hip_fold(lead, 0.18 * drive);
+		pose.apply_hip_fold(trail, 0.08);
+		pose.apply_root(self.lean * drive);
+		self.apply_torso_yaw(&mut pose, self.yaw);
 
-		// Both femurs stay squat-signed so the feet stay on the ground. The
-		// trail only lifts during `lift`. Modest extra lead squat reads as a
-		// short forward bias, not a long lunge.
-		let lead_f = lerp(-0.64, -self.lead_stride, stomp);
-		let trail_f = lerp(-0.54, -self.trail_stride, stomp) + 0.72 * lift;
-		let lead_k = lerp(self.windup_knee, self.lunge_knee_lead, stomp);
-		let trail_k = lerp(self.windup_knee * 0.96, self.lunge_knee_trail, stomp)
-			* (1.0 - 0.70 * lift)
-			+ 0.24 * lift;
-		self.apply_horse_legs(
-			&mut pose,
-			lead_f,
-			trail_f,
-			lead_k,
-			trail_k,
-			self.hip_abduct,
-			lerp(0.22, 0.16, stomp),
-			lerp(0.20, 0.14, stomp) * (1.0 - lift),
-		);
-		pose.apply_root(lerp(0.10, self.lunge_lean, stomp));
-
-		let strike = 1.0 - (1.0 - stomp).powi(2);
 		apply_aimed_arm(
 			&mut pose,
 			lead,
-			lerp_vec3(self.chamber_along(), self.strike_along(), strike),
-			lerp(0.0, self.punch_roll(lead), strike),
-			lerp(-0.20, 0.08 * self.arm_reach, strike),
-			lerp(0.95, 0.05, strike),
+			self.guard_along(),
+			self.guard_roll(),
+			0.10 * drive,
+			self.guard_elbow(),
 		);
-		self.apply_hip_chamber(&mut pose, trail, 1.0);
-		self.apply_punch_turn(&mut pose, 0.12 * strike);
-		self.apply_look_forward(&mut pose, lerp(0.10, self.lunge_lean, stomp));
-		rig.write_pose(&pose);
+		apply_aimed_arm(
+			&mut pose,
+			trail,
+			self.rear_along(),
+			self.rear_roll(),
+			-0.06,
+			self.rear_elbow(),
+		);
+		self.apply_look_forward(&mut pose, self.lean * drive, self.yaw);
+		pose
 	}
 
-	fn apply_slide_pose(&self, rig: &mut HumanoidV0Rig, u: f32) {
-		let u = u.clamp(0.0, 1.0);
-		let enter = attack_hold(u, 0.22);
-		let settle = if u < SLIDE_SETTLE_START {
-			0.0
-		} else {
-			smoothstep((u - SLIDE_SETTLE_START) / (1.0 - SLIDE_SETTLE_START).max(f32::EPSILON))
-		};
-		if settle >= 0.999 {
-			rig.write_pose(&HumanoidPose::default());
-			return;
-		}
+	fn ready_pose(&self) -> HumanoidPose {
 		let mut pose = HumanoidPose::default();
 		let lead = self.lead();
 		let trail = self.trail();
-		let hold = 1.0 - settle;
-
-		let lead_f = lerp(-self.lead_stride, 0.0, settle);
-		let trail_f = lerp(-self.trail_stride, 0.0, settle);
-		let lead_k = lerp(lerp(self.lunge_knee_lead, self.slide_knee, enter), 0.0, settle);
-		let trail_k = lerp(lerp(self.lunge_knee_trail, self.slide_knee * 0.92, enter), 0.0, settle);
-		self.apply_horse_legs(
+		pose.apply_leg(lead, -0.18, 0.32);
+		pose.apply_leg(trail, -0.14, 0.28);
+		pose.leg_mut(lead).hip_abduction += 0.06 * lead.sign();
+		pose.leg_mut(trail).hip_abduction += 0.06 * trail.sign();
+		pose.apply_root(0.08);
+		apply_aimed_arm(
 			&mut pose,
-			lead_f,
-			trail_f,
-			lead_k,
-			trail_k,
-			self.hip_abduct * hold,
-			0.20 * hold,
-			0.18 * hold,
+			lead,
+			Vec3::new(0.12 * lead.sign(), -0.35, 0.55),
+			self.guard_roll(),
+			0.04,
+			0.85,
 		);
+		apply_aimed_arm(
+			&mut pose,
+			trail,
+			Vec3::new(0.22 * trail.sign(), -0.32, 0.12),
+			self.rear_roll(),
+			0.02,
+			0.70,
+		);
+		self.apply_look_forward(&mut pose, 0.08, 0.0);
+		pose
+	}
 
-		let lean = lerp(self.lunge_lean, self.slide_lean, enter) * hold;
-		pose.apply_root(lean);
+	fn compress_pose(&self) -> HumanoidPose {
+		let mut pose = HumanoidPose::default();
+		let lead = self.lead();
+		let trail = self.trail();
+		// Coil the pushing (trail) leg; load the support.
+		pose.apply_leg(lead, -0.50, 0.85);
+		pose.apply_leg(trail, -0.70, 0.70);
+		pose.leg_mut(lead).hip_abduction += 0.08 * lead.sign();
+		pose.leg_mut(trail).hip_abduction += 0.10 * trail.sign();
+		pose.apply_root(0.18);
+		apply_aimed_arm(
+			&mut pose,
+			lead,
+			Vec3::new(0.12 * lead.sign(), -0.22, 0.75),
+			self.guard_roll(),
+			0.06,
+			1.15,
+		);
+		apply_aimed_arm(
+			&mut pose,
+			trail,
+			Vec3::new(0.28 * trail.sign(), -0.28, -0.35),
+			self.rear_roll(),
+			-0.02,
+			0.40,
+		);
+		self.apply_look_forward(&mut pose, 0.18, 0.0);
+		pose
+	}
 
-		if settle < 0.90 {
-			apply_aimed_arm(
-				&mut pose,
-				lead,
-				lerp_vec3(self.strike_along(), self.dash_lead_along(), enter),
-				self.punch_roll(lead),
-				0.08 * self.arm_reach * hold,
-				lerp(0.05, 0.22, enter) * hold,
-			);
-			self.apply_hip_chamber(&mut pose, trail, hold);
+	/// Mid-push: trail leg extends back, guard arm rises, rear arm already behind the body.
+	fn sweep_pose(&self) -> HumanoidPose {
+		let mut pose = HumanoidPose::default();
+		let lead = self.lead();
+		let trail = self.trail();
+		let drive = self.drive;
+		pose.apply_leg(lead, self.support_femur * 0.70 * drive, self.support_knee * 0.85 * drive);
+		pose.apply_leg(trail, self.trail_femur * 0.55 * drive, self.trail_knee * 0.80);
+		pose.leg_mut(lead).hip_abduction += self.hip_abduct * 0.40 * lead.sign();
+		pose.leg_mut(trail).hip_abduction += self.hip_abduct * 0.70 * trail.sign();
+		pose.apply_root(self.lean * 0.70 * drive);
+		self.apply_torso_yaw(&mut pose, self.yaw * 0.55);
+		apply_aimed_arm(
+			&mut pose,
+			lead,
+			Vec3::new(0.14 * lead.sign(), -0.14, 0.92),
+			self.guard_roll(),
+			0.08 * drive,
+			self.guard_elbow() * 0.85,
+		);
+		apply_aimed_arm(
+			&mut pose,
+			trail,
+			Vec3::new(0.42 * trail.sign(), -0.10, -0.55),
+			self.rear_roll(),
+			-0.04,
+			0.30,
+		);
+		self.apply_look_forward(&mut pose, self.lean * 0.70 * drive, self.yaw * 0.55);
+		pose
+	}
+
+	fn brake_pose(&self) -> HumanoidPose {
+		let mut pose = HumanoidPose::default();
+		let lead = self.lead();
+		let trail = self.trail();
+		let drive = self.drive;
+		pose.apply_leg(lead, self.support_femur * 0.55 * drive, self.support_knee * 0.60 * drive);
+		pose.apply_leg(trail, self.support_femur * 0.35, self.support_knee * 0.40);
+		pose.leg_mut(lead).hip_abduction += self.hip_abduct * 0.30 * lead.sign();
+		pose.leg_mut(trail).hip_abduction += 0.08 * trail.sign();
+		pose.apply_root(self.lean * 0.55 * drive);
+		self.apply_torso_yaw(&mut pose, self.yaw * 0.40);
+		apply_aimed_arm(
+			&mut pose,
+			lead,
+			Vec3::new(0.13 * lead.sign(), -0.22, 0.70),
+			self.guard_roll(),
+			0.06,
+			1.20,
+		);
+		apply_aimed_arm(
+			&mut pose,
+			trail,
+			Vec3::new(0.32 * trail.sign(), -0.22, -0.28),
+			self.rear_roll(),
+			-0.02,
+			0.40,
+		);
+		self.apply_look_forward(&mut pose, self.lean * 0.55 * drive, self.yaw * 0.40);
+		pose
+	}
+
+	/// Down-and-in recovery so the rear arm does not pass through a T-pose.
+	fn recover_pose(&self) -> HumanoidPose {
+		let mut pose = HumanoidPose::default();
+		let lead = self.lead();
+		let trail = self.trail();
+		pose.apply_leg(lead, -0.28, 0.48);
+		pose.apply_leg(trail, -0.22, 0.40);
+		pose.leg_mut(lead).hip_abduction += 0.07 * lead.sign();
+		pose.leg_mut(trail).hip_abduction += 0.07 * trail.sign();
+		pose.apply_root(0.14);
+		apply_aimed_arm(
+			&mut pose,
+			lead,
+			Vec3::new(0.12 * lead.sign(), -0.30, 0.50),
+			self.guard_roll(),
+			0.04,
+			1.05,
+		);
+		apply_aimed_arm(
+			&mut pose,
+			trail,
+			Vec3::new(0.22 * trail.sign(), -0.32, 0.10),
+			self.rear_roll(),
+			0.0,
+			0.55,
+		);
+		self.apply_look_forward(&mut pose, 0.14, self.yaw * 0.25);
+		pose
+	}
+
+	fn guard_pose(&self) -> HumanoidPose {
+		self.ready_pose()
+	}
+
+	fn write(&self, rig: &mut HumanoidV0Rig, pose: &HumanoidPose) {
+		rig.write_pose(pose);
+	}
+
+	fn held_offset(&self) -> Vec3 {
+		Vec3::new(0.0, -HELD_DROP * self.drive, HELD_FORWARD * self.slide)
+	}
+
+	fn ready_offset(&self) -> Vec3 {
+		Vec3::new(0.0, -READY_DROP * self.drive, 0.0)
+	}
+
+	fn compress_offset(&self) -> Vec3 {
+		Vec3::new(0.0, -0.14 * self.drive, 0.02 * self.slide)
+	}
+
+	fn sweep_offset(&self) -> Vec3 {
+		Vec3::new(0.0, -0.14 * self.drive, 0.05 * self.slide)
+	}
+
+	fn brake_offset(&self) -> Vec3 {
+		Vec3::new(0.0, -0.12 * self.drive, 0.04 * self.slide)
+	}
+
+	fn recover_offset(&self) -> Vec3 {
+		Vec3::new(0.0, -0.06 * self.drive, 0.02 * self.slide)
+	}
+}
+
+struct KeyAt<'a> {
+	dash: &'a UprightPowerDash,
+	key: Key,
+}
+
+#[derive(Clone, Copy)]
+enum Key {
+	Ready,
+	Compress,
+	Sweep,
+	Held,
+	Brake,
+	Recover,
+	Guard,
+}
+
+impl KeyAt<'_> {
+	fn pose(&self) -> HumanoidPose {
+		match self.key {
+			Key::Ready => self.dash.ready_pose(),
+			Key::Compress => self.dash.compress_pose(),
+			Key::Sweep => self.dash.sweep_pose(),
+			Key::Held => self.dash.held_pose(),
+			Key::Brake => self.dash.brake_pose(),
+			Key::Recover => self.dash.recover_pose(),
+			Key::Guard => self.dash.guard_pose(),
 		}
-		self.apply_punch_turn(&mut pose, 0.18 * hold);
-		self.apply_look_forward(&mut pose, lean);
-		rig.write_pose(&pose);
+	}
+
+	fn offset(&self) -> Vec3 {
+		match self.key {
+			Key::Ready => self.dash.ready_offset(),
+			Key::Compress => self.dash.compress_offset(),
+			Key::Sweep => self.dash.sweep_offset(),
+			Key::Held => self.dash.held_offset(),
+			Key::Brake => self.dash.brake_offset(),
+			Key::Recover => self.dash.recover_offset(),
+			Key::Guard => self.dash.ready_offset(),
+		}
 	}
 }
 
-struct WindUpAt<'a> {
-	dash: &'a UprightPowerDash,
-	lift: f32,
-}
+impl Animation<HumanoidV0Rig> for KeyAt<'_> {
+	fn apply_for(&self, rig: &mut HumanoidV0Rig, _progress: f32) {
+		self.dash.write(rig, &self.pose());
+	}
 
-impl Animation<HumanoidV0Rig> for WindUpAt<'_> {
-	fn apply_for(&self, rig: &mut HumanoidV0Rig, progress: f32) {
-		self.dash.apply_windup_pose(rig, progress, self.lift);
+	fn effects_for(&self, _rig: &HumanoidV0Rig, _progress: f32) -> Effects {
+		offset_or_identity(self.offset())
 	}
 }
 
-struct StrideAt<'a> {
-	dash: &'a UprightPowerDash,
-	lift: f32,
-}
-
-impl Animation<HumanoidV0Rig> for StrideAt<'_> {
-	fn apply_for(&self, rig: &mut HumanoidV0Rig, progress: f32) {
-		self.dash.apply_stride_pose(rig, progress, self.lift);
-	}
+fn crossfade(rig: &mut HumanoidV0Rig, dash: &UprightPowerDash, from: Key, to: Key, weight: f32) {
+	blend_clips(rig, &KeyAt { dash, key: from }, 1.0, &KeyAt { dash, key: to }, 1.0, weight);
 }
 
 impl Animation<HumanoidV0Rig> for UprightPowerDash {
 	fn apply_for(&self, rig: &mut HumanoidV0Rig, progress: f32) {
 		let t = Progress(progress).clamp();
-		let lift = stomp_lift(t);
-		if t < JAB_PHASE_END {
-			let u = t / JAB_PHASE_END;
-			let wind = attack_hold(u, 0.72);
-			if u < 0.48 {
-				blend_clips(
-					rig,
-					&self.jab,
-					JAB_PROGRESS_AT_HANDOFF * (u / 0.48),
-					&WindUpAt { dash: self, lift },
-					wind,
-					smoothstep(u / 0.48),
-				);
-				return;
-			}
-			self.apply_windup_pose(rig, wind, lift);
+		if t < COMPRESS_END {
+			let w = smoothstep(t / COMPRESS_END);
+			crossfade(rig, self, Key::Ready, Key::Compress, w);
 			return;
 		}
-		if t < STRIDE_PHASE_END {
-			let phase = (t - JAB_PHASE_END) / (STRIDE_PHASE_END - JAB_PHASE_END);
-			if phase < STRIDE_BLEND {
-				let weight = smoothstep(phase / STRIDE_BLEND);
-				blend_clips(
-					rig,
-					&WindUpAt { dash: self, lift },
-					1.0,
-					&StrideAt { dash: self, lift },
-					0.0,
-					weight,
-				);
-				return;
-			}
-			let stride_u = attack_hold((phase - STRIDE_BLEND) / (1.0 - STRIDE_BLEND), 0.42);
-			self.apply_stride_pose(rig, stride_u, lift);
+		if t < PUSH_MID {
+			let w = smoothstep((t - COMPRESS_END) / (PUSH_MID - COMPRESS_END));
+			crossfade(rig, self, Key::Compress, Key::Sweep, w);
 			return;
 		}
-		let slide_u = (t - STRIDE_PHASE_END) / (1.0 - STRIDE_PHASE_END).max(f32::EPSILON);
-		self.apply_slide_pose(rig, slide_u);
+		if t < PUSH_END {
+			let w = smoothstep((t - PUSH_MID) / (PUSH_END - PUSH_MID));
+			crossfade(rig, self, Key::Sweep, Key::Held, w);
+			return;
+		}
+		if t < HOLD_END {
+			self.write(rig, &self.held_pose());
+			return;
+		}
+		if t < BRAKE_END {
+			let w = smoothstep((t - HOLD_END) / (BRAKE_END - HOLD_END));
+			crossfade(rig, self, Key::Held, Key::Brake, w);
+			return;
+		}
+		if t < RECOVER_MID {
+			let w = smoothstep((t - BRAKE_END) / (RECOVER_MID - BRAKE_END));
+			crossfade(rig, self, Key::Brake, Key::Recover, w);
+			return;
+		}
+		let w = smoothstep((t - RECOVER_MID) / (1.0 - RECOVER_MID).max(f32::EPSILON));
+		crossfade(rig, self, Key::Recover, Key::Guard, w);
 	}
 
 	fn effects_for(&self, _rig: &HumanoidV0Rig, progress: f32) -> Effects {
 		let t = Progress(progress).clamp();
-		if t < JAB_PHASE_END {
-			let drop = WINDUP_DROP * self.drive * attack_hold(t / JAB_PHASE_END, 0.72);
-			return offset_or_identity(Vec3::new(0.0, -drop, 0.0));
-		}
-		if t < STRIDE_PHASE_END {
-			let phase = (t - JAB_PHASE_END) / (STRIDE_PHASE_END - JAB_PHASE_END);
-			let stomp = attack_hold(phase, 0.35);
-			let drop = lerp(WINDUP_DROP, STOMP_DROP, stomp) * self.drive;
-			return offset_or_identity(Vec3::new(0.0, -drop, 0.0));
-		}
-		let u = (t - STRIDE_PHASE_END) / (1.0 - STRIDE_PHASE_END).max(f32::EPSILON);
-		let enter = attack_hold(u, 0.22);
-		let settle = if u < SLIDE_SETTLE_START {
-			0.0
+		let translation = if t < COMPRESS_END {
+			let w = smoothstep(t / COMPRESS_END);
+			self.ready_offset().lerp(self.compress_offset(), w)
+		} else if t < PUSH_MID {
+			let w = smoothstep((t - COMPRESS_END) / (PUSH_MID - COMPRESS_END));
+			self.compress_offset().lerp(self.sweep_offset(), w)
+		} else if t < PUSH_END {
+			let w = smoothstep((t - PUSH_MID) / (PUSH_END - PUSH_MID));
+			self.sweep_offset().lerp(self.held_offset(), w)
+		} else if t < HOLD_END {
+			self.held_offset()
+		} else if t < BRAKE_END {
+			let w = smoothstep((t - HOLD_END) / (BRAKE_END - HOLD_END));
+			self.held_offset().lerp(self.brake_offset(), w)
+		} else if t < RECOVER_MID {
+			let w = smoothstep((t - BRAKE_END) / (RECOVER_MID - BRAKE_END));
+			self.brake_offset().lerp(self.recover_offset(), w)
 		} else {
-			smoothstep((u - SLIDE_SETTLE_START) / (1.0 - SLIDE_SETTLE_START).max(f32::EPSILON))
+			let w = smoothstep((t - RECOVER_MID) / (1.0 - RECOVER_MID).max(f32::EPSILON));
+			self.recover_offset().lerp(self.ready_offset(), w)
 		};
-		let hold = enter * (1.0 - settle);
-		let drop = lerp(STOMP_DROP, DASH_DROP, enter) * self.drive * (1.0 - settle);
-		let forward = DASH_FORWARD * self.slide * hold;
-		offset_or_identity(Vec3::new(0.0, -drop, forward))
+		offset_or_identity(translation)
 	}
 }
 
@@ -386,7 +450,12 @@ mod tests {
 	use character_rigs::authoring::ArmatureOffset;
 
 	const REST_FOOT_Y: f32 = -1.5;
-	const PLANTED_FOOT_SLACK: f32 = 0.20;
+	const SUPPORT_FOOT_SLACK: f32 = 0.20;
+	const WALL_SECS: f32 = 0.38;
+	/// Forearm bind length in the GLB rest. `character_length` is a unit vector.
+	const FOREARM_LENGTH: f32 = 0.48;
+	/// Visual mesh foot sits near the unit shin tail; joint-to-joint shin is 0.50.
+	const FOOT_LENGTH: f32 = 1.0;
 
 	fn dash() -> UprightPowerDash {
 		UprightPowerDash::from_power_dash(&PowerDash::default())
@@ -399,72 +468,32 @@ mod tests {
 		(rig, effects)
 	}
 
-	fn bone_tail(rig: &HumanoidV0Rig, bone: &str) -> Vec3 {
-		rig.character_point(bone) + rig.character_length(bone)
+	fn joint(rig: &HumanoidV0Rig, bone: &str) -> Vec3 {
+		rig.character_point(bone)
 	}
 
-	fn world_of(tail: Vec3, offset: Vec3) -> Vec3 {
-		tail + offset
+	fn bone_end(rig: &HumanoidV0Rig, bone: &str, length: f32) -> Vec3 {
+		rig.character_point(bone) + rig.character_length(bone) * length
+	}
+
+	fn wrist(rig: &HumanoidV0Rig, bone: &str) -> Vec3 {
+		bone_end(rig, bone, FOREARM_LENGTH)
+	}
+
+	fn foot(rig: &HumanoidV0Rig, bone: &str) -> Vec3 {
+		bone_end(rig, bone, FOOT_LENGTH)
+	}
+
+	fn world_of(p: Vec3, offset: Vec3) -> Vec3 {
+		p + offset
+	}
+
+	fn head_tail(rig: &HumanoidV0Rig) -> Vec3 {
+		bone_end(rig, "upper_neck", 0.25)
 	}
 
 	fn pelvis_center(rig: &HumanoidV0Rig) -> Vec3 {
 		rig.character_point("lumbar")
-	}
-
-	fn head_tail(rig: &HumanoidV0Rig) -> Vec3 {
-		bone_tail(rig, "upper_neck")
-	}
-
-	fn rest_rig() -> HumanoidV0Rig {
-		HumanoidV0Rig::for_clip_test()
-	}
-
-	#[test]
-	fn opening_windup_chambers_the_lead_arm() {
-		let (rig, effects) = apply(0.12);
-		let idle = HumanoidV0Rig::for_clip_test();
-		assert!(effects.0.translation.y <= 0.0);
-		assert!(
-			rig.posed_angle("humerus.R") > idle.posed_angle("humerus.R") + 0.02,
-			"wind-up drives the lead humerus"
-		);
-		assert!(rig.posed_angle("femur.R") > 0.05);
-		assert!(rig.posed_angle("shin.R") > 0.08, "weight sinks into a horse stance");
-	}
-
-	#[test]
-	fn stride_drops_hips_and_opens_a_horse_stance() {
-		let (rig, effects) = apply(0.42);
-		assert!(effects.0.translation.y < -0.22, "stomp lowers the armature");
-		let foot_l = bone_tail(&rig, "shin.L");
-		let foot_r = bone_tail(&rig, "shin.R");
-		assert!(
-			(foot_l.x - foot_r.x).abs() > 0.55,
-			"horse stance is laterally wide, L={foot_l:?} R={foot_r:?}"
-		);
-		assert!(rig.posed_angle("shin.R") > 0.35 && rig.posed_angle("shin.L") > 0.35);
-	}
-
-	#[test]
-	fn slide_carries_forward_offset() {
-		let (_, effects) = apply(0.75);
-		assert!(effects.0.translation.z > 0.04, "dash offsets fight-forward");
-	}
-
-	#[test]
-	fn phase_boundaries_stay_continuous() {
-		let boundaries = [
-			(JAB_PHASE_END - 0.01, JAB_PHASE_END + 0.01),
-			(STRIDE_PHASE_END - 0.01, STRIDE_PHASE_END + 0.01),
-		];
-		for (a, b) in boundaries {
-			let (rig_a, _) = apply(a);
-			let (rig_b, _) = apply(b);
-			for name in rig_a.animation_bone_names() {
-				let delta = rig_a.rotation(name).angle_between(rig_b.rotation(name));
-				assert!(delta < 0.55, "pop across {a} -> {b} on {name}: {delta}");
-			}
-		}
 	}
 
 	#[test]
@@ -490,27 +519,6 @@ mod tests {
 	}
 
 	#[test]
-	fn entry_from_mid_run_uses_visible_pose() {
-		let mut rig = HumanoidV0Rig::for_clip_test();
-		Run::default().apply(&mut rig, 0.35);
-		let from_pose = rig.pose.clone();
-		let from_offset = ArmatureOffset::IDENTITY;
-		let transition = Transition::from_visible(dash(), from_pose, from_offset);
-		let effects = transition.apply(&mut rig, 0.05, 0.0);
-		assert!(effects.is_identity() || effects.0.translation.y <= 0.0);
-		assert!(rig.posed_angle("femur.R") > 0.02);
-	}
-
-	#[test]
-	fn entry_from_idle_via_transition() {
-		let mut rig = HumanoidV0Rig::for_clip_test();
-		let from_pose = capture_animation_pose(&crate::animations::Idle::default(), &mut rig, 0.0);
-		let transition = Transition::from_visible(dash(), from_pose, ArmatureOffset::IDENTITY);
-		transition.apply(&mut rig, 0.0, 0.0);
-		assert!(rig.posed_angle("humerus.R") > 0.02);
-	}
-
-	#[test]
 	fn progress_clamps_past_one() {
 		let (a, eff_a) = apply(1.0);
 		let (b, eff_b) = apply(1.4);
@@ -519,7 +527,26 @@ mod tests {
 	}
 
 	#[test]
-	fn left_jab_side_flips_stance() {
+	fn entry_from_mid_run_uses_visible_pose() {
+		let mut rig = HumanoidV0Rig::for_clip_test();
+		Run::default().apply(&mut rig, 0.35);
+		let from_pose = rig.pose.clone();
+		let transition = Transition::from_visible(dash(), from_pose, ArmatureOffset::IDENTITY);
+		let effects = transition.apply(&mut rig, 0.05, 0.0);
+		assert!(effects.is_identity() || effects.0.translation.y <= 0.0);
+	}
+
+	#[test]
+	fn entry_from_idle_via_transition() {
+		let mut rig = HumanoidV0Rig::for_clip_test();
+		let from_pose = capture_animation_pose(&crate::animations::Idle::default(), &mut rig, 0.0);
+		let transition = Transition::from_visible(dash(), from_pose, ArmatureOffset::IDENTITY);
+		transition.apply(&mut rig, 0.0, 0.0);
+		assert!(rig.posed_angle("humerus.R") > 0.01);
+	}
+
+	#[test]
+	fn left_side_mirrors_the_held_guard() {
 		let right = UprightPowerDash::from_power_dash(&PowerDash::default());
 		let left = UprightPowerDash::from_power_dash(&PowerDash {
 			side: Side::Left,
@@ -528,294 +555,313 @@ mod tests {
 		});
 		let mut rig_r = HumanoidV0Rig::for_clip_test();
 		let mut rig_l = HumanoidV0Rig::for_clip_test();
-		right.apply(&mut rig_r, 0.14);
-		left.apply(&mut rig_l, 0.14);
+		right.apply(&mut rig_r, 0.50);
+		left.apply(&mut rig_l, 0.50);
+		let fist_r = wrist(&rig_r, "forearm.R");
+		let fist_l = wrist(&rig_l, "forearm.L");
 		assert!(
-			rig_r.posed_angle("forearm.R") < rig_l.posed_angle("forearm.L") + 0.2,
-			"lead elbow chamber follows jab side"
+			(fist_r.x + fist_l.x).abs() < 0.35,
+			"left-side guard should mirror, R={fist_r:?} L={fist_l:?}"
 		);
 	}
 
 	#[test]
-	fn endpoint_relaxes_toward_neutral() {
+	fn recovery_does_not_snap_to_bind_t_pose() {
 		let (rig, effects) = apply(1.0);
-		assert!(rig.posed_angle("femur.R") < 0.12);
 		assert!(
-			effects.is_identity(),
-			"clip end offset must be identity for AnimId hand-off, got {:?}",
+			effects.is_identity() || effects.0.translation.length() < 0.08,
+			"offset should ease toward identity, got {:?}",
 			effects.0.translation
 		);
+		assert!(
+			rig.posed_angle("humerus.R") > 0.05 || rig.posed_angle("forearm.R") > 0.05,
+			"end pose is an authored guard, not bind T-pose"
+		);
 	}
 
 	#[test]
-	fn posed_joint_evidence_at_progress_samples() {
-		let rest = rest_rig();
-		let rest_hand_r = bone_tail(&rest, "forearm.R");
-		let rest_hand_l = bone_tail(&rest, "forearm.L");
-		let rest_foot_r = bone_tail(&rest, "shin.R");
-		let rest_foot_l = bone_tail(&rest, "shin.L");
-		let (start_rig, _) = apply(0.0);
-		let start_hand_r = bone_tail(&start_rig, "forearm.R");
-		let samples = [0.0, 0.1, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0];
-
-		eprintln!(
-			"\n| progress | hand.R world | hand.L world | foot.R world | foot.L world | pelvis | head | offset (x,y,z) |"
-		);
-		eprintln!("| --- | --- | --- | --- | --- | --- | --- | --- |");
-
-		let mut prev_offset = Effects::IDENTITY;
-		let mut max_offset_delta_60hz = 0.0f32;
-		for frame in 0..=60 {
-			let t = frame as f32 / 60.0;
-			let (_, effects) = apply(t);
-			let delta = (effects.0.translation - prev_offset.0.translation).length();
-			max_offset_delta_60hz = max_offset_delta_60hz.max(delta);
-			prev_offset = effects;
+	fn phase_boundaries_stay_continuous() {
+		let boundaries = [
+			(COMPRESS_END - 0.01, COMPRESS_END + 0.01),
+			(PUSH_MID - 0.01, PUSH_MID + 0.01),
+			(PUSH_END - 0.01, PUSH_END + 0.01),
+			(HOLD_END - 0.01, HOLD_END + 0.01),
+			(BRAKE_END - 0.01, BRAKE_END + 0.01),
+			(RECOVER_MID - 0.01, RECOVER_MID + 0.01),
+		];
+		for (a, b) in boundaries {
+			let (rig_a, _) = apply(a);
+			let (rig_b, _) = apply(b);
+			for name in rig_a.animation_bone_names() {
+				let delta = rig_a.rotation(name).angle_between(rig_b.rotation(name));
+				assert!(delta < 0.55, "pop across {a} -> {b} on {name}: {delta}");
+			}
 		}
+	}
 
-		let (windup_rig, windup_fx) = apply(0.20);
-		let windup_hand_r = world_of(bone_tail(&windup_rig, "forearm.R"), windup_fx.0.translation);
-		let (strike_rig, strike_fx) = apply(0.50);
-		let strike_hand_r = world_of(bone_tail(&strike_rig, "forearm.R"), strike_fx.0.translation);
-		let (dash_rig, dash_fx) = apply(0.65);
-		let dash_head = world_of(head_tail(&dash_rig), dash_fx.0.translation);
-		let dash_pelvis = world_of(pelvis_center(&dash_rig), dash_fx.0.translation);
+	#[test]
+	fn held_pose_joint_relationships() {
+		let (rig, effects) = apply(0.50);
+		let off = effects.0.translation;
+		let shoulder_r = world_of(joint(&rig, "humerus.R"), off);
+		let elbow_r = world_of(joint(&rig, "forearm.R"), off);
+		let fist_r = world_of(wrist(&rig, "forearm.R"), off);
+		let shoulder_l = world_of(joint(&rig, "humerus.L"), off);
+		let elbow_l = world_of(joint(&rig, "forearm.L"), off);
+		let fist_l = world_of(wrist(&rig, "forearm.L"), off);
+		let knee_r = world_of(joint(&rig, "shin.R"), off);
+		let knee_l = world_of(joint(&rig, "shin.L"), off);
+		let foot_r = world_of(foot(&rig, "shin.R"), off);
+		let foot_l = world_of(foot(&rig, "shin.L"), off);
+		let pelvis = world_of(pelvis_center(&rig), off);
+		let head = world_of(head_tail(&rig), off);
 
-		for progress in samples {
+		eprintln!("held 0.50 world (pose+offset):");
+		eprintln!("  shoulder.R {shoulder_r:?}");
+		eprintln!("  elbow.R    {elbow_r:?}");
+		eprintln!("  fist.R     {fist_r:?}");
+		eprintln!("  shoulder.L {shoulder_l:?}");
+		eprintln!("  elbow.L    {elbow_l:?}");
+		eprintln!("  fist.L     {fist_l:?}");
+		eprintln!("  knee.R     {knee_r:?}  foot.R {foot_r:?}");
+		eprintln!("  knee.L     {knee_l:?}  foot.L {foot_l:?}");
+		eprintln!("  pelvis {pelvis:?}  head {head:?}  offset {off:?}");
+
+		assert!(
+			elbow_r.z > shoulder_r.z + 0.08,
+			"right elbow should sit ahead of the shoulder, elbow z={} shoulder z={}",
+			elbow_r.z,
+			shoulder_r.z
+		);
+		assert!(
+			fist_r.z < elbow_r.z - 0.03,
+			"right fist folds back toward the face, fist z={} elbow z={}",
+			fist_r.z,
+			elbow_r.z
+		);
+		assert!(
+			fist_r.z > shoulder_r.z + 0.05,
+			"right fist stays ahead of the shoulder, fist z={} shoulder z={}",
+			fist_r.z,
+			shoulder_r.z
+		);
+		assert!(
+			fist_r.x < head.x - 0.12,
+			"right fist stays beside the head, not across the face, fist x={} head x={}",
+			fist_r.x,
+			head.x
+		);
+		assert!(
+			(fist_r.y - head.y).abs() < 0.55,
+			"right fist stays near head height, fist y={} head y={}",
+			fist_r.y,
+			head.y
+		);
+		assert!(
+			fist_l.z < shoulder_l.z - 0.15,
+			"left fist trails behind the shoulder, fist z={} shoulder z={}",
+			fist_l.z,
+			shoulder_l.z
+		);
+		assert!(fist_l.x > 0.35, "left fist stays outside the torso silhouette, x={}", fist_l.x);
+		assert!(
+			(foot_r.y - REST_FOOT_Y).abs() <= SUPPORT_FOOT_SLACK,
+			"support foot stays near the ground, y={}",
+			foot_r.y
+		);
+		assert!(
+			foot_l.y > foot_r.y + 0.12,
+			"trailing foot lifts clear of the ground, L={} R={}",
+			foot_l.y,
+			foot_r.y
+		);
+		assert!(
+			foot_l.z < foot_r.z - 0.15,
+			"trailing foot sits behind the support foot, L.z={} R.z={}",
+			foot_l.z,
+			foot_r.z
+		);
+		assert!(
+			head.y - pelvis.y > 0.70,
+			"spine stays fairly straight, head y={} pelvis y={}",
+			head.y,
+			pelvis.y
+		);
+		assert!(head.z > pelvis.z + 0.08, "torso pitches forward from the hips");
+		assert!(
+			rig.posed_angle("forearm.R") > 0.8,
+			"guard elbow stays bent, angle={}",
+			rig.posed_angle("forearm.R")
+		);
+		assert!(
+			rig.posed_angle("forearm.L") < 0.55,
+			"rear elbow stays nearly straight, angle={}",
+			rig.posed_angle("forearm.L")
+		);
+	}
+
+	#[test]
+	fn choreography_world_joint_table() {
+		eprintln!("progress | sh.R | el.R | wr.R | sh.L | el.L | wr.L | knee.R | foot.R | knee.L | foot.L | pelvis | head | offset");
+		for progress in [0.00, 0.10, 0.25, 0.50, 0.68, 0.85, 0.95, 1.00] {
 			let (rig, effects) = apply(progress);
 			let off = effects.0.translation;
-			let hand_r = world_of(bone_tail(&rig, "forearm.R"), off);
-			let hand_l = world_of(bone_tail(&rig, "forearm.L"), off);
-			let foot_r = world_of(bone_tail(&rig, "shin.R"), off);
-			let foot_l = world_of(bone_tail(&rig, "shin.L"), off);
-			let pelvis = world_of(pelvis_center(&rig), off);
-			let head = world_of(head_tail(&rig), off);
 			eprintln!(
-				"| {progress:.2} | ({hrx:.3},{hry:.3},{hrz:.3}) | ({hlx:.3},{hly:.3},{hlz:.3}) | ({frx:.3},{fry:.3},{frz:.3}) | ({flx:.3},{fly:.3},{flz:.3}) | ({px:.3},{py:.3},{pz:.3}) | ({hx:.3},{hy:.3},{hz:.3}) | ({ox:.3},{oy:.3},{oz:.3}) |",
-				hrx = hand_r.x,
-				hry = hand_r.y,
-				hrz = hand_r.z,
-				hlx = hand_l.x,
-				hly = hand_l.y,
-				hlz = hand_l.z,
-				frx = foot_r.x,
-				fry = foot_r.y,
-				frz = foot_r.z,
-				flx = foot_l.x,
-				fly = foot_l.y,
-				flz = foot_l.z,
-				px = pelvis.x,
-				py = pelvis.y,
-				pz = pelvis.z,
-				hx = head.x,
-				hy = head.y,
-				hz = head.z,
-				ox = off.x,
-				oy = off.y,
-				oz = off.z,
+				"{progress:.2} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?} | {:?}",
+				world_of(joint(&rig, "humerus.R"), off),
+				world_of(joint(&rig, "forearm.R"), off),
+				world_of(wrist(&rig, "forearm.R"), off),
+				world_of(joint(&rig, "humerus.L"), off),
+				world_of(joint(&rig, "forearm.L"), off),
+				world_of(wrist(&rig, "forearm.L"), off),
+				world_of(joint(&rig, "shin.R"), off),
+				world_of(foot(&rig, "shin.R"), off),
+				world_of(joint(&rig, "shin.L"), off),
+				world_of(foot(&rig, "shin.L"), off),
+				world_of(pelvis_center(&rig), off),
+				world_of(head_tail(&rig), off),
+				off,
 			);
-
-			let planted = |foot: Vec3| (foot.y - REST_FOOT_Y).abs() <= PLANTED_FOOT_SLACK;
-			let expect_planted = progress <= 0.20 + f32::EPSILON
-				|| (progress - 0.35).abs() < f32::EPSILON
-				|| progress >= 0.50 - f32::EPSILON;
-
-			if (progress - 0.2).abs() < f32::EPSILON {
-				assert!(
-					hand_r.z < start_hand_r.z - 0.08,
-					"wind-up draws the lead hand back: start z={} wind-up z={}",
-					start_hand_r.z,
-					hand_r.z
-				);
-				assert!(
-					rig.posed_angle("shin.R") > 0.35 && rig.posed_angle("shin.L") > 0.35,
-					"wind-up sinks both knees"
-				);
-				assert!(
-					planted(foot_r) && planted(foot_l),
-					"horse stance keeps both feet near the ground: R={} L={}",
-					foot_r.y,
-					foot_l.y
-				);
-				assert!(
-					(foot_r.x - foot_l.x).abs() > 0.55,
-					"wind-up horse is laterally wide: R.x={} L.x={}",
-					foot_r.x,
-					foot_l.x
-				);
-				assert!(
-					effects.0.translation.y < -0.18,
-					"wind-up drops the hips y={}",
-					effects.0.translation.y
-				);
-			}
-			if (progress - 0.35).abs() < f32::EPSILON || (progress - 0.5).abs() < f32::EPSILON {
-				assert!(
-					planted(foot_r) && planted(foot_l),
-					"stomp/strike keeps both feet planted: R={} L={}",
-					foot_r.y,
-					foot_l.y
-				);
-				assert!((foot_r.x - foot_l.x).abs() > 0.55, "stomp/strike horse is laterally wide");
-				assert!(
-					effects.0.translation.y < -0.28,
-					"stomp drops hips via offset y={}",
-					effects.0.translation.y
-				);
-				assert!(
-					effects.0.translation.y > -0.52,
-					"hip drop stays in the 0.3–0.5 band, y={}",
-					effects.0.translation.y
-				);
-			}
-			if (progress - 0.5).abs() < f32::EPSILON {
-				assert!(
-					hand_r.z > windup_hand_r.z + 0.45,
-					"strike extends the lead fist past the chamber: chamber z={} strike z={}",
-					windup_hand_r.z,
-					hand_r.z
-				);
-				assert!(
-					hand_r.x.abs() < 0.3,
-					"strike fist stays in line with the shoulder, |x|={}",
-					hand_r.x.abs()
-				);
-				assert!(hand_r.y > 0.45, "strike is near shoulder height, y={}", hand_r.y);
-				assert!(
-					hand_l.y < hand_r.y - 0.25,
-					"off-hand is chambered at the hip, L.y={} R.y={}",
-					hand_l.y,
-					hand_r.y
-				);
-				assert!(
-					hand_l.x.abs() < 0.55,
-					"off-hand is not flared out to a T, L.x={}",
-					hand_l.x
-				);
-				assert!(
-					rig.posed_angle("forearm.R") < 0.35,
-					"earthbending strike keeps the lead elbow near straight"
-				);
-			}
-			if (progress - 0.65).abs() < f32::EPSILON {
-				assert!(
-					head.z > pelvis.z + 0.08,
-					"dash pitches from the hips: head z={} pelvis z={}",
-					head.z,
-					pelvis.z
-				);
-				assert!(
-					head.y - pelvis.y > 1.15,
-					"dash keeps a straight back and head up: head y={} pelvis y={}",
-					head.y,
-					pelvis.y
-				);
-				assert!(head.y > 1.05, "dash head stays up looking forward, y={}", head.y);
-				assert!(
-					hand_l.z < hand_r.z - 0.15,
-					"dash keeps the trailing arm back: trail z={} lead z={}",
-					hand_l.z,
-					hand_r.z
-				);
-				assert!(
-					hand_l.x.abs() < 0.70 && hand_r.x.abs() < 0.55,
-					"dash arms are not both out sideways: L.x={} R.x={}",
-					hand_l.x,
-					hand_r.x
-				);
-				assert!(
-					planted(foot_r) && planted(foot_l),
-					"dash stays rooted: R={} L={}",
-					foot_r.y,
-					foot_l.y
-				);
-				assert!(
-					rig.posed_angle("shin.R") > 0.25 && rig.posed_angle("shin.L") > 0.25,
-					"dash stays low"
-				);
-				assert!(
-					effects.0.translation.z > 0.04,
-					"mid-dash still carries forward offset z={}",
-					effects.0.translation.z
-				);
-			}
-			if (progress - 0.8).abs() < f32::EPSILON {
-				assert!(
-					effects.0.translation.z > 0.02,
-					"held dash still carries a modest forward offset z={}",
-					effects.0.translation.z
-				);
-				assert!(
-					planted(foot_r) && planted(foot_l),
-					"held dash stays rooted: R={} L={}",
-					foot_r.y,
-					foot_l.y
-				);
-			}
-			if progress == 1.0 {
-				assert!(effects.is_identity());
-				assert!(
-					planted(foot_r) && planted(foot_l),
-					"settle plants both feet: R={} L={}",
-					foot_r.y,
-					foot_l.y
-				);
-			}
-			if expect_planted && progress > 0.0 && progress < 1.0 {
-				let _ = planted;
-			}
 		}
+	}
 
-		let (end_rig, effects_at_end) = apply(1.0);
-		let mut max_angle = 0.0f32;
-		let mut max_angle_bone = "";
-		eprintln!("\n| bone | posed_angle vs rest @ 1.0 | tail delta |");
-		eprintln!("| --- | --- | --- |");
-		for name in end_rig.animation_bone_names() {
-			let angle = end_rig.posed_angle(name);
-			let tail = bone_tail(&end_rig, name);
-			let rest_tail = bone_tail(&rest, name);
-			let delta = (tail - rest_tail).length();
-			if angle > max_angle {
-				max_angle = angle;
-				max_angle_bone = name;
-			}
-			eprintln!("| {name} | {angle:.4} rad | {delta:.4} m |");
-			assert!(angle < 0.12, "{name} should settle near rest, posed_angle={angle}");
+	#[test]
+	fn support_foot_stays_planted_through_the_held_slide() {
+		for progress in [0.25, 0.40, 0.50, 0.62, 0.68] {
+			let (rig, effects) = apply(progress);
+			let foot_r = world_of(foot(&rig, "shin.R"), effects.0.translation);
+			assert!(
+				(foot_r.y - REST_FOOT_Y).abs() <= SUPPORT_FOOT_SLACK,
+				"support foot left the ground at {progress}, y={}",
+				foot_r.y
+			);
 		}
-		let end_hand_r = bone_tail(&end_rig, "forearm.R");
-		let end_hand_l = bone_tail(&end_rig, "forearm.L");
-		eprintln!(
-			"\nrest hand.R {:?}; end hand.R {:?}; Δ={}",
-			rest_hand_r,
-			end_hand_r,
-			(end_hand_r - rest_hand_r).length()
-		);
-		eprintln!(
-			"rest hand.L {:?}; end hand.L {:?}; Δ={}",
-			rest_hand_l,
-			end_hand_l,
-			(end_hand_l - rest_hand_l).length()
-		);
-		eprintln!("rest foot.R {:?}; rest foot.L {:?}", rest_foot_r, rest_foot_l);
-		eprintln!("max posed_angle vs rest @ 1.0: {max_angle:.4} rad on {max_angle_bone}");
+	}
 
-		let (_, effects_before_end) = apply(59.0 / 60.0);
-		let handoff_delta =
-			(effects_at_end.0.translation - effects_before_end.0.translation).length();
+	#[test]
+	fn real_60hz_offset_is_smooth() {
+		let dt = 1.0 / (60.0 * WALL_SECS);
+		let mut prev = Effects::IDENTITY;
+		let mut max_delta = 0.0f32;
+		let mut t = 0.0;
+		while t <= 1.0 + dt * 0.5 {
+			let (_, effects) = apply(t.min(1.0));
+			let delta = (effects.0.translation - prev.0.translation).length();
+			max_delta = max_delta.max(delta);
+			prev = effects;
+			t += dt;
+		}
+		eprintln!("max per-frame ArmatureOffset Δ @ 60 Hz over 0.38 s: {max_delta:.4} m");
+		assert!(max_delta < 0.10, "offset pop {max_delta}");
+	}
+
+	#[test]
+	fn pose_continuity_at_real_60hz() {
+		let dt = 1.0 / (60.0 * WALL_SECS);
+		let mut prev = apply(0.0).0;
+		let mut t = dt;
+		let mut max_delta = 0.0f32;
+		let mut max_at = (0.0f32, "");
+		while t <= 1.0 + dt * 0.5 {
+			let (rig, _) = apply(t.min(1.0));
+			for name in prev.animation_bone_names() {
+				let delta = prev.rotation(name).angle_between(rig.rotation(name));
+				if delta > max_delta {
+					max_delta = delta;
+					max_at = (t, name);
+				}
+				assert!(delta < 0.75, "frame pop at t={t:.4} on {name}: {delta}");
+			}
+			prev = rig;
+			t += dt;
+		}
 		eprintln!(
-			"\nmax per-frame ArmatureOffset translation delta @ 60 Hz: {max_offset_delta_60hz:.4} m"
+			"max per-frame pose Δ @ 60 Hz: {max_delta:.3} rad at t={:.3} on {}",
+			max_at.0, max_at.1
 		);
-		eprintln!("offset delta last frame -> progress 1.0: {handoff_delta:.4} m");
+	}
+
+	fn dump_world(label: &str, rig: &HumanoidV0Rig, off: Vec3) {
+		let sh_r = world_of(joint(rig, "humerus.R"), off);
+		let el_r = world_of(joint(rig, "forearm.R"), off);
+		let wr_r = world_of(wrist(rig, "forearm.R"), off);
+		let sh_l = world_of(joint(rig, "humerus.L"), off);
+		let el_l = world_of(joint(rig, "forearm.L"), off);
+		let wr_l = world_of(wrist(rig, "forearm.L"), off);
+		let foot_r = world_of(foot(rig, "shin.R"), off);
+		let foot_l = world_of(foot(rig, "shin.L"), off);
+		let pelvis = world_of(pelvis_center(rig), off);
+		let head = world_of(head_tail(rig), off);
+		let neck = world_of(joint(rig, "upper_neck"), off);
 		eprintln!(
-			"wind-up hand.R z={:.3}; strike hand.R z={:.3}; dash head-pelvis y={:.3} z={:.3}",
-			windup_hand_r.z,
-			strike_hand_r.z,
-			dash_head.y - dash_pelvis.y,
-			dash_head.z - dash_pelvis.z
+			"{label:10} sh.R=({:.2},{:.2},{:.2}) el.R=({:.2},{:.2},{:.2}) wr.R=({:.2},{:.2},{:.2}) neck=({:.2},{:.2},{:.2}) head=({:.2},{:.2},{:.2}) sh.L=({:.2},{:.2},{:.2}) el.L=({:.2},{:.2},{:.2}) wr.L=({:.2},{:.2},{:.2}) foot.R=({:.2},{:.2},{:.2}) foot.L=({:.2},{:.2},{:.2}) pelvis=({:.2},{:.2},{:.2}) off={off:?}",
+			sh_r.x, sh_r.y, sh_r.z, el_r.x, el_r.y, el_r.z, wr_r.x, wr_r.y, wr_r.z, neck.x, neck.y, neck.z, head.x, head.y, head.z, sh_l.x, sh_l.y, sh_l.z, el_l.x, el_l.y, el_l.z, wr_l.x, wr_l.y, wr_l.z, foot_r.x, foot_r.y, foot_r.z, foot_l.x, foot_l.y, foot_l.z, pelvis.x, pelvis.y, pelvis.z
 		);
-		assert!(handoff_delta < 0.02, "hand-off frame should not pop, delta={handoff_delta}");
-		assert!(max_offset_delta_60hz < 0.05, "offset delta={max_offset_delta_60hz}");
-		assert!((end_hand_r - rest_hand_r).length() < 0.25, "end hand.R should be near rest");
+	}
+
+	#[test]
+	fn rear_arm_does_not_pass_through_a_t_pose() {
+		let dt = 1.0 / (60.0 * WALL_SECS);
+		let mut t = 0.0;
+		let mut max_x = 0.0f32;
+		while t <= 1.0 + dt * 0.5 {
+			let (rig, effects) = apply(t.min(1.0));
+			let wr_l = world_of(wrist(&rig, "forearm.L"), effects.0.translation);
+			max_x = max_x.max(wr_l.x);
+			assert!(wr_l.x < 1.22, "left wrist spiked sideways at t={t:.3}: x={}", wr_l.x);
+			t += dt;
+		}
+		eprintln!("max left-wrist x @ 60 Hz: {max_x:.3}");
+	}
+
+	#[ignore = "authoring probe; run with --ignored --nocapture"]
+	#[test]
+	fn debug_held_arm_roll_sweep() {
+		let dash = dash();
+		let rest = HumanoidV0Rig::for_clip_test();
+		dump_world("rest", &rest, Vec3::ZERO);
+		let (held_rig, held_fx) = apply(0.50);
+		dump_world("held", &held_rig, held_fx.0.translation);
+		for (label, roll) in [
+			("r+0.6", 0.6),
+			("r+0.9", 0.9),
+			("r+1.05", 1.05),
+			("r+1.2", 1.2),
+			("r+1.5", 1.5),
+			("rear0", 0.0),
+		] {
+			let mut pose = dash.held_pose();
+			if label.starts_with('r') && label != "rear0" {
+				apply_aimed_arm(&mut pose, Side::Right, dash.guard_along(), roll, 0.0, 0.0);
+			}
+			let mut rig = HumanoidV0Rig::for_clip_test();
+			rig.write_pose(&pose);
+			dump_world(label, &rig, dash.held_offset());
+		}
+		for (label, sf, tf, drop) in [
+			("f-0.10", -0.10, 0.72, 0.22),
+			("f-0.40", -0.40, 0.72, 0.22),
+			("f-0.70", -0.70, 0.72, 0.22),
+			("t+0.40", -0.28, 0.40, 0.22),
+			("t+0.90", -0.28, 0.90, 0.22),
+			("t+1.10", -0.28, 1.10, 0.22),
+			("d0.35", -0.28, 0.72, 0.35),
+			("d0.45", -0.28, 0.72, 0.45),
+			("combo", -0.55, 0.95, 0.38),
+		] {
+			let mut pose = HumanoidPose::default();
+			pose.apply_leg(Side::Right, sf, dash.support_knee);
+			pose.apply_leg(Side::Left, tf, dash.trail_knee);
+			pose.leg_mut(Side::Right).hip_abduction += dash.hip_abduct * 0.55 * Side::Right.sign();
+			pose.leg_mut(Side::Left).hip_abduction += dash.hip_abduct * Side::Left.sign();
+			pose.apply_root(dash.lean);
+			let mut rig = HumanoidV0Rig::for_clip_test();
+			rig.write_pose(&pose);
+			dump_world(label, &rig, Vec3::new(0.0, -drop, HELD_FORWARD));
+		}
+		for t in [0.00, 0.10, 0.14, 0.18, 0.22, 0.25, 0.68, 0.76, 0.85, 0.92, 1.00] {
+			let (rig, fx) = apply(t);
+			dump_world(&format!("t{t:.2}"), &rig, fx.0.translation);
+		}
 	}
 }

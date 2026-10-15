@@ -76,91 +76,50 @@ const POSES: &[IconPose] = &[
 ];
 
 const DASH_SIDE_EYE: Vec3 = Vec3::new(3.3, 0.35, 0.40);
+const DASH_FRONT_EYE: Vec3 = Vec3::new(0.20, 0.45, 3.5);
+const DASH_REAR_EYE: Vec3 = Vec3::new(0.20, 0.45, -3.4);
 const DASH_Q3_EYE: Vec3 = Vec3::new(2.6, 0.50, 2.7);
+const DASH_GAMEPLAY_EYE: Vec3 = Vec3::new(0.0, 1.6, 3.5);
 const DASH_LOOK: Vec3 = Vec3::new(0.0, 0.05, 0.25);
+const DASH_GAMEPLAY_LOOK: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 
-/// Key PowerDash beats: side and three-quarter, full body including feet.
+const fn dash_pose(filename: &'static str, progress: f32, eye: Vec3, look_at: Vec3) -> IconPose {
+	IconPose {
+		filename,
+		animation: AnimationMode::PowerDash,
+		side: Side::Right,
+		progress,
+		eye,
+		look_at,
+	}
+}
+
+/// Held 4-views, side-view choreography, gameplay camera, and a 0.38 s frame strip.
 const DASH_POSES: &[IconPose] = &[
-	IconPose {
-		filename: "power_dash_20_chamber_side.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.20,
-		eye: DASH_SIDE_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_20_chamber_3q.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.20,
-		eye: DASH_Q3_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_35_stomp_side.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.35,
-		eye: DASH_SIDE_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_35_stomp_3q.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.35,
-		eye: DASH_Q3_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_50_strike_side.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.50,
-		eye: DASH_SIDE_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_50_strike_3q.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.50,
-		eye: DASH_Q3_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_65_dash_side.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.65,
-		eye: DASH_SIDE_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_65_dash_3q.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 0.65,
-		eye: DASH_Q3_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_100_settle_side.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 1.0,
-		eye: DASH_SIDE_EYE,
-		look_at: DASH_LOOK,
-	},
-	IconPose {
-		filename: "power_dash_100_settle_3q.png",
-		animation: AnimationMode::PowerDash,
-		side: Side::Right,
-		progress: 1.0,
-		eye: DASH_Q3_EYE,
-		look_at: DASH_LOOK,
-	},
+	dash_pose("power_dash_50_held_front.png", 0.50, DASH_FRONT_EYE, DASH_LOOK),
+	dash_pose("power_dash_50_held_side.png", 0.50, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_50_held_rear.png", 0.50, DASH_REAR_EYE, DASH_LOOK),
+	dash_pose("power_dash_50_held_3q.png", 0.50, DASH_Q3_EYE, DASH_LOOK),
+	dash_pose("power_dash_50_held_gameplay.png", 0.50, DASH_GAMEPLAY_EYE, DASH_GAMEPLAY_LOOK),
+	dash_pose("power_dash_10_compress_side.png", 0.10, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_25_push_side.png", 0.25, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_50_hold_side.png", 0.50, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_68_brake_side.png", 0.68, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_85_recover_side.png", 0.85, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_95_rise_side.png", 0.95, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_100_guard_side.png", 1.00, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_00.png", 0.00, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_08.png", 0.08, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_16.png", 0.16, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_25.png", 0.25, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_36.png", 0.36, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_50.png", 0.50, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_62.png", 0.62, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_68.png", 0.68, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_78.png", 0.78, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_85.png", 0.85, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_92.png", 0.92, DASH_SIDE_EYE, DASH_LOOK),
+	dash_pose("power_dash_play_100.png", 1.00, DASH_SIDE_EYE, DASH_LOOK),
 ];
 
 #[derive(Clone, Args)]
