@@ -571,6 +571,20 @@ mod tests {
 	}
 
 	#[test]
+	fn open_drop_prompt_owns_nav_until_it_closes() {
+		let mut prompt = CharacterDropPrompt::default();
+		let mut stack = MenuModalStack::default();
+		stack.open(MenuModalLayer::OVERLAY_SELECT);
+		assert!(!stack.owns_nav());
+		prompt.open(1, String::from("Bullpup"), &mut stack);
+		assert!(stack.owns_nav());
+		assert_eq!(stack.nav_owner(), Some(MenuModalId::ITEM_DROP));
+		stack.close(MenuModalId::ITEM_DROP);
+		prompt.index = None;
+		assert!(!stack.owns_nav());
+	}
+
+	#[test]
 	fn placeholder_policy_asks_the_ui_to_confirm() {
 		assert_eq!(
 			InventoryDropPolicy::PLACEHOLDER,
