@@ -21,7 +21,7 @@ Those PNGs are 128×128 white silhouettes with transparency, captured from a
 base nude Braidman (`BraidmanConfig::default_preview()`, no clothing / hair)
 in `characters-playground` under lavapipe. Poses are the readable clip beats:
 salute hold (`jab` 0.36), strafe slide peak (`power-strafe` 0.48), dash
-strike (`power-dash` 0.50).
+hold (`power-dash` 0.50).
 
 ### Regenerate
 
