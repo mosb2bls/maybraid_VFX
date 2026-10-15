@@ -4,7 +4,9 @@ use bevy::prelude::*;
 use bevy::text::Justify;
 use character_persist::SaveRoot;
 use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad, PadButton, VirtualPad};
-use menu_components::theme::{menu_region_wash, HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW};
+use menu_components::theme::{
+	menu_list_panel_node, menu_region_wash, HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW,
+};
 use menu_components::{
 	emit_short_text_submit_on_confirm, spawn_hud_action, spawn_hud_text, HudFonts, HudMenu,
 	HudMenuItem, HudOverlayMenu, MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer,
@@ -235,56 +237,50 @@ fn spawn_leave_prompt(
 				},
 				BackgroundColor(menu_region_wash()),
 			));
-			root.spawn((
-				Node {
-					width: Val::Px(720.0),
-					max_width: Val::Percent(92.0),
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::FlexStart,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					..default()
-				},
-				Pickable::default(),
-			))
-			.with_children(|card| {
-				spawn_hud_text(
-					card,
-					fonts.header(HEADER_FONT_SIZE * 0.42),
-					title,
-					TEXT_YELLOW,
-					Justify::Left,
-				);
-				let mut list = card.spawn((
-					CharacterLeavePromptMenu,
-					HudOverlayMenu,
-					HudMenu::new(2),
-					Node {
-						width: Val::Percent(100.0),
-						flex_direction: FlexDirection::Column,
-						align_items: AlignItems::FlexStart,
-						row_gap: Val::Px(PANEL_ROW_GAP),
-						..default()
-					},
-					Pickable::IGNORE,
-				));
-				let menu = list.id();
-				list.with_children(|list| {
-					spawn_hud_action(
-						list,
-						fonts,
-						confirm,
-						JustifyContent::FlexStart,
-						(LeavePromptConfirm, HudMenuItem { index: 0, menu }),
+			let mut card = menu_list_panel_node(AlignItems::FlexStart);
+			card.width = Val::Px(720.0);
+			card.max_width = Val::Percent(92.0);
+			card.row_gap = Val::Px(PANEL_ROW_GAP);
+			root.spawn((card, BackgroundColor(menu_region_wash()), Pickable::default()))
+				.with_children(|card| {
+					spawn_hud_text(
+						card,
+						fonts.header(HEADER_FONT_SIZE * 0.42),
+						title,
+						TEXT_YELLOW,
+						Justify::Left,
 					);
-					spawn_hud_action(
-						list,
-						fonts,
-						"Cancel",
-						JustifyContent::FlexStart,
-						(LeavePromptCancel, HudMenuItem { index: 1, menu }),
-					);
+					let mut list = card.spawn((
+						CharacterLeavePromptMenu,
+						HudOverlayMenu,
+						HudMenu::new(2),
+						Node {
+							width: Val::Percent(100.0),
+							flex_direction: FlexDirection::Column,
+							align_items: AlignItems::FlexStart,
+							row_gap: Val::Px(PANEL_ROW_GAP),
+							..default()
+						},
+						Pickable::IGNORE,
+					));
+					let menu = list.id();
+					list.with_children(|list| {
+						spawn_hud_action(
+							list,
+							fonts,
+							confirm,
+							JustifyContent::FlexStart,
+							(LeavePromptConfirm, HudMenuItem { index: 0, menu }),
+						);
+						spawn_hud_action(
+							list,
+							fonts,
+							"Cancel",
+							JustifyContent::FlexStart,
+							(LeavePromptCancel, HudMenuItem { index: 1, menu }),
+						);
+					});
 				});
-			});
 		});
 }
 

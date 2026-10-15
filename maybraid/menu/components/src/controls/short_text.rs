@@ -14,9 +14,9 @@ use bevy::window::{Ime, PrimaryWindow};
 use crate::modal::{MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer, MenuModalStack};
 use crate::single_select::{KeyboardMenuNav, TextMenuInputLock};
 use crate::theme::{
-	menu_region_wash, HEADER_FONT_SIZE, PANEL_CHIP_GAP, PANEL_HEADER_FONT_SIZE,
-	PANEL_ITEM_FONT_SIZE, PANEL_ROW_GAP, PANEL_VALUE_FONT_SIZE, TEXT_DEEP_BLUE, TEXT_YELLOW,
-	TEXT_YELLOW_FAINT,
+	menu_list_panel_node, menu_region_wash, HEADER_FONT_SIZE, PANEL_CHIP_GAP,
+	PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_ROW_GAP, PANEL_VALUE_FONT_SIZE,
+	TEXT_DEEP_BLUE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use maybraid_input::{MenuNav, MenuNavImpulse, PadButton, VirtualPad};
 
@@ -814,47 +814,41 @@ fn spawn_short_text_modal(commands: &mut Commands, fonts: &HudFonts, session: &S
 				},
 				BackgroundColor(menu_region_wash()),
 			));
-			root.spawn((
-				Node {
-					width: Val::Px(720.0),
-					max_width: Val::Percent(92.0),
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::FlexStart,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					..default()
-				},
-				Pickable::default(),
-			))
-			.with_children(|card| {
-				spawn_hud_text(
-					card,
-					fonts.header(HEADER_FONT_SIZE * 0.42),
-					session.key,
-					TEXT_YELLOW,
-					Justify::Left,
-				);
-				card.spawn((
-					ShortTextModalValue,
-					Text::new(modal_value_display(&session.value)),
-					fonts.header(HEADER_FONT_SIZE * 0.55),
-					TextColor(TEXT_YELLOW),
-					TextLayout::new(Justify::Left, LineBreak::NoWrap),
-					LineHeight::RelativeToFont(1.0),
-					Pickable::IGNORE,
-				));
-				if show_pad {
-					spawn_short_text_pad(card, fonts, session.shift);
-				} else {
-					spawn_text_button(card, fonts, "submit", ShortTextSubmit);
+			let mut card = menu_list_panel_node(AlignItems::FlexStart);
+			card.width = Val::Px(720.0);
+			card.max_width = Val::Percent(92.0);
+			card.row_gap = Val::Px(PANEL_ROW_GAP);
+			root.spawn((card, BackgroundColor(menu_region_wash()), Pickable::default()))
+				.with_children(|card| {
 					spawn_hud_text(
 						card,
-						fonts.body(PANEL_ITEM_FONT_SIZE),
-						"type to enter",
-						TEXT_YELLOW_FAINT,
+						fonts.header(HEADER_FONT_SIZE * 0.42),
+						session.key,
+						TEXT_YELLOW,
 						Justify::Left,
 					);
-				}
-			});
+					card.spawn((
+						ShortTextModalValue,
+						Text::new(modal_value_display(&session.value)),
+						fonts.header(HEADER_FONT_SIZE * 0.55),
+						TextColor(TEXT_YELLOW),
+						TextLayout::new(Justify::Left, LineBreak::NoWrap),
+						LineHeight::RelativeToFont(1.0),
+						Pickable::IGNORE,
+					));
+					if show_pad {
+						spawn_short_text_pad(card, fonts, session.shift);
+					} else {
+						spawn_text_button(card, fonts, "submit", ShortTextSubmit);
+						spawn_hud_text(
+							card,
+							fonts.body(PANEL_ITEM_FONT_SIZE),
+							"type to enter",
+							TEXT_YELLOW_FAINT,
+							Justify::Left,
+						);
+					}
+				});
 		});
 }
 

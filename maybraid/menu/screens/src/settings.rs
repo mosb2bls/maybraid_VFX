@@ -4,16 +4,16 @@ mod catalog;
 mod persist;
 
 use bevy::prelude::*;
-use bevy::scene::prelude::{bsn, Scene};
+use bevy::scene::prelude::{bsn, template_value, Scene};
 use character_persist::SaveRoot;
 use maybraid_menu_controller::MenuController;
 use maybraid_world::render_scale::{VisualStyle, VisualStyleAutoReason};
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
-	menu_region_wash, screen_back_scene, set_brand_mode_title, set_info_box_for_menu,
-	BrandModeLine, BrandModeTitle, MenuFocus, MenuInfoBox, MenuInfoBoxLabel, MenuStep,
-	TextColumnAlign, TextColumnAnchor, TextCursorRow, TextMenuPlugin, TextMenuSystems,
+	menu_list_panel_node, menu_region_wash, screen_back_scene, set_brand_mode_title,
+	set_info_box_for_menu, BrandModeLine, BrandModeTitle, MenuFocus, MenuInfoBox, MenuInfoBoxLabel,
+	MenuStep, TextColumnAlign, TextColumnAnchor, TextCursorRow, TextMenuPlugin, TextMenuSystems,
 };
 use serde::{Deserialize, Serialize};
 
@@ -424,10 +424,8 @@ impl InGameSettingsScreen {
 		];
 		let children: Vec<Box<dyn Scene>> = vec![
 			Box::new(bsn! {
-				Node {
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::Center,
-				}
+				template_value(menu_list_panel_node(AlignItems::Center))
+				BackgroundColor(menu_region_wash())
 				Pickable::IGNORE
 				Children [ {column} ]
 			}),
@@ -438,7 +436,6 @@ impl InGameSettingsScreen {
 			InGameSettingsScreen
 			MenuScreen
 			MenuController
-			BackgroundColor(menu_region_wash())
 			Node {
 				width: percent(100),
 				height: percent(100),

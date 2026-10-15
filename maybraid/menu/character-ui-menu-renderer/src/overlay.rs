@@ -8,8 +8,8 @@ use crate::sink::{MaybraidMenuSink, MenuSink, MenuThumbnailContext, RenderContex
 use crate::widgets::CloseOverlaySelect;
 use crate::MenuJustify;
 use menu_components::{
-	menu_region_wash, spawn_header_line, spawn_text_button, HudFonts, MenuModal,
-	PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP,
+	menu_region_wash, spawn_header_line, spawn_text_button, HudFonts, MenuModal, MENU_LIST_PAD,
+	MENU_LIST_RADIUS, PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP,
 };
 
 /// Catalog nodes that can show a selected name on a header.
@@ -187,7 +187,7 @@ fn selected_select_label<E>(groups: &[SelectGroup<E>]) -> Option<&'static str> {
 		.map(|choice| choice.label)
 }
 
-/// Full-screen picker chrome. The host fills the returned viewport.
+/// Picker chrome that fills the host cell (left column of the character grid).
 pub fn spawn_overlay_shell(
 	parent: &mut ChildSpawnerCommands,
 	fonts: &HudFonts,
@@ -200,11 +200,10 @@ pub fn spawn_overlay_shell(
 			crate::widgets::OverlaySelectRoot,
 			MenuModal::OVERLAY_SELECT,
 			Node {
-				position_type: PositionType::Absolute,
-				left: Val::Px(0.0),
-				top: Val::Px(0.0),
 				width: Val::Percent(100.0),
 				height: Val::Percent(100.0),
+				min_width: Val::Px(0.0),
+				min_height: Val::Px(0.0),
 				..default()
 			},
 			Pickable::IGNORE,
@@ -221,20 +220,21 @@ pub fn spawn_overlay_shell(
 					height: Val::Percent(100.0),
 					..default()
 				},
-				BackgroundColor(menu_region_wash()),
+				BackgroundColor(Color::NONE),
 			));
 			root.spawn((
 				Node {
-					position_type: PositionType::Absolute,
-					left: Val::Percent(6.0),
-					top: Val::Percent(8.0),
-					width: Val::Percent(62.0),
-					height: Val::Percent(84.0),
+					width: Val::Percent(100.0),
+					height: Val::Percent(100.0),
+					min_width: Val::Px(0.0),
 					flex_direction: FlexDirection::Column,
 					row_gap: Val::Px(PANEL_ROW_GAP),
-					padding: UiRect::all(Val::Px(8.0)),
+					padding: UiRect::all(Val::Px(MENU_LIST_PAD)),
+					border_radius: BorderRadius::all(Val::Px(MENU_LIST_RADIUS)),
+					overflow: Overflow::clip(),
 					..default()
 				},
+				BackgroundColor(menu_region_wash()),
 				Pickable::IGNORE,
 			))
 			.with_children(|panel| {
