@@ -638,11 +638,14 @@ fn create_menu_inventory_is_one_section_with_four_headers() -> anyhow::Result<()
 	assert_eq!(choices.len(), 2);
 	assert_eq!(choices[1].label, grenade_name);
 	let lubikan = inventory_child(&nodes, "Lubikan")?;
-	let MenuNode::LabeledValue { label, value } = lubikan else {
-		anyhow::bail!("Lubikan must be a read-only labeled value");
+	let MenuNode::GridCatalog { choices, .. } = lubikan else {
+		anyhow::bail!("Lubikan must be a catalog tile");
 	};
-	assert_eq!(label, "Self");
-	assert_eq!(value, "Always equipped");
+	assert_eq!(choices.len(), 1);
+	assert_eq!(choices[0].label, "Self");
+	assert_eq!(choices[0].detail, "Always equipped");
+	assert_eq!(choices[0].image_key, Some(character_items::self_lubikan_catalog_key()));
+	assert!(choices[0].selected);
 	Ok(())
 }
 

@@ -57,6 +57,13 @@ pub struct CaptureExtents(pub Aabb3d);
 #[derive(Component)]
 pub struct CaptureSilhouetteRoot;
 
+/// Keep this mesh's authored [`StandardMaterial`] through silhouette restamp.
+///
+/// Use for in-scene marks (a medical cross on a body silhouette) that must
+/// stay their authored color while every other `Mesh3d` goes unlit gray.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct CapturePreserveMaterial;
+
 #[derive(Component)]
 pub(crate) struct CaptureRoot;
 
@@ -547,6 +554,7 @@ pub(crate) fn apply_silhouette(
 	children: &Query<&Children>,
 	standard: &Query<&MeshMaterial3d<StandardMaterial>>,
 	meshes: &Query<Entity, With<Mesh3d>>,
+	preserved: &Query<(), With<CapturePreserveMaterial>>,
 ) -> Result<Option<CaptureWarning>, CaptureError> {
 	if session.request.mode != CaptureMode::Silhouette {
 		return Ok(None);
@@ -559,6 +567,9 @@ pub(crate) fn apply_silhouette(
 	let mut custom = 0_u32;
 	visit_descendants(session.root, children, &mut |entity| {
 		if meshes.get(entity).is_err() {
+			return;
+		}
+		if preserved.get(entity).is_ok() {
 			return;
 		}
 		let original = standard.get(entity).ok().and_then(|handle| materials.get(&handle.0));
@@ -814,5 +825,15 @@ mod tests {
 			Color::srgba(SILHOUETTE_GRAY, SILHOUETTE_GRAY, SILHOUETTE_GRAY, 1.0)
 		);
 		assert!(is_silhouette_material(&silhouette));
+	}
+
+	#[test]
+	fn authored_cross_color_is_not_silhouette_gray() {
+		let cross = StandardMaterial {
+			base_color: Color::srgb(0.86, 0.14, 0.16),
+			unlit: true,
+			..Default::default()
+		};
+		assert!(!is_silhouette_material(&cross));
 	}
 }

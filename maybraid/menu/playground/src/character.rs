@@ -2,28 +2,28 @@
 
 use bevy::prelude::*;
 use character_creation_menus::{CharacterMenu, MenuEvent};
-use character_items::Inventory;
+use character_items::{self_lubikan_catalog_key, Inventory};
 use character_ui_menu::{AssetThumbnailDisplay, MenuComponent};
 use item_icons::{
-	CaptureClient, ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery, ItemIconPlugin,
-	ItemIconSystems, request_inventory_icons,
+	request_inventory_icons, request_self_lubikan_icon, CaptureClient, ItemCaptureSubjects,
+	ItemIconCache, ItemIconDiscovery, ItemIconPlugin, ItemIconSystems,
 };
 use maybraid_character_ui_menu_renderer::{
+	fill_inventory_layout, find_overlay_node, overlay_closes_on_pick, spawn_overlay_shell,
 	CharacterHudSystems, CharacterMenuEvent, MaybraidCharacterMenuRendererPlugin, MaybraidMenuSink,
 	MenuButton, MenuJustify, MenuSink, MenuThumbnailContext, OverlayClose, OverlayOpen,
-	OverlaySelectRoot, OverlaySelectViewport, RenderContext, find_overlay_node,
-	fill_inventory_layout, overlay_closes_on_pick, spawn_overlay_shell,
+	OverlaySelectRoot, OverlaySelectViewport, RenderContext,
 };
 use maybraid_menu_controller::MenuController;
 use maybraid_skill_map::{SkillMapSpinRevealHud, SkillMapTileMaterialPlugin};
 use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
 use menu_components::{
-	ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem, HudOverlayMenu, MenuActivate, MenuFocus,
-	MenuModalId, MenuModalLayer, MenuModalStack, PANEL_ROW_GAP, ScreenBack, ShortTextChange,
-	TEXT_YELLOW, TEXT_YELLOW_FAINT, spawn_corner_action, spawn_scroll_pane,
+	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
+	HudOverlayMenu, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer, MenuModalStack,
+	ScreenBack, ShortTextChange, PANEL_ROW_GAP, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use menu_screens::{
-	MenuScreen, MenuScreens, MenuShowRequest, SpinRevealItems, add_menu_show_systems,
+	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealItems,
 };
 
 use crate::drop_prompt::CharacterDropPromptPlugin;
@@ -143,7 +143,12 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 	}
 
 	fn image_for_key(&mut self, key: u64) -> Option<Handle<Image>> {
-		self.icons.and_then(|cache| cache.shaded_for_key(key))
+		let cache = self.icons?;
+		if key == self_lubikan_catalog_key() {
+			cache.silhouette_for_key(key)
+		} else {
+			cache.shaded_for_key(key)
+		}
 	}
 
 	fn viewport_for_key(&mut self, _key: u64) -> Option<Entity> {
@@ -537,6 +542,7 @@ fn discover_menu_item_icons(
 	mut subjects: ResMut<ItemCaptureSubjects>,
 	mut client: CaptureClient,
 ) {
+	request_self_lubikan_icon(&mut discovery, &mut client);
 	if let Some(inventory) = menu_state.0.inventory.as_ref() {
 		request_inventory_icons(inventory, &mut discovery, &mut subjects, &mut client);
 	}
@@ -651,7 +657,7 @@ fn on_short_text_change(
 
 #[cfg(test)]
 mod tests {
-	use super::{CharacterEditBaseline, save_chrome};
+	use super::{save_chrome, CharacterEditBaseline};
 	use character_creation_menus::CharacterMenu;
 	use character_items::Inventory;
 
@@ -698,6 +704,35 @@ mod tests {
 		let mut pending = CatalogThumbs { icons: None };
 		if pending.image_for_key(key).is_some() {
 			anyhow::bail!("pending catalog should keep the placeholder");
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn catalog_thumbs_use_the_self_lubikan_silhouette() -> anyhow::Result<()> {
+		use super::CatalogThumbs;
+		use character_items::{self_lubikan_catalog_key, SELF_LUBIKAN_CAPTURE_LABEL};
+		use item_icons::{CaptureId, ItemIconCache};
+		use maybraid_character_ui_menu_renderer::MenuThumbnailContext;
+
+		let key = self_lubikan_catalog_key();
+		let mut cache = ItemIconCache::default();
+		cache.insert_silhouette(
+			CaptureId::new(SELF_LUBIKAN_CAPTURE_LABEL),
+			bevy::prelude::Handle::default(),
+		);
+		let mut ready = CatalogThumbs { icons: Some(&cache) };
+		if ready.image_for_key(key).is_none() {
+			anyhow::bail!("Self Lubikan tile should show the silhouette");
+		}
+		let mut shaded_only = ItemIconCache::default();
+		shaded_only.insert_shaded(
+			CaptureId::new(SELF_LUBIKAN_CAPTURE_LABEL),
+			bevy::prelude::Handle::default(),
+		);
+		let mut wrong = CatalogThumbs { icons: Some(&shaded_only) };
+		if wrong.image_for_key(key).is_some() {
+			anyhow::bail!("Self Lubikan tile must not use the shaded handle");
 		}
 		Ok(())
 	}

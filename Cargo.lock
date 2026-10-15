@@ -6132,6 +6132,7 @@ dependencies = [
  "grenades",
  "lod",
  "material-ref",
+ "scene-ref",
  "screen-capture",
  "tempfile",
 ]

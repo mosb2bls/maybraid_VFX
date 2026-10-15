@@ -5,7 +5,10 @@
 //! (view + Continue). The modal is [`InventoryLayoutMode::Interactive`]
 //! (equip + drop). Tools is a UI grouping; the domain slot stays Weapons.
 
-use character_items::{Inventory, InventoryItem, InventorySlot, WORN_CLOTHING_LIMIT};
+use character_items::{
+	icon_catalog_key_for_label, Inventory, InventoryItem, InventorySlot,
+	SELF_LUBIKAN_CAPTURE_LABEL, WORN_CLOTHING_LIMIT,
+};
 use character_ui_menu::{AssetOption, GridCatalogChoice, MenuNode, PreviewColor, ThumbnailCamera};
 
 use crate::event::MenuEvent;
@@ -181,7 +184,26 @@ fn skills_catalog(mode: InventoryLayoutMode, inventory: &Inventory) -> MenuNode<
 }
 
 fn lubikan_section() -> MenuNode<MenuEvent> {
-	MenuNode::section(LUBIKAN_LABEL, MenuNode::labeled_value("Self", "Always equipped"))
+	// Always equipped; not a bag slot. ToggleInventory(usize::MAX) is a
+	// dummy so the tile can share GridCatalog IR. apply / drop reject it.
+	MenuNode::section(
+		LUBIKAN_LABEL,
+		MenuNode::grid_catalog(
+			LUBIKAN_LABEL,
+			1,
+			[GridCatalogChoice {
+				label: String::from("Self"),
+				detail: String::from("Always equipped"),
+				path: SELF_LUBIKAN_CAPTURE_LABEL,
+				thumbnail_camera: ThumbnailCamera::DEFAULT,
+				preview: PreviewColor::WHITE,
+				image_key: Some(icon_catalog_key_for_label(SELF_LUBIKAN_CAPTURE_LABEL)),
+				selected: true,
+				rank: None,
+				event: MenuEvent::ToggleInventory(usize::MAX),
+			}],
+		),
+	)
 }
 
 fn section_labels(node: &MenuNode<MenuEvent>) -> Vec<&'static str> {
@@ -197,34 +219,30 @@ fn section_labels(node: &MenuNode<MenuEvent>) -> Vec<&'static str> {
 		.collect()
 }
 
-/// Bag large enough that Clothing + Tools + Skill Maps overflow a short pane.
-pub fn overflow_inventory_items() -> Vec<InventoryItem> {
-	use character_items::{
-		ClothingMaterial, ClothingMesh, FirearmMesh, ItemColor, SkillMapKind, SkillMapSpec,
-	};
-
-	let mut items: Vec<InventoryItem> = ClothingMesh::VALUES
-		.iter()
-		.copied()
-		.map(|mesh| InventoryItem::clothing(mesh, ClothingMaterial::Cloth, ItemColor::Natural))
-		.collect();
-	items.extend(FirearmMesh::VALUES.iter().copied().map(InventoryItem::firearm));
-	items.push(InventoryItem::standard_grenade());
-	items.push(InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)));
-	items.push(InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 2)));
-	items
-}
-
 #[cfg(test)]
 mod tests {
-	use super::{
-		overflow_inventory_items, InventoryLayout, InventoryLayoutMode, STARTER_KIT_LABEL,
-	};
+	use super::{InventoryLayout, InventoryLayoutMode, STARTER_KIT_LABEL};
 	use crate::MenuEvent;
 	use character_items::{
-		ClothingMaterial, ClothingMesh, FirearmMesh, Inventory, InventoryItem, ItemColor,
+		self_lubikan_catalog_key, ClothingMaterial, ClothingMesh, FirearmMesh, Inventory,
+		InventoryItem, ItemColor, ItemRng, SkillMapKind, SkillMapSpec, STARTER_CLOTHING_COUNT,
 	};
 	use character_ui_menu::MenuNode;
+
+	/// Test-only bag large enough that Clothing + Tools overflow a short pane.
+	/// Never used by generation or the real Starter Kit.
+	fn overflow_inventory_items() -> Vec<InventoryItem> {
+		let mut items: Vec<InventoryItem> = ClothingMesh::VALUES
+			.iter()
+			.copied()
+			.map(|mesh| InventoryItem::clothing(mesh, ClothingMaterial::Cloth, ItemColor::Natural))
+			.collect();
+		items.extend(FirearmMesh::VALUES.iter().copied().map(InventoryItem::firearm));
+		items.push(InventoryItem::standard_grenade());
+		items.push(InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)));
+		items.push(InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 2)));
+		items
+	}
 
 	fn sample_items() -> Vec<InventoryItem> {
 		vec![
@@ -290,5 +308,58 @@ mod tests {
 		// 12 clothing + 5 firearms + 1 grenade + 2 skill maps. A 400px pane
 		// cannot show ~20 catalog tiles plus four headers at once.
 		assert!(tiles >= 18, "overflow bag should have many tiles, got {tiles}");
+	}
+
+	fn clothing_tile_count(layout: &InventoryLayout) -> usize {
+		let MenuNode::Section { children, .. } = &layout.node else {
+			return 0;
+		};
+		for child in children {
+			let MenuNode::Section { label: "Clothing", children } = child else {
+				continue;
+			};
+			for inner in children {
+				if let MenuNode::GridCatalog { choices, .. } = inner {
+					return choices.len();
+				}
+			}
+		}
+		0
+	}
+
+	#[test]
+	fn generated_starter_kit_has_exactly_three_clothing_tiles() {
+		let mut rng = ItemRng::from_seed(42);
+		let items = rng.random_starter_loadout();
+		assert_eq!(
+			items.iter().filter(|item| item.mesh().is_some()).count(),
+			STARTER_CLOTHING_COUNT
+		);
+		let layout = InventoryLayout::starter_kit(items);
+		assert_eq!(clothing_tile_count(&layout), STARTER_CLOTHING_COUNT);
+		assert_eq!(STARTER_CLOTHING_COUNT, 3);
+	}
+
+	#[test]
+	fn both_layouts_use_the_self_lubikan_catalog_tile() {
+		let starter = InventoryLayout::starter_kit(sample_items());
+		let menu = InventoryLayout::character_menu(&Inventory::with_starter_outfit(sample_items()));
+		for layout in [&starter, &menu] {
+			let MenuNode::Section { children, .. } = &layout.node else {
+				panic!("inventory must be a section");
+			};
+			let lubikan = children.iter().find_map(|child| match child {
+				MenuNode::Section { label: "Lubikan", children } => children.first(),
+				_ => None,
+			});
+			let Some(MenuNode::GridCatalog { choices, .. }) = lubikan else {
+				panic!("Lubikan must be a catalog tile");
+			};
+			assert_eq!(choices.len(), 1);
+			assert_eq!(choices[0].label, "Self");
+			assert_eq!(choices[0].detail, "Always equipped");
+			assert_eq!(choices[0].image_key, Some(self_lubikan_catalog_key()));
+			assert!(choices[0].selected);
+		}
 	}
 }

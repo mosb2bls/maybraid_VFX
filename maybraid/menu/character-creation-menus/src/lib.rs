@@ -24,8 +24,8 @@ pub use focus::{
 	SPIN_REVEAL_FOCUS,
 };
 pub use inventory_layout::{
-	overflow_inventory_items, InventoryLayout, InventoryLayoutMode, INVENTORY_LABEL, LUBIKAN_LABEL,
-	STARTER_KIT_LABEL, TOOLS_LABEL,
+	InventoryLayout, InventoryLayoutMode, INVENTORY_LABEL, LUBIKAN_LABEL, STARTER_KIT_LABEL,
+	TOOLS_LABEL,
 };
 
 pub use character_ui_menu::{AssetOption, LabelOption, ListValues, StringIdentified, SwatchOption};

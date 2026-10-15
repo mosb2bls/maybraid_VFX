@@ -502,7 +502,7 @@ mod tests {
 				},
 				MenuNode::Section {
 					label: "Lubikan",
-					children: vec![MenuNode::labeled_value("Self", "Always equipped")],
+					children: vec![MenuNode::grid_catalog("Lubikan", 1, [choice("Self")])],
 				},
 			],
 		};

@@ -35,7 +35,7 @@ pub struct CaptureRevision(pub u32);
 
 impl CaptureRevision {
 	/// Bump when captured shaders, framing, or silhouette rules change.
-	pub const CURRENT: Self = Self(11);
+	pub const CURRENT: Self = Self(23);
 
 	// `Default` is 0 so an unset discovery resource regenerates on first sight.
 

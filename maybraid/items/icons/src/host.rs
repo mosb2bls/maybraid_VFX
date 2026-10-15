@@ -1,13 +1,21 @@
 //! Realize posed, painted inventory subjects into isolated capture roots.
 
+use bevy::camera::primitives::MeshAabb;
+use bevy::camera::visibility::RenderLayers;
 use bevy::ecs::entity_disabling::Disabled;
+use bevy::math::bounding::Aabb3d;
+use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
+use bevy::world_serialization::WorldAssetRoot;
 use character_items::{ClothingHost, ClothingMesh, InventoryItem, ItemColor};
-use character_shaders::{ClothingShaderMaterial, FaceShaderMaterial};
+use character_shaders::{CharacterShadersPlugin, ClothingShaderMaterial, FaceShaderMaterial};
+use characters::material_lib::CharacterMaterialRefPlugin;
+use characters::species::braidman::{Braidman, BraidmanConfig};
 use characters::{
-	add_character_components_host, character_bounds, CharacterComponents,
-	CharacterComponentsPlugin, ClothingLayer, ComponentsOnly, Layers, PartNode,
+	add_character_components_host, character_bounds, AssetNormalization, CharacterComponents,
+	CharacterComponentsPlugin, CharacterHostsPlugin, CharacterPartSlot, ClothingLayer,
+	ComponentsOnly, Layers, PartNode, RigNode,
 };
 use firearm_user::GeneratedFirearm;
 use firearms_components::{
@@ -18,17 +26,22 @@ use grenades::{grenade_material, grenade_mesh, GrenadeMaterial, GrenadeMaterialP
 use lod::lod_ref::LodRef;
 use lod::scene::{LodScene, LodSceneLevel};
 use lod::{
-	LodLevelRootPending, LodLevelSpawnRequest, LodRefreshCorePlugin, LodRefreshDomain,
-	LodRefreshMembership,
+	add_lod_refresh_chunk_for, LodLevelRootPending, LodLevelSpawnRequest, LodRefreshCorePlugin,
+	LodRefreshDomain, LodRefreshMembership,
 };
-use material_ref::MaterialRefApplied;
-use screen_capture::{CaptureHostReady, CaptureHostRoot, CaptureId, CaptureSilhouetteRoot};
+use material_ref::{MaterialRefApplied, StandardMaterialRefPlugin};
+use scene_ref::SceneRefRoot;
+use screen_capture::{
+	CaptureHostReady, CaptureHostRoot, CaptureId, CapturePreserveMaterial, CaptureSilhouetteRoot,
+	CAPTURE_RENDER_LAYER,
+};
 use std::collections::HashMap;
 
 pub const HOST_FIREARM: &str = "generated-firearm";
 pub const HOST_CLOTHING: &str = "clothing-preview";
 pub const HOST_GRENADE: &str = "grenade-preview";
 pub const HOST_SKILL_MAP: &str = "skill-map-preview";
+pub const HOST_SELF_LUBIKAN: &str = "self-lubikan-preview";
 
 #[derive(Resource, Default, Debug)]
 pub struct ItemCaptureSubjects {
@@ -76,17 +89,62 @@ impl CharacterComponents for ClothingIconPreview {
 	}
 }
 
+/// Bind-pose Braidman body — same isolated-preview path as clothing icons.
+/// The live recipe skins this GLB to the body rig; the icon drops that so
+/// a capture without a posed armature can still see the mesh.
+#[derive(Clone, PartialEq, Component)]
+#[cfg_attr(not(test), allow(dead_code))]
+struct BraidmanIconPreview {
+	body: PartNode,
+}
+
+impl Default for BraidmanIconPreview {
+	fn default() -> Self {
+		Self { body: braidman_icon_body() }
+	}
+}
+
+impl CharacterComponents for BraidmanIconPreview {
+	fn part_nodes_for_level(&self, _level: LodSceneLevel) -> Layers<PartNode> {
+		Layers::from_labeled("body", vec![self.body.clone()])
+	}
+}
+
+fn braidman_icon_body() -> PartNode {
+	let braidman = Braidman::from_config(&BraidmanConfig::default_preview());
+	PartNode::glb(
+		CharacterPartSlot::BodyMesh,
+		braidman.body.label(),
+		braidman.body.path().as_str(),
+		AssetNormalization::IDENTITY,
+	)
+	.with_base_color(braidman.colors.color_for_slot(CharacterPartSlot::BodyMesh))
+}
+
 pub fn install_capture_hosts(app: &mut App) {
 	if !app.is_plugin_added::<LodRefreshCorePlugin>() {
 		app.add_plugins(LodRefreshCorePlugin);
+	}
+	if !app.is_plugin_added::<CharacterShadersPlugin>() {
+		app.add_plugins(CharacterShadersPlugin);
+	}
+	if !app.is_plugin_added::<CharacterMaterialRefPlugin>() {
+		app.add_plugins(CharacterMaterialRefPlugin);
+	}
+	if !app.is_plugin_added::<StandardMaterialRefPlugin>() {
+		app.add_plugins(StandardMaterialRefPlugin);
 	}
 	if !app.is_plugin_added::<FirearmComponentsPlugin>() {
 		app.add_plugins(FirearmComponentsPlugin);
 	}
 	add_firearm_components_host::<GeneratedFirearm>(app);
-	if !app.is_plugin_added::<CharacterComponentsPlugin>() {
+	if !app.is_plugin_added::<CharacterHostsPlugin>() {
+		app.add_plugins(CharacterHostsPlugin);
+	} else if !app.is_plugin_added::<CharacterComponentsPlugin>() {
 		app.add_plugins(CharacterComponentsPlugin);
 	}
+	add_lod_refresh_chunk_for::<RigNode>(app);
+	add_lod_refresh_chunk_for::<PartNode>(app);
 	add_character_components_host::<ClothingIconPreview>(app);
 	if !app.is_plugin_added::<GrenadeMaterialPlugin>() {
 		app.add_plugins(GrenadeMaterialPlugin);
@@ -104,10 +162,19 @@ pub fn realize_capture_hosts(
 	mut commands: Commands,
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut grenade_materials: Option<ResMut<Assets<GrenadeMaterial>>>,
+	mut standard_materials: Option<ResMut<Assets<StandardMaterial>>>,
 	subjects: Res<ItemCaptureSubjects>,
 	hosts: Query<(Entity, &CaptureHostRoot), Without<CaptureHostRealized>>,
 ) {
 	for (root, host) in &hosts {
+		if host.kind == HOST_SELF_LUBIKAN {
+			let Some(materials) = standard_materials.as_mut() else {
+				continue;
+			};
+			spawn_self_lubikan_host(&mut commands, &mut meshes, materials, root);
+			commands.entity(root).try_insert(CaptureHostRealized);
+			continue;
+		}
 		let Some(item) = subjects.get(&host.id) else {
 			continue;
 		};
@@ -135,6 +202,8 @@ pub fn mark_capture_hosts_ready(
 	grenades: Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: Query<(), With<ActiveRigPose>>,
 	posed: Query<(), With<PoseApplied>>,
+	preserved: Query<(), With<CapturePreserveMaterial>>,
+	pending_scene: Query<(), (With<SceneRefRoot>, Without<WorldAssetRoot>)>,
 ) {
 	for root in &hosts {
 		if host_tree_ready(
@@ -150,6 +219,8 @@ pub fn mark_capture_hosts_ready(
 			&grenades,
 			&poses,
 			&posed,
+			&preserved,
+			&pending_scene,
 		) {
 			commands.entity(root).try_insert(CaptureHostReady);
 		}
@@ -258,6 +329,195 @@ fn spawn_item_host(
 	}
 }
 
+fn spawn_self_lubikan_host(
+	commands: &mut Commands,
+	meshes: &mut Assets<Mesh>,
+	materials: &mut Assets<StandardMaterial>,
+	root: Entity,
+) {
+	commands.entity(root).try_insert(SceneRefRoot(braidman_icon_body().scene));
+	spawn_medical_cross(commands, meshes, materials, root);
+}
+
+/// Finished destemming the Self Lubikan body so bind-pose vertices draw.
+#[derive(Component)]
+pub(crate) struct SelfLubikanBindPose;
+
+/// Isolated captures have no posed body rig. The GLB still instantiates
+/// `SkinnedMesh` plus JOINTS/WEIGHTS; Bevy's PBR path skips those meshes
+/// without a live armature, and dropping only `SkinnedMesh` leaves them
+/// invisible. Clone the real Braidman mesh, strip the skin attributes, and
+/// draw the authored bind pose as a regular `Mesh3d`.
+pub fn rest_pose_self_lubikan_skins(
+	mut commands: Commands,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut standard_materials: Option<ResMut<Assets<StandardMaterial>>>,
+	hosts: Query<
+		(Entity, &CaptureHostRoot),
+		(With<CaptureHostRealized>, Without<SelfLubikanBindPose>),
+	>,
+	children: Query<&Children>,
+	pending_scene: Query<(), (With<SceneRefRoot>, Without<WorldAssetRoot>)>,
+	mesh_3d: Query<&Mesh3d>,
+	skinned: Query<Entity, With<SkinnedMesh>>,
+	preserved: Query<(), With<CapturePreserveMaterial>>,
+	painted: Query<(), With<MeshMaterial3d<StandardMaterial>>>,
+) {
+	for (root, host) in &hosts {
+		if host.kind != HOST_SELF_LUBIKAN {
+			continue;
+		}
+		let mut pending = false;
+		visit_descendants(root, &children, &mut |entity| {
+			if pending_scene.get(entity).is_ok() {
+				pending = true;
+			}
+		});
+		if pending {
+			continue;
+		}
+		let mut destemmed_any = false;
+		let mut saw_body = false;
+		let mut saw_joints = false;
+		visit_descendants(root, &children, &mut |entity| {
+			if entity == root {
+				return;
+			}
+			commands.entity(entity).try_insert(RenderLayers::layer(CAPTURE_RENDER_LAYER));
+			if preserved.get(entity).is_ok() {
+				return;
+			}
+			let Ok(handle) = mesh_3d.get(entity) else {
+				return;
+			};
+			saw_body = true;
+			let Some(mesh) = meshes.get(&handle.0) else {
+				return;
+			};
+			if let Some(destemmed) = destem_bind_pose_mesh(mesh) {
+				saw_joints = true;
+				let painted = painted.get(entity).is_ok();
+				commands.entity(entity).try_insert(Mesh3d(meshes.add(destemmed)));
+				if !painted {
+					if let Some(materials) = standard_materials.as_mut() {
+						commands.entity(entity).try_insert(MeshMaterial3d(materials.add(
+							StandardMaterial { perceptual_roughness: 0.6, ..Default::default() },
+						)));
+					}
+				}
+				destemmed_any = true;
+			}
+			if skinned.get(entity).is_ok() {
+				commands.entity(entity).try_remove::<SkinnedMesh>();
+			}
+		});
+		if destemmed_any || (saw_body && !saw_joints) {
+			place_cross_on_chest(&mut commands, &meshes, root, &children, &mesh_3d, &preserved);
+			commands.entity(root).try_insert(SelfLubikanBindPose);
+		}
+	}
+}
+
+fn place_cross_on_chest(
+	commands: &mut Commands,
+	meshes: &Assets<Mesh>,
+	root: Entity,
+	children: &Query<&Children>,
+	mesh_3d: &Query<&Mesh3d>,
+	preserved: &Query<(), With<CapturePreserveMaterial>>,
+) {
+	let mut union: Option<Aabb3d> = None;
+	visit_descendants(root, children, &mut |entity| {
+		if entity == root || preserved.get(entity).is_ok() {
+			return;
+		}
+		let Ok(handle) = mesh_3d.get(entity) else {
+			return;
+		};
+		let Some(mesh) = meshes.get(&handle.0) else {
+			return;
+		};
+		let Some(local) = mesh.compute_aabb() else {
+			return;
+		};
+		let aabb = Aabb3d { min: local.min().into(), max: local.max().into() };
+		union = Some(match union {
+			Some(existing) => Aabb3d {
+				min: Vec3::from(existing.min).min(Vec3::from(aabb.min)).into(),
+				max: Vec3::from(existing.max).max(Vec3::from(aabb.max)).into(),
+			},
+			None => aabb,
+		});
+	});
+	let Some(aabb) = union else {
+		return;
+	};
+	let min = Vec3::from(aabb.min);
+	let max = Vec3::from(aabb.max);
+	let size = max - min;
+	if size.max_element() < 1e-3 {
+		return;
+	}
+	let chest = Vec3::new(min.x + size.x * 0.5, min.y + size.y * 0.62, max.z + 0.06);
+	visit_descendants(root, children, &mut |entity| {
+		if preserved.get(entity).is_ok() {
+			commands.entity(entity).try_insert(Transform::from_translation(chest));
+		}
+	});
+}
+
+/// Bind-pose vertices are already in `ATTRIBUTE_POSITION`. Joint channels
+/// only keep the mesh on the skinned extract path.
+fn destem_bind_pose_mesh(mesh: &Mesh) -> Option<Mesh> {
+	if mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none()
+		&& mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_none()
+	{
+		return None;
+	}
+	let mut destemmed = mesh.clone();
+	destemmed.remove_attribute(Mesh::ATTRIBUTE_JOINT_INDEX);
+	destemmed.remove_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT);
+	Some(destemmed)
+}
+
+fn spawn_medical_cross(
+	commands: &mut Commands,
+	meshes: &mut Assets<Mesh>,
+	materials: &mut Assets<StandardMaterial>,
+	root: Entity,
+) {
+	let material = materials.add(StandardMaterial {
+		base_color: Color::srgb(0.86, 0.14, 0.16),
+		unlit: true,
+		perceptual_roughness: 1.0,
+		metallic: 0.0,
+		reflectance: 0.0,
+		..Default::default()
+	});
+	// Chest-front mark: two cuboids so the cross is a real scene object,
+	// not a 2D overlay. CapturePreserveMaterial keeps the red through
+	// silhouette restamp.
+	for (name, size) in [
+		("medical-cross-vertical", Vec3::new(0.08, 0.38, 0.06)),
+		("medical-cross-horizontal", Vec3::new(0.28, 0.08, 0.06)),
+	] {
+		let entity = commands
+			.spawn((
+				Name::new(name),
+				Mesh3d(meshes.add(Cuboid::from_size(size))),
+				MeshMaterial3d(material.clone()),
+				Transform::from_xyz(0.0, 1.15, 0.18),
+				Visibility::default(),
+				CapturePreserveMaterial,
+				RenderLayers::layer(CAPTURE_RENDER_LAYER),
+			))
+			.id();
+		// No LodRefreshMembership: isolated captures have no LodViewer, and
+		// membership disables the cuboids before readback.
+		commands.entity(entity).try_insert(ChildOf(root));
+	}
+}
+
 fn pin_capture_host(commands: &mut Commands, entity: Entity, root: Entity) {
 	commands.entity(entity).try_insert((
 		ChildOf(root),
@@ -266,6 +526,13 @@ fn pin_capture_host(commands: &mut Commands, entity: Entity, root: Entity) {
 }
 
 fn spawn_clothing_icon(commands: &mut Commands, preview: &ClothingIconPreview) -> Entity {
+	spawn_character_icon(commands, preview)
+}
+
+fn spawn_character_icon<T: CharacterComponents + Component + Clone + Default + Unpin>(
+	commands: &mut Commands,
+	preview: &T,
+) -> Entity {
 	let bounds = character_bounds(preview);
 	let identity = Transform::IDENTITY;
 	let lod_ref = LodRef {
@@ -299,6 +566,8 @@ fn host_tree_ready(
 	grenades: &Query<(), With<MeshMaterial3d<GrenadeMaterial>>>,
 	poses: &Query<(), With<ActiveRigPose>>,
 	posed: &Query<(), With<PoseApplied>>,
+	preserved: &Query<(), With<CapturePreserveMaterial>>,
+	pending_scene: &Query<(), (With<SceneRefRoot>, Without<WorldAssetRoot>)>,
 ) -> bool {
 	let mut found_mesh = false;
 	let mut pending = false;
@@ -306,7 +575,10 @@ fn host_tree_ready(
 	let mut needs_pose = false;
 	let mut pose_ready = false;
 	visit_descendants(root, children, &mut |entity| {
-		if pending_spawn.get(entity).is_ok() || pending_root.get(entity).is_ok() {
+		if pending_spawn.get(entity).is_ok()
+			|| pending_root.get(entity).is_ok()
+			|| pending_scene.get(entity).is_ok()
+		{
 			pending = true;
 		}
 		if poses.get(entity).is_ok() {
@@ -316,6 +588,9 @@ fn host_tree_ready(
 			pose_ready = true;
 		}
 		if meshes.get(entity).is_err() {
+			return;
+		}
+		if preserved.get(entity).is_ok() {
 			return;
 		}
 		found_mesh = true;
@@ -372,6 +647,20 @@ mod tests {
 	}
 
 	#[test]
+	fn self_lubikan_host_uses_the_preview_braidman() {
+		let config = BraidmanConfig::default_preview();
+		assert!(config.clothing.is_empty());
+		let braidman = Braidman::from_config(&config);
+		let preview = BraidmanIconPreview::default();
+		let nodes = preview.part_nodes_for_level(LodSceneLevel::High).flatten();
+		assert_eq!(nodes.len(), 1);
+		assert_eq!(nodes[0].slot, CharacterPartSlot::BodyMesh);
+		assert_eq!(nodes[0].scene, braidman.body.path().scene_ref());
+		assert!(nodes[0].skin.is_none(), "icon body must be bind-pose, like clothing");
+		assert_eq!(HOST_SELF_LUBIKAN, "self-lubikan-preview");
+	}
+
+	#[test]
 	fn silhouette_prep_keeps_the_grenade_mesh_painted() {
 		let mut app = App::new();
 		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
@@ -399,5 +688,92 @@ mod tests {
 		let domain = LodRefreshDomain::of::<CaptureHostRoot>();
 		assert_eq!(domain, LodRefreshDomain::of::<CaptureHostRoot>());
 		assert_ne!(domain, LodRefreshDomain::of::<GeneratedFirearm>());
+	}
+
+	#[test]
+	fn destem_bind_pose_strips_joint_channels() {
+		use bevy::asset::RenderAssetUsages;
+		use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
+
+		let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+			.with_inserted_attribute(
+				Mesh::ATTRIBUTE_POSITION,
+				vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+			)
+			.with_inserted_attribute(
+				Mesh::ATTRIBUTE_JOINT_INDEX,
+				VertexAttributeValues::Uint16x4(vec![[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]),
+			)
+			.with_inserted_attribute(
+				Mesh::ATTRIBUTE_JOINT_WEIGHT,
+				vec![[1.0_f32, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+			);
+		let destemmed = destem_bind_pose_mesh(&mesh).expect("jointed mesh destems");
+		assert!(destemmed.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none());
+		assert!(destemmed.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_none());
+		assert!(destemmed.attribute(Mesh::ATTRIBUTE_POSITION).is_some());
+		assert!(destem_bind_pose_mesh(&destemmed).is_none());
+	}
+
+	#[test]
+	fn self_lubikan_rest_pose_drops_skinned_mesh() {
+		use bevy::asset::RenderAssetUsages;
+		use bevy::mesh::{PrimitiveTopology, VertexAttributeValues};
+
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<Mesh>()
+			.init_asset::<StandardMaterial>()
+			.init_asset::<bevy::mesh::skinning::SkinnedMeshInverseBindposes>()
+			.add_systems(Update, rest_pose_self_lubikan_skins);
+		let inverse = app
+			.world_mut()
+			.resource_mut::<Assets<bevy::mesh::skinning::SkinnedMeshInverseBindposes>>()
+			.add(bevy::mesh::skinning::SkinnedMeshInverseBindposes::from(vec![Mat4::IDENTITY]));
+		let mesh = app.world_mut().resource_mut::<Assets<Mesh>>().add(
+			Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
+				.with_inserted_attribute(
+					Mesh::ATTRIBUTE_POSITION,
+					vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+				)
+				.with_inserted_attribute(
+					Mesh::ATTRIBUTE_JOINT_INDEX,
+					VertexAttributeValues::Uint16x4(vec![
+						[0, 0, 0, 0],
+						[0, 0, 0, 0],
+						[0, 0, 0, 0],
+					]),
+				)
+				.with_inserted_attribute(
+					Mesh::ATTRIBUTE_JOINT_WEIGHT,
+					vec![[1.0_f32, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+				),
+		);
+		let root = app
+			.world_mut()
+			.spawn((
+				CaptureHostRoot {
+					kind: HOST_SELF_LUBIKAN.to_string(),
+					id: CaptureId::new("self-lubikan"),
+				},
+				CaptureHostRealized,
+			))
+			.id();
+		let child = app
+			.world_mut()
+			.spawn((
+				Mesh3d(mesh),
+				SkinnedMesh { inverse_bindposes: inverse, joints: vec![root] },
+				ChildOf(root),
+			))
+			.id();
+		app.update();
+		assert!(app.world().get::<SkinnedMesh>(child).is_none());
+		assert!(app.world().get::<SelfLubikanBindPose>(root).is_some());
+		let handle = app.world().get::<Mesh3d>(child).expect("destemmed mesh");
+		let meshes = app.world().resource::<Assets<Mesh>>();
+		let destemmed = meshes.get(&handle.0).expect("mesh asset");
+		assert!(destemmed.attribute(Mesh::ATTRIBUTE_JOINT_INDEX).is_none());
+		assert!(destemmed.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT).is_none());
 	}
 }
