@@ -106,10 +106,37 @@ where
 			.filter_map(|id| self.bounds.get(&id).copied().map(|bounds| (id, bounds)))
 	}
 
+	/// Visit each object whose AABB intersects `region` (unique, unsorted).
+	///
+	/// Same membership as [`Self::query`], but skips the sorted `Vec` that
+	/// refresh/cull fills immediately dump into a `HashSet`.
+	pub fn for_each_intersecting(&self, region: Aabb3d, mut visit: impl FnMut(Id)) {
+		let mut seen = HashSet::new();
+		self.extend_intersecting(region, &mut seen);
+		for id in seen {
+			visit(id);
+		}
+	}
+
+	/// Union intersecting ids into `out` without sorting or an extra hit `Vec`.
+	///
+	/// `out` is also the uniqueness filter, so refresh/cull fills can reuse
+	/// their destination `HashSet` across several AABBs.
+	pub fn extend_intersecting(&self, region: Aabb3d, out: &mut HashSet<Id>) {
+		self.extend_intersecting_in(region, BaseScale::levels_through(self.max_level), out);
+	}
+
 	/// All objects whose AABB intersects `region`, including larger objects
 	/// stored at coarser levels than the query itself.
+	///
+	/// Results are sorted by `Id` for deterministic replay. Prefer
+	/// [`Self::for_each_intersecting`] when the caller only needs the set.
 	pub fn query(&self, region: Aabb3d) -> Vec<Id> {
-		self.query_ids(region, BaseScale::levels_through(self.max_level))
+		let mut ids = HashSet::new();
+		self.extend_intersecting(region, &mut ids);
+		let mut result: Vec<_> = ids.into_iter().collect();
+		result.sort();
+		result
 	}
 
 	pub fn query_iter(
@@ -132,8 +159,30 @@ where
 		Ok(sub)
 	}
 
-	fn query_ids(&self, region: Aabb3d, levels: impl IntoIterator<Item = Level>) -> Vec<Id> {
-		self.query_pairs(region, levels).into_iter().map(|(id, _)| id).collect()
+	fn extend_intersecting_in(
+		&self,
+		region: Aabb3d,
+		levels: impl IntoIterator<Item = Level>,
+		out: &mut HashSet<Id>,
+	) {
+		for level in levels {
+			self.base_scale.for_each_coord(&region, level, |coord| {
+				let Some(bucket) = self.cells.get(&(level, coord)) else {
+					return;
+				};
+				for &id in bucket {
+					if out.contains(&id) {
+						continue;
+					}
+					let Some(&bounds) = self.bounds.get(&id) else {
+						continue;
+					};
+					if bounds.intersects(&region) {
+						out.insert(id);
+					}
+				}
+			});
+		}
 	}
 
 	fn query_pairs(
@@ -284,5 +333,77 @@ mod tests {
 		assert!(idx.query(aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])).is_empty());
 		assert_eq!(idx.cell_count(), 0);
 		Ok(())
+	}
+
+	#[test]
+	fn extend_intersecting_unions_without_duplicates() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([1.5, 0.0, 0.0], [2.5, 1.0, 1.0]))?;
+		let mut out = HashSet::new();
+		idx.extend_intersecting(aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), &mut out);
+		idx.extend_intersecting(aabb([0.0, 0.0, 0.0], [3.0, 1.0, 1.0]), &mut out);
+		let mut got: Vec<_> = out.into_iter().collect();
+		got.sort();
+		assert_eq!(got, vec![1, 2]);
+		Ok(())
+	}
+
+	#[test]
+	fn for_each_intersecting_matches_query_set() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(3, aabb([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]))?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]))?;
+		idx.insert(9, aabb([8.0, 0.0, 0.0], [9.0, 1.0, 1.0]))?;
+		let region = aabb([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+		let mut visited = Vec::new();
+		idx.for_each_intersecting(region, |id| visited.push(id));
+		visited.sort();
+		assert_eq!(visited, idx.query(region));
+		assert_eq!(visited, vec![1, 2, 3]);
+		Ok(())
+	}
+
+	#[test]
+	#[ignore]
+	fn for_each_intersecting_microbench() {
+		use std::hint::black_box;
+		use std::time::Instant;
+
+		const HOSTS: usize = 4_096;
+		const QUERIES: usize = 4_000;
+		// Match Gimme host cells (64 m XZ) and a vegetation OpenLattice tile.
+		let mut idx = SpatialIndex::new(DVec3::new(64.0, 4_096.0, 64.0)).expect("scale");
+		for i in 0..HOSTS {
+			let x = (i as f32 % 64.0) * 16.0;
+			let z = (i as f32 / 64.0).floor() * 16.0;
+			let _ = idx.insert(i as u32, aabb([x - 8.0, -2.0, z - 8.0], [x + 8.0, 8.0, z + 8.0]));
+		}
+		let region = aabb([0.0, -16.0, 0.0], [500.0, 32.0, 500.0]);
+
+		let started = Instant::now();
+		let mut hits = 0usize;
+		for _ in 0..QUERIES {
+			hits += black_box(idx.query(region)).len();
+		}
+		let query_elapsed = started.elapsed();
+
+		let started = Instant::now();
+		let mut set = HashSet::new();
+		for _ in 0..QUERIES {
+			set.clear();
+			idx.extend_intersecting(region, &mut set);
+			hits += black_box(set.len());
+		}
+		let each_elapsed = started.elapsed();
+		assert!(hits > 0);
+		eprintln!(
+			"for_each_intersecting_microbench: {QUERIES} queries × {HOSTS} hosts, tile 500 m → query {:?} ({:.2?} /q) extend_intersecting {:?} ({:.2?} /q)",
+			query_elapsed,
+			query_elapsed / QUERIES as u32,
+			each_elapsed,
+			each_elapsed / QUERIES as u32,
+		);
 	}
 }

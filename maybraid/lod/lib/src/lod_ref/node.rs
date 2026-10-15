@@ -85,19 +85,27 @@ pub fn point_bounds(translation: Vec3) -> Aabb3d {
 	Aabb3d::from_min_max(translation, translation)
 }
 
+/// Collect node poses/bounds from a query of drivers into `out` (reuses capacity).
+pub fn collect_node_snapshots_into<F: bevy::ecs::query::QueryFilter>(
+	nodes: &Query<(Entity, &LodNodePose, Option<&LodNodeBounds>), F>,
+	out: &mut Vec<LodNodeSnapshot>,
+) {
+	out.clear();
+	out.extend(nodes.iter().map(|(entity, pose, bounds)| LodNodeSnapshot {
+		entity,
+		previous: pose.previous,
+		current: pose.current,
+		bounds: bounds.map(|b| b.0).unwrap_or_else(|| point_bounds(pose.current.translation)),
+	}));
+}
+
 /// Collect node poses/bounds from a query of drivers.
 pub fn collect_node_snapshots<F: bevy::ecs::query::QueryFilter>(
 	nodes: &Query<(Entity, &LodNodePose, Option<&LodNodeBounds>), F>,
 ) -> Vec<LodNodeSnapshot> {
-	nodes
-		.iter()
-		.map(|(entity, pose, bounds)| LodNodeSnapshot {
-			entity,
-			previous: pose.previous,
-			current: pose.current,
-			bounds: bounds.map(|b| b.0).unwrap_or_else(|| point_bounds(pose.current.translation)),
-		})
-		.collect()
+	let mut out = Vec::new();
+	collect_node_snapshots_into(nodes, &mut out);
+	out
 }
 
 /// Build one [`LodRef`] per snapshot (driver pose + that driver's bounds).

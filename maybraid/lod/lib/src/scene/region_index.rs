@@ -6,6 +6,7 @@
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::math::bounding::Aabb3d;
+use bevy::platform::collections::HashSet;
 
 use crate::scene::SemanticLodScene;
 
@@ -15,6 +16,14 @@ use crate::scene::SemanticLodScene;
 /// type `T` filters with `Query<&T>`.
 pub trait LodSceneHostIndex {
 	fn hosts_in_region<'a>(&'a mut self, region: Aabb3d) -> impl Iterator<Item = Entity> + 'a;
+
+	/// Union hosts overlapping `region` into `out` (order is not significant).
+	///
+	/// The default walks [`Self::hosts_in_region`]. Spatial indexes override this
+	/// to skip the sorted `Vec` that [`Self::hosts_in_region`] often materializes.
+	fn collect_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Entity>) {
+		out.extend(self.hosts_in_region(region));
+	}
 }
 
 /// Lookup of [`LodScene`] hosts of type `T` whose **host** volumes hit `region`.

@@ -6,6 +6,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::math::bounding::Aabb3d;
 use bevy::math::{DVec3, Vec3};
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use gimme_core::SpatialIndex;
 use lod::{
@@ -70,6 +71,12 @@ pub struct GimmeLodSceneHostIndex<'w> {
 impl LodSceneHostIndex for GimmeLodSceneHostIndex<'_> {
 	fn hosts_in_region<'a>(&'a mut self, region: Aabb3d) -> impl Iterator<Item = Entity> + 'a {
 		self.index.hosts_in_region(region).into_iter()
+	}
+
+	fn collect_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Entity>) {
+		self.index.0.for_each_intersecting(region, |entity| {
+			out.insert(entity);
+		});
 	}
 }
 
@@ -175,6 +182,31 @@ mod tests {
 		let index = app.world().resource::<GimmeLodHostIndex>();
 		assert!(index.hosts_in_region(around(Vec3::ZERO, 2.0)).is_empty());
 		assert_eq!(index.hosts_in_region(around(Vec3::X * 400.0, 2.0)), vec![entity]);
+	}
+
+	#[test]
+	fn for_each_intersecting_matches_hosts_in_region_set() {
+		let mut app = App::new();
+		app.add_plugins((TransformPlugin, GimmeLodHostPlugin));
+		let near = app.world_mut().spawn((LodSceneHost, Transform::IDENTITY, unit_bounds())).id();
+		let far = app
+			.world_mut()
+			.spawn((LodSceneHost, Transform::from_xyz(400.0, 0.0, 0.0), unit_bounds()))
+			.id();
+		app.update();
+		let index = app.world().resource::<GimmeLodHostIndex>();
+		let region = around(Vec3::ZERO, 2.0);
+		let mut collected = HashSet::new();
+		index.0.for_each_intersecting(region, |entity| {
+			collected.insert(entity);
+		});
+		let queried = index.hosts_in_region(region);
+		assert_eq!(collected.len(), queried.len());
+		assert!(collected.contains(&near));
+		assert!(!collected.contains(&far));
+		for entity in queried {
+			assert!(collected.contains(&entity));
+		}
 	}
 
 	#[test]
