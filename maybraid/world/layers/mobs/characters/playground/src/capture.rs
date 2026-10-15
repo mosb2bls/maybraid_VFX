@@ -26,7 +26,7 @@ pub struct CaptureTanzIconsArgs {
 	/// Directory for raw playground screenshots (`<id>.png`).
 	#[arg(long)]
 	pub out_dir: PathBuf,
-	/// Capture PowerStrafe juke beats instead of the starter Tanz icon set.
+	/// Capture PowerStrafe skating beats instead of the starter Tanz icon set.
 	#[arg(long)]
 	pub strafe_review: bool,
 }
@@ -43,11 +43,15 @@ struct IconPose {
 }
 
 const ICON_LOOK: Vec3 = Vec3::new(0.0, 1.0, 0.0);
-/// Crouched juke lives near the ground plane (rest feet at y = −1.5).
-const JUKE_LOOK: Vec3 = Vec3::new(0.0, -0.45, 0.0);
-const FRONT_EYE: Vec3 = Vec3::new(0.0, 0.2, 3.5);
-const Q3_LEFT_EYE: Vec3 = Vec3::new(-2.3, 0.4, 2.7);
-const Q3_RIGHT_EYE: Vec3 = Vec3::new(2.3, 0.4, 2.7);
+/// Skating crouch: hips near y = 0, visual soles on the y = −1.0 floor.
+const SKATE_LOOK: Vec3 = Vec3::new(0.0, 0.15, 0.0);
+const FRONT_EYE: Vec3 = Vec3::new(0.0, 0.35, 4.4);
+const REAR_EYE: Vec3 = Vec3::new(0.0, 0.35, -4.4);
+const SIDE_EYE: Vec3 = Vec3::new(4.4, 0.35, 0.0);
+const Q3_LEFT_EYE: Vec3 = Vec3::new(-2.8, 0.55, 3.1);
+const Q3_RIGHT_EYE: Vec3 = Vec3::new(2.8, 0.55, 3.1);
+const GAMEPLAY_EYE: Vec3 = Vec3::new(0.0, 1.6, 3.5);
+const GAMEPLAY_LOOK: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 
 /// Readable beats: salute hold, strafe slide peak, dash lunge.
 const POSES: &[IconPose] = &[
@@ -63,17 +67,17 @@ const POSES: &[IconPose] = &[
 		filename: "left_strafe.png",
 		animation: AnimationMode::PowerStrafe,
 		side: Side::Left,
-		progress: 0.48,
+		progress: 0.50,
 		eye: Q3_LEFT_EYE,
-		look_at: JUKE_LOOK,
+		look_at: SKATE_LOOK,
 	},
 	IconPose {
 		filename: "right_strafe.png",
 		animation: AnimationMode::PowerStrafe,
 		side: Side::Right,
-		progress: 0.48,
+		progress: 0.50,
 		eye: Q3_RIGHT_EYE,
-		look_at: JUKE_LOOK,
+		look_at: SKATE_LOOK,
 	},
 	IconPose {
 		filename: "forward_dash.png",
@@ -85,31 +89,59 @@ const POSES: &[IconPose] = &[
 	},
 ];
 
-const fn juke_pose(filename: &'static str, side: Side, progress: f32, eye: Vec3) -> IconPose {
-	IconPose {
-		filename,
-		animation: AnimationMode::PowerStrafe,
-		side,
-		progress,
-		eye,
-		look_at: JUKE_LOOK,
-	}
+const fn skate_pose(
+	filename: &'static str,
+	side: Side,
+	progress: f32,
+	eye: Vec3,
+	look_at: Vec3,
+) -> IconPose {
+	IconPose { filename, animation: AnimationMode::PowerStrafe, side, progress, eye, look_at }
 }
 
-/// Key juke beats for PR review: front and three-quarter, full body + floor.
+/// Skating beats for PR review: full body + floor, both directions.
 const STRAFE_REVIEW_POSES: &[IconPose] = &[
-	juke_pose("left_strafe_fake_front.png", Side::Left, 0.10, FRONT_EYE),
-	juke_pose("left_strafe_fake_3q.png", Side::Left, 0.10, Q3_LEFT_EYE),
-	juke_pose("left_strafe_plant_front.png", Side::Left, 0.20, FRONT_EYE),
-	juke_pose("left_strafe_plant_3q.png", Side::Left, 0.20, Q3_LEFT_EYE),
-	juke_pose("left_strafe_cut_front.png", Side::Left, 0.35, FRONT_EYE),
-	juke_pose("left_strafe_cut_3q.png", Side::Left, 0.35, Q3_LEFT_EYE),
-	juke_pose("left_strafe_smear_front.png", Side::Left, 0.50, FRONT_EYE),
-	juke_pose("left_strafe_smear_3q.png", Side::Left, 0.50, Q3_LEFT_EYE),
-	juke_pose("right_strafe_fake_front.png", Side::Right, 0.10, FRONT_EYE),
-	juke_pose("right_strafe_fake_3q.png", Side::Right, 0.10, Q3_RIGHT_EYE),
-	juke_pose("right_strafe_smear_front.png", Side::Right, 0.50, FRONT_EYE),
-	juke_pose("right_strafe_smear_3q.png", Side::Right, 0.50, Q3_RIGHT_EYE),
+	skate_pose("left_strafe_load_front.png", Side::Left, 0.10, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_load_rear.png", Side::Left, 0.10, REAR_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_load_side.png", Side::Left, 0.10, SIDE_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_load_3q.png", Side::Left, 0.10, Q3_LEFT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_push_front.png", Side::Left, 0.28, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_push_rear.png", Side::Left, 0.28, REAR_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_push_side.png", Side::Left, 0.28, SIDE_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_push_3q.png", Side::Left, 0.28, Q3_LEFT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_glide_front.png", Side::Left, 0.50, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_glide_rear.png", Side::Left, 0.50, REAR_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_glide_side.png", Side::Left, 0.50, SIDE_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_glide_3q.png", Side::Left, 0.50, Q3_LEFT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_glide_gameplay.png", Side::Left, 0.50, GAMEPLAY_EYE, GAMEPLAY_LOOK),
+	skate_pose("left_strafe_hold_front.png", Side::Left, 0.68, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_hold_3q.png", Side::Left, 0.68, Q3_LEFT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_tuck_front.png", Side::Left, 0.85, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_tuck_3q.png", Side::Left, 0.85, Q3_LEFT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_ready_front.png", Side::Left, 1.0, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_ready_3q.png", Side::Left, 1.0, Q3_LEFT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_play_00.png", Side::Left, 0.00, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_play_19.png", Side::Left, 0.19, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_play_38.png", Side::Left, 0.38, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_play_57.png", Side::Left, 0.57, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_play_76.png", Side::Left, 0.76, FRONT_EYE, SKATE_LOOK),
+	skate_pose("left_strafe_play_slow_50.png", Side::Left, 0.50, FRONT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_load_front.png", Side::Right, 0.10, FRONT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_load_rear.png", Side::Right, 0.10, REAR_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_load_3q.png", Side::Right, 0.10, Q3_RIGHT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_push_front.png", Side::Right, 0.28, FRONT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_push_3q.png", Side::Right, 0.28, Q3_RIGHT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_glide_front.png", Side::Right, 0.50, FRONT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_glide_rear.png", Side::Right, 0.50, REAR_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_glide_side.png", Side::Right, 0.50, SIDE_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_glide_3q.png", Side::Right, 0.50, Q3_RIGHT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_glide_gameplay.png", Side::Right, 0.50, GAMEPLAY_EYE, GAMEPLAY_LOOK),
+	skate_pose("right_strafe_hold_front.png", Side::Right, 0.68, FRONT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_hold_3q.png", Side::Right, 0.68, Q3_RIGHT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_tuck_front.png", Side::Right, 0.85, FRONT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_tuck_3q.png", Side::Right, 0.85, Q3_RIGHT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_ready_front.png", Side::Right, 1.0, FRONT_EYE, SKATE_LOOK),
+	skate_pose("right_strafe_ready_3q.png", Side::Right, 1.0, Q3_RIGHT_EYE, SKATE_LOOK),
 ];
 
 #[derive(Resource)]
