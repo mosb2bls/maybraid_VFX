@@ -815,4 +815,14 @@ mod tests {
 		);
 		assert!(is_silhouette_material(&silhouette));
 	}
+
+	#[test]
+	fn authored_cross_color_is_not_silhouette_gray() {
+		let cross = StandardMaterial {
+			base_color: Color::srgb(0.86, 0.14, 0.16),
+			unlit: true,
+			..Default::default()
+		};
+		assert!(!is_silhouette_material(&cross));
+	}
 }

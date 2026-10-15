@@ -376,11 +376,11 @@ fn sync_preview(
 	}
 
 	if !spin_screens.is_empty() {
-		// Starter reveal paints the catalog PNG in HUD. A live inspect mesh
-		// plus camera would stack on that icon (two trousers, two kits, …).
+		// Starter Kit paints the granted bag on the HUD. A live inspect
+		// mesh plus camera would stack on those tiles.
 		clear_preview(&mut commands, &mut sync, &mut pending, &roots);
 		if let Some(spin) = spin {
-			sync.key = format!("spin-icon:{:?}", spin.item);
+			sync.key = format!("spin-gallery:{}", spin.items.len());
 		}
 		return;
 	}
@@ -990,11 +990,11 @@ mod tests {
 		});
 		world.spawn(SpinRevealScreen);
 		world.insert_resource(SpinRevealCurrent {
-			item: InventoryItem::clothing(
+			items: vec![InventoryItem::clothing(
 				ClothingMesh::Pants,
 				ClothingMaterial::Cloth,
 				ItemColor::Red,
-			),
+			)],
 			revealed: true,
 		});
 		let leftover = world.spawn(CharacterPreviewRoot).id();

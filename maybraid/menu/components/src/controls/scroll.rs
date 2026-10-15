@@ -374,6 +374,22 @@ mod tests {
 	}
 
 	#[test]
+	fn overflowing_tile_column_scrolls_the_focused_tail_into_view() {
+		const TILE_H: f32 = 120.0;
+		const TILES: usize = 20;
+		const VIEW_H: f32 = 400.0;
+		let content_h = TILES as f32 * TILE_H;
+		assert!(content_h > VIEW_H, "fixture must overflow the pane");
+		let view_center = VIEW_H * 0.5;
+		let last_center = (TILES as f32 - 0.5) * TILE_H;
+		let delta = scroll_delta_to_reveal(view_center, VIEW_H, last_center, TILE_H, 6.0);
+		assert!(delta > 0.0, "last tile is below the fold, got {delta}");
+		let max_scroll = content_h - VIEW_H;
+		assert!(delta.clamp(0.0, max_scroll) > 0.0);
+		assert_eq!(scroll_delta_to_reveal(view_center, VIEW_H, view_center, TILE_H, 6.0), 0.0);
+	}
+
+	#[test]
 	fn wheel_does_not_scroll_while_a_confirm_modal_owns_nav() {
 		use super::{send_hud_scroll_events, HudScroll};
 		use crate::modal::{MenuModalId, MenuModalLayer, MenuModalStack};

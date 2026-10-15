@@ -6,12 +6,13 @@ use character_ui_menu::{
 	StatCard, StatTone, SwatchChoice, ThumbnailRequest,
 };
 use menu_components::{
-	spawn_asset_tile, spawn_grid_catalog_tile, spawn_group_label, spawn_hud_action,
-	spawn_hud_plain, spawn_hud_text, spawn_labeled_row, spawn_section_header,
+	spawn_asset_tile, spawn_grid_catalog_tile, spawn_group_label, spawn_header_line,
+	spawn_hud_action, spawn_hud_plain, spawn_hud_text, spawn_labeled_row, spawn_section_header,
 	spawn_short_text_button, spawn_stepper, spawn_swatch, spawn_swatch_row, spawn_tile_grid,
-	HudFonts, HudMenu, HudMenuItem, ShortTextField, ShortTextKey, PANEL_BLOCK_FONT_SIZE,
-	PANEL_ITEM_FONT_SIZE, PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, TEXT_LIGHT_BLUE, TEXT_LIME,
-	TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
+	spawn_tile_grid_columns, CursorRow, HudFonts, HudMenu, HudMenuItem, ShortTextField,
+	ShortTextKey, PANEL_BLOCK_FONT_SIZE, PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE,
+	PANEL_LABEL_FONT_SIZE, PANEL_ROW_GAP, TEXT_LIGHT_BLUE, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW,
+	TEXT_YELLOW_FAINT,
 };
 
 use crate::justify::MenuJustify;
@@ -30,6 +31,11 @@ pub trait MenuThumbnailContext {
 
 	fn image_for_key(&mut self, _key: u64) -> Option<Handle<Image>> {
 		None
+	}
+
+	/// Multiply the catalog PNG. White leaves shaded art; yellow tints a silhouette.
+	fn tint_for_key(&mut self, _key: u64) -> Color {
+		Color::WHITE
 	}
 
 	/// Off-screen [`Camera2d`] for a catalog [`bevy::ui::widget::ViewportNode`].
@@ -66,6 +72,9 @@ pub struct RenderContext<'a, T> {
 	pub interactive: bool,
 	/// Saved-character HUD: appearance headers use a dampened yellow.
 	pub lock_appearance: bool,
+	/// Inventory uses four columns; appearance pickers stay at three.
+	pub catalog_columns: u16,
+	pub catalog_thumb_px: f32,
 }
 
 impl<T> RenderContext<'_, T> {
@@ -81,8 +90,14 @@ impl<T> RenderContext<'_, T> {
 
 	pub fn header_color(&self, label: &str) -> Color {
 		if self.lock_appearance
-			&& !matches!(label, "Clothing" | "Weapons" | "Skill Maps" | "Loadout")
-		{
+			&& !matches!(
+				label,
+				"Inventory"
+					| "Starter Kit" | "Clothing"
+					| "Weapons" | "Tools"
+					| "Skill Maps" | "Lubikan"
+					| "Loadout"
+			) {
 			TEXT_YELLOW_FAINT
 		} else {
 			TEXT_YELLOW
@@ -422,6 +437,39 @@ impl MaybraidMenuSink {
 		});
 	}
 
+	fn interior_section_header<C>(
+		&self,
+		parent: &mut ChildSpawnerCommands,
+		context: &mut RenderContext<'_, C>,
+		label: &'static str,
+	) {
+		parent
+			.spawn((
+				Button,
+				CursorRow,
+				context.stamp_hud_item(),
+				Node {
+					width: Val::Percent(100.0),
+					padding: UiRect::axes(Val::Px(0.0), Val::Px(4.0)),
+					flex_direction: FlexDirection::Row,
+					justify_content: self.justify.content(),
+					align_items: AlignItems::Center,
+					..default()
+				},
+				BackgroundColor(Color::NONE),
+			))
+			.with_children(|row| {
+				spawn_header_line(
+					row,
+					context.fonts,
+					label,
+					None,
+					PANEL_HEADER_FONT_SIZE,
+					TEXT_YELLOW,
+				);
+			});
+	}
+
 	fn section<E: Copy + Send + Sync + 'static, C: MenuThumbnailContext>(
 		&self,
 		label: &'static str,
@@ -430,6 +478,7 @@ impl MaybraidMenuSink {
 		context: &mut RenderContext<'_, C>,
 	) {
 		if self.interior {
+			self.interior_section_header(parent, context, label);
 			self.render_nodes(children, parent, context);
 			return;
 		}
@@ -480,10 +529,13 @@ impl MaybraidMenuSink {
 		selected: bool,
 		rank: Option<u8>,
 		thumbnail: Option<Handle<Image>>,
+		thumbnail_tint: Color,
 		viewport: Option<Entity>,
 		swatch: Option<Color>,
 		event: E,
 	) {
+		let item = context.stamp_hud_item();
+		let thumb_px = context.catalog_thumb_px;
 		if context.interactive {
 			spawn_grid_catalog_tile(
 				parent,
@@ -493,12 +545,16 @@ impl MaybraidMenuSink {
 				selected,
 				rank,
 				thumbnail,
+				thumbnail_tint,
 				viewport,
 				swatch,
 				false,
-				(MenuButton(event), context.stamp_hud_item()),
+				thumb_px,
+				(MenuButton(event), item),
 			);
 		} else {
+			// Read-only tiles stay in the focus list so pad / keyboard can
+			// scroll them into view. Activate extras (equip / drop) stay off.
 			spawn_grid_catalog_tile(
 				parent,
 				context.fonts,
@@ -507,10 +563,12 @@ impl MaybraidMenuSink {
 				selected,
 				rank,
 				thumbnail,
+				thumbnail_tint,
 				viewport,
 				swatch,
-				true,
-				Pickable::IGNORE,
+				false,
+				thumb_px,
+				item,
 			);
 		}
 	}
@@ -546,7 +604,7 @@ impl MaybraidMenuSink {
 		parent: &mut ChildSpawnerCommands,
 		context: &mut RenderContext<'_, C>,
 	) {
-		spawn_tile_grid(parent, self.justify.content(), |grid| {
+		spawn_tile_grid_columns(parent, self.justify.content(), context.catalog_columns, |grid| {
 			for choice in choices {
 				let viewport =
 					choice.image_key.and_then(|key| context.thumbnails.viewport_for_key(key));
@@ -555,6 +613,10 @@ impl MaybraidMenuSink {
 				} else {
 					grid_catalog_thumbnail(choice, bevy_color(choice.preview), context)
 				};
+				let tint = choice
+					.image_key
+					.map(|key| context.thumbnails.tint_for_key(key))
+					.unwrap_or(Color::WHITE);
 				let swatch = choice.path.is_empty().then_some(bevy_color(choice.preview));
 				self.catalog_tile(
 					grid,
@@ -564,6 +626,7 @@ impl MaybraidMenuSink {
 					choice.selected,
 					choice.rank,
 					thumbnail,
+					tint,
 					viewport,
 					swatch,
 					choice.event,

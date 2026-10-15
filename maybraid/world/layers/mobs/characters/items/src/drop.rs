@@ -11,16 +11,18 @@
 //! These are **not** finalized. [`InventoryDropPolicy::PLACEHOLDER`] is the
 //! conservative stand-in so gameplay can ship without locking design:
 //!
-//! 1. **World pickup.** Default `spawn_world_pickup` is `false`. Menu / editor
-//!    drops delete the item. A later adapter may spawn a stash when this flag
-//!    is set. Tab still explodes the whole bag through the stash module.
+//! 1. **World pickup.** Default `spawn_world_pickup` is `false` on the bag
+//!    mutation itself. In-game editor confirms emit [`InventoryMenuDropped`];
+//!    the world adapter spawns an ephemeral stash with a loot-TTL despawn
+//!    cool-off. Gallery / create drops stay delete-only. Tab still explodes
+//!    the whole bag through the stash module.
 //! 2. **Undroppable items.** Lubikans are not bag items (ledger + charge live
 //!    elsewhere). Starter items have no durable flag. Default allows equipped
 //!    items and an empty leftover bag. Flip [`InventoryDropPolicy::allow_equipped`]
 //!    or [`InventoryDropPolicy::allow_empty_bag`] when those rules exist.
 //! 3. **Confirm.** Default `require_confirm` is `true`. The domain does not
-//!    prompt; UI reads the flag. A follow-up inventory modal can keep or drop
-//!    the confirm without changing this API.
+//!    prompt; UI reads the flag. In-game pause edits skip the card because
+//!    the world pile is recoverable. Gallery / create still confirm.
 
 use bevy::prelude::*;
 
@@ -138,6 +140,14 @@ pub struct InventoryDropped {
 	pub owner: Entity,
 	pub bag: Entity,
 	pub outcome: InventoryDrop,
+}
+
+/// Confirmed drop from a menu/editor bag copy. The leftover bag is already
+/// updated; world hosts may spawn a claimable pickup from [`Self::item`].
+#[derive(Message, Clone, Debug, PartialEq)]
+pub struct InventoryMenuDropped {
+	pub item: InventoryItem,
+	pub index: usize,
 }
 
 /// Request owner refused. The bag was not mutated.

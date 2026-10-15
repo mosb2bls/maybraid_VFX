@@ -30,7 +30,7 @@ pub use clothing_material::{ClothingMaterial, ClothingMaterialChoice};
 pub use clothing_roll::{generate_clothing_stats, ClothingBuff, ClothingPriors};
 pub use drop::{
 	ActiveInventoryDropPolicy, InventoryDrop, InventoryDropError, InventoryDropPolicy,
-	InventoryDropRefused, InventoryDropRequest, InventoryDropped,
+	InventoryDropRefused, InventoryDropRequest, InventoryDropped, InventoryMenuDropped,
 };
 pub use firearm::{
 	FirearmBarrel, FirearmGrip, FirearmKitSpec, FirearmLooks, FirearmMesh, FirearmScales,
@@ -49,10 +49,10 @@ pub use grenade_roll::{
 	LAUNCH_SPEED_MIN,
 };
 pub use inventory::{
-	icon_catalog_key_for_label, Inventory, InventoryItem, InventorySlot, ItemRng, LootFraction,
-	MaterialRefParams, ITEM_ICON_CATALOG_TAG, SKILL_MAP_BAG_LIMIT, SKILL_MAP_QUEUE_LIMIT,
-	STARTER_CLOTHING_COUNT, STARTER_GRENADE_COUNT, STARTER_SKILL_MAP_COUNT, STARTER_WEAPON_COUNT,
-	WEAPON_QUEUE_LIMIT, WORN_CLOTHING_LIMIT,
+	icon_catalog_key_for_label, self_lubikan_catalog_key, Inventory, InventoryItem, InventorySlot,
+	ItemRng, LootFraction, MaterialRefParams, ITEM_ICON_CATALOG_TAG, SELF_LUBIKAN_CAPTURE_LABEL,
+	SKILL_MAP_BAG_LIMIT, SKILL_MAP_QUEUE_LIMIT, STARTER_CLOTHING_COUNT, STARTER_GRENADE_COUNT,
+	STARTER_SKILL_MAP_COUNT, STARTER_WEAPON_COUNT, WEAPON_QUEUE_LIMIT, WORN_CLOTHING_LIMIT,
 };
 pub use palette::ItemColor;
 pub use skill_map::{SkillMapKind, SkillMapSpec};

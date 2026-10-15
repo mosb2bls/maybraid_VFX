@@ -6132,6 +6132,7 @@ dependencies = [
  "grenades",
  "lod",
  "material-ref",
+ "scene-ref",
  "screen-capture",
  "tempfile",
 ]
@@ -7170,11 +7171,15 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "bevy",
+ "character-creation-menus",
  "character-items",
  "character-model-user",
  "character-persist",
+ "character-ui-menu",
  "game-commands",
  "item-icons",
+ "maybraid-character-ui-menu-renderer",
+ "maybraid-input",
  "maybraid-menu-controller",
  "maybraid-world",
  "menu-components",

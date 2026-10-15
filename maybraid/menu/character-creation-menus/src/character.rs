@@ -49,7 +49,7 @@ use crate::{
 	},
 	cycle_value,
 	event::{AssetValue, CharacterField, MenuEvent, SectionId, SwatchValue},
-	shared::{clothing_menu_from_inventory, loadout_section, skills_catalog, weapons_catalog},
+	shared::{clothing_menu_from_inventory, inventory_overlay_key, loadout_section},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -359,14 +359,10 @@ impl CharacterMenu {
 		self.appearance_locked
 	}
 
-	/// Overlay interiors for body catalogs stay visible when locked; clothing
-	/// and weapons stay editable.
+	/// Overlay interiors for body catalogs stay visible when locked; inventory
+	/// stays editable (wear / queue / drop).
 	pub fn overlay_editable(&self, key: &str) -> bool {
-		!self.appearance_locked()
-			|| key == "Clothing"
-			|| key == "Weapons"
-			|| key == "Skill Maps"
-			|| key == "Loadout"
+		!self.appearance_locked() || inventory_overlay_key(key)
 	}
 
 	fn sync_inventory_clothing(&mut self) {
@@ -1421,9 +1417,10 @@ impl CharacterMenu {
 	}
 
 	/// Lowers the currently selected species menu; the other species' state is
-	/// retained but not part of the tree.
+	/// retained but not part of the tree. When the bag is present, Clothing
+	/// lives under Inventory instead of the species subtree.
 	fn species_node(&self) -> MenuNode<MenuEvent> {
-		match self.species.value {
+		let node = match self.species.value {
 			ConceptSpecies::Braidman => self.braidman.menu_node(),
 			ConceptSpecies::Brenal => self.brenal.menu_node(),
 			ConceptSpecies::Caole => self.caole.menu_node(),
@@ -1452,6 +1449,11 @@ impl CharacterMenu {
 			ConceptSpecies::Thumplus => self.thumplus.menu_node(),
 			ConceptSpecies::Mistler => self.mistler.menu_node(),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.menu_node(),
+		};
+		if self.inventory.is_some() {
+			omit_clothing_section(node)
+		} else {
+			node
 		}
 	}
 
@@ -3619,11 +3621,30 @@ impl MenuComponent<MenuEvent> for CharacterMenu {
 			),
 		];
 		if let Some(inventory) = &self.inventory {
-			nodes.push(MenuNode::section("Weapons", weapons_catalog(inventory)));
-			nodes.push(MenuNode::section("Skill Maps", skills_catalog(inventory)));
+			nodes.push(crate::InventoryLayout::character_menu(inventory).node);
 			nodes.push(loadout_section(inventory));
 		}
 		MenuNode::fragment(nodes)
+	}
+}
+
+fn omit_clothing_section(node: MenuNode<MenuEvent>) -> MenuNode<MenuEvent> {
+	match node {
+		MenuNode::Fragment(children) => {
+			MenuNode::fragment(children.into_iter().filter_map(omit_clothing_child))
+		}
+		other => omit_clothing_child(other).unwrap_or_else(|| MenuNode::fragment([])),
+	}
+}
+
+fn omit_clothing_child(node: MenuNode<MenuEvent>) -> Option<MenuNode<MenuEvent>> {
+	match node {
+		MenuNode::Section { label: "Clothing", .. } => None,
+		MenuNode::Fragment(children) => {
+			let kept: Vec<_> = children.into_iter().filter_map(omit_clothing_child).collect();
+			(!kept.is_empty()).then(|| MenuNode::fragment(kept))
+		}
+		other => Some(other),
 	}
 }
 
