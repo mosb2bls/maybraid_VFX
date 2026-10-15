@@ -9,10 +9,12 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use bevy::text::{FontSourceTemplate, Justify};
 
+use crate::controls::focus::{first_focus_tag, paint_focus_tag, FocusTag};
 use crate::theme::{
 	BARLOW_BLACK, BARLOW_SEMIBOLD, COLUMN_BOTTOM, COLUMN_INSET, CORNER_BOTTOM, CORNER_INSET,
-	HEADER_FONT_SIZE, HEADER_MARGIN_BOTTOM, ITEM_FONT_SIZE, ITEM_ROW_GAP, TEXT_YELLOW,
-	TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS, TEXT_YELLOW_HOVER,
+	FOCUS_TAG_PAD_X, FOCUS_TAG_PAD_Y, FOCUS_TAG_RADIUS, HEADER_FONT_SIZE, HEADER_MARGIN_BOTTOM,
+	ITEM_FONT_SIZE, ITEM_ROW_GAP, TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS,
+	TEXT_YELLOW_HOVER,
 };
 use maybraid_input::{MenuNav, MenuNavImpulse};
 
@@ -111,6 +113,31 @@ impl TextMenuItem {
 		let label = label.into();
 		let justify_content = align.justify_content();
 		let text_justify = align.text_justify();
+		let tag = FocusTag::new(self.idle);
+		let label_children: Vec<Box<dyn Scene>> = vec![Box::new(bsn! {
+			template_value(Text::new(label))
+			TextFont {
+				font: FontSourceTemplate::Handle(BARLOW_SEMIBOLD),
+				font_size: px(ITEM_FONT_SIZE),
+			}
+			TextColor(TEXT_YELLOW)
+			TextLayout::new(text_justify, bevy::text::LineBreak::NoWrap)
+			TextMenuItemLabel
+			Pickable::IGNORE
+		})];
+		let children: Vec<Box<dyn Scene>> = vec![Box::new(bsn! {
+			template_value(tag)
+			Node {
+				padding: UiRect::axes(px(FOCUS_TAG_PAD_X), px(FOCUS_TAG_PAD_Y)),
+				border_radius: BorderRadius::all(px(FOCUS_TAG_RADIUS)),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				flex_shrink: 0.0,
+			}
+			BackgroundColor(Color::NONE)
+			Pickable::IGNORE
+			Children [ {label_children} ]
+		})];
 		bsn! {
 			Button
 			template_value(self)
@@ -121,17 +148,7 @@ impl TextMenuItem {
 				align_items: AlignItems::Center,
 			}
 			BackgroundColor(Color::NONE)
-			Children [(
-				template_value(Text::new(label))
-				TextFont {
-					font: FontSourceTemplate::Handle(BARLOW_SEMIBOLD),
-					font_size: px(ITEM_FONT_SIZE),
-				}
-				TextColor(TEXT_YELLOW)
-				TextLayout::new(text_justify, bevy::text::LineBreak::NoWrap)
-				TextMenuItemLabel
-				Pickable::IGNORE
-			)]
+			Children [ {children} ]
 		}
 	}
 }
@@ -191,7 +208,7 @@ pub enum TextColumnAnchor {
 /// How labels sit inside the column and inside each row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextColumnAlign {
-	/// Reserved cursor gutter; labels share a left edge.
+	/// Labels share a left edge. The focus tag hugs each title.
 	#[default]
 	Start,
 	/// Each label is centered on the column axis.
@@ -604,15 +621,33 @@ pub fn sync_text_menu_item_colors(
 	menus: Query<&TextMenu>,
 	child_of: Query<&ChildOf>,
 	items: Query<(Entity, &TextMenuItem, &Children)>,
-	mut labels: Query<&mut TextColor, With<TextMenuItemLabel>>,
+	locked: Query<(), With<MenuItemLocked>>,
+	tags: Query<(), With<FocusTag>>,
+	children: Query<&Children>,
+	mut backgrounds: Query<&mut BackgroundColor, With<FocusTag>>,
+	mut colors: Query<&mut TextColor>,
 ) {
-	for (entity, item, children) in &items {
+	for (entity, item, item_children) in &items {
 		let Some(menu) = text_menu_for_item(entity, &child_of, &menus) else {
 			continue;
 		};
-		let color = if item.index == menu.selected { item.active } else { item.idle };
-		for child in children {
-			if let Ok(mut text_color) = labels.get_mut(*child) {
+		let focused = item.index == menu.selected;
+		let is_locked = locked.contains(entity);
+		if let Some(tag) = first_focus_tag(item_children, &tags) {
+			paint_focus_tag(
+				tag,
+				focused,
+				is_locked,
+				item.idle,
+				&children,
+				&mut backgrounds,
+				&mut colors,
+			);
+			continue;
+		}
+		let color = if focused { item.active } else { item.idle };
+		for child in item_children {
+			if let Ok(mut text_color) = colors.get_mut(*child) {
 				text_color.0 = color;
 			}
 		}

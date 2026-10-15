@@ -82,6 +82,57 @@ const FORELIMBED_BONES: &[&str] = &[
 	"lower_arm.R",
 ];
 
+#[derive(Clone, Copy, Debug)]
+enum RagdollColliderKind {
+	Core,
+	Head,
+	Limb,
+}
+
+/// Bone names, masses, and collision proxies for one ragdoll family.
+#[derive(Clone, Copy, Debug)]
+struct RagdollProfile(RigSkeletonKind);
+
+impl RagdollProfile {
+	fn new(skeleton: RigSkeletonKind) -> Self {
+		Self(skeleton)
+	}
+
+	fn bone_names(self) -> &'static [&'static str] {
+		match self.0 {
+			RigSkeletonKind::Humanoid => HUMANOID_BONES,
+			RigSkeletonKind::Quadruped => QUADRUPED_BONES,
+			RigSkeletonKind::Forelimbed => FORELIMBED_BONES,
+			RigSkeletonKind::Neck => &[],
+		}
+	}
+
+	fn inverse_mass(bone: &str) -> f32 {
+		if bone.contains("root")
+			|| bone.contains("back")
+			|| bone.contains("spine")
+			|| bone.contains("lumbar")
+		{
+			0.45
+		} else {
+			1.0
+		}
+	}
+
+	fn collider(bone: &str) -> Option<RagdollColliderKind> {
+		match bone {
+			"root" | "back_ridge" | "upper_mid_spine" | "upper_spine" | "upper_back" => {
+				Some(RagdollColliderKind::Core)
+			}
+			"upper_neck" | "head_socket" => Some(RagdollColliderKind::Head),
+			"forearm.L" | "forearm.R" | "lower_arm.L" | "lower_arm.R" | "shin.L" | "shin.R"
+			| "anterior_shin.L" | "anterior_shin.R" | "posterior_shin.L" | "posterior_shin.R"
+			| "tail_socket" => Some(RagdollColliderKind::Limb),
+			_ => None,
+		}
+	}
+}
+
 /// Detached character visual retained after its gameplay body is retired.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Corpse {
@@ -147,13 +198,6 @@ struct RagdollParticle {
 	primary_child: Option<usize>,
 	inverse_mass: f32,
 	collider: Option<RagdollColliderKind>,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum RagdollColliderKind {
-	Core,
-	Head,
-	Limb,
 }
 
 #[derive(Resource)]
@@ -454,15 +498,6 @@ fn ancestor_corpse(
 	}
 }
 
-fn profile_bones(skeleton: RigSkeletonKind) -> &'static [&'static str] {
-	match skeleton {
-		RigSkeletonKind::Humanoid => HUMANOID_BONES,
-		RigSkeletonKind::Quadruped => QUADRUPED_BONES,
-		RigSkeletonKind::Forelimbed => FORELIMBED_BONES,
-		RigSkeletonKind::Neck => &[],
-	}
-}
-
 fn build_state(
 	corpse_entity: Entity,
 	corpse: Corpse,
@@ -472,8 +507,9 @@ fn build_state(
 	transforms: &Query<(&Transform, &GlobalTransform)>,
 	fixed_dt: f32,
 ) -> Option<RagdollState> {
+	let profile = RagdollProfile::new(skeleton);
 	let mut resolved = Vec::new();
-	for &name in profile_bones(skeleton) {
+	for &name in profile.bone_names() {
 		let Some(&entity) = bone_map.by_name.get(name) else {
 			continue;
 		};
@@ -511,8 +547,8 @@ fn build_state(
 			parent_world_inverse,
 			parent,
 			primary_child: None,
-			inverse_mass: inverse_mass(name),
-			collider: particle_collider(name),
+			inverse_mass: RagdollProfile::inverse_mass(name),
+			collider: RagdollProfile::collider(name),
 		});
 	}
 
@@ -595,31 +631,6 @@ fn assign_primary_children(particles: &mut [RagdollParticle], constraints: &[Dis
 		if replace {
 			particles[constraint.a].primary_child = Some(constraint.b);
 		}
-	}
-}
-
-fn inverse_mass(name: &str) -> f32 {
-	if name.contains("root")
-		|| name.contains("back")
-		|| name.contains("spine")
-		|| name.contains("lumbar")
-	{
-		0.45
-	} else {
-		1.0
-	}
-}
-
-fn particle_collider(name: &str) -> Option<RagdollColliderKind> {
-	match name {
-		"root" | "back_ridge" | "upper_mid_spine" | "upper_spine" | "upper_back" => {
-			Some(RagdollColliderKind::Core)
-		}
-		"upper_neck" | "head_socket" => Some(RagdollColliderKind::Head),
-		"forearm.L" | "forearm.R" | "lower_arm.L" | "lower_arm.R" | "shin.L" | "shin.R"
-		| "anterior_shin.L" | "anterior_shin.R" | "posterior_shin.L" | "posterior_shin.R"
-		| "tail_socket" => Some(RagdollColliderKind::Limb),
-		_ => None,
 	}
 }
 
@@ -888,9 +899,9 @@ mod tests {
 
 	#[test]
 	fn every_body_skeleton_has_a_ragdoll_profile() {
-		assert!(!profile_bones(RigSkeletonKind::Humanoid).is_empty());
-		assert!(!profile_bones(RigSkeletonKind::Quadruped).is_empty());
-		assert!(!profile_bones(RigSkeletonKind::Forelimbed).is_empty());
+		assert!(!RagdollProfile::new(RigSkeletonKind::Humanoid).bone_names().is_empty());
+		assert!(!RagdollProfile::new(RigSkeletonKind::Quadruped).bone_names().is_empty());
+		assert!(!RagdollProfile::new(RigSkeletonKind::Forelimbed).bone_names().is_empty());
 	}
 
 	#[test]
@@ -898,9 +909,10 @@ mod tests {
 		for skeleton in
 			[RigSkeletonKind::Humanoid, RigSkeletonKind::Quadruped, RigSkeletonKind::Forelimbed]
 		{
-			let colliders = profile_bones(skeleton)
+			let colliders = RagdollProfile::new(skeleton)
+				.bone_names()
 				.iter()
-				.filter(|name| particle_collider(name).is_some())
+				.filter(|name| RagdollProfile::collider(name).is_some())
 				.count();
 			assert!((5..=8).contains(&colliders), "{skeleton:?} has {colliders} colliders");
 		}

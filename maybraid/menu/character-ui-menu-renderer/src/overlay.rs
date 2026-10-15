@@ -8,9 +8,9 @@ use crate::sink::{MaybraidMenuSink, MenuSink, MenuThumbnailContext, RenderContex
 use crate::widgets::CloseOverlaySelect;
 use crate::MenuJustify;
 use menu_components::{
-	spawn_header_line, spawn_inventory_action_prompts, spawn_text_button, HudFonts, HudMenu,
-	InputPromptDevice, MenuModal, INVENTORY_THUMB_PX, INVENTORY_TILE_COLUMNS,
-	PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW,
+	menu_region_wash, spawn_header_line, spawn_inventory_action_prompts, spawn_text_button,
+	HudFonts, HudMenu, InputPromptDevice, MenuModal, INVENTORY_THUMB_PX, INVENTORY_TILE_COLUMNS,
+	MENU_LIST_PAD, MENU_LIST_RADIUS, PANEL_HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW,
 };
 
 /// Catalog nodes that can show a selected name on a header.
@@ -53,15 +53,10 @@ pub fn primary_select<'a, E>(children: &'a [MenuNode<E>]) -> Option<&'a MenuNode
 pub fn is_picker_only<E>(node: &MenuNode<E>) -> bool {
 	match node {
 		MenuNode::SectionSelect { .. } | MenuNode::BlockAsset { .. } => true,
-		MenuNode::ItemMultiSelect { .. } | MenuNode::GridCatalog { .. } => false,
 		MenuNode::Section { children, .. } => {
 			let flat = flatten_nodes(children);
 			flat.len() == 1 && is_select_node(flat[0]) && is_picker_only(flat[0])
 		}
-		MenuNode::ShortText { .. }
-		| MenuNode::Action { .. }
-		| MenuNode::LabeledValue { .. }
-		| MenuNode::StatGrid { .. } => false,
 		_ => false,
 	}
 }
@@ -83,14 +78,7 @@ pub fn find_overlay_node<'a, E>(nodes: &'a [MenuNode<E>], key: &str) -> Option<&
 fn find_in_node<'a, E>(node: &'a MenuNode<E>, key: &str) -> Option<&'a MenuNode<E>> {
 	match node {
 		MenuNode::Fragment(children) => find_overlay_node(children, key),
-		MenuNode::Section { label, children } => {
-			if *label == key {
-				Some(node)
-			} else {
-				find_overlay_node(children, key)
-			}
-		}
-		MenuNode::SectionSelect { label, children, .. } => {
+		MenuNode::Section { label, children } | MenuNode::SectionSelect { label, children, .. } => {
 			if *label == key {
 				Some(node)
 			} else {
@@ -203,7 +191,7 @@ fn selected_select_label<E>(groups: &[SelectGroup<E>]) -> Option<&'static str> {
 		.map(|choice| choice.label)
 }
 
-/// Full-screen picker chrome. The host fills the returned viewport.
+/// Picker chrome that fills the host cell (left column of the character grid).
 ///
 /// `action_prompts` is only for the interactive Inventory modal. The
 /// read-only Starter Kit uses [`spawn_starter_kit_shell`] and has no chips.
@@ -220,11 +208,10 @@ pub fn spawn_overlay_shell(
 			crate::widgets::OverlaySelectRoot,
 			MenuModal::OVERLAY_SELECT,
 			Node {
-				position_type: PositionType::Absolute,
-				left: Val::Px(0.0),
-				top: Val::Px(0.0),
 				width: Val::Percent(100.0),
 				height: Val::Percent(100.0),
+				min_width: Val::Px(0.0),
+				min_height: Val::Px(0.0),
 				..default()
 			},
 			Pickable::IGNORE,
@@ -241,20 +228,21 @@ pub fn spawn_overlay_shell(
 					height: Val::Percent(100.0),
 					..default()
 				},
-				BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.88)),
+				BackgroundColor(Color::NONE),
 			));
 			root.spawn((
 				Node {
-					position_type: PositionType::Absolute,
-					left: Val::Percent(6.0),
-					top: Val::Percent(8.0),
-					width: Val::Percent(62.0),
-					height: Val::Percent(84.0),
+					width: Val::Percent(100.0),
+					height: Val::Percent(100.0),
+					min_width: Val::Px(0.0),
 					flex_direction: FlexDirection::Column,
 					row_gap: Val::Px(PANEL_ROW_GAP),
-					padding: UiRect::all(Val::Px(8.0)),
+					padding: UiRect::all(Val::Px(MENU_LIST_PAD)),
+					border_radius: BorderRadius::all(Val::Px(MENU_LIST_RADIUS)),
+					overflow: Overflow::clip(),
 					..default()
 				},
+				BackgroundColor(menu_region_wash()),
 				Pickable::IGNORE,
 			))
 			.with_children(|panel| {

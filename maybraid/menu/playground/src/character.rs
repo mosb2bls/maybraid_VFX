@@ -20,7 +20,10 @@ use maybraid_character_ui_menu_renderer::{
 };
 use maybraid_menu_controller::MenuController;
 use maybraid_skill_map::{SkillMapSpinRevealHud, SkillMapTileMaterialPlugin};
-use menu_components::theme::{CORNER_BOTTOM, CORNER_INSET};
+use menu_components::theme::{
+	character_screen_grid_node, menu_region_wash, CORNER_BOTTOM, CORNER_INSET, MENU_LIST_PAD,
+	MENU_LIST_RADIUS,
+};
 use menu_components::{
 	spawn_corner_action, spawn_scroll_pane, ActiveOverlayKey, HudFonts, HudMenu, HudMenuItem,
 	HudOverlayMenu, InputPromptDevice, MenuActivate, MenuFocus, MenuModalId, MenuModalLayer,
@@ -34,9 +37,6 @@ use std::time::Duration;
 
 use crate::drop_prompt::CharacterDropPromptPlugin;
 use crate::leave_prompt::CharacterLeavePromptPlugin;
-
-const PANEL_WIDTH: f32 = 480.0;
-const PANEL_HEIGHT_PERCENT: f32 = 82.0;
 
 /// Queue a character-panel spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Clone, Copy)]
@@ -128,6 +128,10 @@ pub(crate) struct OverlayUiSyncState {
 
 #[derive(Component)]
 struct CharacterPanelViewport;
+
+/// Left grid cell. Overlay pickers spawn here so they cannot cover the HUD.
+#[derive(Component)]
+struct CharacterOverlaySlot;
 
 #[derive(Component)]
 struct CharacterSaveCorner;
@@ -309,28 +313,42 @@ fn spawn_character_ui_shell(commands: &mut Commands) -> (Entity, Entity, Entity)
 			Pickable::IGNORE,
 		))
 		.with_children(|root| {
-			root.spawn((
-				Node {
-					position_type: PositionType::Absolute,
-					top: Val::Px(10.0),
-					right: Val::Px(10.0),
-					width: Val::Px(PANEL_WIDTH),
-					height: Val::Percent(PANEL_HEIGHT_PERCENT),
-					padding: UiRect::all(Val::Px(16.0)),
-					flex_direction: FlexDirection::Column,
-					overflow: Overflow::clip(),
-					..default()
-				},
-				Pickable::IGNORE,
-			))
-			.with_children(|shell| {
-				viewport = spawn_scroll_pane(
-					shell,
-					CharacterPanelViewport,
-					AlignItems::FlexEnd,
-					PANEL_ROW_GAP,
-				);
-			});
+			root.spawn((character_screen_grid_node(), Pickable::IGNORE))
+				.with_children(|grid| {
+					grid.spawn((
+						CharacterOverlaySlot,
+						Node {
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
+							min_width: Val::Px(0.0),
+							min_height: Val::Px(0.0),
+							..default()
+						},
+						Pickable::IGNORE,
+					));
+					grid.spawn((
+						Node {
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
+							min_width: Val::Px(0.0),
+							padding: UiRect::all(Val::Px(MENU_LIST_PAD)),
+							flex_direction: FlexDirection::Column,
+							overflow: Overflow::clip(),
+							border_radius: BorderRadius::all(Val::Px(MENU_LIST_RADIUS)),
+							..default()
+						},
+						BackgroundColor(menu_region_wash()),
+						Pickable::IGNORE,
+					))
+					.with_children(|shell| {
+						viewport = spawn_scroll_pane(
+							shell,
+							CharacterPanelViewport,
+							AlignItems::FlexEnd,
+							PANEL_ROW_GAP,
+						);
+					});
+				});
 			save_corner = root
 				.spawn((
 					CharacterSaveCorner,
@@ -460,7 +478,7 @@ fn sync_overlay_select(
 	mut commands: Commands,
 	asset_server: Res<AssetServer>,
 	time: Res<Time>,
-	screens: Query<Entity, With<CharacterScreen>>,
+	slots: Query<Entity, With<CharacterOverlaySlot>>,
 	overlays: Query<Entity, With<OverlaySelectRoot>>,
 	viewports: Query<(Entity, Option<&HudMenu>), With<OverlaySelectViewport>>,
 	menu_state: Res<CharacterMenuState>,
@@ -469,7 +487,10 @@ fn sync_overlay_select(
 	icons: Option<Res<ItemIconCache>>,
 	prompt_device: Res<InputPromptDevice>,
 ) {
-	let Ok(screen) = screens.single() else {
+	let Ok(slot) = slots.single() else {
+		for entity in &overlays {
+			commands.entity(entity).try_despawn();
+		}
 		return;
 	};
 	let icon_generation = icons.as_ref().map(|cache| cache.generation).unwrap_or(0);
@@ -520,15 +541,15 @@ fn sync_overlay_select(
 		let mut viewport = Entity::PLACEHOLDER;
 		let title_color =
 			if menu_state.0.overlay_editable(key) { TEXT_YELLOW } else { TEXT_YELLOW_FAINT };
-		let Ok(mut root) = commands.get_entity(screen) else {
+		let Ok(mut slot) = commands.get_entity(slot) else {
 			return;
 		};
-		root.with_children(|root| {
-			let prompts =
-				(key == INVENTORY_LABEL).then_some((asset_server.as_ref(), *prompt_device));
-			viewport = spawn_overlay_shell(root, &fonts, key, title_color, prompts);
+		let prompts =
+			(key == INVENTORY_LABEL).then_some((asset_server.as_ref(), *prompt_device));
+		slot.with_children(|slot| {
+			viewport = spawn_overlay_shell(slot, &fonts, key, title_color, prompts);
 		});
-		drop(root);
+		drop(slot);
 		overlay_sync.showing_loading = !inventory_ready;
 		populate_overlay_viewport(
 			&mut commands,
