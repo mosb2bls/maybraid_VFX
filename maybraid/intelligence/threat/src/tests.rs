@@ -702,7 +702,7 @@ fn observe_reconcile_memberships_timing() {
 
 	let steady_record = &records[0];
 	let legacy_assign = {
-		let mut stored = steady_record.affiliations.clone();
+		let mut stored: Affiliations;
 		let start = std::time::Instant::now();
 		for _ in 0..OBSERVES {
 			stored = steady_record.affiliations.clone();
