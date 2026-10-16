@@ -22,8 +22,8 @@ use crate::usage_areas::boundary_openings::{host_face_spans, plan_edge_excluded}
 use crate::usage_areas::halls_to_shafts::{HallsToShafts, HallsToShaftsOptions};
 use crate::usage_areas::plan_access::PlanAccessParams;
 use crate::usage_areas::plan_cells::{
-	cell_has_hall_frontage, cells_edge_adjacent, pack_apartments_to_targets, shared_edge_span,
-	split_oversized_cells, split_toward_min_room, PlanCell, MIN_GROUP_CONNECTIVITY,
+	pack_apartments_to_targets, shared_edge_span, split_oversized_cells, split_toward_min_room,
+	PlanCell, MIN_GROUP_CONNECTIVITY,
 };
 use crate::usage_areas::plan_geom::host_xz;
 
@@ -324,7 +324,7 @@ fn group_hall_door(
 		let Some(cell) = cells.iter().find(|c| c.id == cid) else {
 			continue;
 		};
-		if !cell_has_hall_frontage(cell, halls, MIN_GROUP_CONNECTIVITY, EPS) {
+		if !cell.has_hall_frontage(halls, MIN_GROUP_CONNECTIVITY, EPS) {
 			continue;
 		}
 		let area = cell.area();
@@ -445,7 +445,7 @@ fn enclosure_walls(
 		for j in (i + 1)..cells.len() {
 			let a = &cells[i];
 			let b = &cells[j];
-			if !cells_edge_adjacent(a, b, EPS) {
+			if !a.edge_adjacent_to(b, EPS) {
 				continue;
 			}
 			let ga = group_of.get(&a.id).copied();
