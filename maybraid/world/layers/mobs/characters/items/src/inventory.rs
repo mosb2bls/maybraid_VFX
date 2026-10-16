@@ -5,6 +5,7 @@
 //! indices (clothing wear order, weapons switch queue, skill-map queue).
 
 use bevy::prelude::*;
+use procedural_common::Fnv1a64;
 
 use crate::{
 	ClothingKind, ClothingMaterial, ClothingMesh, ClothingStats, FirearmMesh, FirearmSpec,
@@ -766,17 +767,10 @@ impl ItemRng {
 
 /// High-word tag so item-icon keys never collide with [`SkillMapSpec::catalog_key`].
 pub const ITEM_ICON_CATALOG_TAG: u64 = 0xC0DE_0000_0000_0000;
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0100_0000_01b3;
 
 /// FNV-1a catalog key for a capture-id label.
 pub fn icon_catalog_key_for_label(label: &str) -> u64 {
-	let mut hash = FNV_OFFSET;
-	for byte in label.as_bytes() {
-		hash ^= u64::from(*byte);
-		hash = hash.wrapping_mul(FNV_PRIME);
-	}
-	ITEM_ICON_CATALOG_TAG | (hash & 0x0000_FFFF_FFFF_FFFF)
+	ITEM_ICON_CATALOG_TAG | (Fnv1a64::digest(label.as_bytes()) & 0x0000_FFFF_FFFF_FFFF)
 }
 
 fn remap_selected(selected: &[usize], remap: &[Option<usize>]) -> Vec<usize> {
