@@ -56,14 +56,6 @@ pub(crate) fn configure(app: &mut App) {
 		);
 }
 
-fn gameplay_cycling_allowed(
-	gameplay: &WorldGameplayEnabled,
-	text_focus: &TextEntryFocus,
-	map: Option<&WorldMapView>,
-) -> bool {
-	gameplay.0 && !text_focus.0 && !map.is_some_and(|map| map.open)
-}
-
 pub(crate) fn apply_inventory_category_selection(
 	gameplay: Res<WorldGameplayEnabled>,
 	text_focus: Res<TextEntryFocus>,
@@ -71,7 +63,7 @@ pub(crate) fn apply_inventory_category_selection(
 	mut category: ResMut<ActiveInventoryCyclingCategory>,
 	mut intents: MessageReader<CharacterIntent>,
 ) {
-	if !gameplay_cycling_allowed(&gameplay, &text_focus, map.as_deref()) {
+	if !gameplay.accepts_character_input(&text_focus, map.as_deref()) {
 		return;
 	}
 	for intent in intents.read() {
@@ -93,7 +85,7 @@ pub(crate) fn cycle_equipped_inventory_queues(
 	mut bags: Query<&mut Inventory>,
 	mut ledgers: Query<&mut LubikanLedger, With<LubikanOwner>>,
 ) {
-	if !gameplay_cycling_allowed(&gameplay, &text_focus, map.as_deref()) {
+	if !gameplay.accepts_character_input(&text_focus, map.as_deref()) {
 		return;
 	}
 	let mut dir = None;
@@ -145,7 +137,9 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		let snapshot = bag.clone();
 		if let Some(loadout) = loadout.as_deref_mut() {
 			loadout.retarget_inventory(snapshot.clone());
-			commands.entity(player).insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
+			commands
+				.entity(player)
+				.insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
 		}
 	}
 }
@@ -306,11 +300,18 @@ mod tests {
 		let extra_id = ledger.ensure_owned(extra);
 		let _ = ledger.apply_to_equipped(5.0);
 		assert!(ledger.select(Some(extra_id)));
-		let extra_charge = ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_charge = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert!(cycle_ledger_selection(&mut ledger, 1));
 		assert_eq!(ledger.selection(), LubikanSelection::default());
-		let extra_after =
-			ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_after = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert_eq!(extra_charge, extra_after);
 		Ok(())
 	}
