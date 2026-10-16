@@ -8,6 +8,7 @@ pub mod display;
 pub mod focus;
 pub mod fonts;
 pub mod hud_menu;
+pub mod prompt;
 pub mod row;
 pub mod scroll;
 pub mod section;
@@ -24,6 +25,10 @@ pub use fonts::HudFonts;
 pub use hud_menu::{
 	apply_hud_menu_nav, navigate_hud_menus, select_hud_item_on_over, sync_hud_item_focus, HudMenu,
 	HudMenuIgnoresLock, HudMenuItem, HudOverlayMenu,
+};
+pub use prompt::{
+	spawn_inventory_action_prompts, sync_input_prompt_device, sync_inventory_prompt_glyphs,
+	InputPromptDevice, InventoryActionPrompts, InventoryPromptGlyph, InventoryPromptKind,
 };
 pub use row::spawn_labeled_row;
 pub use scroll::{
@@ -54,6 +59,6 @@ pub use text::{
 	spawn_panel_title,
 };
 pub use tile::{
-	spawn_asset_tile, spawn_grid_catalog_tile, spawn_tile_grid, sync_hover_tiles, sync_tile_wrap,
-	HoverTile, SlotRank,
+	spawn_asset_tile, spawn_grid_catalog_tile, spawn_tile_grid, spawn_tile_grid_columns,
+	sync_hover_tiles, sync_tile_wrap, HoverTile, SlotRank,
 };

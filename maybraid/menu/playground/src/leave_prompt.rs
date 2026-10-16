@@ -13,7 +13,7 @@ use menu_components::{
 	MenuModalStack, MenuModalSystems, ScreenBackPressed, TextMenuSystems,
 };
 
-use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
+use crate::character::{save_chrome, CharacterEditBaseline, CharacterMenuState, CharacterScreen};
 use crate::session::{
 	leave_character_editor, save_editing_character, set_active_character, CharacterEditorReturn,
 	EditingCharacter,
@@ -115,13 +115,37 @@ pub fn character_leave_edge(
 	None
 }
 
+/// Confirm only when the Save chrome is up (create, or a dirty saved edit).
+/// A clean saved character — including one just written by Save Changes —
+/// leaves immediately.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CharacterLeaveDecision {
+	Prompt(CharacterLeaveKind),
+	Leave,
+}
+
+pub fn character_leave_decision(
+	kind: CharacterLeaveKind,
+	needs_save: bool,
+) -> CharacterLeaveDecision {
+	if needs_save {
+		CharacterLeaveDecision::Prompt(kind)
+	} else {
+		CharacterLeaveDecision::Leave
+	}
+}
+
 fn intercept_character_leave_edges(
 	mut prompt: ResMut<CharacterLeavePrompt>,
 	mut stack: ResMut<MenuModalStack>,
 	mut nav: ResMut<MenuNavPad>,
 	pad: Option<Res<VirtualPad>>,
+	menu_state: Option<Res<CharacterMenuState>>,
+	baseline: Option<Res<CharacterEditBaseline>>,
+	return_to: Option<Res<CharacterEditorReturn>>,
 	screens: Query<(), With<CharacterScreen>>,
 	mut backs: MessageReader<ScreenBackPressed>,
+	mut commands: Commands,
 ) {
 	prompt.opened_this_frame = false;
 	let back_click = backs.read().next().is_some();
@@ -131,13 +155,22 @@ fn intercept_character_leave_edges(
 	let Some(kind) = character_leave_edge(!screens.is_empty(), hold, false, start, back) else {
 		return;
 	};
-	prompt.open(kind, &mut stack);
 	match kind {
 		CharacterLeaveKind::Save | CharacterLeaveKind::SaveFailed => {
 			nav.events.retain(|event| *event != MenuNav::Select);
 		}
 		CharacterLeaveKind::Discard => {
 			nav.events.retain(|event| *event != MenuNav::Back);
+		}
+	}
+	let needs_save = menu_state
+		.as_ref()
+		.is_none_or(|menu| save_chrome(&menu.0, baseline.as_deref()).is_some());
+	match character_leave_decision(kind, needs_save) {
+		CharacterLeaveDecision::Prompt(kind) => prompt.open(kind, &mut stack),
+		CharacterLeaveDecision::Leave => {
+			stack.mark_consumed();
+			leave_character_editor(&mut commands, return_to.as_deref().copied());
 		}
 	}
 }
@@ -485,8 +518,9 @@ fn pointer_target(
 #[cfg(test)]
 mod tests {
 	use super::{
-		character_leave_edge, close_leave_on_modal_dismiss, intercept_character_leave_edges,
-		CharacterLeaveKind, CharacterLeavePrompt, CharacterLeavePromptMenu,
+		character_leave_decision, character_leave_edge, close_leave_on_modal_dismiss,
+		intercept_character_leave_edges, CharacterLeaveDecision, CharacterLeaveKind,
+		CharacterLeavePrompt, CharacterLeavePromptMenu,
 	};
 	use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
 	use crate::session::{
@@ -516,6 +550,30 @@ mod tests {
 		assert_eq!(
 			character_leave_edge(true, false, false, false, true),
 			Some(CharacterLeaveKind::Discard)
+		);
+	}
+
+	#[test]
+	fn clean_editor_leaves_without_a_prompt() {
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Discard, false),
+			CharacterLeaveDecision::Leave
+		);
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Save, false),
+			CharacterLeaveDecision::Leave
+		);
+	}
+
+	#[test]
+	fn dirty_or_create_editor_still_confirms_leave() {
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Discard, true),
+			CharacterLeaveDecision::Prompt(CharacterLeaveKind::Discard)
+		);
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Save, true),
+			CharacterLeaveDecision::Prompt(CharacterLeaveKind::Save)
 		);
 	}
 

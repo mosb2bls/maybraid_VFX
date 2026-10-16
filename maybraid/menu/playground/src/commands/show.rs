@@ -19,7 +19,7 @@ pub enum Show {
 	Loading,
 	/// Spawn the Maybraid character-creator panel (right-justified HUD).
 	Character,
-	/// Starter clothing spin-and-reveal, then the humanoid create-a-character HUD.
+	/// Starter Kit, then the humanoid create-a-character HUD.
 	CreateCharacter,
 	/// Saved-character gallery (new or open).
 	Gallery,

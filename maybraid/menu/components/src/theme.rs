@@ -301,6 +301,27 @@ pub const PANEL_TILE_MIN_WIDTH: f32 = 72.0;
 /// Catalog / select tiles sit three to a row.
 pub const PANEL_TILE_COLUMNS: u16 = 3;
 
+/// Shared inventory (Starter Kit + modal) sits four to a row.
+pub const INVENTORY_TILE_COLUMNS: u16 = 4;
+
+/// Inventory catalog thumbnail. Smaller than the appearance 72px tiles.
+pub const INVENTORY_THUMB_PX: f32 = 52.0;
+
+/// Appearance / picker catalog thumbnail.
+pub const CATALOG_THUMB_PX: f32 = 72.0;
+
+/// Kenney Double Xbox **A** — [`maybraid_input::MENU_SELECT_PAD`].
+pub const PROMPT_PAD_SELECT: &str = "iconography/kenney/input-prompts/xbox_button_a_outline.png";
+
+/// Kenney Double keyboard **Enter** — [`maybraid_input::MENU_SELECT_KEYS`].
+pub const PROMPT_KEY_SELECT: &str = "iconography/kenney/input-prompts/keyboard_enter_outline.png";
+
+/// Kenney Double Xbox **X** — [`maybraid_input::INVENTORY_DROP_PAD`].
+pub const PROMPT_PAD_DROP: &str = "iconography/kenney/input-prompts/xbox_button_x_outline.png";
+
+/// Kenney Double keyboard **E** — first of [`maybraid_input::INVENTORY_DROP_KEYS`].
+pub const PROMPT_KEY_DROP: &str = "iconography/kenney/input-prompts/keyboard_e_outline.png";
+
 /// Minimum asset-tile height when thumbnails are off.
 pub const PANEL_TILE_MIN_HEIGHT: f32 = 44.0;
 
