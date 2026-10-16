@@ -123,6 +123,17 @@ struct LiveWorldDrop<'w, 's> {
 	owners: Query<'w, 's, Entity, (With<Player>, With<InventoryUser>)>,
 }
 
+/// How [`LiveWorldDrop::request`] resolved a catalog confirm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LiveDropCommit {
+	/// In-game pause edit: the world adapter owns the bag mutation.
+	Requested,
+	/// Gallery / create: no live world player, mutate the editor copy.
+	LocalEditor,
+	/// In-game, but the live owner is gone — do not fall back to the editor bag.
+	OwnerUnavailable,
+}
+
 impl LiveWorldDrop<'_, '_> {
 	fn is_live(&self) -> bool {
 		self.return_to
@@ -130,15 +141,15 @@ impl LiveWorldDrop<'_, '_> {
 			.is_some_and(|return_to| return_to.uses_live_world_player())
 	}
 
-	fn request(&mut self, index: usize, policy: InventoryDropPolicy) -> bool {
+	fn request(&mut self, index: usize, policy: InventoryDropPolicy) -> LiveDropCommit {
 		if !self.is_live() {
-			return false;
+			return LiveDropCommit::LocalEditor;
 		}
 		let Some(owner) = self.owners.iter().next() else {
-			return false;
+			return LiveDropCommit::OwnerUnavailable;
 		};
 		self.requests.write(InventoryDropRequest::new(owner, index).with_policy(policy));
-		true
+		LiveDropCommit::Requested
 	}
 }
 
@@ -528,10 +539,12 @@ fn commit_catalog_drop(
 	if inventory.can_drop(index, policy).is_err() {
 		return;
 	}
-	if live.request(index, policy) {
-		return;
+	match live.request(index, policy) {
+		LiveDropCommit::Requested | LiveDropCommit::OwnerUnavailable => {}
+		LiveDropCommit::LocalEditor => {
+			apply_drop_inventory(index, policy, menu_state, ui_sync, overlay_sync, menu_events);
+		}
 	}
-	apply_drop_inventory(index, policy, menu_state, ui_sync, overlay_sync, menu_events);
 }
 
 fn apply_drop_inventory(
@@ -635,20 +648,25 @@ fn pointer_target(
 mod tests {
 	use super::{
 		apply_accepted_drop_to_editor, apply_drop_inventory, catalog_drop_edge,
-		drop_index_from_event, drop_needs_confirm, CharacterDropPrompt,
+		commit_catalog_drop, drop_index_from_event, drop_needs_confirm, CharacterDropPrompt,
+		LiveWorldDrop,
 	};
 	use crate::character::{
 		CharacterEditBaseline, CharacterMenuState, CharacterUiSyncState, OverlayUiSyncState,
 	};
+	use crate::session::CharacterEditorReturn;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
 	use character_creation_menus::MenuEvent;
+	use character_inventory_user::InventoryUser;
+	use character_items::InventoryDropRequest;
 	use character_items::{
 		ClothingMaterial, ClothingMesh, FirearmMesh, Inventory, InventoryDropPolicy, InventoryItem,
 		ItemColor,
 	};
 	use maybraid_character_ui_menu_renderer::CharacterMenuEvent;
 	use menu_components::{MenuModalId, MenuModalLayer, MenuModalStack};
+	use player::Player;
 
 	#[test]
 	fn only_inventory_catalogs_offer_drop() {
@@ -855,6 +873,97 @@ mod tests {
 			.inventory
 			.as_ref()
 			.is_some_and(|bag| bag.items.is_empty()));
+		Ok(())
+	}
+
+	fn commit_drop_world(live: bool, with_owner: bool) -> World {
+		let items = vec![InventoryItem::firearm(FirearmMesh::Bullpup)];
+		let mut world = World::new();
+		world.init_resource::<Messages<CharacterMenuEvent<MenuEvent>>>();
+		world.init_resource::<Messages<InventoryDropRequest>>();
+		world.insert_resource(CharacterMenuState::for_create(items));
+		world.init_resource::<CharacterUiSyncState>();
+		world.init_resource::<OverlayUiSyncState>();
+		if live {
+			world.insert_resource(CharacterEditorReturn::InGame);
+		}
+		if with_owner {
+			let bag = world.spawn_empty().id();
+			world.spawn((Player, InventoryUser::carrying(bag)));
+		}
+		world
+	}
+
+	fn run_commit_catalog_drop(world: &mut World) -> anyhow::Result<()> {
+		world
+			.run_system_once(
+				|mut menu_state: ResMut<CharacterMenuState>,
+				 mut ui_sync: ResMut<CharacterUiSyncState>,
+				 mut overlay_sync: ResMut<OverlayUiSyncState>,
+				 mut menu_events: MessageWriter<CharacterMenuEvent<MenuEvent>>,
+				 mut live: LiveWorldDrop| {
+					commit_catalog_drop(
+						0,
+						InventoryDropPolicy::PLACEHOLDER,
+						&mut menu_state,
+						&mut ui_sync,
+						&mut overlay_sync,
+						&mut menu_events,
+						&mut live,
+					);
+				},
+			)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		Ok(())
+	}
+
+	#[test]
+	fn catalog_commit_on_the_local_editor_mutates_the_bag() -> anyhow::Result<()> {
+		let mut world = commit_drop_world(false, false);
+		run_commit_catalog_drop(&mut world)?;
+		assert!(world
+			.resource::<CharacterMenuState>()
+			.0
+			.inventory
+			.as_ref()
+			.is_some_and(|bag| bag.items.is_empty()));
+		assert_eq!(world.resource_mut::<Messages<InventoryDropRequest>>().drain().count(), 0);
+		Ok(())
+	}
+
+	#[test]
+	fn live_catalog_commit_requests_the_world_owner() -> anyhow::Result<()> {
+		let mut world = commit_drop_world(true, true);
+		run_commit_catalog_drop(&mut world)?;
+		assert_eq!(
+			world
+				.resource::<CharacterMenuState>()
+				.0
+				.inventory
+				.as_ref()
+				.map(|bag| bag.items.len()),
+			Some(1),
+			"live commit must not mutate the editor copy"
+		);
+		assert_eq!(world.resource_mut::<Messages<InventoryDropRequest>>().drain().count(), 1);
+		Ok(())
+	}
+
+	#[test]
+	fn live_catalog_commit_without_an_owner_refuses_local_fallback() -> anyhow::Result<()> {
+		let mut world = commit_drop_world(true, false);
+		run_commit_catalog_drop(&mut world)?;
+		assert_eq!(
+			world
+				.resource::<CharacterMenuState>()
+				.0
+				.inventory
+				.as_ref()
+				.map(|bag| bag.items.len()),
+			Some(1),
+			"missing live owner must not fall back to the editor bag"
+		);
+		assert_eq!(world.resource_mut::<Messages<InventoryDropRequest>>().drain().count(), 0);
 		Ok(())
 	}
 

@@ -15,8 +15,9 @@
 //!    [`InventoryDropPolicy::PLACEHOLDER`]. The world host inserts an
 //!    [`ActiveInventoryDropPolicy`] with the flag on so live drops can toss a
 //!    claimable stash. The adapter is the sole commit: it applies `try_drop`
-//!    under the request policy and emits [`InventoryMenuDropped`] only when
-//!    that policy asks for a pickup. Gallery / create stay on the pure bag
+//!    under the request policy and emits [`InventoryDropped`]. World hosts
+//!    spawn a pickup from that outcome when the policy asks for one, using the
+//!    accepted owner's transform. Gallery / create stay on the pure bag
 //!    mutation and remain delete-only. Tab still explodes the whole bag
 //!    through the stash module.
 //! 2. **Undroppable items.** Lubikans are not bag items (ledger + charge live

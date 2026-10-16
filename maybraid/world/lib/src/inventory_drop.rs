@@ -70,7 +70,6 @@ pub(crate) fn apply_inventory_drop_requests(
 	mut requests: MessageReader<InventoryDropRequest>,
 	mut dropped: MessageWriter<InventoryDropped>,
 	mut refused: MessageWriter<InventoryDropRefused>,
-	mut menu_drops: MessageWriter<InventoryMenuDropped>,
 	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
 	users: Query<(&InventoryUser, Has<VegetationPlayer>)>,
 	mut bags: Query<&mut Inventory>,
@@ -103,12 +102,6 @@ pub(crate) fn apply_inventory_drop_requests(
 						loadout.retarget_inventory(snapshot.clone());
 					}
 				}
-				if outcome.spawn_world_pickup {
-					menu_drops.write(InventoryMenuDropped {
-						item: outcome.item.clone(),
-						index: outcome.index,
-					});
-				}
 				dropped.write(InventoryDropped { owner, bag: user.bag, outcome });
 			}
 			Err(reason) => {
@@ -119,26 +112,29 @@ pub(crate) fn apply_inventory_drop_requests(
 }
 
 fn spawn_menu_inventory_pickups(
-	mut drops: MessageReader<InventoryMenuDropped>,
+	mut drops: MessageReader<InventoryDropped>,
 	mut commands: Commands,
 	settings: Option<Res<WorldStashSettings>>,
 	assets: Option<Res<AssetServer>>,
 	mut scatter: ResMut<MenuDropScatter>,
-	players: Query<(&Transform, Option<&PlayerLook>), With<VegetationPlayer>>,
-	cameras: Query<&Transform, (With<Camera3d>, Without<VegetationPlayer>)>,
+	owners: Query<(&Transform, Option<&PlayerLook>)>,
+	cameras: Query<&Transform, With<Camera3d>>,
 ) {
-	let Some((player, look)) = players.iter().next() else {
-		return;
-	};
 	let camera = cameras.iter().next();
-	let (forward, right) = menu_drop_axes(player, look, camera);
-	let origin = player.translation;
 	let assets = assets.as_deref();
 	let policy = settings
 		.as_ref()
 		.map(|settings| settings.ephemeral_policy())
 		.unwrap_or_default();
 	for drop in drops.read() {
+		if !drop.outcome.spawn_world_pickup {
+			continue;
+		}
+		let Ok((pose, look)) = owners.get(drop.owner) else {
+			continue;
+		};
+		let (forward, right) = menu_drop_axes(pose, look, camera);
+		let origin = pose.translation;
 		let n = scatter.0;
 		scatter.0 = scatter.0.wrapping_add(1);
 		let start = menu_drop_start(origin, forward, right, n);
@@ -146,7 +142,7 @@ fn spawn_menu_inventory_pickups(
 		let Some(host) = spawn_world_stash(
 			&mut commands,
 			Transform::from_translation(start),
-			visual_drop_bag(drop.item.clone()),
+			visual_drop_bag(drop.outcome.item.clone()),
 			policy,
 			assets,
 		) else {
@@ -248,8 +244,8 @@ mod tests {
 	use bevy::ecs::system::RunSystemOnce;
 	use character_inventory_user::InventoryUser;
 	use character_items::{
-		ClothingMaterial, ClothingMesh, FirearmMesh, Inventory, InventoryDropPolicy, InventoryItem,
-		ItemColor, SkillMapKind, SkillMapSpec,
+		ClothingMaterial, ClothingMesh, FirearmMesh, Inventory, InventoryDrop, InventoryDropPolicy,
+		InventoryDropped, InventoryItem, ItemColor, SkillMapKind, SkillMapSpec,
 	};
 	use character_persist::{CharacterId, SaveRoot};
 	use characters::CharacterAppearance;
@@ -483,10 +479,103 @@ mod tests {
 		Ok(())
 	}
 
-	fn write_menu_drop(world: &mut World, item: InventoryItem, index: usize) -> anyhow::Result<()> {
+	fn npc_drop_world(inventory: Inventory, at: Vec3) -> (World, Entity, Entity) {
+		let mut world = World::new();
+		world.init_resource::<Messages<InventoryDropRequest>>();
+		world.init_resource::<Messages<InventoryDropped>>();
+		world.init_resource::<Messages<InventoryDropRefused>>();
+		world.init_resource::<Messages<InventoryMenuDropped>>();
+		world.init_resource::<MenuDropScatter>();
+		world.init_resource::<Time>();
+		let bag = world.spawn(inventory).id();
+		let owner = world
+			.spawn((InventoryUser::carrying(bag), Transform::from_translation(at)))
+			.id();
+		(world, owner, bag)
+	}
+
+	#[test]
+	fn npc_drop_spawns_a_pickup_from_the_owner_not_the_player() -> anyhow::Result<()> {
+		use crate::stash::WorldStashSettings;
+
+		let npc_at = Vec3::new(40.0, 0.0, -12.0);
+		let (mut world, npc, npc_bag) = npc_drop_world(queued_loadout(), npc_at);
+		world.init_resource::<WorldStashSettings>();
+		let player_bag = world.spawn(queued_loadout()).id();
+		world.spawn((
+			VegetationPlayer,
+			InventoryUser::carrying(player_bag),
+			Transform::from_xyz(3.0, 0.0, 1.0),
+		));
+		let policy =
+			InventoryDropPolicy { spawn_world_pickup: true, ..InventoryDropPolicy::PLACEHOLDER };
+		run_drop(&mut world, npc, 2, policy)?;
+		spawn_menu_drops(&mut world)?;
+		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), 1);
+		let leftover = world.get::<Inventory>(npc_bag).ok_or_else(|| anyhow::anyhow!("npc bag"))?;
+		assert_eq!(leftover.weapons, vec![1]);
+		let player_leftover = world
+			.get::<Inventory>(player_bag)
+			.ok_or_else(|| anyhow::anyhow!("player bag"))?;
+		assert_eq!(player_leftover.items.len(), 5);
+		let start = menu_drop_start(npc_at, Vec3::NEG_Z, Vec3::X, 0);
+		let pose = world
+			.query::<(&Transform, &WorldStash)>()
+			.iter(&world)
+			.next()
+			.map(|(transform, _)| *transform)
+			.ok_or_else(|| anyhow::anyhow!("stash pose"))?;
+		assert!(
+			(pose.translation - start).length() < 1e-4,
+			"NPC pickup should leave from the owner, got {pose:?} expected {start:?}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn npc_drop_without_a_player_still_spawns_a_pickup() -> anyhow::Result<()> {
+		use crate::stash::WorldStashSettings;
+
+		let npc_at = Vec3::new(-8.0, 0.0, 22.0);
+		let (mut world, npc, _) = npc_drop_world(queued_loadout(), npc_at);
+		world.init_resource::<WorldStashSettings>();
+		let policy =
+			InventoryDropPolicy { spawn_world_pickup: true, ..InventoryDropPolicy::PLACEHOLDER };
+		run_drop(&mut world, npc, 2, policy)?;
+		spawn_menu_drops(&mut world)?;
+		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), 1);
+		let start = menu_drop_start(npc_at, Vec3::NEG_Z, Vec3::X, 0);
+		let pose = world
+			.query::<(&Transform, &WorldStash)>()
+			.iter(&world)
+			.next()
+			.map(|(transform, _)| *transform)
+			.ok_or_else(|| anyhow::anyhow!("stash pose"))?;
+		assert!((pose.translation - start).length() < 1e-4);
+		Ok(())
+	}
+
+	fn write_accepted_drop(
+		world: &mut World,
+		owner: Entity,
+		bag: Entity,
+		item: InventoryItem,
+		index: usize,
+	) -> anyhow::Result<()> {
 		world
-			.run_system_once(move |mut writer: MessageWriter<InventoryMenuDropped>| {
-				writer.write(InventoryMenuDropped { item: item.clone(), index });
+			.run_system_once(move |mut writer: MessageWriter<InventoryDropped>| {
+				writer.write(InventoryDropped {
+					owner,
+					bag,
+					outcome: InventoryDrop {
+						slot: item.slot(),
+						item: item.clone(),
+						index,
+						was_selected: false,
+						was_primary: false,
+						spawn_world_pickup: true,
+					},
+				});
 			})
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		Ok(())
@@ -501,13 +590,11 @@ mod tests {
 	#[test]
 	fn menu_drop_spawns_an_ephemeral_stash_with_despawn_cool_off() -> anyhow::Result<()> {
 		use crate::stash::{StashPolicy, WorldStashSettings};
-		use character_items::InventoryMenuDropped;
 		use damage::DespawnAfter;
 
-		let (mut world, _, _) = drop_world(queued_loadout());
+		let (mut world, owner, bag) = drop_world(queued_loadout());
 		world.init_resource::<WorldStashSettings>();
-		world.init_resource::<Messages<InventoryMenuDropped>>();
-		write_menu_drop(&mut world, queued_loadout().items[2].clone(), 2)?;
+		write_accepted_drop(&mut world, owner, bag, queued_loadout().items[2].clone(), 2)?;
 		spawn_menu_drops(&mut world)?;
 		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), 1);
 		let ttl = world
@@ -522,12 +609,10 @@ mod tests {
 	#[test]
 	fn menu_drop_tosses_forward_and_right_of_the_player() -> anyhow::Result<()> {
 		use crate::stash::WorldStashSettings;
-		use character_items::InventoryMenuDropped;
 
-		let (mut world, _, _) = drop_world(queued_loadout());
+		let (mut world, owner, bag) = drop_world(queued_loadout());
 		world.init_resource::<WorldStashSettings>();
-		world.init_resource::<Messages<InventoryMenuDropped>>();
-		write_menu_drop(&mut world, queued_loadout().items[2].clone(), 2)?;
+		write_accepted_drop(&mut world, owner, bag, queued_loadout().items[2].clone(), 2)?;
 		spawn_menu_drops(&mut world)?;
 		let origin = Vec3::new(3.0, 0.0, 1.0);
 		let start = menu_drop_start(origin, Vec3::NEG_Z, Vec3::X, 0);
@@ -602,18 +687,12 @@ mod tests {
 	#[test]
 	fn sequential_menu_drops_launch_apart() -> anyhow::Result<()> {
 		use crate::stash::WorldStashSettings;
-		use character_items::InventoryMenuDropped;
 
-		let (mut world, _, _) = drop_world(queued_loadout());
+		let (mut world, owner, bag) = drop_world(queued_loadout());
 		world.init_resource::<WorldStashSettings>();
-		world.init_resource::<Messages<InventoryMenuDropped>>();
 		let item = queued_loadout().items[2].clone();
-		world
-			.run_system_once(move |mut writer: MessageWriter<InventoryMenuDropped>| {
-				writer.write(InventoryMenuDropped { item: item.clone(), index: 2 });
-				writer.write(InventoryMenuDropped { item: item.clone(), index: 2 });
-			})
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		write_accepted_drop(&mut world, owner, bag, item.clone(), 2)?;
+		write_accepted_drop(&mut world, owner, bag, item, 2)?;
 		spawn_menu_drops(&mut world)?;
 		let velocities: Vec<Vec3> =
 			world.query::<&StashToss>().iter(&world).map(|toss| toss.velocity).collect();
@@ -628,13 +707,11 @@ mod tests {
 	#[test]
 	fn stash_toss_falls_under_gravity_then_settles() -> anyhow::Result<()> {
 		use crate::stash::WorldStashSettings;
-		use character_items::InventoryMenuDropped;
 		use std::time::Duration;
 
-		let (mut world, _, _) = drop_world(queued_loadout());
+		let (mut world, owner, bag) = drop_world(queued_loadout());
 		world.init_resource::<WorldStashSettings>();
-		world.init_resource::<Messages<InventoryMenuDropped>>();
-		write_menu_drop(&mut world, queued_loadout().items[2].clone(), 2)?;
+		write_accepted_drop(&mut world, owner, bag, queued_loadout().items[2].clone(), 2)?;
 		spawn_menu_drops(&mut world)?;
 		let start = world
 			.query::<(&Transform, &WorldStash)>()

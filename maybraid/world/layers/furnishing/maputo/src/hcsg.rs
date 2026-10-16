@@ -195,11 +195,11 @@ mod tests {
 	use bevy::state::app::StatesPlugin;
 	use durham::Durham;
 	use lod::hcsg::{
-		hcsg_hosts, settle_presentation, wait_replaced_hosts, HcsgNode, HcsgRestartRequest,
-		RetiredHost, SettlePresentation,
+		hcsg_hosts, settle_presentation, wait_replaced_hosts, HcsgDemand, HcsgNode,
+		HcsgRestartRequest, RetiredHost, SettlePresentation, SettleTimedOut,
 	};
 	use lod::lod_ref::LodNodePose;
-	use lod::LodViewer;
+	use lod::{LodChunkFulfillment, LodLevelSpawnRequest, LodViewer};
 	use richmond::{
 		AuthoredDevelopment, AuthoredDevelopments, Built, DevelopmentConfig, DevelopmentKind,
 		DevelopmentSites, Richmond,
@@ -209,7 +209,7 @@ mod tests {
 	use urbanization_layer_model::Urbanization;
 
 	use super::*;
-	use crate::colliders::FurnitureWalkCollider;
+	use crate::colliders::{walk_collider, FurnitureWalkCollider};
 
 	type Ground = OnTerrain<Durham>;
 	type Urban = Urbanization<Richmond<Ground>>;
@@ -297,14 +297,117 @@ mod tests {
 	}
 
 	fn furnished(app: &mut App) -> Vec<(Id, usize)> {
-		let mut cells: Vec<_> = app
-			.world_mut()
-			.query_filtered::<&HcsgNode<Furnished<Urban>>, Without<RetiredHost>>()
-			.iter(app.world())
-			.map(|node| (node.id, node.value.cell.slots.len()))
+		let mut cells: Vec<_> = furnished_hosts(app)
+			.into_iter()
+			.map(|(_, node)| (node.id, node.value.cell.slots.len()))
 			.collect();
 		cells.sort();
 		cells
+	}
+
+	fn furnished_hosts(app: &mut App) -> Vec<(Entity, HcsgNode<Furnished<Urban>>)> {
+		let mut cells: Vec<_> = app
+			.world_mut()
+			.query_filtered::<(Entity, &HcsgNode<Furnished<Urban>>), Without<RetiredHost>>()
+			.iter(app.world())
+			.map(|(entity, node)| (entity, node.clone()))
+			.collect();
+		cells.sort_by_key(|(_, node)| node.id);
+		cells
+	}
+
+	fn subtree_has_walk_collider(world: &World, entity: Entity) -> bool {
+		if world.get::<FurnitureWalkCollider>(entity).is_some() {
+			return true;
+		}
+		let Some(children) = world.get::<Children>(entity) else {
+			return false;
+		};
+		children.iter().any(|child| subtree_has_walk_collider(world, child))
+	}
+
+	fn cell_needs_walk_collider(node: &HcsgNode<Furnished<Urban>>) -> bool {
+		walk_collider(&node.value.cell.slots).is_some()
+	}
+
+	/// Hosts exist before chunk drain; 8 reconcile frames does not guarantee
+	/// the first furniture primitive has spawned under Richmond's shared 2 ms
+	/// budget. Wait until every expected cell is a current host and every
+	/// collider-bearing cell has a [`FurnitureWalkCollider`] descendant.
+	fn furnished_walk_colliders_ready(app: &mut App, expected: &[(Id, usize)]) -> bool {
+		if furnished(app) != expected {
+			return false;
+		}
+		let hosts = furnished_hosts(app);
+		let world = app.world();
+		hosts.iter().all(|(entity, node)| {
+			!cell_needs_walk_collider(node) || subtree_has_walk_collider(world, *entity)
+		})
+	}
+
+	fn host_fulfill_state(app: &mut App, host: Entity) -> String {
+		let spawn = app
+			.world()
+			.get::<LodLevelSpawnRequest>(host)
+			.map(|request| format!("{:?}", request.level));
+		let fulfillment = {
+			let mut jobs =
+				app.world_mut().query_filtered::<&LodChunkFulfillment, Allow<Disabled>>();
+			jobs.iter(app.world()).find(|job| job.host == host).map(|job| {
+				format!("spawned={}/{} queue={}", job.spawned, job.expected, job.queue.len())
+			})
+		};
+		format!(
+			"spawn_request={spawn} fulfillment={fulfillment}",
+			spawn = spawn.as_deref().unwrap_or("none"),
+			fulfillment = fulfillment.as_deref().unwrap_or("none"),
+		)
+	}
+
+	fn wait_furnished_walk_colliders(
+		app: &mut App,
+		expected: &[(Id, usize)],
+		max_frames: u32,
+	) -> anyhow::Result<()> {
+		for _ in 0..max_frames {
+			if furnished_walk_colliders_ready(app, expected) {
+				return Ok(());
+			}
+			app.update();
+			let demand = app.world().resource::<HcsgDemand>().clone();
+			if !demand.wait_idle(IDLE) {
+				return Err(SettleTimedOut { timeout: IDLE }.into());
+			}
+		}
+		let hosts = furnished_hosts(app);
+		let by_id: std::collections::BTreeMap<_, _> =
+			hosts.iter().map(|(entity, node)| (node.id, (*entity, node.clone()))).collect();
+		let mut missing = Vec::new();
+		for (id, slots) in expected {
+			match by_id.get(id) {
+				None => missing.push(format!("{id:?} host missing (expected {slots} slots)")),
+				Some((entity, node)) => {
+					if node.value.cell.slots.len() != *slots {
+						missing.push(format!(
+							"{id:?} slots {} != {slots}",
+							node.value.cell.slots.len()
+						));
+					}
+					if cell_needs_walk_collider(node)
+						&& !subtree_has_walk_collider(app.world(), *entity)
+					{
+						missing.push(format!(
+							"{id:?} furniture bears weight; {}",
+							host_fulfill_state(app, *entity)
+						));
+					}
+				}
+			}
+		}
+		panic!(
+			"furniture walk colliders missing after {max_frames} frames: {}",
+			missing.join("; ")
+		);
 	}
 
 	#[test]
@@ -314,13 +417,21 @@ mod tests {
 
 		let expected = expected_cells(&mut app)?;
 		assert!(!expected.is_empty(), "Les Halles furnishes the neighborhood");
+		wait_furnished_walk_colliders(&mut app, &expected, 64)?;
 		assert_eq!(furnished(&mut app), expected, "one host per furnished cell, with its slots");
-		let colliders = app
-			.world_mut()
-			.query_filtered::<(), (With<FurnitureWalkCollider>, Allow<Disabled>)>()
-			.iter(app.world())
-			.count();
-		assert!(colliders > 0, "furniture bears weight");
+		let mut collider_cells = 0usize;
+		for (entity, node) in furnished_hosts(&mut app) {
+			if !cell_needs_walk_collider(&node) {
+				continue;
+			}
+			collider_cells += 1;
+			assert!(
+				subtree_has_walk_collider(app.world(), entity),
+				"{:?} furniture bears weight",
+				node.id
+			);
+		}
+		assert!(collider_cells > 0, "Les Halles furniture blocks walking");
 		Ok(())
 	}
 
