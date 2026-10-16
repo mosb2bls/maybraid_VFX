@@ -27,11 +27,15 @@ use urbanization_cells::{
 use urbanization_layer_model::Urbanization;
 
 use crate::generation::{
-	MobEnvironmentSample, MobGroup, MobPlantHost, MobWorldHosts, MobWorldSample,
+	GroupKind, MobEnvironmentSample, MobGroup, MobPlantHost, MobWorldHosts, MobWorldSample,
 };
 use crate::index::{group_kind, hosts_near, urbanization_weight, MOB_CELL_EXTENT};
 use crate::present::{install_mob_scenes, MobCellRoot, MobGroupRoot};
 use crate::sample::{chico_layers_at, host_at, richmond_kind_at};
+
+fn group_needs_plant_hosts(kind: GroupKind) -> bool {
+	matches!(kind, GroupKind::Frontier | GroupKind::Warfront | GroupKind::Dystopian)
+}
 use crate::{MobCell, MobCellExtent};
 
 /// Present / generate rings the world stream used (1 km / 3 km).
@@ -138,9 +142,14 @@ impl<G: MobGround> hcsg::GenerationScheme for PlacedMobCell<G> {
 			Vec3::from(column.min) - Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 			Vec3::from(column.max) + Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 		);
-		let world = CellWorld { forest, urban, surface, hosts: G::plant_hosts(cx, reach) };
 		let origin = extent.center().xz();
-		let kind = group_kind(world.kind_at(origin), seed);
+		let kind = group_kind(richmond_kind_at(urban.noise, urban.kind, origin), seed);
+		let hosts = if group_needs_plant_hosts(kind) {
+			G::plant_hosts(cx, reach)
+		} else {
+			Vec::new()
+		};
+		let world = CellWorld { forest, urban, surface, hosts };
 		let group = MobGroup::generate(kind, seed, origin, &world);
 		let bounds = Aabb3d::from_min_max(
 			Vec3::new(column.min.x, footprint.min.y, column.min.z),
@@ -499,5 +508,203 @@ mod tests {
 			assert!(node.value.cell.groups.iter().all(|group| group.kind == GroupKind::Wild));
 		}
 		Ok(())
+	}
+
+	mod scheme_perf_tests {
+		use super::*;
+		use chico::{ForestSelection, LayeringKind};
+		use lod::gen::OriginalId;
+		use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
+		use mob_scenes::MobKind;
+		use std::marker::PhantomData;
+		use std::time::Instant;
+
+		use crate::MobCell;
+
+		type MobSnapshot = Vec<(GroupKind, Vec<(Vec2, f32, MobKind)>)>;
+
+		fn seed_storage(kind: UrbanizationKind, terrain_seed: u32) -> HcsgStorage {
+			let storage = HcsgStorage::default();
+			storage.seed(fine_patch_cell_layout(1, IVec2::new(-1, -1)), universal_bounds());
+			storage.seed(TerrainStampConfigs::from_world_seed(terrain_seed), universal_bounds());
+			storage.seed(WatershedConfigs::default().with_seed(terrain_seed), universal_bounds());
+			storage.seed(
+				TerrainMeshAssets {
+					config: TerrainConfig::new(terrain_seed),
+					material: Handle::default(),
+					lod_bands: vec![TerrainMeshLodBand { max_radius_cells: 1, res_2: 2 }],
+					outer_add_walls: false,
+					fine_grid_max_radius: Some(1),
+					macro_seam_half_extents: Vec::new(),
+					macro_cell_min_size: None,
+					macro_res_2: None,
+				},
+				universal_bounds(),
+			);
+			storage.seed(
+				DevelopmentConfig {
+					sites: DevelopmentSites::Authored,
+					..DevelopmentConfig::default()
+				},
+				universal_bounds(),
+			);
+			storage.seed(AuthoredDevelopments(vec![les_halles()]), universal_bounds());
+			storage.seed(
+				UrbanizationSelection { kind: Some(kind), ..UrbanizationSelection::default() },
+				universal_bounds(),
+			);
+			storage.seed(
+				ForestSelection {
+					layering: Some(LayeringKind::LushJungle),
+					..ForestSelection::default()
+				},
+				universal_bounds(),
+			);
+			storage
+		}
+
+		fn mob_snapshot(cell: &PlacedMobCell<Urban>) -> MobSnapshot {
+			cell.cell
+				.groups
+				.iter()
+				.map(|group| {
+					(
+						group.kind,
+						group
+							.mobs
+							.iter()
+							.map(|mob| {
+								(
+									mob.transform.translation.xz(),
+									mob.environment.elevation.unwrap_or(0.0),
+									mob.scene.mob.kind,
+								)
+							})
+							.collect(),
+					)
+				})
+				.collect()
+		}
+
+		fn build_placed_mob_cell_legacy(
+			cx: &mut GenerationContext,
+			id: Id,
+		) -> Option<PlacedMobCell<Urban>> {
+			let extent = MobCellExtent::from_id(id)?;
+			let seed = extent.group_seed()?;
+			let forest = *cx.get::<ForestSelection>(Id::Universal)?;
+			let urban = cx.get::<UrbanizationSelection>(Id::Universal)?;
+			let column = column_bounds(extent.aabb());
+			let surface = GroundSurface::<Urban>::generate(cx, column);
+			let footprint = surface.footprint()?;
+			let reach = Aabb3d::from_min_max(
+				Vec3::from(column.min) - Vec3::new(HOST_REACH, 0.0, HOST_REACH),
+				Vec3::from(column.max) + Vec3::new(HOST_REACH, 0.0, HOST_REACH),
+			);
+			let world = CellWorld {
+				forest,
+				urban,
+				surface,
+				hosts: Urban::plant_hosts(cx, reach),
+			};
+			let origin = extent.center().xz();
+			let kind = group_kind(world.kind_at(origin), seed);
+			let group = MobGroup::generate(kind, seed, origin, &world);
+			let cell = MobCell { extent, groups: vec![group] };
+			Some(PlacedMobCell { cell, _ground: PhantomData })
+		}
+
+		fn occupied_ids_in_patch() -> Vec<Id> {
+			let region = column_bounds(Aabb3d::new(Vec3::ZERO, Vec3::splat(PATCH)));
+			MobCellExtent::occupied_original_ids_overlapping(region)
+				.into_iter()
+				.map(|OriginalId(id)| id)
+				.collect()
+		}
+
+		fn assert_patch_matches(kind: UrbanizationKind, terrain_seed: u32) -> anyhow::Result<()> {
+			let ids = occupied_ids_in_patch();
+			anyhow::ensure!(!ids.is_empty(), "patch has occupied mob cells");
+
+			let legacy_storage = seed_storage(kind, terrain_seed);
+			let mut legacy_cx = GenerationContext::new(&legacy_storage);
+			let optimized_storage = seed_storage(kind, terrain_seed);
+			let mut optimized_cx = GenerationContext::new(&optimized_storage);
+
+			for id in ids {
+				let legacy = build_placed_mob_cell_legacy(&mut legacy_cx, id)
+					.ok_or_else(|| anyhow::anyhow!("legacy mob cell {id:?}"))?;
+				let optimized = <PlacedMobCell<Urban> as hcsg::GenerationScheme>::build_with_id(
+					&mut optimized_cx,
+					id,
+				)
+					.ok_or_else(|| anyhow::anyhow!("optimized mob cell {id:?}"))?
+					.0;
+				assert_eq!(
+					mob_snapshot(&legacy),
+					mob_snapshot(&optimized),
+					"kind {kind:?} seed {terrain_seed} cell {id:?}"
+				);
+			}
+			Ok(())
+		}
+
+		#[test]
+		fn placed_mob_cells_match_legacy_host_collection() -> anyhow::Result<()> {
+			for terrain_seed in [11u32, 42, 99] {
+				assert_patch_matches(UrbanizationKind::RuralLife, terrain_seed)?;
+				assert_patch_matches(UrbanizationKind::None, terrain_seed)?;
+				assert_patch_matches(UrbanizationKind::Frontier, terrain_seed)?;
+			}
+			Ok(())
+		}
+
+		fn cold_build_patch(
+			kind: UrbanizationKind,
+			terrain_seed: u32,
+			legacy_hosts: bool,
+		) -> std::time::Duration {
+			let ids = occupied_ids_in_patch();
+			let storage = seed_storage(kind, terrain_seed);
+			let mut cx = GenerationContext::new(&storage);
+			let start = Instant::now();
+			for id in ids {
+				if legacy_hosts {
+					build_placed_mob_cell_legacy(&mut cx, id).expect("legacy mob cell");
+				} else {
+					<PlacedMobCell<Urban> as hcsg::GenerationScheme>::build_with_id(&mut cx, id)
+						.expect("optimized mob cell");
+				}
+			}
+			start.elapsed()
+		}
+
+		/// `cargo test -p barking placed_mob_cell_scheme_microbench --release -- --ignored --nocapture`
+		#[test]
+		#[ignore = "microbench"]
+		fn placed_mob_cell_scheme_microbench() {
+			let terrain_seed = 42u32;
+			let rural_legacy = cold_build_patch(UrbanizationKind::RuralLife, terrain_seed, true);
+			let rural_optimized =
+				cold_build_patch(UrbanizationKind::RuralLife, terrain_seed, false);
+			let frontier_legacy = cold_build_patch(UrbanizationKind::Frontier, terrain_seed, true);
+			let frontier_optimized =
+				cold_build_patch(UrbanizationKind::Frontier, terrain_seed, false);
+			eprintln!(
+				"placed_mob_cell_scheme_microbench (2×2 fine patch, Les Halles, seed {terrain_seed}):"
+			);
+			eprintln!(
+				"  RuralLife  legacy {:?} optimized {:?} ({:.2}x)",
+				rural_legacy,
+				rural_optimized,
+				rural_legacy.as_secs_f64() / rural_optimized.as_secs_f64().max(1e-9)
+			);
+			eprintln!(
+				"  Frontier   legacy {:?} optimized {:?} ({:.2}x)",
+				frontier_legacy,
+				frontier_optimized,
+				frontier_legacy.as_secs_f64() / frontier_optimized.as_secs_f64().max(1e-9)
+			);
+		}
 	}
 }
