@@ -1,0 +1,290 @@
+{
+  "contract": "Maybraid matched dust comparison v1",
+  "shared_source": {
+    "timestamps_s": [
+      0.0,
+      0.06666666666666667,
+      0.13333333333333333,
+      0.2,
+      0.26666666666666666,
+      0.3333333333333333,
+      0.4,
+      0.4666666666666667,
+      0.5333333333333333,
+      0.6,
+      0.6666666666666666,
+      0.7333333333333333,
+      0.8,
+      0.8666666666666667,
+      0.9333333333333333,
+      1.0,
+      1.0666666666666667,
+      1.1333333333333333,
+      1.2,
+      1.2666666666666666,
+      1.3333333333333333,
+      1.4,
+      1.4666666666666666,
+      1.5333333333333334,
+      1.6,
+      1.6666666666666667,
+      1.7333333333333334,
+      1.8,
+      1.8666666666666667,
+      1.9333333333333333,
+      2.0,
+      2.066666666666667,
+      2.1333333333333333,
+      2.2,
+      2.2666666666666666,
+      2.3333333333333335,
+      2.4,
+      2.466666666666667,
+      2.533333333333333,
+      2.6,
+      2.6666666666666665,
+      2.7333333333333334,
+      2.8,
+      2.8666666666666667,
+      2.933333333333333,
+      3.0,
+      3.066666666666667,
+      3.1333333333333333,
+      3.2
+    ]
+  },
+  "space": {
+    "handedness": "right-handed",
+    "axes": "+X right; +Y up; +Z positive depth",
+    "units": "metres",
+    "bounds_min_m": [
+      -3.2,
+      0,
+      -3.2
+    ],
+    "bounds_max_m": [
+      3.2,
+      3.2,
+      3.2
+    ],
+    "pivot_m": [
+      0,
+      0,
+      0
+    ],
+    "origin": "ground-centre anchor; NOT per-frame density centre"
+  },
+  "B": {
+    "file": "B_flipbook/dust_color_coverage.png",
+    "format": "RGBA8 PNG",
+    "atlas_size_px": [
+      1848,
+      1848
+    ],
+    "tiles_xy": [
+      7,
+      7
+    ],
+    "frame_tile_interior_px": [
+      256,
+      256
+    ],
+    "tile_pitch_px": [
+      264,
+      264
+    ],
+    "padding_each_edge_px": 4,
+    "frame_order": "row-major from top-left; index i -> column i%7, row floor(i/7)",
+    "rgb": "constant unlit earth albedo; sRGB bytes [166,136,103]; straight/unassociated RGB even at zero A",
+    "alpha": "linear coverage A = 1-exp(-2.2*integral(rho ds_m)); A is actual coverage, unlike old dust_opacity.png",
+    "baked_lighting": "none; no shadows, emissive energy or surface normal terms",
+    "sampling": "bilinear; no mipmaps/anisotropy; clamp local UV to [0,1], then map centres; temporal alpha interpolation; RGB constant",
+    "uv": "local uv=(0,0) top-left, (1,1) bottom-right in PNG image space; atlasUV=(tileOriginPx+(4.5,4.5)+255*localUV)/1848; invert V once ONLY if runtime local UV uses bottom-left origin",
+    "capture": {
+      "projection": "orthographic",
+      "camera_position_m": [
+        5.0,
+        3.4,
+        6.0
+      ],
+      "camera_target_m": [
+        0.0,
+        0.55,
+        0.0
+      ],
+      "forward": [
+        -0.6013956545700546,
+        -0.34279552310493105,
+        -0.7216747854840655
+      ],
+      "image_right": [
+        0.7682212795973759,
+        0.0,
+        -0.6401843996644799
+      ],
+      "image_up": [
+        -0.21945234616660164,
+        0.9394100432394878,
+        -0.26334281539992194
+      ],
+      "capture_width_height_m": [
+        7.8,
+        7.8
+      ],
+      "quad_centre_m": [
+        0.0,
+        0.55,
+        0.0
+      ],
+      "pivot_m": [
+        0,
+        0,
+        0
+      ],
+      "quad_vertex_formula": "target + right*(u-.5)*7.8 + up*(.5-v)*7.8; u right, v down; anchor at origin"
+    },
+    "uncompressed_bytes": 13660416,
+    "frame_count": 49,
+    "timestamps_s": [
+      0.0,
+      0.06666666666666667,
+      0.13333333333333333,
+      0.2,
+      0.26666666666666666,
+      0.3333333333333333,
+      0.4,
+      0.4666666666666667,
+      0.5333333333333333,
+      0.6,
+      0.6666666666666666,
+      0.7333333333333333,
+      0.8,
+      0.8666666666666667,
+      0.9333333333333333,
+      1.0,
+      1.0666666666666667,
+      1.1333333333333333,
+      1.2,
+      1.2666666666666666,
+      1.3333333333333333,
+      1.4,
+      1.4666666666666666,
+      1.5333333333333334,
+      1.6,
+      1.6666666666666667,
+      1.7333333333333334,
+      1.8,
+      1.8666666666666667,
+      1.9333333333333333,
+      2.0,
+      2.066666666666667,
+      2.1333333333333333,
+      2.2,
+      2.2666666666666666,
+      2.3333333333333335,
+      2.4,
+      2.466666666666667,
+      2.533333333333333,
+      2.6,
+      2.6666666666666665,
+      2.7333333333333334,
+      2.8,
+      2.8666666666666667,
+      2.933333333333333,
+      3.0,
+      3.066666666666667,
+      3.1333333333333333,
+      3.2
+    ],
+    "disk_bytes": 152715
+  },
+  "C": {
+    "files": "C_density/frames/density_NNN.f16, NNN=000..048",
+    "dtype": "IEEE 754 binary16, little-endian, headerless",
+    "resolution_xyz": [
+      64,
+      32,
+      64
+    ],
+    "voxel_spacing_m": [
+      0.1,
+      0.1,
+      0.1
+    ],
+    "array_shape_zyx": [
+      64,
+      32,
+      64
+    ],
+    "ordering": "X fastest, then Y, then Z; NumPy C-contiguous [z,y,x]",
+    "byte_offset": "2*((z*32+y)*64+x)",
+    "bytes_per_frame": 262144,
+    "frame_count": 49,
+    "timestamps_s": [
+      0.0,
+      0.06666666666666667,
+      0.13333333333333333,
+      0.2,
+      0.26666666666666666,
+      0.3333333333333333,
+      0.4,
+      0.4666666666666667,
+      0.5333333333333333,
+      0.6,
+      0.6666666666666666,
+      0.7333333333333333,
+      0.8,
+      0.8666666666666667,
+      0.9333333333333333,
+      1.0,
+      1.0666666666666667,
+      1.1333333333333333,
+      1.2,
+      1.2666666666666666,
+      1.3333333333333333,
+      1.4,
+      1.4666666666666666,
+      1.5333333333333334,
+      1.6,
+      1.6666666666666667,
+      1.7333333333333334,
+      1.8,
+      1.8666666666666667,
+      1.9333333333333333,
+      2.0,
+      2.066666666666667,
+      2.1333333333333333,
+      2.2,
+      2.2666666666666666,
+      2.3333333333333335,
+      2.4,
+      2.466666666666667,
+      2.533333333333333,
+      2.6,
+      2.6666666666666665,
+      2.7333333333333334,
+      2.8,
+      2.8666666666666667,
+      2.933333333333333,
+      3.0,
+      3.066666666666667,
+      3.1333333333333333,
+      3.2
+    ],
+    "uncompressed_sequence_bytes": 12845056,
+    "two_frame_GPU_bytes": 524288,
+    "density": "linear nonnegative dimensionless native Pyro density; same scale as source; not sRGB",
+    "numeric_minmax": [
+      0,
+      5.5703125
+    ],
+    "consistent_scale": 1.0,
+    "voxel_centres": "boundsMin + (indexXYZ + 0.5)*0.1 metres",
+    "texture_mapping": "uvw=(worldPosition-boundsMin)/(boundsMax-boundsMin); no swizzle, mirror, Y flip or Z flip",
+    "empty": 0,
+    "boundary": "return 0 outside bounds; trilinear inside; explicitly zero border outside; no repeat",
+    "time_sampling": "clamp t to [0,3.2]; f=15*t; i=floor(f), j=min(i+1,48); linearly blend density; no looping for a one-shot burst",
+    "integration": "alphaStep=1-exp(-sigmaT*density*stepLengthMetres); review sigmaT=2.2 per metre per density; front-to-back Beer-Lambert; final Bevy lighting owned by runtime",
+    "disk_bytes": 12845056
+  }
+}
