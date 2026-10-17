@@ -4037,6 +4037,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "doric-column"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "avian3d",
+ "bevy",
+ "building-components",
+ "building-physics",
+ "ground",
+ "lod",
+ "lod-avian",
+ "material-ref",
+ "rigs",
+ "scene-ref",
+]
+
+[[package]]
+name = "doric-column-playground"
+version = "0.1.3"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "doric-column",
+ "material-ref",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
