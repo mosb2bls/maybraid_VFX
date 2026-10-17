@@ -13,7 +13,7 @@ use std::path::Path;
 
 use crate::concept::{
 	Concept, ConceptId, ConceptRelation, ConceptUniverse, EnglishSenseLookup, NeighborhoodRequest,
-	Pos, RelationKind,
+	OverlayTag, Pos, RelationKind,
 };
 use crate::error::LanguageError;
 
@@ -31,9 +31,6 @@ pub const WORDNET_CITATION: &str =
 
 /// Overlay tag for the copular classification predicate.
 pub const CLASSIFIED_AS_TAG: u32 = 0xC1A5_51F1;
-/// Overlay tag prefix space for proper names (hashed into 24 bits).
-const PROPER_NAME_TAG_MASK: u32 = 0x00FF_FFFF;
-
 /// Canonical concept universe backed by WordNet synsets plus a thin overlay.
 pub struct WordNetConceptUniverse {
 	dict: WordNetDict,
@@ -73,7 +70,7 @@ impl WordNetConceptUniverse {
 			if key.is_empty() {
 				continue;
 			}
-			let id = ConceptId::overlay(proper_name_tag(&key));
+			let id = OverlayTag::from_key(&key).concept_id();
 			self.proper_names.insert(key.clone(), id);
 			self.overlay_glosses.insert(id, vec![key]);
 			if let Some(person) = person {
@@ -99,7 +96,7 @@ impl WordNetConceptUniverse {
 			if key.is_empty() {
 				continue;
 			}
-			let id = ConceptId::overlay(proper_name_tag(&key));
+			let id = OverlayTag::from_key(&key).concept_id();
 			self.proper_names.entry(key.clone()).or_insert(id);
 			self.overlay_glosses.entry(id).or_insert_with(|| vec![key]);
 		}
@@ -259,13 +256,4 @@ impl EnglishSenseLookup for WordNetConceptUniverse {
 
 pub fn normalize_lemma(term: &str) -> String {
 	term.trim().to_ascii_lowercase().replace(' ', "_")
-}
-
-fn proper_name_tag(lemma: &str) -> u32 {
-	let mut hash = 2166136261_u32;
-	for byte in lemma.as_bytes() {
-		hash ^= u32::from(*byte);
-		hash = hash.wrapping_mul(16777619);
-	}
-	hash & PROPER_NAME_TAG_MASK
 }
