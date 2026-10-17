@@ -109,6 +109,7 @@ impl HcsgStorage {
 	}
 
 	/// Sets `T`'s spatial base scale, rebuilding its index if it exists.
+	#[cfg(any(test, feature = "test-support"))]
 	pub fn configure<T: HcsgValue>(&self, base_scale: DVec3) -> &Self {
 		write(&self.0.base_scales).insert(TypeId::of::<T>(), base_scale);
 		if let Some(store) = self.store::<T>() {
