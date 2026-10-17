@@ -21,6 +21,7 @@ firearms-components = { workspace = true }
 grenades = { workspace = true }
 lod = { workspace = true }
 material-ref = { workspace = true }
+scene-ref = { workspace = true }
 screen-capture = { workspace = true }
 
 [dev-dependencies]

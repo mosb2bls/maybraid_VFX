@@ -658,3 +658,92 @@ fn local_query_clone_timing() {
 		id_elapsed,
 	);
 }
+
+#[test]
+fn replace_if_changed_preserves_affiliations() {
+	let source = guard_affiliations(ThreatId(7));
+	let mut stored = source.clone();
+	stored.replace_if_changed(&source);
+	assert_eq!(stored, source);
+}
+
+/// `cargo test -p threat-intelligence observe_reconcile_memberships_timing --release -- --ignored --nocapture`
+#[test]
+#[ignore = "microbench"]
+fn observe_reconcile_memberships_timing() {
+	const KNOWN_COUNT: usize = 64;
+	const OBSERVES: usize = 200_000;
+	const RECONCILES: usize = 20_000;
+
+	let mut registry = ThreatRegistry::default();
+	let recipient = ffa_affiliations(ThreatId(1));
+	let mut records = Vec::with_capacity(KNOWN_COUNT);
+	for index in 0..KNOWN_COUNT {
+		let id = ThreatId(index as u64 + 10);
+		let affiliations = guard_affiliations(id);
+		let position = Vec3::new(index as f32, 0.0, 0.0);
+		registry
+			.upsert(
+				Entity::from_bits(index as u64 + 100),
+				ThreatSubject::new(id),
+				&affiliations,
+				position,
+			)
+			.expect("upsert threat");
+		records.push(registry.get(id).expect("indexed").clone());
+	}
+
+	let mut knowledge = ThreatKnowledge::default();
+	for record in &records {
+		knowledge
+			.observe(record, &recipient, ThreatSource::LOCAL_SCAN, 1.0, 0.0, 0.0)
+			.expect("observe");
+	}
+
+	let steady_record = &records[0];
+	let legacy_assign = {
+		let mut stored: Affiliations;
+		let start = std::time::Instant::now();
+		for _ in 0..OBSERVES {
+			stored = steady_record.affiliations.clone();
+			std::hint::black_box(&stored);
+		}
+		start.elapsed()
+	};
+
+	let optimized_assign = {
+		let mut stored = steady_record.affiliations.clone();
+		let start = std::time::Instant::now();
+		for _ in 0..OBSERVES {
+			stored.replace_if_changed(&steady_record.affiliations);
+			std::hint::black_box(&stored);
+		}
+		start.elapsed()
+	};
+
+	let legacy_reconcile_start = std::time::Instant::now();
+	for _ in 0..RECONCILES {
+		for record in &records {
+			if knowledge.get(record.id).is_some() {
+				std::hint::black_box(record.affiliations.clone());
+			}
+		}
+	}
+	let legacy_reconcile = legacy_reconcile_start.elapsed();
+
+	let reconcile_start = std::time::Instant::now();
+	for _ in 0..RECONCILES {
+		knowledge.reconcile_registry(&registry);
+	}
+	let optimized_reconcile = reconcile_start.elapsed();
+
+	eprintln!(
+		"observe_reconcile_memberships_timing: {KNOWN_COUNT} known — legacy assign {:?}, replace_if_changed {:?} ({:.2}x); legacy reconcile {:?}, optimized reconcile {:?} ({:.2}x)",
+		legacy_assign,
+		optimized_assign,
+		legacy_assign.as_secs_f64() / optimized_assign.as_secs_f64(),
+		legacy_reconcile,
+		optimized_reconcile,
+		legacy_reconcile.as_secs_f64() / optimized_reconcile.as_secs_f64(),
+	);
+}

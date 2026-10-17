@@ -15,6 +15,11 @@ use crate::{
 /// How many garments character creation rolls before the body editor.
 pub const STARTER_CLOTHING_COUNT: usize = 3;
 
+/// Capture-id label for the always-equipped Self Lubikan catalog tile.
+///
+/// Lubikans are not bag items; this label only keys the scene-captured icon.
+pub const SELF_LUBIKAN_CAPTURE_LABEL: &str = "self-lubikan";
+
 /// How many firearms character creation rolls into the bag.
 pub const STARTER_WEAPON_COUNT: usize = 2;
 
@@ -443,10 +448,19 @@ impl Inventory {
 	/// No-op when fewer than two weapons are queued. Returns whether the
 	/// primary changed.
 	pub fn swap_active(&mut self) -> bool {
+		self.cycle_weapons(1)
+	}
+
+	/// Rotate the equipped weapon queue. `dir >= 0` advances; `dir < 0` goes back.
+	pub fn cycle_weapons(&mut self, dir: i8) -> bool {
 		if self.weapons.len() < 2 {
 			return false;
 		}
-		self.weapons.rotate_left(1);
+		if dir < 0 {
+			self.weapons.rotate_right(1);
+		} else {
+			self.weapons.rotate_left(1);
+		}
 		true
 	}
 
@@ -506,7 +520,7 @@ impl Inventory {
 		self.take_indices(&keep)
 	}
 
-	fn take_indices(&mut self, keep: &[usize]) -> Self {
+	pub(crate) fn take_indices(&mut self, keep: &[usize]) -> Self {
 		let len = self.items.len();
 		let is_kept = |index: usize| keep.binary_search(&index).is_ok();
 		let clothing = std::mem::take(&mut self.clothing);
@@ -768,6 +782,11 @@ pub fn icon_catalog_key_for_label(label: &str) -> u64 {
 		hash = hash.wrapping_mul(FNV_PRIME);
 	}
 	ITEM_ICON_CATALOG_TAG | (hash & 0x0000_FFFF_FFFF_FFFF)
+}
+
+/// Catalog thumbnail key for the Self Lubikan tile.
+pub fn self_lubikan_catalog_key() -> u64 {
+	icon_catalog_key_for_label(SELF_LUBIKAN_CAPTURE_LABEL)
 }
 
 fn remap_selected(selected: &[usize], remap: &[Option<usize>]) -> Vec<usize> {
@@ -1219,6 +1238,11 @@ mod tests {
 			),
 			key
 		);
+		assert_eq!(
+			self_lubikan_catalog_key(),
+			icon_catalog_key_for_label(SELF_LUBIKAN_CAPTURE_LABEL)
+		);
+		assert_ne!(self_lubikan_catalog_key(), key);
 		Ok(())
 	}
 

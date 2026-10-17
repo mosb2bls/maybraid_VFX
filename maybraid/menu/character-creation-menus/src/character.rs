@@ -1,4 +1,4 @@
-use character_items::{Inventory, InventoryItem};
+use character_items::{Inventory, InventoryDropPolicy, InventoryItem};
 use character_ui_menu::{
 	CameraFocus, LabelOption, ListValues, MenuComponent, MenuNode, SingleSelect,
 };
@@ -49,7 +49,7 @@ use crate::{
 	},
 	cycle_value,
 	event::{AssetValue, CharacterField, MenuEvent, SectionId, SwatchValue},
-	shared::{clothing_menu_from_inventory, loadout_section, skills_catalog, weapons_catalog},
+	shared::{clothing_menu_from_inventory, inventory_overlay_key, loadout_section},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -320,10 +320,35 @@ impl CharacterMenu {
 			}
 		};
 		menu.name = name;
-		menu.inventory = Some(inventory);
+		menu.set_inventory(inventory);
 		menu.appearance_locked = true;
-		menu.sync_inventory_clothing();
 		menu
+	}
+
+	/// Replace the bag copy and keep species clothing menus in sync.
+	pub fn set_inventory(&mut self, inventory: Inventory) {
+		self.inventory = Some(inventory);
+		self.sync_inventory_clothing();
+	}
+
+	/// Remove `index` under `policy`. Hosts pass the resolved drop policy so
+	/// this mutation is authoritative — not a hardcoded placeholder.
+	pub fn apply_drop(&mut self, index: usize, policy: InventoryDropPolicy) -> bool {
+		let Some(inventory) = self.inventory.as_mut() else {
+			return false;
+		};
+		if inventory.try_drop(index, policy).is_err() {
+			return false;
+		}
+		self.sync_inventory_clothing();
+		true
+	}
+
+	pub fn apply_with_policy(&mut self, event: MenuEvent, policy: InventoryDropPolicy) -> bool {
+		match event {
+			MenuEvent::DropInventory(index) => self.apply_drop(index, policy),
+			other => self.apply(other),
+		}
 	}
 
 	pub fn appearance(&self) -> CharacterAppearance {
@@ -359,14 +384,10 @@ impl CharacterMenu {
 		self.appearance_locked
 	}
 
-	/// Overlay interiors for body catalogs stay visible when locked; clothing
-	/// and weapons stay editable.
+	/// Overlay interiors for body catalogs stay visible when locked; inventory
+	/// stays editable (wear / queue / drop).
 	pub fn overlay_editable(&self, key: &str) -> bool {
-		!self.appearance_locked()
-			|| key == "Clothing"
-			|| key == "Weapons"
-			|| key == "Skill Maps"
-			|| key == "Loadout"
+		!self.appearance_locked() || inventory_overlay_key(key)
 	}
 
 	fn sync_inventory_clothing(&mut self) {
@@ -1421,9 +1442,10 @@ impl CharacterMenu {
 	}
 
 	/// Lowers the currently selected species menu; the other species' state is
-	/// retained but not part of the tree.
+	/// retained but not part of the tree. When the bag is present, Clothing
+	/// lives under Inventory instead of the species subtree.
 	fn species_node(&self) -> MenuNode<MenuEvent> {
-		match self.species.value {
+		let node = match self.species.value {
 			ConceptSpecies::Braidman => self.braidman.menu_node(),
 			ConceptSpecies::Brenal => self.brenal.menu_node(),
 			ConceptSpecies::Caole => self.caole.menu_node(),
@@ -1452,6 +1474,11 @@ impl CharacterMenu {
 			ConceptSpecies::Thumplus => self.thumplus.menu_node(),
 			ConceptSpecies::Mistler => self.mistler.menu_node(),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.menu_node(),
+		};
+		if self.inventory.is_some() {
+			omit_clothing_section(node)
+		} else {
+			node
 		}
 	}
 
@@ -1627,6 +1654,9 @@ impl CharacterMenu {
 				self.sync_inventory_clothing();
 				return true;
 			}
+			MenuEvent::DropInventory(index) => {
+				return self.apply_drop(index, InventoryDropPolicy::PLACEHOLDER);
+			}
 			MenuEvent::ToggleClothing(_) if self.inventory.is_some() => return false,
 			MenuEvent::ToggleSection(_) => return false,
 			_ if self.appearance_locked() && !event.edits_inventory() => return false,
@@ -1709,7 +1739,10 @@ impl CharacterMenu {
 	}
 
 	pub fn camera_focus_for_event(&self, event: MenuEvent) -> Option<CameraFocus> {
-		if matches!(event, MenuEvent::ToggleInventory(_) | MenuEvent::SetSpecies(_)) {
+		if matches!(
+			event,
+			MenuEvent::ToggleInventory(_) | MenuEvent::DropInventory(_) | MenuEvent::SetSpecies(_)
+		) {
 			return Some(self.body_preview_focus());
 		}
 		let field = match event {
@@ -1833,9 +1866,10 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::SetSwatch(_, _) | MenuEvent::Cycle(_, _) | MenuEvent::ToggleInventory(_) => {
-				false
-			}
+			MenuEvent::SetSwatch(_, _)
+			| MenuEvent::Cycle(_, _)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -1908,7 +1942,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -1968,7 +2003,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2032,7 +2068,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2092,7 +2129,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2148,7 +2186,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2208,7 +2247,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2281,7 +2321,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2354,7 +2395,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2435,7 +2477,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2498,7 +2541,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2562,7 +2606,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2625,7 +2670,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2688,7 +2734,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2747,7 +2794,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2810,7 +2858,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2873,7 +2922,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2936,7 +2986,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2999,7 +3050,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3062,7 +3114,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3125,7 +3178,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3204,7 +3258,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3271,7 +3326,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3346,7 +3402,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3361,7 +3418,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::GrenerBodyColor, SwatchValue::GrenerBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3384,7 +3443,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::ThumplusBodyColor, SwatchValue::ThumplusBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3407,7 +3468,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::MistlerBodyColor, SwatchValue::MistlerBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3502,9 +3565,10 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::SetSwatch(_, _) | MenuEvent::Cycle(_, _) | MenuEvent::ToggleInventory(_) => {
-				false
-			}
+			MenuEvent::SetSwatch(_, _)
+			| MenuEvent::Cycle(_, _)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 }
@@ -3572,11 +3636,30 @@ impl MenuComponent<MenuEvent> for CharacterMenu {
 			),
 		];
 		if let Some(inventory) = &self.inventory {
-			nodes.push(MenuNode::section("Weapons", weapons_catalog(inventory)));
-			nodes.push(MenuNode::section("Skill Maps", skills_catalog(inventory)));
+			nodes.push(crate::InventoryLayout::character_menu(inventory).node);
 			nodes.push(loadout_section(inventory));
 		}
 		MenuNode::fragment(nodes)
+	}
+}
+
+fn omit_clothing_section(node: MenuNode<MenuEvent>) -> MenuNode<MenuEvent> {
+	match node {
+		MenuNode::Fragment(children) => {
+			MenuNode::fragment(children.into_iter().filter_map(omit_clothing_child))
+		}
+		other => omit_clothing_child(other).unwrap_or_else(|| MenuNode::fragment([])),
+	}
+}
+
+fn omit_clothing_child(node: MenuNode<MenuEvent>) -> Option<MenuNode<MenuEvent>> {
+	match node {
+		MenuNode::Section { label: "Clothing", .. } => None,
+		MenuNode::Fragment(children) => {
+			let kept: Vec<_> = children.into_iter().filter_map(omit_clothing_child).collect();
+			(!kept.is_empty()).then(|| MenuNode::fragment(kept))
+		}
+		other => Some(other),
 	}
 }
 

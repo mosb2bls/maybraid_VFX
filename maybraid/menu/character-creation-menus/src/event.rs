@@ -383,6 +383,8 @@ pub enum MenuEvent {
 	SliderDelta(CharacterField, f32),
 	ToggleClothing(ClothingMesh),
 	ToggleInventory(usize),
+	/// Remove bag index after the host confirms (or skips confirm).
+	DropInventory(usize),
 	SetSwatch(CharacterField, SwatchValue),
 	Save,
 }
@@ -393,6 +395,7 @@ impl MenuEvent {
 		matches!(
 			self,
 			Self::ToggleInventory(_)
+				| Self::DropInventory(_)
 				| Self::SetSwatch(CharacterField::Clothing(_), _)
 				| Self::SetAsset(CharacterField::ClothingMaterial(_), _)
 				| Self::Cycle(CharacterField::ClothingMaterial(_), _)

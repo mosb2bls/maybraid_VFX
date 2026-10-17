@@ -5,7 +5,7 @@ use routing_intelligence::RoutingSystems;
 
 use crate::{
 	complete_poi_goals, discover_pois, drive_poi_goals, ingest_poi_observations, refresh_poi_goals,
-	sync_poi_registry, PoiGoalCompleted, PoiObservation, PoiRegistry,
+	sync_poi_registry, DistantTilePoiLookup, PoiGoalCompleted, PoiObservation, PoiRegistry,
 };
 
 /// How many due learners may run a local / global scan on one Discover tick.
@@ -39,6 +39,7 @@ pub struct PoiIntelligencePlugin;
 impl Plugin for PoiIntelligencePlugin {
 	fn build(&self, app: &mut App) {
 		app.init_resource::<PoiRegistry>()
+			.init_resource::<DistantTilePoiLookup>()
 			.init_resource::<IntelligencePriority>()
 			.init_resource::<PoiDiscoverLimits>()
 			.add_message::<PoiObservation>()

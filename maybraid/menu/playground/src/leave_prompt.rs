@@ -4,14 +4,16 @@ use bevy::prelude::*;
 use bevy::text::Justify;
 use character_persist::SaveRoot;
 use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad, PadButton, VirtualPad};
-use menu_components::theme::{HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW};
+use menu_components::theme::{
+	menu_list_panel_node, menu_region_wash, HEADER_FONT_SIZE, PANEL_ROW_GAP, TEXT_YELLOW,
+};
 use menu_components::{
 	emit_short_text_submit_on_confirm, spawn_hud_action, spawn_hud_text, HudFonts, HudMenu,
 	HudMenuItem, HudOverlayMenu, MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer,
 	MenuModalStack, MenuModalSystems, ScreenBackPressed, TextMenuSystems,
 };
 
-use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
+use crate::character::{save_chrome, CharacterEditBaseline, CharacterMenuState, CharacterScreen};
 use crate::session::{
 	leave_character_editor, save_editing_character, set_active_character, CharacterEditorReturn,
 	EditingCharacter,
@@ -119,13 +121,37 @@ pub fn character_leave_edge(
 	None
 }
 
+/// Confirm only when the Save chrome is up (create, or a dirty saved edit).
+/// A clean saved character — including one just written by Save Changes —
+/// leaves immediately.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CharacterLeaveDecision {
+	Prompt(CharacterLeaveKind),
+	Leave,
+}
+
+pub fn character_leave_decision(
+	kind: CharacterLeaveKind,
+	needs_save: bool,
+) -> CharacterLeaveDecision {
+	if needs_save {
+		CharacterLeaveDecision::Prompt(kind)
+	} else {
+		CharacterLeaveDecision::Leave
+	}
+}
+
 fn intercept_character_leave_edges(
 	mut prompt: ResMut<CharacterLeavePrompt>,
 	mut stack: ResMut<MenuModalStack>,
 	mut nav: ResMut<MenuNavPad>,
 	pad: Option<Res<VirtualPad>>,
+	menu_state: Option<Res<CharacterMenuState>>,
+	baseline: Option<Res<CharacterEditBaseline>>,
+	return_to: Option<Res<CharacterEditorReturn>>,
 	screens: Query<(), With<CharacterScreen>>,
 	mut backs: MessageReader<ScreenBackPressed>,
+	mut commands: Commands,
 ) {
 	prompt.opened_this_frame = false;
 	let back_click = backs.read().next().is_some();
@@ -135,13 +161,22 @@ fn intercept_character_leave_edges(
 	let Some(kind) = character_leave_edge(!screens.is_empty(), hold, false, start, back) else {
 		return;
 	};
-	prompt.open(kind, &mut stack);
 	match kind {
 		CharacterLeaveKind::Save | CharacterLeaveKind::SaveFailed => {
 			nav.events.retain(|event| *event != MenuNav::Select);
 		}
 		CharacterLeaveKind::Discard => {
 			nav.events.retain(|event| *event != MenuNav::Back);
+		}
+	}
+	let needs_save = menu_state
+		.as_ref()
+		.is_none_or(|menu| save_chrome(&menu.0, baseline.as_deref()).is_some());
+	match character_leave_decision(kind, needs_save) {
+		CharacterLeaveDecision::Prompt(kind) => prompt.open(kind, &mut stack),
+		CharacterLeaveDecision::Leave => {
+			stack.mark_consumed();
+			leave_character_editor(&mut commands, return_to.as_deref().copied());
 		}
 	}
 }
@@ -239,58 +274,52 @@ fn spawn_leave_prompt(
 					height: Val::Percent(100.0),
 					..default()
 				},
-				BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
+				BackgroundColor(menu_region_wash()),
 			));
-			root.spawn((
-				Node {
-					width: Val::Px(720.0),
-					max_width: Val::Percent(92.0),
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::FlexStart,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					..default()
-				},
-				Pickable::default(),
-			))
-			.with_children(|card| {
-				spawn_hud_text(
-					card,
-					fonts.header(HEADER_FONT_SIZE * 0.42),
-					title,
-					TEXT_YELLOW,
-					Justify::Left,
-				);
-				let mut list = card.spawn((
-					CharacterLeavePromptMenu,
-					HudOverlayMenu,
-					HudMenu::new(2),
-					Node {
-						width: Val::Percent(100.0),
-						flex_direction: FlexDirection::Column,
-						align_items: AlignItems::FlexStart,
-						row_gap: Val::Px(PANEL_ROW_GAP),
-						..default()
-					},
-					Pickable::IGNORE,
-				));
-				let menu = list.id();
-				list.with_children(|list| {
-					spawn_hud_action(
-						list,
-						fonts,
-						confirm,
-						JustifyContent::FlexStart,
-						(LeavePromptConfirm, HudMenuItem { index: 0, menu }),
+			let mut card = menu_list_panel_node(AlignItems::FlexStart);
+			card.width = Val::Px(720.0);
+			card.max_width = Val::Percent(92.0);
+			card.row_gap = Val::Px(PANEL_ROW_GAP);
+			root.spawn((card, BackgroundColor(menu_region_wash()), Pickable::default()))
+				.with_children(|card| {
+					spawn_hud_text(
+						card,
+						fonts.header(HEADER_FONT_SIZE * 0.42),
+						title,
+						TEXT_YELLOW,
+						Justify::Left,
 					);
-					spawn_hud_action(
-						list,
-						fonts,
-						"Cancel",
-						JustifyContent::FlexStart,
-						(LeavePromptCancel, HudMenuItem { index: 1, menu }),
-					);
+					let mut list = card.spawn((
+						CharacterLeavePromptMenu,
+						HudOverlayMenu,
+						HudMenu::new(2),
+						Node {
+							width: Val::Percent(100.0),
+							flex_direction: FlexDirection::Column,
+							align_items: AlignItems::FlexStart,
+							row_gap: Val::Px(PANEL_ROW_GAP),
+							..default()
+						},
+						Pickable::IGNORE,
+					));
+					let menu = list.id();
+					list.with_children(|list| {
+						spawn_hud_action(
+							list,
+							fonts,
+							confirm,
+							JustifyContent::FlexStart,
+							(LeavePromptConfirm, HudMenuItem { index: 0, menu }),
+						);
+						spawn_hud_action(
+							list,
+							fonts,
+							"Cancel",
+							JustifyContent::FlexStart,
+							(LeavePromptCancel, HudMenuItem { index: 1, menu }),
+						);
+					});
 				});
-			});
 		});
 }
 
@@ -493,8 +522,9 @@ fn pointer_target(
 #[cfg(test)]
 mod tests {
 	use super::{
-		character_leave_edge, close_leave_on_modal_dismiss, intercept_character_leave_edges,
-		CharacterLeaveKind, CharacterLeavePrompt, CharacterLeavePromptMenu,
+		character_leave_decision, character_leave_edge, close_leave_on_modal_dismiss,
+		intercept_character_leave_edges, CharacterLeaveDecision, CharacterLeaveKind,
+		CharacterLeavePrompt, CharacterLeavePromptMenu,
 	};
 	use crate::character::{CharacterEditBaseline, CharacterMenuState, CharacterScreen};
 	use crate::session::{
@@ -536,6 +566,30 @@ mod tests {
 		prompt.close(&mut stack);
 		assert!(!prompt.is_open());
 		assert!(!stack.contains(MenuModalId::CHARACTER_LEAVE));
+	}
+
+	#[test]
+	fn clean_editor_leaves_without_a_prompt() {
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Discard, false),
+			CharacterLeaveDecision::Leave
+		);
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Save, false),
+			CharacterLeaveDecision::Leave
+		);
+	}
+
+	#[test]
+	fn dirty_or_create_editor_still_confirms_leave() {
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Discard, true),
+			CharacterLeaveDecision::Prompt(CharacterLeaveKind::Discard)
+		);
+		assert_eq!(
+			character_leave_decision(CharacterLeaveKind::Save, true),
+			CharacterLeaveDecision::Prompt(CharacterLeaveKind::Save)
+		);
 	}
 
 	#[test]
