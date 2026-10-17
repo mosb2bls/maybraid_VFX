@@ -18,8 +18,6 @@ use crate::developments::site::DevelopmentSite;
 use crate::developments::RichmondDevelopment;
 use crate::ground::RichmondGround;
 use crate::host::DevelopmentHosts;
-use crate::storage::column_bounds;
-
 /// Buildings fitted to one filled [`RichmondDevelopment`] over ground `G`.
 pub struct Built<G> {
 	pub development: BuiltDevelopment,
@@ -59,8 +57,8 @@ impl<G: RichmondGround> hcsg::GenerationScheme for Built<G> {
 	}
 
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let development = cx.get_or_generate::<RichmondDevelopment<G>>(id)?;
-		Some((Self::fit(id, &development)?, column_bounds(development.cell())))
+		let (development, bounds) = cx.get_or_generate_stored::<RichmondDevelopment<G>>(id)?;
+		Some((Self::fit(id, &development)?, bounds))
 	}
 }
 

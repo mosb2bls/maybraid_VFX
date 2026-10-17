@@ -49,8 +49,8 @@ pub use user::{
 	SkillMapSession, SkillMapSteerLock, SkillMapUser, SkillMapUserSettings,
 };
 pub use viewport::{
-	spawn_skill_map_view, Debraid, SkillMapViewport, SpawnedSkillMapView, SKILL_MAP_RB_ICON,
-	SKILL_MAP_RT_ICON, SKILL_MAP_Y_ICON,
+	spawn_skill_map_view, Debraid, SkillMapFirearmHud, SkillMapViewport, SpawnedSkillMapView,
+	SKILL_MAP_RB_ICON, SKILL_MAP_RT_ICON, SKILL_MAP_Y_ICON,
 };
 
 /// When `false`, the map is hidden and claims / steering are ignored.

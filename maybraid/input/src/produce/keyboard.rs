@@ -75,13 +75,7 @@ fn produce_gameplay_keys(keyboard: &ButtonInput<KeyCode>, pad: &mut VirtualPad) 
 	if keyboard.pressed(KeyCode::KeyY) {
 		pad.hold_digital(PadButton::Y);
 	}
-	// Brackets cycle skill maps. Arrows already walk and feed the analog D-Pad.
-	if keyboard.pressed(KeyCode::BracketLeft) {
-		pad.hold_digital(PadButton::DpadLeft);
-	}
-	if keyboard.pressed(KeyCode::BracketRight) {
-		pad.hold_digital(PadButton::DpadRight);
-	}
+	// Brackets cycle the active equipped queue in character intent production.
 }
 
 /// Letter keys type. Arrows move the focused menu / keypad; Escape backs out;
@@ -93,6 +87,9 @@ fn produce_menu_keys(keyboard: &ButtonInput<KeyCode>, pad: &mut VirtualPad) {
 	}
 	if keyboard.pressed(KeyCode::Enter) {
 		pad.hold_digital(PadButton::Start);
+	}
+	if keyboard.pressed(KeyCode::KeyE) || keyboard.pressed(KeyCode::KeyX) {
+		pad.hold_digital(PadButton::X);
 	}
 }
 
@@ -202,17 +199,6 @@ mod tests {
 		assert!(pad.digital_held(PadButton::BumperFire));
 	}
 
-	#[test]
-	fn brackets_hold_dpad() {
-		let mut pad = VirtualPad::default();
-		let mut keyboard = ButtonInput::<KeyCode>::default();
-		keyboard.press(KeyCode::BracketLeft);
-		if keyboard.pressed(KeyCode::BracketLeft) {
-			pad.hold_digital(PadButton::DpadLeft);
-		}
-		assert!(pad.digital_held(PadButton::DpadLeft));
-	}
-
 	fn produce_app(map: KeyboardPadMap) -> App {
 		let mut app = App::new();
 		app.init_resource::<ButtonInput<KeyCode>>()
@@ -251,5 +237,14 @@ mod tests {
 		assert!(pad.digital_held(PadButton::DpadUp));
 		assert!(pad.digital_held(PadButton::B));
 		assert!(pad.dpad.y > 0.0);
+	}
+
+	#[test]
+	fn menu_map_e_and_x_hold_drop() {
+		for key in [KeyCode::KeyE, KeyCode::KeyX] {
+			let mut app = produce_app(KeyboardPadMap::Menu);
+			press(&mut app, key);
+			assert!(app.world().resource::<VirtualPad>().digital_held(PadButton::X));
+		}
 	}
 }

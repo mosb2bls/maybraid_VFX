@@ -120,9 +120,12 @@ mod tests {
 		TerrainStampConfigs, WaterMeshAssets, WaterPresentationPlugin, WatershedConfigs,
 	};
 	use lod::gen::{Id, OriginalId};
-	use lod::hcsg::{hcsg_hosts, settle_presentation, HcsgRestartRequest, SettlePresentation};
+	use lod::hcsg::{
+		hcsg_hosts, settle_presentation, wait_replaced_hosts, HcsgDemand, HcsgRestartRequest,
+		SettlePresentation, SettleTimedOut,
+	};
 	use lod::lod_ref::LodNodePose;
-	use lod::LodViewer;
+	use lod::{LodChunkFulfillment, LodLevelSpawnRequest, LodViewer};
 	use terrain_layer_model::OnTerrain;
 	use urbanization_layer_model::UrbanSetting;
 
@@ -268,8 +271,57 @@ mod tests {
 			.collect();
 		assert_eq!(settings.len(), 1);
 		assert_eq!(settings[0].id, id);
+		wait_building_walk_colliders(&mut app, 64)?;
 		assert!(count::<BuildingWalkCollider>(&mut app) > 0, "buildings bear weight");
 		Ok(())
+	}
+
+	/// Building colliders attach after nested host scenes fulfill. Worker-idle
+	/// plus eight frames does not guarantee that under the shared 2 ms drain.
+	fn wait_building_walk_colliders(app: &mut App, max_frames: u32) -> anyhow::Result<()> {
+		for _ in 0..max_frames {
+			if count::<BuildingWalkCollider>(app) > 0 {
+				return Ok(());
+			}
+			app.update();
+			let demand = app.world().resource::<HcsgDemand>().clone();
+			if !demand.wait_idle(IDLE) {
+				return Err(SettleTimedOut { timeout: IDLE }.into());
+			}
+		}
+		let built = hcsg_hosts::<Built<Ground>>(app);
+		let mut states = Vec::new();
+		for (id, _) in &built {
+			let Some(host) = app
+				.world_mut()
+				.query_filtered::<(Entity, &lod::hcsg::HcsgNode<Built<Ground>>), Allow<Disabled>>()
+				.iter(app.world())
+				.find_map(|(entity, node)| (node.id == *id).then_some(entity))
+			else {
+				states.push(format!("{id:?} host missing"));
+				continue;
+			};
+			let spawn = app
+				.world()
+				.get::<LodLevelSpawnRequest>(host)
+				.map(|request| format!("{:?}", request.level));
+			let fulfillment = {
+				let mut jobs =
+					app.world_mut().query_filtered::<&LodChunkFulfillment, Allow<Disabled>>();
+				jobs.iter(app.world()).find(|job| job.host == host).map(|job| {
+					format!("spawned={}/{} queue={}", job.spawned, job.expected, job.queue.len())
+				})
+			};
+			states.push(format!(
+				"{id:?} spawn_request={spawn} fulfillment={fulfillment}",
+				spawn = spawn.as_deref().unwrap_or("none"),
+				fulfillment = fulfillment.as_deref().unwrap_or("none"),
+			));
+		}
+		panic!(
+			"buildings bear weight: missing BuildingWalkCollider after {max_frames} frames; {}",
+			states.join("; ")
+		);
 	}
 
 	#[test]
@@ -281,11 +333,11 @@ mod tests {
 
 		seed_resources(&mut app, 20.0);
 		settle(&mut app)?;
+		let padded_after =
+			wait_replaced_hosts::<PaddedTerrain<Ground>>(&mut app, &padded, IDLE, 64)?;
+		let built_after = wait_replaced_hosts::<Built<Ground>>(&mut app, &built, IDLE, 64)?;
 
-		for (before, after) in [
-			(padded, hcsg_hosts::<PaddedTerrain<Ground>>(&mut app)),
-			(built, hcsg_hosts::<Built<Ground>>(&mut app)),
-		] {
+		for (before, after) in [(padded, padded_after), (built, built_after)] {
 			assert_eq!(after.len(), before.len());
 			for ((id, old), (new_id, new)) in before.iter().zip(&after) {
 				assert_eq!(id, new_id);

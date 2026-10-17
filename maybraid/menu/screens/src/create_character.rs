@@ -1,4 +1,4 @@
-//! Create-a-character flow: starter garments and firearms, then the body editor.
+//! Create-a-character flow: read-only Starter Kit, then the body editor.
 
 use bevy::prelude::*;
 use character_items::{InventoryItem, ItemRng};
@@ -9,7 +9,7 @@ use crate::spin_reveal::{
 	SpinRevealSystems,
 };
 
-/// Queue the create-a-character flow (starter reveal, then the body HUD).
+/// Queue the create-a-character flow (Starter Kit, then the body HUD).
 #[derive(Component, Debug, Clone, Copy)]
 pub struct RequestShowCreateCharacter {
 	pub id: CharacterId,
@@ -33,7 +33,7 @@ pub fn request_show_create_character_id(commands: &mut Commands, id: CharacterId
 	commands.spawn(RequestShowCreateCharacter { id });
 }
 
-/// Drop an in-flight starter reveal so Back from spin-reveal does not create
+/// Drop an in-flight Starter Kit so Back from the grant screen does not create
 /// and does not respawn the spinning screen after the gallery is up.
 pub fn cancel_pending_create(commands: &mut Commands) {
 	commands.remove_resource::<PendingCreate>();

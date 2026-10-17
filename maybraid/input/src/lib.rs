@@ -24,7 +24,10 @@ pub use overlay::PadOverlay;
 pub use pad::VirtualPad;
 pub use rumble::{PadRumble, PadRumbleSystems};
 pub use surface::cursor::PadCursor;
-pub use surface::menu::{MenuNav, MenuNavImpulse, MenuNavPad};
+pub use surface::menu::{
+	MenuNav, MenuNavImpulse, MenuNavPad, INVENTORY_DROP_KEYS, INVENTORY_DROP_PAD, MENU_SELECT_KEYS,
+	MENU_SELECT_PAD,
+};
 
 use bevy::input::InputSystems;
 use bevy::prelude::*;
