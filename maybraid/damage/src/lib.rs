@@ -8,7 +8,7 @@ mod history;
 mod lifecycle;
 
 use bevy::prelude::*;
-use projectiles::{tick_flights, ProjectileContact};
+use projectiles::{ProjectileContact, ProjectileSystems};
 
 pub use apply::apply_hits;
 pub use attribution::{DamageActorId, DamageCredit, ResponsibleOwner};
@@ -217,7 +217,7 @@ impl Plugin for DamagePlugin {
 			.configure_sets(
 				PostUpdate,
 				(
-					DamageSystems::Collect.after(tick_flights),
+					DamageSystems::Collect.after(ProjectileSystems::Sweep),
 					DamageSystems::Apply.after(DamageSystems::Collect),
 					DamageSystems::History.after(DamageSystems::Apply),
 					DamageSystems::Down.after(DamageSystems::History),

@@ -7,8 +7,8 @@
 //! cone and a thin ember jet while the beam is on.
 
 use ::projectiles::{
-	ballistic_after_age, spawn_flight_aged, tick_flights, BoltSpec, BulletSpec, ProjectileContact,
-	ProjectileSource, ProjectileVisualCache, ProjectilesPlugin,
+	ballistic_after_age, spawn_flight_aged, BoltSpec, BulletSpec, ProjectileContact,
+	ProjectileSource, ProjectileSystems, ProjectileVisualCache, ProjectilesPlugin,
 };
 
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
@@ -202,7 +202,7 @@ impl Plugin for FirearmWeaponsPlugin {
 				)
 					.after(TransformSystems::Propagate)
 					.after(FirearmHostSystems::Pose)
-					.after(tick_flights)
+					.after(ProjectileSystems::Sweep)
 					.before(AudioSystems::Sync),
 			);
 	}
