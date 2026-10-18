@@ -27,15 +27,11 @@ use urbanization_cells::{
 use urbanization_layer_model::Urbanization;
 
 use crate::generation::{
-	GroupKind, MobEnvironmentSample, MobGroup, MobPlantHost, MobWorldHosts, MobWorldSample,
+	MobEnvironmentSample, MobGroup, MobPlantHost, MobWorldHosts, MobWorldSample,
 };
 use crate::index::{group_kind, hosts_near, urbanization_weight, MOB_CELL_EXTENT};
 use crate::present::{install_mob_scenes, MobCellRoot, MobGroupRoot};
-use crate::sample::{chico_layers_at, host_at, richmond_kind_at};
-
-fn group_needs_plant_hosts(kind: GroupKind) -> bool {
-	matches!(kind, GroupKind::Frontier | GroupKind::Warfront | GroupKind::Dystopian)
-}
+use crate::sample::{chico_layers_at, host_at};
 use crate::{MobCell, MobCellExtent};
 
 /// Present / generate rings the world stream used (1 km / 3 km).
@@ -95,7 +91,7 @@ struct CellWorld<G: ForestGround> {
 
 impl<G: ForestGround> CellWorld<G> {
 	fn kind_at(&self, xz: Vec2) -> UrbanizationKind {
-		richmond_kind_at(self.urban.noise, self.urban.kind, xz)
+		self.urban.kind_at(xz)
 	}
 }
 
@@ -143,12 +139,8 @@ impl<G: MobGround> hcsg::GenerationScheme for PlacedMobCell<G> {
 			Vec3::from(column.max) + Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 		);
 		let origin = extent.center().xz();
-		let kind = group_kind(richmond_kind_at(urban.noise, urban.kind, origin), seed);
-		let hosts = if group_needs_plant_hosts(kind) {
-			G::plant_hosts(cx, reach)
-		} else {
-			Vec::new()
-		};
+		let kind = group_kind(urban.kind_at(origin), seed);
+		let hosts = if kind.needs_plant_hosts() { G::plant_hosts(cx, reach) } else { Vec::new() };
 		let world = CellWorld { forest, urban, surface, hosts };
 		let group = MobGroup::generate(kind, seed, origin, &world);
 		let bounds = Aabb3d::from_min_max(
@@ -601,12 +593,7 @@ mod tests {
 				Vec3::from(column.min) - Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 				Vec3::from(column.max) + Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 			);
-			let world = CellWorld {
-				forest,
-				urban,
-				surface,
-				hosts: Urban::plant_hosts(cx, reach),
-			};
+			let world = CellWorld { forest, urban, surface, hosts: Urban::plant_hosts(cx, reach) };
 			let origin = extent.center().xz();
 			let kind = group_kind(world.kind_at(origin), seed);
 			let group = MobGroup::generate(kind, seed, origin, &world);
@@ -638,8 +625,8 @@ mod tests {
 					&mut optimized_cx,
 					id,
 				)
-					.ok_or_else(|| anyhow::anyhow!("optimized mob cell {id:?}"))?
-					.0;
+				.ok_or_else(|| anyhow::anyhow!("optimized mob cell {id:?}"))?
+				.0;
 				assert_eq!(
 					mob_snapshot(&legacy),
 					mob_snapshot(&optimized),

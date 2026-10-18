@@ -48,6 +48,12 @@ impl GroupKind {
 	pub const VALUES: [Self; 5] =
 		[Self::Peaceful, Self::Wild, Self::Frontier, Self::Warfront, Self::Dystopian];
 
+	/// Frontier, Warfront, and Dystopian groups plant Guard, Brawler, and Pleb
+	/// families on urban hosts. Other kinds never read the host list.
+	pub const fn needs_plant_hosts(self) -> bool {
+		matches!(self, Self::Frontier | Self::Warfront | Self::Dystopian)
+	}
+
 	pub const fn count_range(self) -> (usize, usize) {
 		match self {
 			Self::Wild => (2, 8),
@@ -187,8 +193,7 @@ fn choose_mob(group: GroupKind, sample: MobEnvironmentSample, rng: &mut GroupRng
 }
 
 fn plants_on_urban_host(group: GroupKind, kind: MobKind) -> bool {
-	matches!(group, GroupKind::Frontier | GroupKind::Warfront | GroupKind::Dystopian)
-		&& matches!(kind, MobKind::Guard | MobKind::Brawler | MobKind::Pleb)
+	group.needs_plant_hosts() && matches!(kind, MobKind::Guard | MobKind::Brawler | MobKind::Pleb)
 }
 
 fn pick_host<'a>(hosts: &'a [MobPlantHost], rng: &mut GroupRng) -> Option<&'a MobPlantHost> {
@@ -336,6 +341,16 @@ mod tests {
 			assert!(xz.distance(host.xz) <= host.arrival_radius + 1e-4);
 			assert_eq!(mob.transform.translation.y, 0.0);
 		}
+	}
+
+	#[test]
+	fn only_urban_family_groups_need_plant_hosts() {
+		assert!(GroupKind::Frontier.needs_plant_hosts());
+		assert!(GroupKind::Warfront.needs_plant_hosts());
+		assert!(GroupKind::Dystopian.needs_plant_hosts());
+		assert!(!GroupKind::Peaceful.needs_plant_hosts());
+		assert!(!GroupKind::Wild.needs_plant_hosts());
+		assert!(!GroupKind::Placed.needs_plant_hosts());
 	}
 
 	#[test]
