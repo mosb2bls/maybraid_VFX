@@ -81,9 +81,15 @@ pub struct HudMenuIgnoresLock;
 
 pub fn select_hud_item_on_over(
 	over: On<Pointer<Over>>,
+	stack: Res<crate::modal::MenuModalStack>,
+	roots: Query<(Entity, &crate::modal::MenuModal)>,
+	child_of: Query<&ChildOf>,
 	items: Query<&HudMenuItem>,
 	mut menus: Query<&mut HudMenu>,
 ) {
+	if !crate::modal::entity_under_nav_owner(over.entity, &stack, &roots, &child_of) {
+		return;
+	}
 	let Ok(item) = items.get(over.entity) else {
 		return;
 	};
@@ -168,6 +174,9 @@ pub fn navigate_hud_menus(
 	keyboard: Res<ButtonInput<KeyCode>>,
 	keyboard_nav: Res<KeyboardMenuNav>,
 	lock: Res<TextMenuInputLock>,
+	stack: Res<crate::modal::MenuModalStack>,
+	roots: Query<(Entity, &crate::modal::MenuModal)>,
+	child_of: Query<&ChildOf>,
 	overlay_menus: Query<Entity, With<HudOverlayMenu>>,
 	mut menus: Query<(Entity, &mut HudMenu)>,
 ) {
@@ -186,6 +195,9 @@ pub fn navigate_hud_menus(
 	let overlay_open = !overlay_menus.is_empty();
 	for (entity, mut menu) in &mut menus {
 		if overlay_open != overlay_menus.contains(entity) {
+			continue;
+		}
+		if !crate::modal::entity_under_nav_owner(entity, &stack, &roots, &child_of) {
 			continue;
 		}
 		menu.step(delta);
@@ -246,5 +258,37 @@ mod tests {
 		assert_eq!(spatial_neighbor(1, MenuNav::Down, &items), Some(4));
 		assert_eq!(spatial_neighbor(4, MenuNav::Up, &items), Some(1));
 		assert_eq!(spatial_neighbor(0, MenuNav::Left, &items), None);
+	}
+
+	#[test]
+	fn keyboard_nav_skips_the_catalog_while_item_drop_owns_nav() {
+		use super::{navigate_hud_menus, HudMenu, HudOverlayMenu};
+		use crate::modal::{MenuModal, MenuModalId, MenuModalLayer, MenuModalStack};
+		use crate::single_select::{KeyboardMenuNav, TextMenuInputLock};
+		use bevy::ecs::system::RunSystemOnce;
+		use bevy::prelude::*;
+
+		let mut world = World::new();
+		world.init_resource::<MenuModalStack>();
+		world.init_resource::<TextMenuInputLock>();
+		world.insert_resource(KeyboardMenuNav(true));
+		let drop_menu = world.spawn((HudMenu::new(2), HudOverlayMenu)).id();
+		let drop_root = world.spawn(MenuModal::ITEM_DROP).id();
+		world.entity_mut(drop_root).add_child(drop_menu);
+		let catalog = world.spawn((HudMenu::new(6), HudOverlayMenu)).id();
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::OVERLAY_SELECT);
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::ITEM_DROP);
+		let mut keys = ButtonInput::<KeyCode>::default();
+		keys.press(KeyCode::ArrowDown);
+		world.insert_resource(keys);
+		world.run_system_once(navigate_hud_menus).expect("nav open");
+		assert_eq!(world.get::<HudMenu>(catalog).expect("catalog").selected, 0);
+		assert_eq!(world.get::<HudMenu>(drop_menu).expect("drop").selected, 1);
+		world.resource_mut::<MenuModalStack>().close(MenuModalId::ITEM_DROP);
+		let mut keys = ButtonInput::<KeyCode>::default();
+		keys.press(KeyCode::ArrowDown);
+		world.insert_resource(keys);
+		world.run_system_once(navigate_hud_menus).expect("nav closed");
+		assert_eq!(world.get::<HudMenu>(catalog).expect("catalog").selected, 1);
 	}
 }

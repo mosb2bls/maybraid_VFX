@@ -51,9 +51,18 @@ impl HcsgStorage {
 		self.blocking_entry::<T>(id)
 	}
 
+	fn contains_impl<T: HcsgValue>(&self, id: Id) -> bool {
+		self.store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
+	}
+
+	#[cfg(not(any(test, feature = "test-support")))]
+	pub(crate) fn contains<T: HcsgValue>(&self, id: Id) -> bool {
+		self.contains_impl::<T>(id)
+	}
+
 	#[cfg(any(test, feature = "test-support"))]
 	pub fn contains<T: HcsgValue>(&self, id: Id) -> bool {
-		self.store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
+		self.contains_impl::<T>(id)
 	}
 
 	#[cfg(any(test, feature = "test-support"))]
@@ -77,9 +86,9 @@ impl HcsgStorage {
 	}
 
 	/// Like [`Self::try_entry`] for each id in `ids`, resolving the typed store
-	/// once. Each id still takes its own store read lock. `Err(Busy)` only when
-	/// the registry lock is busy; if a store read lock is busy mid-batch, the
-	/// returned vec is shorter than `ids` (same as breaking out of a
+	/// once and holding one store read lock for the whole batch. `Err(Busy)`
+	/// only when the registry lock is busy; if the store read lock is busy, the
+	/// returned vec is empty (same as failing on the first id in a
 	/// [`Self::try_entry`] loop).
 	pub fn try_entries<T: HcsgValue>(
 		&self,
@@ -88,14 +97,11 @@ impl HcsgStorage {
 		let Some(store) = self.try_store::<T>()? else {
 			return Ok(vec![None; ids.len()]);
 		};
-		let mut entries = Vec::with_capacity(ids.len());
-		for id in ids {
-			match try_read(&store.nodes) {
-				Ok(nodes) => entries.push(nodes.entry(*id).cloned()),
-				Err(Busy) => break,
-			}
-		}
-		Ok(entries)
+		let nodes = match try_read(&store.nodes) {
+			Ok(nodes) => nodes,
+			Err(Busy) => return Ok(Vec::new()),
+		};
+		Ok(ids.iter().map(|id| nodes.entry(*id).cloned()).collect())
 	}
 
 	/// [`Self::overlapping`] for the frame: never waits on a lock.

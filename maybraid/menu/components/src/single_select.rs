@@ -5,10 +5,9 @@ pub mod text_menu;
 
 pub use text_cursor::{
 	emit_screen_back_on_click, emit_screen_edit_on_click, screen_back_scene, screen_edit_scene,
-	scroll_text_cursor_selection_into_view, sync_screen_edit_cursor, sync_text_cursor_icons,
-	ButtonWithSubtext, MenuObjectiveKind, MenuObjectiveMarker, ScreenBack, ScreenBackPressed,
-	ScreenEdit, ScreenEditPressed, TextCursorColumn, TextCursorMenu, TextCursorRow,
-	TextCursorScroll, TextCursorSlot,
+	scroll_text_cursor_selection_into_view, ButtonWithSubtext, MenuObjectiveKind,
+	MenuObjectiveMarker, ScreenBack, ScreenBackPressed, ScreenEdit, ScreenEditPressed,
+	TextCursorColumn, TextCursorMenu, TextCursorRow, TextCursorScroll,
 };
 pub use text_menu::{
 	apply_text_menu_nav, emit_menu_activate_on_click, emit_menu_activate_on_enter,

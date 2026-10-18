@@ -70,6 +70,12 @@ impl<'a> GenerationContext<'a> {
 		self.reached.insert(TypeId::of::<T>());
 	}
 
+	/// Records `T` on reach and returns whether `id` is already stored.
+	pub(super) fn has_stored<T: HcsgValue>(&mut self, id: Id) -> bool {
+		self.touch::<T>();
+		self.storage.contains::<T>(id)
+	}
+
 	/// Types this context read since it was created.
 	pub(super) fn take_reached(&mut self) -> HashSet<TypeId> {
 		std::mem::take(&mut self.reached)

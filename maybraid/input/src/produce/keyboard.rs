@@ -88,6 +88,9 @@ fn produce_menu_keys(keyboard: &ButtonInput<KeyCode>, pad: &mut VirtualPad) {
 	if keyboard.pressed(KeyCode::Enter) {
 		pad.hold_digital(PadButton::Start);
 	}
+	if keyboard.pressed(KeyCode::KeyE) || keyboard.pressed(KeyCode::KeyX) {
+		pad.hold_digital(PadButton::X);
+	}
 }
 
 fn hold_arrows(keyboard: &ButtonInput<KeyCode>, pad: &mut VirtualPad) {
@@ -234,5 +237,14 @@ mod tests {
 		assert!(pad.digital_held(PadButton::DpadUp));
 		assert!(pad.digital_held(PadButton::B));
 		assert!(pad.dpad.y > 0.0);
+	}
+
+	#[test]
+	fn menu_map_e_and_x_hold_drop() {
+		for key in [KeyCode::KeyE, KeyCode::KeyX] {
+			let mut app = produce_app(KeyboardPadMap::Menu);
+			press(&mut app, key);
+			assert!(app.world().resource::<VirtualPad>().digital_held(PadButton::X));
+		}
 	}
 }

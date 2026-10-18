@@ -187,8 +187,7 @@ impl hcsg::GenerationScheme for Water {
 	}
 
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let bounds = id.origin_cell_bounds()?;
-		let terrain = cx.get_or_generate::<Terrain>(id)?;
+		let (terrain, bounds) = cx.get_or_generate_stored::<Terrain>(id)?;
 		let assets = cx.get_or_generate::<WaterMeshAssets>(Id::Universal)?;
 		Some((Self::over(bounds, &terrain, &assets)?, bounds))
 	}

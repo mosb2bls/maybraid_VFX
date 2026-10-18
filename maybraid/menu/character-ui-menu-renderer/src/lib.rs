@@ -19,8 +19,9 @@ pub mod widgets;
 pub use event::{CharacterMenuEvent, OverlayClose, OverlayOpen};
 pub use justify::MenuJustify;
 pub use overlay::{
-	find_overlay_node, flatten_nodes, is_picker_only, is_select_node, overlay_closes_on_pick,
-	overlay_summary_value, primary_select, render_overlay_body, spawn_overlay_shell,
+	fill_inventory_layout, fill_inventory_loading, find_overlay_node, flatten_nodes,
+	is_picker_only, is_select_node, overlay_closes_on_pick, overlay_summary_value, primary_select,
+	render_overlay_body, spawn_overlay_shell, spawn_starter_kit_shell,
 };
 pub use plugin::{CharacterHudSystems, MaybraidCharacterMenuRendererPlugin};
 pub use sink::{MaybraidMenuSink, MenuSink, MenuThumbnailContext, NoThumbnails, RenderContext};

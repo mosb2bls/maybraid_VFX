@@ -2,12 +2,11 @@
 
 use bevy::prelude::*;
 
-use crate::icons::AnimatedIcon;
-use crate::single_select::TextCursorSlot;
-use crate::theme::{PANEL_CURSOR_ICON_GAP, PANEL_HEADER_CURSOR_ICON_SIZE, PANEL_HEADER_FONT_SIZE};
+use crate::theme::{PANEL_HEADER_FONT_SIZE, TEXT_YELLOW};
 
+use super::focus::{first_focus_tag, paint_focus_tag, spawn_focus_tag, FocusTag};
 use super::hud_menu::{HudMenu, HudMenuItem};
-use super::text::{spawn_cursor_slot_sized, spawn_header_line};
+use super::text::spawn_header_line;
 use super::HudFonts;
 
 /// Marker on a header that opens an overlay select.
@@ -24,7 +23,7 @@ pub struct ActiveOverlayKey(pub Option<&'static str>);
 
 /// Pickable header. `extra` is typically `OpenSelectKey`.
 ///
-/// The cursor starts hidden; [`sync_hud_cursors`] shows it when the row is
+/// The tag starts idle; [`sync_hud_focus_tags`] inverts it when the row is
 /// hovered, focused, or its overlay is open.
 pub fn spawn_section_header(
 	parent: &mut ChildSpawnerCommands,
@@ -48,32 +47,34 @@ pub fn spawn_section_header(
 				flex_direction: FlexDirection::Row,
 				justify_content: justify,
 				align_items: AlignItems::Center,
-				column_gap: Val::Px(PANEL_CURSOR_ICON_GAP),
 				..default()
 			},
 			BackgroundColor(Color::NONE),
 		))
 		.with_children(|row| {
-			spawn_cursor_slot_sized(row, fonts, false, PANEL_HEADER_CURSOR_ICON_SIZE);
-			spawn_header_line(row, fonts, label, value, PANEL_HEADER_FONT_SIZE, color);
+			spawn_focus_tag(row, color, false, |tag| {
+				spawn_header_line(tag, fonts, label, value, PANEL_HEADER_FONT_SIZE, color);
+			});
 		});
 }
 
-/// Marker on HUD rows that reserve a Maybraid select gutter.
+/// Marker on HUD rows that invert a [`FocusTag`] while live.
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct CursorRow;
 
-/// Wink the mark while a cursor row is hovered, focused, or its overlay is open.
-pub fn sync_hud_cursors(
+/// Invert the tag while a cursor row is hovered, focused, or its overlay is open.
+pub fn sync_hud_focus_tags(
 	active: Res<ActiveOverlayKey>,
 	rows: Query<
 		(&Children, Option<&HudMenuItem>, Option<&OverlayHeaderKey>, Option<&Interaction>),
 		Or<(With<CursorRow>, With<OverlayHeader>)>,
 	>,
 	menus: Query<&HudMenu>,
-	slots: Query<(), With<TextCursorSlot>>,
+	tags: Query<(), With<FocusTag>>,
+	tag_idle: Query<&FocusTag>,
 	children: Query<&Children>,
-	mut icons: Query<&mut Visibility, With<AnimatedIcon>>,
+	mut backgrounds: Query<&mut BackgroundColor, With<FocusTag>>,
+	mut colors: Query<&mut TextColor>,
 ) {
 	for (row_children, item, key, interaction) in &rows {
 		let focused = item
@@ -81,18 +82,10 @@ pub fn sync_hud_cursors(
 		let overlay = key.is_some_and(|key| active.0 == Some(key.0));
 		let hovered = matches!(interaction, Some(Interaction::Hovered | Interaction::Pressed));
 		let show = focused || overlay || hovered;
-		for child in row_children {
-			if slots.get(*child).is_err() {
-				continue;
-			}
-			let Ok(slot_children) = children.get(*child) else {
-				continue;
-			};
-			for icon_entity in slot_children {
-				if let Ok(mut visibility) = icons.get_mut(*icon_entity) {
-					*visibility = if show { Visibility::Inherited } else { Visibility::Hidden };
-				}
-			}
-		}
+		let Some(tag) = first_focus_tag(row_children, &tags) else {
+			continue;
+		};
+		let idle = tag_idle.get(tag).map(|tag| tag.idle).unwrap_or(TEXT_YELLOW);
+		paint_focus_tag(tag, show, false, idle, &children, &mut backgrounds, &mut colors);
 	}
 }
