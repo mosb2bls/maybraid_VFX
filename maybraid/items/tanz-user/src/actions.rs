@@ -74,7 +74,6 @@ pub fn healing_salute() -> TanzDefinition {
 		action: TanzAction::Heal { amount: HEALING_SALUTE_AMOUNT },
 		timing: SALUTE_TIMING,
 		clip: AnimClip::jab(),
-		icon: TanzId::HealingSalute.icon_path(),
 	}
 }
 
@@ -85,7 +84,6 @@ pub fn left_strafe() -> TanzDefinition {
 		action: TanzAction::Move { local: Vec2::NEG_X, cruise: 0.0 },
 		timing: MOVE_TIMING,
 		clip: AnimClip::power_strafe_left(),
-		icon: TanzId::LeftStrafe.icon_path(),
 	}
 }
 
@@ -96,7 +94,6 @@ pub fn right_strafe() -> TanzDefinition {
 		action: TanzAction::Move { local: Vec2::X, cruise: 0.0 },
 		timing: MOVE_TIMING,
 		clip: AnimClip::power_strafe_right(),
-		icon: TanzId::RightStrafe.icon_path(),
 	}
 }
 
@@ -107,7 +104,6 @@ pub fn forward_dash() -> TanzDefinition {
 		action: TanzAction::Move { local: Vec2::Y, cruise: FORWARD_DASH_CRUISE },
 		timing: MOVE_TIMING,
 		clip: AnimClip::power_dash(),
-		icon: TanzId::ForwardDash.icon_path(),
 	}
 }
 
@@ -147,7 +143,6 @@ mod tests {
 		assert_eq!(salute.clip.id(), AnimClip::jab().id());
 		assert_eq!(salute.action, TanzAction::Heal { amount: HEALING_SALUTE_AMOUNT });
 		assert_eq!(salute.input.button, TanzButton::APress);
-		assert_eq!(salute.icon, TanzId::HealingSalute.icon_path());
 		Ok(())
 	}
 
@@ -187,11 +182,7 @@ mod tests {
 		// Tanz drives normalized progress from execution age; cycle speed is irrelevant on that path.
 		eprintln!(
 			"forward dash wall time {:.3}s (startup {:.2} + active {:.2} + recovery {:.2}); AnimProgress = age / {:.3}",
-			wall,
-			dash.timing.startup,
-			dash.timing.active,
-			dash.timing.recovery,
-			wall,
+			wall, dash.timing.startup, dash.timing.active, dash.timing.recovery, wall,
 		);
 		Ok(())
 	}
@@ -255,6 +246,10 @@ mod tests {
 		}
 
 		assert_eq!(left_strafe().action, TanzAction::Move { local: Vec2::NEG_X, cruise: 0.0 });
+		eprintln!(
+			"capsule forward travel during active {:.2}s (tanzer, no sprint): {:.3} m @ JOG_SPEED cap {:.1} m/s",
+			timing.active, distance, JOG_SPEED,
+		);
 		assert!(distance > 0.7 && distance < 1.1, "strafe travel changed {distance}");
 		Ok(())
 	}

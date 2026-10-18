@@ -1,9 +1,10 @@
 //! Minimal Standard / Tanzer mode indicator and Tanz trigger callout.
 
 use bevy::prelude::*;
+use item_icons::ItemIconCache;
+use screen_capture::CaptureSubject;
 
 use crate::callout::TanzCallout;
-use crate::stack::TanzId;
 use crate::{ControlMode, TanzUser};
 
 const PANEL: Color = Color::srgba(0.05, 0.05, 0.08, 0.55);
@@ -56,11 +57,7 @@ pub fn spawn_tanz_mode_hud(mut commands: Commands) {
 		});
 }
 
-pub fn spawn_tanz_callout_hud(mut commands: Commands, asset_server: Res<AssetServer>) {
-	for id in TanzId::STARTER {
-		let _: Handle<Image> = asset_server.load(id.icon_path());
-	}
-	let icon: Handle<Image> = asset_server.load(TanzId::ForwardDash.icon_path());
+pub fn spawn_tanz_callout_hud(mut commands: Commands) {
 	commands
 		.spawn((
 			Name::new("tanz-callout-hud"),
@@ -96,11 +93,12 @@ pub fn spawn_tanz_callout_hud(mut commands: Commands, asset_server: Res<AssetSer
 				.with_children(|row| {
 					row.spawn((
 						TanzCalloutHudIcon,
-						ImageNode { image: icon, color: INK, ..default() },
+						ImageNode { color: Color::NONE, ..default() },
 						Node {
 							width: Val::Px(ICON_PX),
 							height: Val::Px(ICON_PX),
 							flex_shrink: 0.0,
+							display: Display::None,
 							..default()
 						},
 						Pickable::IGNORE,
@@ -141,10 +139,10 @@ pub fn sync_tanz_mode_hud(
 
 pub fn sync_tanz_callout_hud(
 	callout: Res<TanzCallout>,
-	asset_server: Res<AssetServer>,
+	icons: Option<Res<ItemIconCache>>,
 	mut roots: Query<&mut Visibility, With<TanzCalloutHud>>,
 	mut panels: Query<&mut BackgroundColor, With<TanzCalloutHudPanel>>,
-	mut icons: Query<&mut ImageNode, With<TanzCalloutHudIcon>>,
+	mut image_nodes: Query<(&mut ImageNode, &mut Node), With<TanzCalloutHudIcon>>,
 	mut labels: Query<(&mut Text, &mut TextColor), With<TanzCalloutHudLabel>>,
 ) {
 	let visible = callout.current.is_some();
@@ -158,14 +156,35 @@ pub fn sync_tanz_callout_hud(
 	for mut color in &mut panels {
 		color.0 = Color::srgba(0.05, 0.05, 0.08, 0.55 * alpha);
 	}
-	for mut image in &mut icons {
-		image.image = asset_server.load(view.icon);
-		image.color = Color::srgba(0.92, 0.9, 0.82, alpha);
+	let handle = icons.as_ref().and_then(|cache| cache.silhouette(&view.id.capture_id()));
+	for (mut image, mut node) in &mut image_nodes {
+		if let Some(handle) = handle.clone() {
+			image.image = handle;
+			image.color = Color::srgba(0.92, 0.9, 0.82, alpha);
+			node.display = Display::Flex;
+		} else {
+			image.color = Color::NONE;
+			node.display = Display::None;
+		}
 	}
 	for (mut text, mut color) in &mut labels {
 		if text.0 != view.name {
 			text.0 = String::from(view.name);
 		}
 		color.0 = Color::srgba(0.92, 0.9, 0.82, alpha);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::stack::TanzId;
+	use item_icons::ItemIconCache;
+	use screen_capture::{CaptureId, CaptureMode, CaptureSubject};
+
+	#[test]
+	fn callout_icon_stays_hidden_until_the_cache_has_a_handle() {
+		let cache = ItemIconCache::default();
+		assert!(cache.silhouette(&TanzId::ForwardDash.capture_id()).is_none());
+		assert!(!cache.failed(&CaptureId::new("unused"), CaptureMode::Silhouette));
 	}
 }

@@ -5,8 +5,10 @@ Hosts request both [`CaptureMode::Shaded`] and [`CaptureMode::Silhouette`] the
 first time an inventory item is seen. The crate never mutates the live scene. Isolated captures spawn the same
 posed hosts the inspect preview uses: [`firearm_user::GeneratedFirearm`] for
 kits, a bind-pose clothing preview with catalog materials, the in-world
-[`grenades::GrenadeMaterial`] charge, and skill-map tiles painted into a
-texture then archived with [`CaptureRequest::from_image_handle`]. Silhouette
+[`grenades::GrenadeMaterial`] charge, skill-map tiles painted into a
+texture then archived with [`CaptureRequest::from_image_handle`], and
+[`RepresentativePose`] stills (nude Braidman at a live clip + progress) for
+Tanz HUD icons. Silhouette
 mode strips clothing/face/grenade shaders every frame so shader restamp cannot
 leave custom materials in the extract. Clothing and face keep
 [`material_ref::MaterialRefApplied`]; grenades get a [`StandardMaterial`]

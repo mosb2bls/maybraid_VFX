@@ -22,14 +22,12 @@ pub struct TanzCallout {
 pub struct TanzCalloutView {
 	pub id: TanzId,
 	pub name: &'static str,
-	pub icon: &'static str,
 	pub age: f32,
 }
 
 impl TanzCallout {
 	pub fn show(&mut self, id: TanzId) {
-		self.current =
-			Some(TanzCalloutView { id, name: id.display_name(), icon: id.icon_path(), age: 0.0 });
+		self.current = Some(TanzCalloutView { id, name: id.display_name(), age: 0.0 });
 	}
 
 	pub fn tick(&mut self, dt: f32) {
@@ -141,8 +139,6 @@ mod tests {
 		let view = callout.current.as_ref().ok_or_else(|| anyhow::anyhow!("missing callout"))?;
 		assert_eq!(view.id, TanzId::ForwardDash);
 		assert_eq!(view.name, "Forward Dash");
-		assert_eq!(view.icon, TanzId::ForwardDash.icon_path());
-		assert_eq!(view.icon, "iconography/tanz/forward_dash.png");
 		Ok(())
 	}
 
@@ -165,7 +161,6 @@ mod tests {
 		let view = callout.current.as_ref().ok_or_else(|| anyhow::anyhow!("missing callout"))?;
 		assert_eq!(view.id, TanzId::RightStrafe);
 		assert_eq!(view.name, "Right Strafe");
-		assert_eq!(view.icon, TanzId::RightStrafe.icon_path());
 		assert!(
 			view.age < TANZ_CALLOUT_SECS * 0.5,
 			"replacement should restart the fade {}",
@@ -179,10 +174,7 @@ mod tests {
 		let mut callout = TanzCallout::default();
 		callout.show(TanzId::HealingSalute);
 		assert_eq!(callout.current.as_ref().map(|view| view.name), Some("Healing Salute"));
-		assert_eq!(
-			callout.current.as_ref().map(|view| view.icon),
-			Some(TanzId::HealingSalute.icon_path())
-		);
+		assert_eq!(callout.current.as_ref().map(|view| view.id), Some(TanzId::HealingSalute));
 		callout.tick(0.80);
 		assert!(callout.current.is_some());
 		callout.tick(0.60);

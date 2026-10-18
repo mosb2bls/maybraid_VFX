@@ -51,10 +51,10 @@ pub use appearance::CharacterAppearance;
 pub use assembly::CharacterPartSlot;
 pub use assets::{AssetFacing, AssetNormalization, AssetPath, AuthoredAnchor};
 pub use character_motion::{
-	apply_terrain_pitch, clamp_intelligence, draw_terrain_pitch_probes, motion_policy,
-	sync_motion_markers, AnimateBones, AnimateEffects, ApplyTerrainPitch, CharacterHeading,
-	CharacterMotionPlugin, CharacterMotionSystems, DrawTerrainPitchProbes, MotionPolicy,
-	SuspendAnimation, SuspendTerrainPitch,
+	apply_terrain_pitch, clamp_intelligence, draw_terrain_pitch_probes, fingerprint_humanoid_clip,
+	motion_policy, sync_motion_markers, AnimateBones, AnimateEffects, ApplyTerrainPitch,
+	CharacterHeading, CharacterMotionPlugin, CharacterMotionSystems, DrawTerrainPitchProbes,
+	MotionPolicy, SuspendAnimation, SuspendTerrainPitch,
 };
 pub use character_rigs::{BoneRotation, BoneScale, ResolvedRigPose, RigPoseLayer};
 pub use character_shaders::CharacterShadersPlugin;
@@ -64,9 +64,10 @@ pub use components::{
 };
 pub use concepts::ConceptAnimation;
 pub use fixed::{
-	drain_character_assembly, fixed_character_assembly_chunks, spawn_fixed_character_assembly,
-	spawn_fixed_character_visual, CharacterAssemblyBudget, CharacterAssemblyDiagnostics,
-	PendingCharacterAssembly, FIXED_ASSEMBLY_CHUNK_WEIGHT,
+	drain_character_assembly, drain_character_assembly_now, fixed_character_assembly_chunks,
+	spawn_fixed_character_assembly, spawn_fixed_character_visual, CharacterAssemblyBudget,
+	CharacterAssemblyDiagnostics, HiddenUntilSceneReady, PendingCharacterAssembly,
+	FIXED_ASSEMBLY_CHUNK_WEIGHT,
 };
 pub use hosts::CharacterHostsPlugin;
 pub use layer::{Layer, Layers};

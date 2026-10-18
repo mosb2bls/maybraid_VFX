@@ -36,6 +36,14 @@ impl Default for PowerDash {
 	}
 }
 
+impl PowerDash {
+	/// Held lunge still used for Tanz icons (~mid-stride in the current clip).
+	/// Keep this on the readable hold when the humanoid mapping is restyled.
+	pub fn representative_progress() -> f32 {
+		0.50
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -47,5 +55,13 @@ mod tests {
 		assert!((HOLD_END - 0.68).abs() < 1e-6);
 		assert!(BRAKE_END > HOLD_END);
 		assert!(BRAKE_END < 1.0);
+	}
+
+	#[test]
+	fn representative_progress_is_the_held_stride() {
+		let progress = PowerDash::representative_progress();
+		assert!(progress > PUSH_END);
+		assert!(progress < HOLD_END);
+		assert!((progress - 0.50).abs() < 1e-6);
 	}
 }
