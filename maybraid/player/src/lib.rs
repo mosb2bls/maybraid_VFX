@@ -21,8 +21,8 @@ use maybraid_character_controller::CharacterControlSystems;
 pub use body::{
 	apply_character_controller, apply_character_mobility, apply_locomotion_capsule,
 	ground_plane_for_wish, tick_jump, walkable_contact_normal, wish_on_ground, CharacterController,
-	CharacterLocomotion, Grounded, JumpPhase, JumpWish, Jumping, MoveWish, PlayerControlSystems,
-	Sprinting, WalkableGround,
+	CharacterLocomotion, Grounded, JumpPhase, JumpWish, Jumping, MoveSpeedCap, MoveWish,
+	PlayerControlSystems, Sprinting, WalkableGround,
 };
 pub use buoyancy::{Buoyant, Wading, WaterRegime};
 pub use characters::{HeadCapsule, HitCapsule};

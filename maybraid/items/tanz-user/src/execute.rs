@@ -8,9 +8,9 @@ use characters::{
 	CharacterRoot,
 };
 use damage::Health;
-use player::{MoveWish, PlayerLook};
+use player::{MoveSpeedCap, MoveWish, PlayerLook};
 
-use crate::actions::TanzAction;
+use crate::actions::{dash_ground_speed, TanzAction};
 use crate::input::TanzInput;
 use crate::stack::{TanzId, TanzStack};
 use crate::{look_wish, look_yaw, ControlMode, TanzUser};
@@ -134,15 +134,34 @@ impl TanzExecution {
 	}
 
 	pub fn move_local(&self) -> Option<Vec2> {
-		let active = self.active.as_ref()?;
-		if active.phase != TanzPhase::Active {
-			return None;
-		}
-		match active.id.definition().action {
-			TanzAction::Move { local } => Some(local),
-			TanzAction::Heal { .. } => None,
+		match self.move_drive() {
+			Some(TanzMoveDrive::Jog(local) | TanzMoveDrive::Burst { local, .. }) => Some(local),
+			None => None,
 		}
 	}
+
+	fn move_drive(&self) -> Option<TanzMoveDrive> {
+		let active = self.active.as_ref()?;
+		match active.id.definition().action {
+			TanzAction::Heal { .. } => None,
+			TanzAction::Move { local, cruise } => {
+				if cruise > 0.0 {
+					let total = active.id.definition().timing.total().max(1e-4);
+					let progress = (active.age / total).clamp(0.0, 1.0);
+					Some(TanzMoveDrive::Burst { local, speed: dash_ground_speed(progress, cruise) })
+				} else if active.phase == TanzPhase::Active {
+					Some(TanzMoveDrive::Jog(local))
+				} else {
+					None
+				}
+			}
+		}
+	}
+}
+
+enum TanzMoveDrive {
+	Jog(Vec2),
+	Burst { local: Vec2, speed: f32 },
 }
 
 pub fn match_tanz_inputs(
@@ -189,6 +208,7 @@ pub fn advance_tanz_execution(
 }
 
 pub fn apply_tanz_movement(
+	mut commands: Commands,
 	users: Query<(Entity, &TanzUser, &TanzExecution, Option<&PlayerLook>)>,
 	mut wishes: Query<&mut MoveWish>,
 ) {
@@ -199,10 +219,25 @@ pub fn apply_tanz_movement(
 		let Ok(mut wish) = wishes.get_mut(entity) else {
 			continue;
 		};
-		wish.0 = execution
-			.move_local()
-			.map(|local| look_wish(look_yaw(look), local))
-			.unwrap_or(Vec3::ZERO);
+		match execution.move_drive() {
+			Some(TanzMoveDrive::Jog(local)) => {
+				wish.0 = look_wish(look_yaw(look), local);
+				commands.entity(entity).remove::<MoveSpeedCap>();
+			}
+			Some(TanzMoveDrive::Burst { local, speed }) => {
+				if speed > 1e-4 {
+					wish.0 = look_wish(look_yaw(look), local);
+					commands.entity(entity).insert(MoveSpeedCap(speed));
+				} else {
+					wish.0 = Vec3::ZERO;
+					commands.entity(entity).remove::<MoveSpeedCap>();
+				}
+			}
+			None => {
+				wish.0 = Vec3::ZERO;
+				commands.entity(entity).remove::<MoveSpeedCap>();
+			}
+		}
 	}
 }
 
@@ -342,6 +377,62 @@ mod tests {
 		let wish = app.world().get::<MoveWish>(user).ok_or_else(|| anyhow::anyhow!("wish"))?;
 		assert!(wish.0.x < -0.9, "{}", wish.0);
 		assert!(wish.0.y.abs() < 1e-4);
+		assert!(
+			app.world().get::<MoveSpeedCap>(user).is_none(),
+			"strafe must not raise the motor cap"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn forward_dash_writes_burst_cap_during_the_hold() -> anyhow::Result<()> {
+		use crate::actions::FORWARD_DASH_CRUISE;
+
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins).add_systems(Update, apply_tanz_movement);
+		let mut execution = TanzExecution::default();
+		execution.begin(TanzId::ForwardDash, Vec2::Y, 0.35);
+		execution.tick(0.15);
+		let user = app
+			.world_mut()
+			.spawn((
+				TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() },
+				execution,
+				MoveWish::default(),
+				PlayerLook::default(),
+			))
+			.id();
+		app.update();
+		let wish = app.world().get::<MoveWish>(user).ok_or_else(|| anyhow::anyhow!("wish"))?;
+		let cap = app
+			.world()
+			.get::<MoveSpeedCap>(user)
+			.ok_or_else(|| anyhow::anyhow!("dash should set MoveSpeedCap"))?;
+		assert!(wish.0.z.abs() > 0.9, "dash wish should be look-forward, got {}", wish.0);
+		assert!((cap.0 - FORWARD_DASH_CRUISE).abs() < 1e-3, "hold cap {}", cap.0);
+		Ok(())
+	}
+
+	#[test]
+	fn forward_dash_is_still_during_compress() -> anyhow::Result<()> {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins).add_systems(Update, apply_tanz_movement);
+		let mut execution = TanzExecution::default();
+		execution.begin(TanzId::ForwardDash, Vec2::Y, 0.35);
+		execution.tick(0.02);
+		let user = app
+			.world_mut()
+			.spawn((
+				TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() },
+				execution,
+				MoveWish::default(),
+				PlayerLook::default(),
+			))
+			.id();
+		app.update();
+		let wish = app.world().get::<MoveWish>(user).ok_or_else(|| anyhow::anyhow!("wish"))?;
+		assert_eq!(wish.0, Vec3::ZERO);
+		assert!(app.world().get::<MoveSpeedCap>(user).is_none());
 		Ok(())
 	}
 }

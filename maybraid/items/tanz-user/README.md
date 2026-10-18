@@ -25,3 +25,11 @@ shows.
 PowerDash / PowerStrafe choreography edits move the icon automatically:
 `pose_revision` is a fingerprint of the sampled pose at the representative
 progress, so the cache key changes when the live clip's still changes.
+
+Manual playground preview for one pose:
+
+```text
+/character assemble --species braidman --animation power-dash
+/character playback --pause --progress 0.50
+/character camera three-quarter
+```

@@ -18,7 +18,9 @@ use maybraid_skill_map::{SkillMapFlick, SkillMapSteerPolicy, SkillMapSystems};
 use player::{MoveWish, PlayerLook, PlayerSystems};
 
 pub use actions::{
-	forward_dash, healing_salute, left_strafe, right_strafe, starter_stack, TanzAction,
+	dash_ground_speed, forward_dash, healing_salute, left_strafe, right_strafe, starter_stack,
+	TanzAction, DASH_BRAKE_END, DASH_COMPRESS_END, DASH_HOLD_END, DASH_PUSH_END,
+	FORWARD_DASH_CRUISE,
 };
 pub use callout::{TanzCallout, TanzCalloutView, TANZ_CALLOUT_SECS};
 pub use execute::{
