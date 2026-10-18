@@ -170,6 +170,11 @@ impl LodProduceCache {
 		self.snapshots.clear();
 		self.domains.clear();
 	}
+
+	/// Hosts retained for `domain` after the last fill (membership-filtered).
+	pub fn hits_for(&self, domain: LodRefreshDomain) -> Option<&HashSet<Entity>> {
+		self.domains.get(&domain).map(|hits| &hits.hits)
+	}
 }
 
 fn remove_contained_regions(regions: &mut Vec<Aabb3d>) {

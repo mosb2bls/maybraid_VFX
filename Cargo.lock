@@ -5190,12 +5190,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "gimme-bench-support"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bevy_math",
+ "bevy_platform",
+ "gimme-core",
+]
+
+[[package]]
 name = "gimme-core"
 version = "0.1.3"
 dependencies = [
  "anyhow",
  "bevy_math",
  "bevy_platform",
+ "gimme-bench-support",
  "thiserror 1.0.69",
 ]
 
@@ -6584,6 +6596,7 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "bevy",
+ "gimme-bench-support",
  "gimme-core",
  "lod",
 ]

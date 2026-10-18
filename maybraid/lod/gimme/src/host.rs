@@ -8,7 +8,7 @@ use bevy::math::bounding::Aabb3d;
 use bevy::math::{DVec3, Vec3};
 use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
-use gimme_core::SpatialIndex;
+use gimme_core::{SpatialIndex, SpatialIndexQuery};
 use lod::{
 	LodHostBounds, LodRefreshSystems, LodSceneBoundsMarshaller, LodSceneHost, LodSceneHostIndex,
 };
@@ -44,7 +44,11 @@ impl FromWorld for GimmeLodHostIndex {
 
 impl GimmeLodHostIndex {
 	pub fn hosts_in_region(&self, region: Aabb3d) -> Vec<Entity> {
-		self.0.query(region)
+		SpatialIndexQuery::query(&self.0, region)
+	}
+
+	pub fn extend_hosts_in_region(&self, region: Aabb3d, out: &mut HashSet<Entity>) {
+		SpatialIndexQuery::extend_intersecting(&self.0, region, out)
 	}
 }
 
@@ -63,6 +67,8 @@ impl Plugin for GimmeLodHostPlugin {
 }
 
 /// [`LodSceneHostIndex`] over [`GimmeLodHostIndex`].
+///
+/// Delegates regional lookup through [`SpatialIndexQuery`].
 #[derive(SystemParam)]
 pub struct GimmeLodSceneHostIndex<'w> {
 	index: Res<'w, GimmeLodHostIndex>,
@@ -74,7 +80,7 @@ impl LodSceneHostIndex for GimmeLodSceneHostIndex<'_> {
 	}
 
 	fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Entity>) {
-		self.index.0.extend_intersecting(region, out);
+		self.index.extend_hosts_in_region(region, out);
 	}
 }
 
