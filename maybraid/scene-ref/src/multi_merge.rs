@@ -8,7 +8,7 @@
 mod mesh;
 mod transform_key;
 
-use bevy::asset::{AssetServer, Handle};
+use bevy::asset::{AssetId, AssetServer, Handle};
 use bevy::color::Color;
 use bevy::ecs::reflect::AppTypeRegistry;
 use bevy::mesh::Mesh;
@@ -24,7 +24,9 @@ use crate::world_asset::world_asset_from_mesh;
 
 pub use transform_key::TransformKey;
 
-use mesh::{merge_meshes, merge_world_asset_meshes};
+use mesh::{
+	bake_source_instances, collect_source_mesh_instances, merge_meshes, SourceMeshInstance,
+};
 
 /// One input scene and its local transform in the merged multi-scene.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -88,6 +90,9 @@ pub struct MultiSceneMergeHandles {
 	cache: HashMap<MultiSceneMerge, Handle<WorldAsset>>,
 	/// Shared placeholder material so merged meshes enter the PBR pipeline.
 	default_material: Option<Handle<StandardMaterial>>,
+	/// `Mesh3d` instances inside a resolved part world (kit GLBs are reused
+	/// across hundreds of collection parts). Walked once per source asset.
+	source_layouts: HashMap<AssetId<WorldAsset>, Vec<SourceMeshInstance>>,
 }
 
 impl MultiSceneMergeHandles {
@@ -112,6 +117,22 @@ impl MultiSceneMergeHandles {
 		});
 		self.default_material = Some(handle.clone());
 		handle
+	}
+
+	fn source_layout(
+		&mut self,
+		handle: &Handle<WorldAsset>,
+		world_assets: &Assets<WorldAsset>,
+		meshes: &Assets<Mesh>,
+	) -> Option<Vec<SourceMeshInstance>> {
+		let id = handle.id();
+		if let Some(layout) = self.source_layouts.get(&id) {
+			return Some(layout.clone());
+		}
+		let source = world_assets.get(handle)?;
+		let layout = collect_source_mesh_instances(source, meshes)?;
+		self.source_layouts.insert(id, layout.clone());
+		Some(layout)
 	}
 
 	pub fn try_resolve(
@@ -149,10 +170,9 @@ impl MultiSceneMergeHandles {
 
 		let mut prepared = Vec::new();
 		for (handle, part_transform) in &part_handles {
-			let source = world_assets.get(handle)?;
+			let layout = self.source_layout(handle, world_assets, meshes)?;
 			// Missing Mesh3d bytes → retry next frame (do not cache an empty mesh).
-			let part_mesh = merge_world_asset_meshes(source, *part_transform, meshes)?;
-			prepared.push(part_mesh);
+			bake_source_instances(&layout, *part_transform, meshes, &mut prepared)?;
 		}
 
 		let merged_mesh = merge_meshes(prepared)?;

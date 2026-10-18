@@ -24,7 +24,10 @@ objc2-game-controller = { version = "0.3", features = [
 	"GCControllerAxisInput",
 	"GCControllerButtonInput",
 	"GCControllerDirectionPad",
+	"GCControllerElement",
+	"GCInputNames",
 	"GCPhysicalInputProfile",
+	"GCXboxGamepad",
 ] }
 objc2-core-haptics = { version = "0.3", default-features = false, features = [
 	"CHHapticEngine",

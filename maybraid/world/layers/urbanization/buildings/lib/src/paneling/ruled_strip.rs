@@ -152,7 +152,7 @@ mod tests {
 	use super::*;
 	use bevy_math::Vec3;
 	use building_components::BuildingComponents;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 
 	fn example_lines() -> (Vec<Vec3>, Vec<Vec3>) {
 		let rail_a =

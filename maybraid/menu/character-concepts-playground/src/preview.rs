@@ -46,8 +46,8 @@ use characters::{
 	MaterialRefRoot, PartNode, RigId, RigNode, SkinRefApplied, SkinRefRoot, SocketRefApplied,
 	SocketRefRoot,
 };
-use lod::gen::LodScene;
 use lod::lod_ref::LodRef;
+use lod::scene::LodScene;
 use lod::LodSceneLevel;
 
 use crate::animation::ConceptAnimation;
@@ -210,6 +210,24 @@ pub enum ConceptSpecies {
 	Tuberwaber,
 }
 
+impl ConceptSpecies {
+	pub const fn skeleton_kind(self) -> characters::RigSkeletonKind {
+		use characters::RigSkeletonKind;
+		match self {
+			Self::Brenal
+			| Self::Caole
+			| Self::Epiphant
+			| Self::Hars
+			| Self::Yilter
+			| Self::Sonyak
+			| Self::Claber
+			| Self::Croconot => RigSkeletonKind::Quadruped,
+			Self::Grener | Self::Thumplus | Self::Mistler => RigSkeletonKind::Forelimbed,
+			_ => RigSkeletonKind::Humanoid,
+		}
+	}
+}
+
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub enum ConceptPreviewConfig {
 	Braidman { config: BraidmanConfig, animation: ConceptAnimation },
@@ -313,6 +331,19 @@ impl ConceptPreviewConfig {
 			Self::Mistler { .. } => ConceptSpecies::Mistler,
 			Self::Tuberwaber { .. } => ConceptSpecies::Tuberwaber,
 		}
+	}
+
+	pub fn body_preview_focus(&self) -> character_ui_menu::CameraFocus {
+		use character_ui_menu::CameraFocus;
+		use characters::CharacterRecipe;
+		let kind = self.species().skeleton_kind();
+		with_clothed_recipe!(self, recipe => {
+			CameraFocus::fit_preview_bounds(
+				recipe.locomotion_capsule().preview_aabb_for(kind),
+				CameraFocus::BODY_PREVIEW_FOV,
+				kind.preview_view_direction(),
+			)
+		})
 	}
 
 	pub fn braidman(config: BraidmanConfig) -> Self {

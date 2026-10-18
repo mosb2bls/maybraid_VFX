@@ -21,7 +21,7 @@ pub use parameterized::{CommonBedroomParameterized, CommonBedroomPlan, SCOPE};
 use building_components::furniture::FurnitureNode;
 use building_components::panels::PanelNode;
 use building_components::{BuildingComponents, LabelNode, LabelStyle, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::NoiseParams;
 
 use crate::fit::{Confines, FillRegion, FillableRegions, Fit, FitError, SpaceKind};

@@ -3,7 +3,7 @@
 This crate contains various scene components for Richmond buildings.
 
 > [!NOTE]
-> All components implement [`lod::gen::LodScene`](../../lod/lib/src/gen/presentation.rs) so they can be used in the scene graph and with generation-presentation flows.
+> All components implement [`lod::scene::LodScene`](../../../../../lod/lib/src/scene/lod_scene.rs) so they can be used in the scene graph and with generation-presentation flows.
 
 ## Layout
 
@@ -59,7 +59,7 @@ PanelGeometry::flatten(style)   → Placed<Rectangle | RightTriangle>
 
 ## Urban art / assets
 
-Blender sources live under [`maybraid/art/urban/`](../../art/urban/README.md); runtime GLBs under `maybraid/assets/urban/` (same relative layout). Paths are registered in [`assets.rs`](src/assets.rs).
+Blender sources live under [`maybraid/art/urban/`](../../../../../art/urban/README.md); runtime GLBs under `maybraid/assets/urban/` (same relative layout). Paths are registered in [`assets.rs`](src/assets.rs).
 
 Urban kits split into **shared style geometry**, **parts**, and **domain-specific** folders:
 
@@ -102,7 +102,7 @@ Partition linear leaves consume `panels/.../rectangle_001_{high,mid,low}_res` vi
 
 ## Furniture (placeholders)
 
-[`furniture/`](src/furniture.rs) follows the same Style + Geometry + Placement → `LodScene` IR (`FurnitureNode`), plus optional [`FurnitureAbutment`](src/furniture/abutment.rs) and a `finish_seed` so a later fill pass can face and paint without re-reading the floor plan. World pose is the development host transform composed with [`Placement`](src/placed.rs). Until kit GLBs exist, [`FurnitureStyle::Placeholder`](src/furniture/style.rs) renders color-coded **wireframe** unit cubes (line-list mesh). Apps must add [`FurnitureWireframePlugin`](src/furniture/wireframe.rs) before spawning furniture scenes. Geometry kinds include bed, chair, chest, counter, wardrobe, dresser, nightstand, bedroom furniture, and toilet. Painted assemblies that fill those slots live in [`furniture-assemblies`](../../furniture/assemblies/) (kits in [`furniture-components`](../../furniture/components/)) and are previewed by [`furniture-playground`](../../furniture/playground/). World present is a neighborhood of 50 m furniture hosts — they are not baked into Richmond High chunks.
+[`furniture/`](src/furniture.rs) follows the same Style + Geometry + Placement → `LodScene` IR (`FurnitureNode`), plus optional [`FurnitureAbutment`](src/furniture/abutment.rs) and a `finish_seed` so a later fill pass can face and paint without re-reading the floor plan. World pose is the development host transform composed with [`Placement`](src/placed.rs). Until kit GLBs exist, [`FurnitureStyle::Placeholder`](src/furniture/style.rs) renders color-coded **wireframe** unit cubes (line-list mesh). Apps must add [`FurnitureWireframePlugin`](src/furniture/wireframe.rs) before spawning furniture scenes. Geometry kinds include bed, chair, chest, counter, wardrobe, dresser, nightstand, bedroom furniture, and toilet. Painted assemblies that fill those slots live in [`furniture-assemblies`](../../../furnishing/assemblies/) (kits in [`furniture-components`](../../../furnishing/components/)) and are previewed by [`furniture-playground`](../../../furnishing/playground/). World present is a neighborhood of 50 m furniture hosts — they are not baked into Richmond High chunks.
 
 ## Pipeline
 
@@ -120,7 +120,7 @@ We have not yet defined a sweeping tool. The plan is to make it take linear segm
 
 ## Polyline partitions
 
-[`Partition::polyline`](src/partitions/geometry/polyline.rs) is a **short-run** thin-wall primitive: one [`PartitionNode`](src/partitions/node.rs) is a single LOD parent whose `scene_with_level` expands into posed linear + joint kits. Prefer splitting longer paths in higher-order constructs (`richmond_buildings::{paneling,wall_demo}`).
+[`Partition::polyline`](src/partitions/geometry/polyline.rs) is a **short-run** thin-wall primitive: one [`PartitionNode`](src/partitions/node.rs) is a single LOD parent whose `scene_with_level` expands into posed linear + joint kits. Prefer splitting longer paths in higher-order constructs (`buildings::{paneling,wall_demo}`).
 
 Each edge uses **horizontal** length \(L_{xz}\) with a suggested [`tile_width`](src/partitions/geometry/linear.rs) (default \(1\), unscaled ground kit \(X \in [0, 1]\)): \(n = \mathrm{round}(L_{xz}/\texttt{tile\_width})\) tiles stretch to width \(L_{xz}/n\). Starts lerp along the 3D path so path \(Y\) carries slope. Override with `with_tile_width`. Continuous [`LinearPartition::spanning`](src/partitions/geometry/linear.rs) uses the same fit on its span. Polyline tiles carry world path anchors plus stand-up pitch and wall scale themselves (`with_wall_scale`); the parent stays identity. Panels stay **plumb** (yaw + stand-up only).
 

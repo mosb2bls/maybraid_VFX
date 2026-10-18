@@ -14,6 +14,7 @@ pub mod layer;
 pub mod lod_band;
 pub mod lod_host_helper;
 pub mod massing;
+pub mod math;
 pub mod panels;
 pub mod parent_confines;
 pub mod partitions;
@@ -40,6 +41,7 @@ pub use massing::{
 	is_massing_level, massing_box_scene, massing_box_transform, massing_scene, ring_strip_xz,
 	MassingKind, MassingRoof, MassingSilhouettePlugin, MassingVolume,
 };
+pub use math::normalize_xz;
 pub use panels::{
 	dihedral_kink, fitted_tile_count, to_centered_rect_placement, triangle_normal,
 	update_panel_host_levels, with_wall_standup_pitch, PanelGeometry, PanelKitCaps, PanelLodBand,
@@ -68,18 +70,21 @@ pub use scene_children::{
 pub use stairs::StairNode;
 pub use structural_probe::{
 	distance_outside_aabb2d_xz, distance_outside_footprints,
-	update_building_structural_host_levels, BuildingStructuralLodProbe,
-	STRUCTURAL_HIGH_OUTSIDE_METERS, STRUCTURAL_LOW_OUTSIDE_METERS,
+	update_building_structural_host_levels, BuildingStructuralLodPlugin,
+	BuildingStructuralLodProbe, STRUCTURAL_HIGH_OUTSIDE_METERS, STRUCTURAL_LOW_OUTSIDE_METERS,
 	STRUCTURAL_MEDIUM_OUTSIDE_METERS,
 };
 
+use bevy::ecs::template::template;
 use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec3;
-use bevy::prelude::{Commands, CommandsSceneExt, Component, Entity, Transform, Visibility};
+use bevy::prelude::{
+	Commands, CommandsSceneExt, Component, Entity, GlobalTransform, Transform, Visibility,
+};
 use bevy::scene::prelude::{bsn, template_value};
 use bevy::scene::{ResolveContext, ResolvedScene, Scene};
-use lod::gen::{cull_named_from_factor, LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{cull_named_from_factor, LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::{lod_host_scene_pending, SceneChunk};
 use std::sync::Arc;
 
@@ -236,21 +241,42 @@ impl<T: BuildingComponents + ?Sized> BuildingComponents for Arc<T> {
 /// other non-node extras. Chunk fulfill drains posed kit *content* (no nested
 /// panel / partition / … hosts), matching flattened vegetation.
 ///
+/// Footprints on [`BuildingComponents::structural_lod`] stay host-local. The
+/// second field is the host pose used to map a world-space viewer (the
+/// [`LodRef`] camera) into that frame — the same mapping
+/// [`update_building_structural_host_levels`] does via [`GlobalTransform`].
+///
 /// ```ignore
 /// spawn_building_components(commands, &bedroom, transform, bounds);
 /// ```
 #[derive(Debug, Clone, PartialEq, Component)]
-pub struct ComponentsOnly<T: Send + Sync + 'static>(pub T);
+pub struct ComponentsOnly<T: Send + Sync + 'static>(pub T, Transform);
 
 impl<T: Send + Sync + 'static> ComponentsOnly<T> {
+	pub fn new(building: T) -> Self {
+		Self(building, Transform::IDENTITY)
+	}
+
+	pub fn posed(building: T, host_transform: Transform) -> Self {
+		Self(building, host_transform)
+	}
+
+	pub fn host_transform(&self) -> Transform {
+		self.1
+	}
+
 	pub fn into_inner(self) -> T {
 		self.0
+	}
+
+	fn host_global(&self) -> GlobalTransform {
+		GlobalTransform::from(self.1)
 	}
 }
 
 impl<T: Send + Sync + 'static> From<T> for ComponentsOnly<T> {
 	fn from(value: T) -> Self {
-		Self(value)
+		Self::new(value)
 	}
 }
 
@@ -318,13 +344,17 @@ impl<T: BuildingComponents + Send + Sync + 'static> LodScene for ComponentsOnly<
 	fn scene_lod_level(&self, lod_ref: &LodRef) -> LodSceneLevel {
 		self.0
 			.structural_lod()
-			.map(|p| p.level_for(lod_ref.current_transform))
+			.map(|p| p.level_for_world(lod_ref.current_transform.translation, &self.host_global()))
 			.unwrap_or(LodSceneLevel::High)
 	}
 
 	fn scene_lod_status(&self, lod_ref: &LodRef) -> LodSceneStatus {
 		match self.0.structural_lod() {
-			Some(probe) => probe.status_for_lod_ref(lod_ref),
+			Some(probe) => probe.status_for_world(
+				lod_ref.previous_transform.translation,
+				lod_ref.current_transform.translation,
+				&self.host_global(),
+			),
 			None => LodSceneStatus::Unchanged,
 		}
 	}
@@ -333,7 +363,8 @@ impl<T: BuildingComponents + Send + Sync + 'static> LodScene for ComponentsOnly<
 		let Some(probe) = self.0.structural_lod() else {
 			return LodSceneCulls::None;
 		};
-		let d = probe.distance_outside(lod_ref.current_transform);
+		let d = probe
+			.distance_outside_world(lod_ref.current_transform.translation, &self.host_global());
 		let (high, medium, low) = probe.band_meters();
 		// Kit roots are heavy: drop Medium as soon as Low massing is current.
 		// High/Medium keep the adjacent band warm for walking in and out.
@@ -565,27 +596,72 @@ pub fn spawn_building_components<T>(
 where
 	T: BuildingComponents + Clone + Send + Sync + 'static,
 {
+	spawn_building_components_for(commands, building, transform, bounds, None)
+}
+
+/// [`spawn_building_components`] using `viewer` for the first pending band.
+pub fn spawn_building_components_for<T>(
+	commands: &mut Commands,
+	building: &T,
+	transform: Transform,
+	bounds: Aabb3d,
+	viewer: Option<&LodRef>,
+) -> Vec<Entity>
+where
+	T: BuildingComponents + Clone + Send + Sync + 'static,
+{
+	vec![commands
+		.spawn_scene(building_components_host_for(building, transform, bounds, viewer))
+		.id()]
+}
+
+/// A pending [`ComponentsOnly`] building host, for nesting in another scene.
+pub fn building_components_host<T>(
+	building: &T,
+	transform: Transform,
+	bounds: Aabb3d,
+) -> impl Scene + 'static
+where
+	T: BuildingComponents + Clone + Send + Sync + 'static,
+{
+	building_components_host_for(building, transform, bounds, None)
+}
+
+/// [`building_components_host`] that picks the first pending band from `viewer`.
+///
+/// `viewer` is the world-space camera. The host pose is `transform`. Without a
+/// viewer the first band is computed as if the camera sat at the world origin.
+pub fn building_components_host_for<T>(
+	building: &T,
+	transform: Transform,
+	bounds: Aabb3d,
+	viewer: Option<&LodRef>,
+) -> impl Scene + 'static
+where
+	T: BuildingComponents + Clone + Send + Sync + 'static,
+{
 	let identity = Transform::IDENTITY;
-	let lod_ref = LodRef {
+	let fallback = LodRef {
 		entity: Entity::PLACEHOLDER,
 		previous_transform: &identity,
 		current_transform: &identity,
 		bounds: &bounds,
 	};
-	let host = ComponentsOnly(building.clone());
-	let level = host.scene_lod_level(&lod_ref);
-	let pending = lod_host_scene_pending(level, bounds);
-	let entity = commands
-		.spawn_scene((
-			pending,
-			bsn! {
-				template_value(transform)
-				Visibility::default()
-			},
-		))
-		.id();
-	commands.entity(entity).insert(host);
-	vec![entity]
+	let lod_ref = viewer.unwrap_or(&fallback);
+	let host = ComponentsOnly::posed(building.clone(), transform);
+	let level = host.scene_lod_level(lod_ref);
+	let pending = (
+		lod_host_scene_pending(level, bounds),
+		bsn! {
+			template_value(transform)
+			Visibility::default()
+			template(move |_ctx| Ok(host.clone()))
+		},
+	);
+	match building.structural_lod() {
+		Some(probe) => Box::new((pending, bsn! { template_value(probe) })) as Box<dyn Scene>,
+		None => Box::new(pending) as Box<dyn Scene>,
+	}
 }
 
 /// Approximate AABB from domain node placements at High (for adapter LodRef bounds).
@@ -635,18 +711,18 @@ pub(crate) fn empty_scene(_: &mut ResolveContext, _: &mut ResolvedScene) {}
 macro_rules! impl_empty_lod_scene {
 	($($ty:ty),+ $(,)?) => {
 		$(
-			impl ::lod::gen::LodScene for $ty {
+			impl ::lod::scene::LodScene for $ty {
 				fn scene_lod_status(
 					&self,
 					_lod_ref: &::lod::lod_ref::LodRef,
-				) -> ::lod::gen::LodSceneStatus {
-					::lod::gen::LodSceneStatus::Unchanged
+				) -> ::lod::scene::LodSceneStatus {
+					::lod::scene::LodSceneStatus::Unchanged
 				}
 
 				fn scene_with_level(
 					&self,
 					_lod_ref: &::lod::lod_ref::LodRef,
-					_level: ::lod::gen::LodSceneLevel,
+					_level: ::lod::scene::LodSceneLevel,
 				) -> impl ::bevy::scene::Scene + 'static {
 					::bevy::scene::SceneFunction($crate::empty_scene)
 				}
@@ -660,18 +736,18 @@ pub(crate) use impl_empty_lod_scene;
 /// `LodScene` that loads a GLB scene root via [`scene_ref::SceneRef`].
 macro_rules! impl_glb_lod_scene {
 	($ty:ty, $asset:expr) => {
-		impl ::lod::gen::LodScene for $ty {
+		impl ::lod::scene::LodScene for $ty {
 			fn scene_lod_status(
 				&self,
 				_lod_ref: &::lod::lod_ref::LodRef,
-			) -> ::lod::gen::LodSceneStatus {
-				::lod::gen::LodSceneStatus::Unchanged
+			) -> ::lod::scene::LodSceneStatus {
+				::lod::scene::LodSceneStatus::Unchanged
 			}
 
 			fn scene_with_level(
 				&self,
 				_lod_ref: &::lod::lod_ref::LodRef,
-				_level: ::lod::gen::LodSceneLevel,
+				_level: ::lod::scene::LodSceneLevel,
 			) -> impl ::bevy::scene::Scene + 'static {
 				($asset).scene_ref().scene()
 			}
@@ -830,6 +906,55 @@ mod flatten_tests {
 	}
 
 	#[test]
+	fn offset_host_bands_from_the_world_viewer() {
+		let building = OffsetStub;
+		let pose = Transform::from_xyz(2_000.0, 0.0, 0.0);
+		let host = ComponentsOnly::posed(building, pose);
+		let bounds = host.scene_bounds();
+		let beside = Transform::from_xyz(2_000.0, 1.5, 0.0);
+		let four_hundred_out = Transform::from_xyz(1_600.0, 1.5, 0.0);
+		assert_eq!(
+			host.scene_lod_level(&lod_ref(&beside, &bounds)),
+			LodSceneLevel::High,
+			"standing next to an offset building must be High"
+		);
+		assert_eq!(
+			host.scene_lod_level(&lod_ref(&four_hundred_out, &bounds)),
+			LodSceneLevel::Low,
+			"400 m from an offset footprint is Low (520 m far edge)"
+		);
+	}
+
+	#[test]
+	fn world_viewer_without_host_pose_is_the_old_stuck_band() {
+		let host = ComponentsOnly::new(OffsetStub);
+		let bounds = host.scene_bounds();
+		let beside_world = Transform::from_xyz(2_000.0, 1.5, 0.0);
+		assert_eq!(
+			host.scene_lod_level(&lod_ref(&beside_world, &bounds)),
+			LodSceneLevel::UltraLow,
+			"without a stored pose the world camera is read as local — the HCSG regression"
+		);
+	}
+
+	#[derive(Clone)]
+	struct OffsetStub;
+
+	impl BuildingComponents for OffsetStub {
+		fn structural_lod(&self) -> Option<BuildingStructuralLodProbe> {
+			Some(
+				BuildingStructuralLodProbe::from_aabb3d_xz(
+					Vec3::new(-5.0, 0.0, -5.0),
+					Vec3::new(5.0, 3.0, 5.0),
+				)
+				.with_high_outside_meters(80.0)
+				.with_medium_outside_meters(220.0)
+				.with_low_outside_meters(520.0),
+			)
+		}
+	}
+
+	#[test]
 	fn internal_and_external_partitions_do_not_merge() {
 		let building = TwoPartitions {
 			a: PartitionNode::rough_stone(PartitionGeometry::linear(), Placement::IDENTITY),
@@ -840,5 +965,160 @@ mod flatten_tests {
 		let bounds = Aabb3d::from_min_max(Vec3::ZERO, Vec3::ONE);
 		let chunks = building_scene_chunks(&building, &lod_ref(&tf, &bounds), LodSceneLevel::High);
 		assert_eq!(chunks.total_primitives(), 2);
+	}
+}
+
+#[cfg(test)]
+mod lod_refresh_tests {
+	use super::*;
+	use bevy::ecs::entity_disabling::Disabled;
+	use bevy::prelude::*;
+	use bevy::scene::ScenePlugin;
+	use lod::{
+		add_lod_refresh_chunk_full_for, lod_root_is_shown, LodLevelRoot, LodLevelRoots,
+		LodRefreshCorePlugin, LodSceneHost, LodSceneLevel, LodViewer,
+	};
+
+	#[derive(Clone)]
+	struct OffsetStub;
+
+	impl BuildingComponents for OffsetStub {
+		fn structural_lod(&self) -> Option<BuildingStructuralLodProbe> {
+			Some(
+				BuildingStructuralLodProbe::from_aabb3d_xz(
+					Vec3::new(-5.0, 0.0, -5.0),
+					Vec3::new(5.0, 3.0, 5.0),
+				)
+				.with_high_outside_meters(80.0)
+				.with_medium_outside_meters(220.0)
+				.with_low_outside_meters(520.0),
+			)
+		}
+	}
+
+	const HOST_AT: Vec3 = Vec3::new(2_000.0, 0.0, 0.0);
+	const FAR: Vec3 = Vec3::new(1_600.0, 1.5, 0.0);
+	const BESIDE: Vec3 = Vec3::new(2_000.0, 1.5, 0.0);
+
+	fn refresh_app() -> App {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, TransformPlugin, AssetPlugin::default(), ScenePlugin))
+			.init_asset::<Mesh>()
+			.init_asset::<StandardMaterial>()
+			.init_asset::<bevy::world_serialization::WorldAsset>()
+			.add_plugins(LodRefreshCorePlugin)
+			.add_plugins((BuildingStructuralLodPlugin, MassingSilhouettePlugin));
+		add_lod_refresh_chunk_full_for::<ComponentsOnly<OffsetStub>>(&mut app);
+		app
+	}
+
+	fn spawn_offset_host(app: &mut App, viewer_at: Vec3) -> Entity {
+		let building = OffsetStub;
+		let transform = Transform::from_translation(HOST_AT);
+		let bounds = ComponentsOnly::posed(building.clone(), transform).scene_bounds();
+		let viewer = Transform::from_translation(viewer_at);
+		let lod_ref = LodRef {
+			entity: Entity::PLACEHOLDER,
+			previous_transform: &viewer,
+			current_transform: &viewer,
+			bounds: &bounds,
+		};
+		let host = {
+			let mut commands = app.world_mut().commands();
+			spawn_building_components_for(
+				&mut commands,
+				&building,
+				transform,
+				bounds,
+				Some(&lod_ref),
+			)[0]
+		};
+		app.world_mut().flush();
+		host
+	}
+
+	fn host_level(app: &App, host: Entity) -> LodSceneLevel {
+		*app.world().get::<LodSceneLevel>(host).expect("host LodSceneLevel")
+	}
+
+	fn shown_root_levels(app: &App, host: Entity) -> Vec<LodSceneLevel> {
+		let world = app.world();
+		let Some(children) = world.get::<Children>(host) else {
+			return Vec::new();
+		};
+		let mut shown = Vec::new();
+		for child in children.iter() {
+			if world.get::<LodLevelRoots>(child).is_none() {
+				continue;
+			}
+			let Some(roots) = world.get::<Children>(child) else {
+				continue;
+			};
+			for root in roots.iter() {
+				let Some(level) = world.get::<LodLevelRoot>(root) else {
+					continue;
+				};
+				let hidden = world.get::<Disabled>(root).is_some()
+					|| world
+						.get::<Visibility>(root)
+						.is_some_and(|visibility| !lod_root_is_shown(*visibility));
+				if !hidden {
+					shown.push(level.0);
+				}
+			}
+		}
+		shown
+	}
+
+	fn move_viewer(app: &mut App, viewer: Entity, at: Vec3) {
+		app.world_mut().entity_mut(viewer).insert(Transform::from_translation(at));
+	}
+
+	fn update_until(app: &mut App, mut done: impl FnMut(&mut App) -> bool) {
+		for _ in 0..120 {
+			if done(app) {
+				return;
+			}
+			app.update();
+		}
+	}
+
+	#[test]
+	fn walking_up_to_an_offset_building_upgrades_to_high_and_hides_low() {
+		let mut app = refresh_app();
+		let viewer = app.world_mut().spawn((LodViewer, Transform::from_translation(FAR))).id();
+		let host = spawn_offset_host(&mut app, FAR);
+		assert!(app.world().get::<LodSceneHost>(host).is_some(), "spawned ComponentsOnly host");
+
+		update_until(&mut app, |app| host_level(app, host) == LodSceneLevel::Low);
+		assert_eq!(
+			host_level(&app, host),
+			LodSceneLevel::Low,
+			"400 m from a 2 km building must start Low, not the spawn-at-origin High"
+		);
+
+		update_until(&mut app, |app| shown_root_levels(app, host).contains(&LodSceneLevel::Low));
+
+		move_viewer(&mut app, viewer, BESIDE);
+		update_until(&mut app, |app| host_level(app, host) == LodSceneLevel::High);
+		assert_eq!(
+			host_level(&app, host),
+			LodSceneLevel::High,
+			"walking up to the offset host must upgrade; treating the world camera as local stays UltraLow"
+		);
+
+		update_until(&mut app, |app| {
+			let shown = shown_root_levels(app, host);
+			shown.contains(&LodSceneLevel::High) && !shown.contains(&LodSceneLevel::Low)
+		});
+		let shown = shown_root_levels(&app, host);
+		assert!(
+			shown.contains(&LodSceneLevel::High),
+			"High root should be visible after fulfill, got {shown:?}"
+		);
+		assert!(
+			!shown.contains(&LodSceneLevel::Low) && !shown.contains(&LodSceneLevel::UltraLow),
+			"lower roots must hide or despawn once High is up, got {shown:?}"
+		);
 	}
 }

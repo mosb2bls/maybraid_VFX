@@ -16,7 +16,7 @@ use crate::{
 	nodes::{PartNode, RigNode},
 	species::common::{nodes as humanoid, BODY_SPRITE_FISH},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Mistler data attached to the character root entity.
 ///

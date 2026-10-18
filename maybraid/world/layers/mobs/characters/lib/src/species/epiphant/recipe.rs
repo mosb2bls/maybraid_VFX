@@ -22,7 +22,7 @@ use crate::{
 		epiphant::assets::{EpiphantBodyMesh, EpiphantEarMesh, EpiphantHeadMesh, EpiphantNoseMesh},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Epiphant data attached to the character root entity.
 ///

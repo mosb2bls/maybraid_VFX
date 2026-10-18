@@ -1,13 +1,16 @@
-use character_rigs::{humanoid::HumanoidRig, Side};
+use character_rigs::authoring::HumanoidPose;
+use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
+use character_rigs::Side;
 
 use crate::animations::Land;
-use crate::rigs::humanoid::apply::{apply_leg, apply_root};
 use crate::Animation;
 
-impl<R: HumanoidRig> Animation<R> for Land<R> {
-	fn apply_for(&self, rig: &mut R, progress: f32) {
-		apply_leg(rig, Side::Left, self.femur_swing(progress), self.shin_flex(progress));
-		apply_leg(rig, Side::Right, self.femur_swing(progress), self.shin_flex(progress));
-		apply_root(rig, self.root_swing(progress));
+impl Animation<HumanoidV0Rig> for Land {
+	fn apply_for(&self, rig: &mut HumanoidV0Rig, progress: f32) {
+		let mut pose = HumanoidPose::default();
+		pose.apply_leg(Side::Left, self.femur_swing(progress), self.shin_flex(progress));
+		pose.apply_leg(Side::Right, self.femur_swing(progress), self.shin_flex(progress));
+		pose.apply_root(self.root_swing(progress));
+		rig.write_pose(&pose);
 	}
 }

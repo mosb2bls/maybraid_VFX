@@ -107,7 +107,7 @@ mod tests {
 	#[test]
 	fn tuck_arms_mirror_fall_axes_with_opposite_signs() -> anyhow::Result<()> {
 		let profile = TuckProfile::new(TuckProfile::DEFAULT_TIGHTNESS);
-		let fall = Fall::<()>::default();
+		let fall = Fall::default();
 		for side in [Side::Left, Side::Right] {
 			assert!(
 				profile.humerus_swing(side, 1.0).signum() != fall.humerus_swing(side, 0.5).signum()

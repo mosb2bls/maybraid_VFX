@@ -1,7 +1,7 @@
 //! Posed + material-stamped vegetation for nesting under grove [`LodScene`](lod::LodScene) hosts.
 
 use bevy::prelude::{Component, Vec3};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use material_ref::MaterialRef;
 
 use crate::foliage::geometry::FoliageGeometry;

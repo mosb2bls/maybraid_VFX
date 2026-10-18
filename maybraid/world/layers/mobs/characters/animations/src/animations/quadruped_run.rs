@@ -1,11 +1,9 @@
-//! Rig-agnostic quadruped run (diagonal trot) parameters.
+//! Quadruped run (diagonal trot) parameters.
 //!
 //! Progress is owned by the controller; [`QuadrupedRun`] is a pure sampler at a normalized
-//! cycle phase in `[0, 1)`. Quadruped rigs convert to [`QuadrupedRunPose`]
-//! before applying joint articulation.
+//! cycle phase in `[0, 1)`. [`QuadrupedRunPose`] holds the tuned joint knobs.
 
 use std::f32::consts::PI;
-use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct QuadrupedRun {
@@ -25,7 +23,7 @@ impl Default for QuadrupedRun {
 
 /// Tuned quadruped run pose knobs derived from [`QuadrupedRun`].
 #[derive(Debug, Clone, PartialEq)]
-pub struct QuadrupedRunPose<Rig> {
+pub struct QuadrupedRunPose {
 	pub shoulder_swing: f32,
 	pub shoulder_lift: f32,
 	pub hip_swing: f32,
@@ -35,16 +33,15 @@ pub struct QuadrupedRunPose<Rig> {
 	pub knee_contracted: f32,
 	pub knee_extended: f32,
 	pub spine_swing: f32,
-	/// Neck roll (swing / Y, around the bone).
+	/// Neck turn (axial +Y).
 	pub neck_swing: f32,
-	/// Neck side-to-side (flex / Z).
+	/// Neck tilt (lateral +Z).
 	pub neck_bow: f32,
-	/// Neck up / down (twist / X).
+	/// Neck nod (flexion +X).
 	pub neck_pitch: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Default for QuadrupedRunPose<Rig> {
+impl Default for QuadrupedRunPose {
 	fn default() -> Self {
 		Self {
 			shoulder_swing: 0.12,
@@ -59,12 +56,11 @@ impl<Rig> Default for QuadrupedRunPose<Rig> {
 			neck_swing: 0.05,
 			neck_bow: 0.08,
 			neck_pitch: 0.07,
-			_rig: PhantomData,
 		}
 	}
 }
 
-impl<Rig> QuadrupedRunPose<Rig> {
+impl QuadrupedRunPose {
 	/// Scale the tuned quadruped template from rig-agnostic [`QuadrupedRun`] knobs.
 	pub fn from_run(run: &QuadrupedRun) -> Self {
 		let template = Self::default();
@@ -89,7 +85,6 @@ impl<Rig> QuadrupedRunPose<Rig> {
 			knee_contracted: template.knee_extended
 				+ knee_neutral_delta * stride_scale
 				+ knee_contracted_delta * stride_scale,
-			_rig: PhantomData,
 		}
 	}
 }

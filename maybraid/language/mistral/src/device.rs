@@ -75,12 +75,10 @@ mod tests {
 	#[test]
 	fn tahoe_and_newer_darwin_are_incompatible() {
 		assert_eq!(darwin_major_from("macos", Some("27.0.0")), Some(27));
-		assert!(darwin_major_from("macos", Some("27.0.0")).is_some_and(|major| {
-			major >= METAL_GEMM_BROKEN_DARWIN_MAJOR
-		}));
-		assert!(darwin_major_from("macos", Some("24.6.0")).is_some_and(|major| {
-			major < METAL_GEMM_BROKEN_DARWIN_MAJOR
-		}));
+		assert!(darwin_major_from("macos", Some("27.0.0"))
+			.is_some_and(|major| { major >= METAL_GEMM_BROKEN_DARWIN_MAJOR }));
+		assert!(darwin_major_from("macos", Some("24.6.0"))
+			.is_some_and(|major| { major < METAL_GEMM_BROKEN_DARWIN_MAJOR }));
 		assert_eq!(darwin_major_from("linux", Some("27.0.0")), None);
 	}
 }

@@ -2,7 +2,7 @@ use bevy_math::{Vec2, Vec3};
 use building_components::panels::PanelGeometry;
 use building_components::partitions::Partition;
 use building_components::BuildingComponents;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::openings::{MapsOpenings, OpeningId, Openings};
 use crate::paneling::ClippedRectangularStripPiece;

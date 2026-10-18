@@ -18,7 +18,7 @@ use crate::{
 		tuberwaber::assets::{TuberwaberBodyMesh, TuberwaberHeadMesh},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Tuberwaber data attached to the character root entity.
 ///

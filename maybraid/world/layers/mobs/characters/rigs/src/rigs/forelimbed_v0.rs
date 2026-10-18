@@ -1,15 +1,21 @@
 use bevy::prelude::*;
 
 use crate::{
-	forelimbed::{ForelimbedFin, ForelimbedRig, ForelimbedSpine},
-	BoneDefinition, BonePose, BoneTable, Name, RigPose, RiggedAxis, Side,
+	authoring::{
+		forelimbed_v0_definition, resolve_forelimbed, ForelimbedPose, PoseBuffer, PoseScratch,
+		RigBinding, FORELIMBED_V0_BONES,
+	},
+	BoneDefinition, BoneTable, Name, RiggedAxis,
 };
 
 /// Imported forelimbed (aquatic) rig: axial spine + paired pectoral fins.
 #[derive(Component, Debug, Clone)]
 pub struct ForelimbedV0Rig {
 	pub bones: BoneTable,
-	pub pose: RigPose,
+	pub binding: RigBinding,
+	/// Last resolved local pose. Sampling always starts from [`Self::binding`] rest.
+	pub pose: PoseBuffer,
+	pub scratch: PoseScratch,
 }
 
 impl ForelimbedV0Rig {
@@ -18,95 +24,43 @@ impl ForelimbedV0Rig {
 		for (name, relative_axis) in FORELIMBED_V0_BONE_DEFINITIONS {
 			bones.insert(BoneDefinition { name: Name::from(name), relative_axis });
 		}
-
-		Self { bones, pose: RigPose::new() }
-	}
-
-	fn bone_pose(&self, name: impl Into<Name>) -> BonePose {
-		let name = name.into();
-		self.pose
-			.get(&name)
-			.cloned()
-			.unwrap_or_else(|| BonePose::new(name, Transform::IDENTITY))
-	}
-
-	fn local_rotation(&self, bone: &Name) -> Quat {
-		self.pose
-			.get(bone)
-			.map(|pose| pose.transform.rotation)
-			.unwrap_or(Quat::IDENTITY)
-	}
-
-	fn world_rotation_for(&self, bone: &Name) -> Quat {
-		self.parent_world_rotation_for(bone) * self.local_rotation(bone)
-	}
-
-	fn parent_world_rotation_for(&self, bone: &Name) -> Quat {
-		forelimbed_v0_parent(bone.as_str())
-			.map(|parent| self.world_rotation_for(&Name::from(parent)))
-			.unwrap_or(Quat::IDENTITY)
-	}
-
-	pub fn animation_bones(&self) -> Vec<Name> {
-		let spine = self.spine();
-		let left = self.fin(Side::Left);
-		let right = self.fin(Side::Right);
-		vec![
-			spine.upper_mid_spine.name,
-			spine.upper_spine.name,
-			spine.lower_mid_spine.name,
-			spine.lower_spine.name,
-			spine.tailbone.name,
-			spine.back_ridge.name,
-			left.shoulder.name,
-			left.upper_arm.name,
-			left.lower_arm.name,
-			right.shoulder.name,
-			right.upper_arm.name,
-			right.lower_arm.name,
-		]
-	}
-}
-
-impl ForelimbedRig for ForelimbedV0Rig {
-	fn spine(&self) -> ForelimbedSpine {
-		ForelimbedSpine {
-			upper_mid_spine: self.bone_pose("upper_mid_spine"),
-			upper_spine: self.bone_pose("upper_spine"),
-			lower_mid_spine: self.bone_pose("lower_mid_spine"),
-			lower_spine: self.bone_pose("lower_spine"),
-			tailbone: self.bone_pose("tailbone"),
-			back_ridge: self.bone_pose("back_ridge"),
+		let definition = forelimbed_v0_definition();
+		let len = definition.len();
+		let binding = RigBinding::from_rest(
+			definition,
+			vec![Entity::PLACEHOLDER; len].into_boxed_slice(),
+			PoseBuffer::identity(len),
+		);
+		Self {
+			bones,
+			binding,
+			pose: PoseBuffer::identity(len),
+			scratch: PoseScratch::identity(len),
 		}
 	}
 
-	fn fin(&self, side: Side) -> ForelimbedFin {
-		let suffix = side.suffix();
-		ForelimbedFin {
-			shoulder: self.bone_pose(format!("shoulder.{suffix}")),
-			upper_arm: self.bone_pose(format!("upper_arm.{suffix}")),
-			lower_arm: self.bone_pose(format!("lower_arm.{suffix}")),
-		}
+	pub fn write_pose(&mut self, pose: &ForelimbedPose) {
+		resolve_forelimbed(pose, &self.binding, &mut self.pose);
 	}
 
-	fn pose(&self) -> &RigPose {
-		&self.pose
+	pub fn rotation(&self, name: &str) -> Quat {
+		self.binding
+			.definition
+			.id(name)
+			.map(|id| self.pose.rotation(id))
+			.unwrap_or(Quat::IDENTITY)
 	}
 
-	fn pose_mut(&mut self) -> &mut RigPose {
-		&mut self.pose
+	pub fn animation_bone_names(&self) -> impl Iterator<Item = &'static str> {
+		FORELIMBED_V0_BONES.iter().copied()
 	}
 
-	fn rigged_axis(&self, bone: &Name) -> Option<RiggedAxis> {
+	pub fn rigged_axis(&self, bone: &Name) -> Option<RiggedAxis> {
 		self.bones.get(bone).map(|bone| bone.relative_axis)
 	}
 
-	fn animation_bones(&self) -> Vec<Name> {
-		ForelimbedV0Rig::animation_bones(self)
-	}
-
-	fn parent_world_rotation(&self, bone: &Name) -> Quat {
-		self.parent_world_rotation_for(bone)
+	pub fn animation_bones(&self) -> Vec<Name> {
+		self.animation_bone_names().map(Name::from).collect()
 	}
 }
 
@@ -141,49 +95,16 @@ pub fn forelimbed_v0_bone_names() -> impl Iterator<Item = &'static str> {
 	FORELIMBED_V0_BONE_DEFINITIONS.into_iter().map(|(name, _axis)| name)
 }
 
-const FORELIMBED_V0_PARENT: &[(&str, &str)] = &[
-	("lower_mid_spine", ""),
-	("lower_spine", "lower_mid_spine"),
-	("tailbone", "lower_spine"),
-	("tail_socket", "tailbone"),
-	("upper_mid_spine", ""),
-	("upper_spine", "upper_mid_spine"),
-	("head_socket", "upper_spine"),
-	("shoulder.L", "upper_spine"),
-	("upper_arm.L", "shoulder.L"),
-	("lower_arm.L", "upper_arm.L"),
-	("shoulder.R", "upper_spine"),
-	("upper_arm.R", "shoulder.R"),
-	("lower_arm.R", "upper_arm.R"),
-	("back_ridge", ""),
-	("dorsal_socket", "back_ridge"),
-];
-
-fn forelimbed_v0_parent(name: &str) -> Option<&'static str> {
-	FORELIMBED_V0_PARENT
-		.iter()
-		.find(|(child, _)| *child == name)
-		.map(|(_, parent)| *parent)
-		.filter(|parent| !parent.is_empty())
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
 
 	#[test]
-	fn forelimbed_v0_accessors_map_to_imported_names() {
-		let rig = ForelimbedV0Rig::imported();
-		assert_eq!(rig.spine().tailbone.name, Name::from("tailbone"));
-		assert_eq!(rig.fin(Side::Left).upper_arm.name, Name::from("upper_arm.L"));
-		assert_eq!(rig.fin(Side::Right).lower_arm.name, Name::from("lower_arm.R"));
-	}
-
-	#[test]
 	fn forelimbed_v0_animation_bones_exist_in_definition_table() {
 		let rig = ForelimbedV0Rig::imported();
-		for name in ForelimbedRig::animation_bones(&rig) {
+		for name in rig.animation_bones() {
 			assert!(rig.bones.get(&name).is_some(), "missing animation bone {name}");
+			assert!(rig.binding.definition.id(name.as_str()).is_some(), "missing id {name}");
 		}
 	}
 
@@ -194,5 +115,21 @@ mod tests {
 			assert!(rig.bones.get(&Name::from(name)).is_some(), "missing bone {name}");
 		}
 		assert_eq!(rig.bones.len(), FORELIMBED_V0_BONE_DEFINITIONS.len());
+	}
+
+	#[test]
+	fn dorsoventral_bend_and_lateral_yaw_use_distinct_axes() {
+		let mut rig = ForelimbedV0Rig::imported();
+		let mut pose = ForelimbedPose::default();
+		pose.dorsoventral[4] = 0.5;
+		rig.write_pose(&pose);
+		let bend = rig.rotation("tailbone") * Vec3::Y;
+		assert!(bend.z > 0.2 && bend.x.abs() < 1e-3, "sagittal bend, got {bend:?}");
+
+		let mut pose = ForelimbedPose::default();
+		pose.lateral[4] = 0.5;
+		rig.write_pose(&pose);
+		let yaw = rig.rotation("tailbone") * Vec3::Z;
+		assert!(yaw.x.abs() > 0.2 && yaw.y.abs() < 1e-3, "axial yaw, got {yaw:?}");
 	}
 }

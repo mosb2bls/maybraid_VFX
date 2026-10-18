@@ -1,7 +1,5 @@
 //! Generated 100 m grove on one forest layer.
 
-use std::sync::OnceLock;
-
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::Vec3;
 use lod::gen::Id;
@@ -9,23 +7,13 @@ use vegetation_groves::{GroveExtent, GroveWorldSample};
 
 use crate::{ForestGroveRecipe, ForestGroveTile, ForestLayer};
 
-/// One layer on a 100 m tile: blend recipes, plus grown tiles after present
-/// (or a test) calls [`Self::ensure_grown`]. Generate stores recipes only.
+/// One layer on a 100 m tile: the blend recipes it grows from. Growing them
+/// on a ground is [`Self::grow`]; the grove itself never holds plants.
+#[derive(Clone)]
 pub struct ChicoGrove {
 	pub extent: GroveExtent,
 	pub layer: ForestLayer,
 	pub recipes: Vec<ForestGroveRecipe>,
-	grown: OnceLock<Vec<ForestGroveTile>>,
-}
-
-impl Clone for ChicoGrove {
-	fn clone(&self) -> Self {
-		let grown = OnceLock::new();
-		if let Some(tiles) = self.grown.get() {
-			let _ = grown.set(tiles.clone());
-		}
-		Self { extent: self.extent, layer: self.layer, recipes: self.recipes.clone(), grown }
-	}
 }
 
 impl ChicoGrove {
@@ -34,7 +22,7 @@ impl ChicoGrove {
 		layer: ForestLayer,
 		recipes: Vec<ForestGroveRecipe>,
 	) -> Self {
-		Self { extent, layer, recipes, grown: OnceLock::new() }
+		Self { extent, layer, recipes }
 	}
 
 	pub fn id(&self) -> Id {
@@ -43,30 +31,6 @@ impl ChicoGrove {
 
 	pub fn aabb(&self) -> Aabb3d {
 		grove_aabb(self.extent, self.layer)
-	}
-
-	/// Grown tiles if [`Self::ensure_grown`] (or [`Self::grow`]) has run.
-	pub fn grown_tiles(&self) -> Option<&[ForestGroveTile]> {
-		self.grown.get().map(Vec::as_slice)
-	}
-
-	/// Grow recipes into storage once. Present handle grows on one tick and
-	/// spawns on the next so a dense tile does not own both costs.
-	pub fn ensure_grown(&self, world: &impl GroveWorldSample) -> &[ForestGroveTile] {
-		self.grown.get_or_init(|| self.grow(world))
-	}
-
-	/// Tiles to spawn this present slot. `None` means this call grew and the
-	/// caller should wait for the next slot.
-	pub fn tiles_ready_to_present(
-		&self,
-		world: &impl GroveWorldSample,
-	) -> Option<&[ForestGroveTile]> {
-		if self.grown.get().is_some() {
-			return self.grown_tiles();
-		}
-		self.ensure_grown(world);
-		None
 	}
 
 	pub fn grow(&self, world: &impl GroveWorldSample) -> Vec<ForestGroveTile> {
@@ -90,6 +54,12 @@ pub fn grove_from_id(id: Id) -> Option<(GroveExtent, ForestLayer)> {
 	Some((extent, layer))
 }
 
+/// Flat world sample used when growing grove recipes in unit tests.
+#[cfg(test)]
+pub(crate) fn forest_world_sample() -> vegetation_groves::FlatTerrainSample {
+	vegetation_groves::FlatTerrainSample::default()
+}
+
 fn grove_aabb(extent: GroveExtent, layer: ForestLayer) -> Aabb3d {
 	let y = layer.id_y();
 	Aabb3d::from_min_max(
@@ -105,8 +75,8 @@ mod tests {
 	use vegetation_groves::GroveExtent;
 
 	#[test]
-	fn ensure_grown_is_once_and_leaves_recipes() -> Result<()> {
-		use crate::index::forest_world_sample;
+	fn grow_is_one_tile_per_recipe_and_leaves_recipes() -> Result<()> {
+		use super::forest_world_sample;
 		use crate::{ForestGroveKind, ForestGroveRecipe};
 
 		let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(100.0, 1.0, 100.0));
@@ -115,31 +85,8 @@ mod tests {
 			ForestLayer::UpperCanopy,
 			vec![ForestGroveRecipe::uniform(ForestGroveKind::Orchard, extent)],
 		);
-		assert!(grove.grown_tiles().is_none());
-		let first = grove.ensure_grown(&forest_world_sample()).len();
-		assert!(first > 0);
-		assert_eq!(grove.ensure_grown(&forest_world_sample()).len(), first);
+		assert_eq!(grove.grow(&forest_world_sample()).len(), grove.recipes.len());
 		assert!(!grove.recipes.is_empty());
-		Ok(())
-	}
-
-	#[test]
-	fn tiles_ready_to_present_grows_then_returns_tiles() -> Result<()> {
-		use crate::index::forest_world_sample;
-		use crate::{ForestGroveKind, ForestGroveRecipe};
-
-		let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(100.0, 1.0, 100.0));
-		let grove = ChicoGrove::selected(
-			extent,
-			ForestLayer::UpperCanopy,
-			vec![ForestGroveRecipe::uniform(ForestGroveKind::Orchard, extent)],
-		);
-		assert!(grove.tiles_ready_to_present(&forest_world_sample()).is_none());
-		assert!(grove.grown_tiles().is_some());
-		let tiles = grove
-			.tiles_ready_to_present(&forest_world_sample())
-			.ok_or_else(|| anyhow::anyhow!("ready"))?;
-		assert!(!tiles.is_empty());
 		Ok(())
 	}
 

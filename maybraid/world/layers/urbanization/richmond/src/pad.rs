@@ -1,8 +1,9 @@
 //! Union-first building-pad primitives + broadphase helpers.
 //!
-//! Skirt ease lives on [`PadParams`]. Terrain blend lives on
-//! [`crate::pad::node::PadNode`]: flatten interiors stay exact; overlapping
-//! grades and skirts mix by occupancy (hydro shore / softmax analog).
+//! Developments plan their pads as [`urbanization_developments::PadPlan`]s;
+//! this module realizes them. Skirt ease lives on [`PadParams`]. Terrain blend
+//! lives on [`crate::pad::node::PadNode`]: flatten interiors stay exact;
+//! overlapping grades and skirts mix by occupancy (hydro shore / softmax analog).
 
 pub mod complex;
 pub mod elevation;
@@ -18,55 +19,7 @@ pub use node::{PadNode, PadStage};
 use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec2;
 use procedural_common::Bounds2;
-use urbanization_developments::{BuildingFootprint, PlacedBuilding};
-
-use crate::cell::{PAD_BERM, PAD_EDGE_EASE, PAD_ROUND};
-
-/// Ease / berm parameters for one pad node.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PadParams {
-	/// Extra flatten outside the building footprint (metres).
-	pub berm: f32,
-	/// Ease / apron width from flatten support out to identity terrain.
-	pub ease: f32,
-	/// Rounded-rect corner radius on the flatten footprint.
-	pub round: f32,
-}
-
-impl Default for PadParams {
-	fn default() -> Self {
-		Self { berm: PAD_BERM, ease: PAD_EDGE_EASE, round: PAD_ROUND }
-	}
-}
-
-impl PadParams {
-	/// Connecting grade: core wide enough to hit a ~5 m terrain sample pitch,
-	/// short ease so overlapping skirts do not fill the whole cell.
-	pub fn path() -> Self {
-		Self { berm: 2.0, ease: 16.0, round: 0.0 }
-	}
-
-	/// Shepherds house / hut terrace. Berm covers a sample pitch past the walls
-	/// so the floor sits on flatten, not the interpolated ease.
-	pub fn shepherds() -> Self {
-		Self { berm: 6.0, ease: 16.0, round: PAD_ROUND }
-	}
-
-	/// Shared market terrace: compact apron around a whole stall cluster.
-	pub fn market() -> Self {
-		Self { berm: 3.0, ease: 12.0, round: 2.0 }
-	}
-
-	/// Flatten half-extents: building plan plus berm.
-	pub fn flatten_half(self, building_half: Vec2) -> Vec2 {
-		building_half + Vec2::splat(self.berm.max(0.0))
-	}
-
-	/// Full modulation half-extents: flatten support plus the ease skirt.
-	pub fn influence_half(self, building_half: Vec2) -> Vec2 {
-		self.flatten_half(building_half) + Vec2::splat(self.ease.max(0.0))
-	}
-}
+use urbanization_developments::PadParams;
 
 /// One pad leaf: footprint + local elevation field.
 #[derive(Debug, Clone)]
@@ -107,69 +60,17 @@ pub fn cell_center_xz(cell: Aabb3d) -> Vec2 {
 	Vec2::new((cell.min.x + cell.max.x) * 0.5, (cell.min.z + cell.max.z) * 0.5)
 }
 
-pub trait PlacedBuildingPad {
-	/// Build one exact pad node per authored footprint piece, transformed by the
-	/// same center and yaw used to present the building.
-	fn pad_complex(&self, params: PadParams) -> PadComplex;
-}
-
-impl<T: BuildingFootprint> PlacedBuildingPad for PlacedBuilding<T> {
-	fn pad_complex(&self, params: PadParams) -> PadComplex {
-		let center = self.center_xz;
-		let yaw = self.yaw;
-		let (sin, cos) = yaw.sin_cos();
-		let nodes = self
-			.building
-			.footprint_rects()
-			.into_iter()
-			.map(|rect| {
-				let rect_center = (rect.min + rect.max) * 0.5;
-				let local = rect_center - center;
-				let rotated_center = center
-					+ Vec2::new(cos * local.x + sin * local.y, -sin * local.x + cos * local.y);
-				PadNode::rectangular_flatten(
-					rotated_center,
-					(rect.max - rect.min) * 0.5,
-					yaw,
-					self.ground_height,
-					params,
-				)
-			})
-			.collect();
-		PadComplex::from_nodes(nodes)
-	}
-}
-
-/// One graded reach node per polyline segment (hydro `nodes_from_polyline` analog).
-pub fn nodes_from_graded_polyline(
-	path: &[Vec2],
-	levels: &[f32],
-	half_width: f32,
-	params: PadParams,
-) -> Vec<PadNode> {
-	let n = path.len().min(levels.len());
-	if n < 2 {
-		return Vec::new();
-	}
-	let hw = half_width.max(1e-3);
-	let mut out = Vec::with_capacity(n - 1);
-	for i in 0..n - 1 {
-		let a = path[i];
-		let b = path[i + 1];
-		if a.distance(b) <= 1e-4 {
-			continue;
-		}
-		out.push(PadNode::graded_reach(a, b, hw, levels[i], levels[i + 1], params));
-	}
-	out
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::cell::{yaw_about_xz, BUILDING_INSET, PAD_BERM, PAD_EDGE_EASE};
+	use crate::cell::BUILDING_INSET;
 	use bevy::math::Vec3;
 	use std::f32::consts::FRAC_PI_4;
+	use std::sync::Arc;
+	use urbanization_developments::{
+		yaw_about_xz, ShepherdsBuilding, ShepherdsHut, ShepherdsVillageBuilding, PAD_BERM,
+		PAD_EDGE_EASE,
+	};
 
 	fn skirt(half: Vec2, yaw: f32, height: f32) -> PadComplex {
 		PadComplex::building_skirt(Vec2::ZERO, half, yaw, height, PadParams::default())
@@ -383,5 +284,36 @@ mod tests {
 			"ease must not drop below incoming terrain (pit wall): {h} < {hillside}"
 		);
 		assert!((pad.modify_elevation(hillside, 0.0, 0.0) - 8.0).abs() < 1e-3);
+	}
+
+	#[test]
+	fn realized_pad_follows_the_spawned_hut() -> anyhow::Result<()> {
+		use buildings::{Confines, Fit, Openings};
+		use procedural_common::NoiseParams;
+
+		let center = Vec2::new(80.0, 120.0);
+		let yaw = FRAC_PI_4;
+		let confines = Confines::new(
+			Aabb3d::from_min_max(
+				Vec3::new(center.x - 3.0, 10.0, center.y - 4.0),
+				Vec3::new(center.x + 3.0, 16.0, center.y + 4.0),
+			),
+			yaw,
+			Openings::new(),
+		);
+		let (hut, _) = ShepherdsHut::fit_to_confines(&confines, NoiseParams::default())?;
+		let placed = ShepherdsVillageBuilding {
+			center_xz: center,
+			yaw,
+			footprint: Vec2::new(6.0, 8.0),
+			ground_height: 10.0,
+			building: ShepherdsBuilding::Hut(Arc::new(hut)),
+		};
+		let pad = PadComplex::from(&placed.pad_plan(PadParams::shepherds()));
+		let local = Vec2::new(2.5, 3.5);
+		let (s, c) = yaw.sin_cos();
+		let spawned = center + Vec2::new(c * local.x + s * local.y, -s * local.x + c * local.y);
+		assert_eq!(pad.classification_at(spawned.x, spawned.y), Some(PadStage::Flatten));
+		Ok(())
 	}
 }

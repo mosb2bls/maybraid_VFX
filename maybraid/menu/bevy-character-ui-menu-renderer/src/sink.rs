@@ -142,7 +142,7 @@ impl<E: Copy + Send + Sync + 'static> MenuSink<E> for BevyMenuSink {
 							render_asset_button(
 								grid,
 								choice.label,
-								choice.event,
+								Some(choice.event),
 								choice.selected,
 								thumbnail,
 							);
@@ -346,7 +346,7 @@ impl BevyMenuSink {
 					render_asset_button(
 						top,
 						row.asset.label,
-						row.asset.event,
+						Some(row.asset.event),
 						row.asset.selected,
 						thumbnail,
 					);

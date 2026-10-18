@@ -4,12 +4,11 @@
 //! and convert via [`UprightRun::from_run`].
 
 use std::f32::consts::PI;
-use std::marker::PhantomData;
 
 use super::Run;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UprightRun<Rig> {
+pub struct UprightRun {
 	pub arm_down: f32,
 	pub elbow_bend: f32,
 	pub elbow_pump: f32,
@@ -23,10 +22,9 @@ pub struct UprightRun<Rig> {
 	pub knee_neutral: f32,
 	pub knee_contracted: f32,
 	pub knee_extended: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Default for UprightRun<Rig> {
+impl Default for UprightRun {
 	fn default() -> Self {
 		Self {
 			arm_down: 0.85,
@@ -42,12 +40,11 @@ impl<Rig> Default for UprightRun<Rig> {
 			knee_neutral: PI * 0.5,
 			knee_contracted: 2.15,
 			knee_extended: 0.35,
-			_rig: PhantomData,
 		}
 	}
 }
 
-impl<Rig> UprightRun<Rig> {
+impl UprightRun {
 	/// Scale the tuned upright template from rig-agnostic [`Run`] knobs.
 	pub fn from_run(run: &Run) -> Self {
 		let template = Self::default();
@@ -73,7 +70,6 @@ impl<Rig> UprightRun<Rig> {
 			elbow_pump: template.elbow_pump,
 			elbow_cycle: template.elbow_cycle,
 			humerus_swing_scale: template.humerus_swing_scale,
-			_rig: PhantomData,
 		}
 	}
 }
@@ -85,14 +81,14 @@ mod tests {
 	#[test]
 	fn from_run_default_matches_template() {
 		let run = Run::default();
-		assert_eq!(UprightRun::<()>::from_run(&run), UprightRun::<()>::default());
+		assert_eq!(UprightRun::from_run(&run), UprightRun::default());
 	}
 
 	#[test]
 	fn from_run_scales_stride_and_knee_amplitude() {
 		let run = Run { stride: 2.1, ..Run::default() };
-		let upright = UprightRun::<()>::from_run(&run);
-		let template = UprightRun::<()>::default();
+		let upright = UprightRun::from_run(&run);
+		let template = UprightRun::default();
 		assert!((upright.stride - template.stride * 2.0).abs() < 1e-5);
 		assert!(
 			(upright.knee_contracted - template.knee_contracted * 2.0 + template.knee_extended)
@@ -103,8 +99,8 @@ mod tests {
 	#[test]
 	fn from_run_scales_bounce_and_rotation() {
 		let run = Run { bounce: 2.0, rotation: 0.5, ..Run::default() };
-		let upright = UprightRun::<()>::from_run(&run);
-		let template = UprightRun::<()>::default();
+		let upright = UprightRun::from_run(&run);
+		let template = UprightRun::default();
 		assert!((upright.hip_lift - template.hip_lift * 2.0).abs() < 1e-5);
 		assert!((upright.hip_swing - template.hip_swing * 0.5).abs() < 1e-5);
 		assert!((upright.shoulder_swing - template.shoulder_swing * 0.5).abs() < 1e-5);

@@ -10,9 +10,7 @@ pub mod plugin;
 pub mod pose;
 pub mod socket;
 
-pub use bone_map::{
-	bone_map_ready, build_bone_maps, missing_landmark_bones, BoneMap, RigKey, RigRoot,
-};
+pub use bone_map::{build_bone_maps, BoneMap, RigKey, RigRoot};
 pub use member::{
 	find_any_member_rig, find_member_rig, stamp_assembly_members, AssemblyHost, AssemblyMembers,
 	AssemblyRoot, MemberOf,

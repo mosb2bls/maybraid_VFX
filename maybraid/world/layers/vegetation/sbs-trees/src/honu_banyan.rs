@@ -17,7 +17,7 @@ mod stick;
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use sbs_geometry::{BallStickChain, HonuBanyanChain, HonuBanyanSbs};
 use vegetation_components::{
 	leaf_material_ref, stick_material_ref, FoliageNode, Layers, StickNode, StructuralLod,

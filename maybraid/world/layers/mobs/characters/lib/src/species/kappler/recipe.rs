@@ -18,7 +18,7 @@ use crate::{
 	nodes::{PartNode, RigNode},
 	species::common::{nodes as humanoid, EyeMesh, HairMesh},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Cartoonishly large head (same as Topple).
 const HEAD_RIG_SOCKET_SCALE: f32 = 1.85;

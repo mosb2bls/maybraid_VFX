@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::{LodScene, LodSceneLevel};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneLevel};
 use lod::SceneChunk;
 use material_ref::MaterialRef;
 use procedural_common::{noise_params_from_scalar_str, NoiseParams};

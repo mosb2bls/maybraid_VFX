@@ -6,10 +6,8 @@ use terrain_stamps::PlateauCap;
 
 define_stamp_family! {
 	layout: PlateauLowPassControllerLayout,
-	bootstrap_layout: BootstrapPlateauLowPassControllerLayout / bootstrap_plateau_low_pass_controller_layout,
 	controller: PlateauLowPassControllerCell,
 	stamp: PlateauLowPassStampCell,
-	leaves_fn: original_ids_for_plateau_low_pass_leaves,
 	family_salt: 22,
 	cell_size: (TERRAIN_CELL_SIZE * 1.25, MACRO_CELL_SIZE * 1.5),
 	controller_cell_size: MACRO_CELL_SIZE * 6.0,
@@ -28,10 +26,8 @@ define_stamp_family! {
 
 define_stamp_family! {
 	layout: PlateauHighPassControllerLayout,
-	bootstrap_layout: BootstrapPlateauHighPassControllerLayout / bootstrap_plateau_high_pass_controller_layout,
 	controller: PlateauHighPassControllerCell,
 	stamp: PlateauHighPassStampCell,
-	leaves_fn: original_ids_for_plateau_high_pass_leaves,
 	family_salt: 122,
 	cell_size: (MACRO_CELL_SIZE * 2.0, MACRO_CELL_SIZE * 8.0),
 	controller_cell_size: MACRO_CELL_SIZE * 40.0,

@@ -3,7 +3,7 @@
 use bevy_math::bounding::Aabb3d;
 use bevy_math::Vec3;
 use building_components::{BuildingComponents, Layer};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{aabb2_area, NoiseParams};
 
 use crate::fit::{Confines, FillRegion, MultiConfines, SpaceKind};

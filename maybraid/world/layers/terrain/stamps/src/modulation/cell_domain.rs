@@ -12,7 +12,7 @@
 //! terrain chunks may omit the modulation.
 
 use bevy_math::Vec2;
-use procedural_common::Bounds2;
+use procedural_common::{Bounds2, Smoothstep01};
 
 /// Default ease band (world units) inside the cell edge.
 pub const DEFAULT_CELL_DOMAIN_EASE: f32 = 20.0;
@@ -54,7 +54,7 @@ impl CellDomainMask {
 		if dist >= ease {
 			1.0
 		} else {
-			smoothstep(dist / ease)
+			Smoothstep01::eval(dist / ease)
 		}
 	}
 }
@@ -64,11 +64,6 @@ fn interior_edge_distance(bounds: Bounds2, p: Vec2) -> f32 {
 	let dx = (p.x - bounds.min.x).min(bounds.max.x - p.x);
 	let dz = (p.y - bounds.min.y).min(bounds.max.y - p.y);
 	dx.min(dz).max(0.0)
-}
-
-fn smoothstep(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]

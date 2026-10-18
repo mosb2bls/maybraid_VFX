@@ -25,19 +25,22 @@ use commands::{
 };
 use debug_bounds::{setup_cell_location_hud, update_cell_location_hud, PlaygroundDebugOverlay};
 use durham::{
-	AvianTerrainIndex, BaseTerrainNoise, ComposedWater, DurhamTerrainModelsPlugin, OuterCellRing,
-	Terrain, TerrainCellLayout, TerrainConfig, TerrainEntryStore, TerrainMeshBuilder,
-	TerrainMeshLodBand, TerrainPresentationAssets, TerrainRegionPresenter, TerrainStampConfigs,
-	TerrainStoreView, Water, WaterPresentationAssets, WatershedConfigs, TERRAIN_CELL_SIZE,
+	terrain_collider_covers_xz, BaseTerrainNoise, CascadeChunk, ComposedWater,
+	DurhamPresentationPlugin, DurhamRoots, DurhamTerrainModelsPlugin, DurhamWindow, OuterCellRing,
+	SharedTerrainStorage, Terrain, TerrainCellLayout, TerrainConfig, TerrainMeshAssets,
+	TerrainMeshBuilder, TerrainMeshLodBand, TerrainStampConfigs, TerrainTrimeshCollider,
+	WaterMeshAssets, WatershedConfigs, TERRAIN_CELL_SIZE,
 };
 use game_commands::command::{capture_command_line_input, GameCommandPlugin};
 use game_commands::ui::{GameCommandDrawerConfig, GameCommandStatusText};
-use lod::gen::{GeneratingSpatialIndex, RegionPresenter, SpatialIndex};
-use lod::lod_ref::LodRef;
+use lod::hcsg::{
+	HcsgBoundsPlugin, HcsgNode, HcsgRestartRequest, HcsgSessionRestarted, HcsgStorage,
+};
 use pitch::{apply_avian_terrain_pitch, sync_suspend_terrain_pitch};
 use player::{respawn_player_on_layout, Player, PlayerControlSystems, PlayerPlugin};
 use render_item::mesh::handle::EnforceCachingPlugin;
 use std::f32::consts::PI;
+use std::sync::Arc;
 use terrain_shaders::{RefractionWater, TerrainShader, TerrainShaderPlugin};
 
 /// Fine-grid half-extent in base cells (covers rings through base-sized `res_2 = 2`).
@@ -84,11 +87,14 @@ fn playground_cell_layout() -> TerrainCellLayout {
 	layout
 }
 
+/// The seed or layout changed: start a new session.
 #[derive(Resource)]
 struct TerrainPresentationDirty(bool);
 
+/// The player lands once the new session's ground under the region center
+/// is solid.
 #[derive(Resource, Default)]
-struct TerrainPresentPending(bool);
+struct PlayerRespawnPending(bool);
 
 pub struct TerrainModelsPlaygroundPlugin;
 
@@ -98,6 +104,10 @@ impl Plugin for TerrainModelsPlaygroundPlugin {
 		let base = BaseTerrainNoise::from_config(&config);
 
 		app.add_plugins(DurhamTerrainModelsPlugin)
+			.add_plugins((
+				HcsgBoundsPlugin::<DurhamWindow>::default(),
+				DurhamPresentationPlugin::<DurhamWindow>::default(),
+			))
 			.add_plugins(TerrainShaderPlugin)
 			.add_plugins(EnforceCachingPlugin::<TerrainMeshBuilder, TerrainShader>::default())
 			.add_plugins(EnforceCachingPlugin::<ComposedWater, RefractionWater>::default())
@@ -117,7 +127,8 @@ impl Plugin for TerrainModelsPlaygroundPlugin {
 			// After `DurhamTerrainModelsPlugin` so this replaces the default layout.
 			.insert_resource(playground_cell_layout())
 			.insert_resource(TerrainPresentationDirty(true))
-			.init_resource::<TerrainPresentPending>()
+			.init_resource::<PlayerRespawnPending>()
+			.init_resource::<PlaygroundRestartFollowup>()
 			.init_resource::<PlaygroundDebugOverlay>()
 			.add_systems(
 				Startup,
@@ -132,8 +143,9 @@ impl Plugin for TerrainModelsPlaygroundPlugin {
 					apply_set_character.after(apply_seed),
 					apply_mode_commands.after(apply_set_character),
 					apply_mesh_stats.after(apply_mode_commands),
-					generate_cells.after(apply_mesh_stats),
-					present_cells.after(generate_cells),
+					queue_playground_restart.after(apply_mesh_stats),
+					playground_after_hcsg_restart.after(HcsgSessionRestarted),
+					respawn_player_on_ground,
 					drive_player_locomotion
 						.after(PlayerControlSystems)
 						.before(CharacterMotionSystems::Anim),
@@ -142,7 +154,7 @@ impl Plugin for TerrainModelsPlaygroundPlugin {
 						.in_set(CharacterMotionSystems::Elevation)
 						.after(drive_player_locomotion)
 						.after(sync_suspend_terrain_pitch),
-					update_cell_location_hud.after(present_cells),
+					update_cell_location_hud,
 					ui::sync_command_status_text.before(game_commands::ui::update_debug_ui),
 				),
 			);
@@ -170,7 +182,7 @@ pub(crate) fn setup_presentation_assets(
 	let s = TERRAIN_CELL_SIZE;
 	let fine_half = PLAYGROUND_FINE_HALF_EXTENT_CELLS as f32 * s;
 	let mid_half = fine_half + PLAYGROUND_OUTER_2X_ROWS as f32 * 2.0 * s; // 32s
-	commands.insert_resource(TerrainPresentationAssets {
+	commands.insert_resource(TerrainMeshAssets {
 		config: config.clone(),
 		material,
 		lod_bands: playground_lod_bands(),
@@ -180,7 +192,7 @@ pub(crate) fn setup_presentation_assets(
 		macro_cell_min_size: Some(2.0 * s),
 		macro_res_2: Some(2),
 	});
-	commands.insert_resource(WaterPresentationAssets {
+	commands.insert_resource(WaterMeshAssets {
 		material: water_materials.add(RefractionWater::default()),
 	});
 }
@@ -231,7 +243,7 @@ fn apply_cell_commands(
 fn apply_seed(
 	mut commands: Commands,
 	mut config: ResMut<TerrainConfig>,
-	mut assets: ResMut<TerrainPresentationAssets>,
+	mut assets: ResMut<TerrainMeshAssets>,
 	mut jersey: ResMut<TerrainStampConfigs>,
 	mut marazion: ResMut<WatershedConfigs>,
 	mut world_base: ResMut<WorldBaseTerrain>,
@@ -258,7 +270,7 @@ fn apply_mode_commands(
 	mut status: ResMut<GameCommandStatusText>,
 	layout: Res<TerrainCellLayout>,
 	base: Res<WorldBaseTerrain>,
-	store: Res<TerrainEntryStore>,
+	store: Res<HcsgStorage>,
 	free: Query<Entity, With<RequestModeFree>>,
 	character: Query<Entity, With<RequestModeCharacter>>,
 	mut players: Query<(&mut Transform, &mut LinearVelocity), With<Player>>,
@@ -279,7 +291,9 @@ fn apply_mode_commands(
 		if let Ok((mut transform, mut velocity)) = players.single_mut() {
 			let center = layout.region_center_xz();
 			let elevation = store
-				.composed_height_at(&layout, center.x, center.z)
+				.try_composed_height_at(&layout, center.x, center.z)
+				.ok()
+				.flatten()
 				.unwrap_or_else(|| base.0.height_at(center.x, center.z));
 			respawn_player_on_layout(&layout, elevation, &mut transform, &mut velocity);
 		}
@@ -325,108 +339,87 @@ fn apply_mesh_stats(
 	}
 }
 
-fn generate_cells(
-	mut index: AvianTerrainIndex,
+#[derive(Resource, Default)]
+struct PlaygroundRestartFollowup(bool);
+
+fn queue_playground_restart(
 	mut dirty: ResMut<TerrainPresentationDirty>,
-	mut pending: ResMut<TerrainPresentPending>,
-	mode: Res<PlaygroundMode>,
-	mut world_base: ResMut<WorldBaseTerrain>,
-	mut cameras: Query<(&mut Transform, &mut CameraController), (With<Camera3d>, Without<Player>)>,
-	mut players: Query<(&mut Transform, &mut LinearVelocity), With<Player>>,
+	mut request: ResMut<HcsgRestartRequest>,
+	mut followup: ResMut<PlaygroundRestartFollowup>,
 ) {
 	if !dirty.0 {
 		return;
 	}
-
-	index.clear();
-
-	let layout = index.layout().clone();
-	let region = layout.request_region();
-	let identity = Transform::IDENTITY;
-	let lod_ref = LodRef {
-		entity: Entity::PLACEHOLDER,
-		previous_transform: &identity,
-		current_transform: &identity,
-		bounds: &region,
-	};
-
-	let terrains =
-		GeneratingSpatialIndex::<Terrain>::get_or_generate_region(&mut index, region, &lod_ref);
-	let waters =
-		GeneratingSpatialIndex::<Water>::get_or_generate_region(&mut index, region, &lod_ref);
-	let water_fills: usize = waters
-		.iter()
-		.filter_map(|(id, _)| SpatialIndex::<Water>::get(&index, *id).map(|w| w.fills.len()))
-		.sum();
-	let marazion_leaves: usize = terrains
-		.iter()
-		.filter_map(|(id, _)| {
-			SpatialIndex::<Terrain>::get(&index, *id).map(|t| t.marazion_leaves.len())
-		})
-		.sum();
-	info!(
-		"generated terrain_cells={} marazion_leaves={} water_cells={} water_fills={}",
-		terrains.len(),
-		marazion_leaves,
-		waters.len(),
-		water_fills
-	);
-
-	if let Some(base) = index.base_noise() {
-		world_base.0 = base.clone();
-	}
-
-	if let Ok((mut transform, mut velocity)) = players.single_mut() {
-		let center = layout.region_center_xz();
-		let elevation = index
-			.composed_height_at(center.x, center.z)
-			.unwrap_or_else(|| world_base.0.height_at(center.x, center.z));
-		respawn_player_on_layout(&layout, elevation, &mut transform, &mut velocity);
-	}
-
-	if *mode == PlaygroundMode::Free {
-		if let Ok((mut transform, mut controller)) = cameras.single_mut() {
-			refocus_camera_on_layout(&layout, &world_base.0, &mut transform, &mut controller);
-		}
-	}
-
+	request.request();
 	dirty.0 = false;
-	pending.0 = true;
+	followup.0 = true;
 }
 
-fn present_cells(
-	mut terrain_presenter: TerrainRegionPresenter,
-	store: Res<TerrainEntryStore>,
-	layout: Res<TerrainCellLayout>,
-	mut pending: ResMut<TerrainPresentPending>,
+/// The worker regenerates in the background; hosts swap to the new session's
+/// values as they land.
+fn playground_after_hcsg_restart(
+	roots: DurhamRoots,
+	mut followup: ResMut<PlaygroundRestartFollowup>,
+	mut respawn: ResMut<PlayerRespawnPending>,
+	mode: Res<PlaygroundMode>,
+	world_base: Res<WorldBaseTerrain>,
+	mut cameras: Query<(&mut Transform, &mut CameraController), (With<Camera3d>, Without<Player>)>,
 ) {
-	if !pending.0 {
+	if !followup.0 {
 		return;
 	}
+	followup.0 = false;
+	if *mode == PlaygroundMode::Free {
+		if let Ok((mut transform, mut controller)) = cameras.single_mut() {
+			refocus_camera_on_layout(
+				roots.layout(),
+				&world_base.0,
+				&mut transform,
+				&mut controller,
+			);
+		}
+	}
+	respawn.0 = true;
+}
 
-	let region = layout.presentation_region();
-	let identity = Transform::IDENTITY;
-	let lod_ref = LodRef {
-		entity: Entity::PLACEHOLDER,
-		previous_transform: &identity,
-		current_transform: &identity,
-		bounds: &region,
+/// Waits for the center cell's trimesh from the new session's value, so the
+/// player neither drops through missing ground nor lands on the old surface.
+fn respawn_player_on_ground(
+	storage: Res<HcsgStorage>,
+	layout: Res<TerrainCellLayout>,
+	mut respawn: ResMut<PlayerRespawnPending>,
+	colliders: Query<(Entity, &CascadeChunk), With<TerrainTrimeshCollider>>,
+	parents: Query<&ChildOf>,
+	hosts: Query<&HcsgNode<Terrain>>,
+	mut players: Query<(&mut Transform, &mut LinearVelocity), With<Player>>,
+) {
+	if !respawn.0 {
+		return;
+	}
+	let center = layout.region_center_xz();
+	let Ok(Some(terrain)) = storage.try_terrain_at(&layout, center.x, center.z) else {
+		return;
 	};
-	let terrain_view = TerrainStoreView::new(&store, &layout);
-	RegionPresenter::<Terrain, _>::present(&mut terrain_presenter, &terrain_view, region, &lod_ref);
-	let terrain_wanted = SpatialIndex::<Terrain>::tracked_ids_for(&terrain_view, region)
-		.into_iter()
-		.map(|tracked| tracked.0)
-		.collect();
-	terrain_presenter.remove_stale(&terrain_wanted);
-
-	pending.0 = false;
+	let solid = colliders.iter().any(|(fill, chunk)| {
+		terrain_collider_covers_xz(center, [chunk])
+			&& parents
+				.iter_ancestors(fill)
+				.any(|host| hosts.get(host).is_ok_and(|node| Arc::ptr_eq(&node.value, &terrain)))
+	});
+	if !solid {
+		return;
+	}
+	if let Ok((mut transform, mut velocity)) = players.single_mut() {
+		let elevation = terrain.sdf.terrain().height_at_with_all_modulations(center.x, center.z);
+		respawn_player_on_layout(&layout, elevation, &mut transform, &mut velocity);
+	}
+	respawn.0 = false;
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use durham::origin_cell_ids_for_layout;
+	use durham::CellTiling;
 
 	#[test]
 	fn playground_fine_grid_is_twenty_four_cells() {
@@ -437,7 +430,7 @@ mod tests {
 	#[test]
 	fn playground_origin_cells_cover_fine_disk_plus_macro_rings() {
 		let layout = playground_cell_layout();
-		let ids = origin_cell_ids_for_layout(&layout, layout.request_region());
+		let ids = layout.cell_ids(layout.request_region());
 		assert_eq!(ids.len(), 48 * 48 + 448 + 144);
 	}
 }

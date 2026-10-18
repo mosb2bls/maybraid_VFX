@@ -1,7 +1,7 @@
 use bevy_math::{EulerRot, Quat, Vec3};
 use building_components::joints::JOINT_KIT_XZ;
 use building_components::BuildingComponents;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use super::adjacency::canonical_edge;
 use super::{shared_edges, PanelComplex, PanelComplexJointPolicy, PanelPointId};

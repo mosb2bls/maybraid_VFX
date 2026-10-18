@@ -7,9 +7,10 @@ use super::variants::unending_jungle_banyan::{HonuBanyanSamples, SopeBanyanSampl
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use clap::Args;
-#[cfg(test)]
-use lod::gen::{LodScene, LodSceneLevel};
 use lod::lod_ref::LodRef;
+#[cfg(test)]
+use lod::scene::LodScene;
+use lod::scene::LodSceneLevel;
 use lod::SceneChunk;
 use material_ref::MaterialRef;
 use procedural_common::{BuildWithNoise, NoiseParams};
@@ -28,9 +29,9 @@ use crate::grove::vc_tuft::{patch_variant_index, variant_noise};
 use crate::grove::{
 	canopy_ball_material_from_palette, canopy_proxy_rory, canopy_proxy_site, canopy_proxy_trunk,
 	canopy_proxy_waialea, foliage_low_canopy_balls, frond_material_from_palette,
-	grove_structural_footprint, nest_flattened_plant_chunk, placed_palm_low_fronds,
-	placement_noise, remixed_sbs_plant, stick_material_from_palette, CanopyProxySite,
-	FlatTerrainSample, GroveCellVariant, GroveExtent, GrovePreviewParams,
+	grove_structural_footprint, lazy_flattened_plant_chunks, nest_flattened_plant_chunk,
+	placed_palm_low_fronds, placement_noise, remixed_sbs_plant, stick_material_from_palette,
+	CanopyProxySite, FlatTerrainSample, GroveCellVariant, GroveExtent, GrovePreviewParams,
 };
 
 #[derive(Clone, Debug, Args)]
@@ -118,7 +119,7 @@ impl UnendingJungle {
 		Self { plants, structural_center, footprint_radius, extent: *extent }
 	}
 
-	fn nest_plant_chunks(&self, lod_ref: &LodRef) -> Vec<SceneChunk> {
+	fn nest_plant_chunks(&self, lod_ref: &LodRef, level: LodSceneLevel) -> Vec<SceneChunk> {
 		if self.plants.is_empty() {
 			return Vec::new();
 		}
@@ -129,7 +130,7 @@ impl UnendingJungle {
 		let bounds = *lod_ref.bounds;
 		let entity = lod_ref.entity;
 		let mut index = 0usize;
-		vec![SceneChunk::lazy(n as u32, n, move || {
+		vec![lazy_flattened_plant_chunks(n, move || {
 			if index >= plants.len() {
 				return None;
 			}
@@ -149,6 +150,7 @@ impl UnendingJungle {
 					&plant.ball_material,
 					&plant.frond_material,
 					&plant_lod,
+					level,
 				),
 				UnendingJungleKind::Sope(t) => nest_flattened_plant_chunk(
 					Arc::clone(t),
@@ -157,6 +159,7 @@ impl UnendingJungle {
 					&plant.ball_material,
 					&plant.frond_material,
 					&plant_lod,
+					level,
 				),
 				UnendingJungleKind::Storybook(t) => nest_flattened_plant_chunk(
 					Arc::clone(t),
@@ -165,6 +168,7 @@ impl UnendingJungle {
 					&plant.ball_material,
 					&plant.frond_material,
 					&plant_lod,
+					level,
 				),
 				UnendingJungleKind::JungleStorybook(t) => nest_flattened_plant_chunk(
 					Arc::clone(t),
@@ -173,6 +177,7 @@ impl UnendingJungle {
 					&plant.ball_material,
 					&plant.frond_material,
 					&plant_lod,
+					level,
 				),
 				UnendingJungleKind::Torch(t) => nest_flattened_plant_chunk(
 					Arc::clone(t),
@@ -181,6 +186,7 @@ impl UnendingJungle {
 					&plant.ball_material,
 					&plant.frond_material,
 					&plant_lod,
+					level,
 				),
 				UnendingJungleKind::Rory(t) => nest_flattened_plant_chunk(
 					Arc::clone(t),
@@ -189,6 +195,7 @@ impl UnendingJungle {
 					&plant.ball_material,
 					&plant.frond_material,
 					&plant_lod,
+					level,
 				),
 				UnendingJungleKind::Waialea(t) => nest_flattened_plant_chunk(
 					Arc::clone(t),
@@ -197,6 +204,7 @@ impl UnendingJungle {
 					&plant.ball_material,
 					&plant.frond_material,
 					&plant_lod,
+					level,
 				),
 			})
 		})]

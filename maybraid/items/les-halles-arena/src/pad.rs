@@ -7,7 +7,7 @@ use lod_avian::PhysicsInteractionLayer;
 
 use crate::TrainingArena;
 
-/// Marks the static walk slab. Training unveils once this collider exists.
+/// Marks the static walk slab.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct ArenaPad;
 

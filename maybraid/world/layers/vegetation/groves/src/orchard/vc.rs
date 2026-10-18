@@ -4,6 +4,7 @@ use std::sync::Arc;
 use bevy::prelude::*;
 use clap::Args;
 use lod::lod_ref::LodRef;
+use lod::scene::LodSceneLevel;
 use lod::SceneChunk;
 use material_ref::MaterialRef;
 use procedural_common::{BuildWithNoise, NoiseParams};
@@ -14,9 +15,9 @@ use super::{definition, OrchardCell, OrchardStorybook, FRUITING_STORYBOOK, PALE_
 use crate::grove::vc_tuft::{patch_variant_index, variant_noise};
 use crate::grove::{
 	canopy_ball_material_from_palette, canopy_proxy_site, frond_material_from_palette,
-	grove_structural_footprint, nest_flattened_plant_chunk, placement_noise,
-	stick_material_from_palette, CanopyProxySite, FlatTerrainSample, GroveCellVariant, GroveExtent,
-	GroveFrontend, GrovePreviewParams,
+	grove_structural_footprint, lazy_flattened_plant_chunks, nest_flattened_plant_chunk,
+	placement_noise, stick_material_from_palette, CanopyProxySite, FlatTerrainSample,
+	GroveCellVariant, GroveExtent, GroveFrontend, GrovePreviewParams,
 };
 
 #[derive(Clone, Debug, Args)]
@@ -116,8 +117,8 @@ impl Orchard {
 		Self { plants, structural_center, footprint_radius, extent: *extent }
 	}
 
-	/// High/Medium plant hosts — one lazy producer so begin does not clone every tree.
-	fn nest_plant_chunks(&self, lod_ref: &LodRef) -> Vec<SceneChunk> {
+	/// High/Medium posed plants — one lazy producer so begin does not clone every tree.
+	fn nest_plant_chunks(&self, lod_ref: &LodRef, level: LodSceneLevel) -> Vec<SceneChunk> {
 		if self.plants.is_empty() {
 			return Vec::new();
 		}
@@ -128,7 +129,7 @@ impl Orchard {
 		let bounds = *lod_ref.bounds;
 		let entity = lod_ref.entity;
 		let mut index = 0usize;
-		vec![SceneChunk::lazy(n as u32, n, move || {
+		vec![lazy_flattened_plant_chunks(n, move || {
 			if index >= plants.len() {
 				return None;
 			}
@@ -147,6 +148,7 @@ impl Orchard {
 				&plant.ball_material,
 				&plant.frond_material,
 				&plant_lod,
+				level,
 			))
 		})]
 	}

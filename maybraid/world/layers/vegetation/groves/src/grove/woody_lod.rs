@@ -2,8 +2,8 @@
 
 use bevy::prelude::Vec3;
 use bevy::scene::prelude::Scene;
-use lod::gen::LodSceneLevel;
 use lod::lod_ref::LodRef;
+use lod::scene::LodSceneLevel;
 use lod::SceneChunk;
 use vegetation_components::{
 	flattened_canopy_proxy_chunks, FoliageNode, Layers, StickNode, StructuralLod,
@@ -179,14 +179,14 @@ macro_rules! impl_woody_grove_lod {
 		impl vegetation_components::VegetationComponents for $Grove {
 			fn stick_nodes_for_level(
 				&self,
-				level: lod::gen::LodSceneLevel,
+				level: lod::scene::LodSceneLevel,
 			) -> vegetation_components::Layers<vegetation_components::StickNode> {
 				$crate::impl_woody_grove_lod!(@trunks $lod, level, $trunks, self)
 			}
 
 			fn foliage_nodes_for_level(
 				&self,
-				level: lod::gen::LodSceneLevel,
+				level: lod::scene::LodSceneLevel,
 			) -> vegetation_components::Layers<vegetation_components::FoliageNode> {
 				$crate::impl_woody_grove_lod!(@low $lod, level, $low, self)
 			}
@@ -196,33 +196,33 @@ macro_rules! impl_woody_grove_lod {
 			}
 		}
 
-		impl lod::gen::LodScene for $Grove {
-			fn scene_lod_level(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::gen::LodSceneLevel {
+		impl lod::scene::LodScene for $Grove {
+			fn scene_lod_level(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::scene::LodSceneLevel {
 				self.structural_lod()
 					.map(|band| $crate::grove::grove_lod_level(band, lod_ref))
-					.unwrap_or(lod::gen::LodSceneLevel::High)
+					.unwrap_or(lod::scene::LodSceneLevel::High)
 			}
 
-			fn scene_lod_status(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::gen::LodSceneStatus {
+			fn scene_lod_status(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::scene::LodSceneStatus {
 				self.structural_lod()
 					.map(|band| $crate::grove::grove_lod_status(band, lod_ref))
-					.unwrap_or(lod::gen::LodSceneStatus::Unchanged)
+					.unwrap_or(lod::scene::LodSceneStatus::Unchanged)
 			}
 
 			fn scene_lod_culls(
 				&self,
 				lod_ref: &lod::lod_ref::LodRef,
-				_current: lod::gen::LodSceneLevel,
-			) -> lod::gen::LodSceneCulls {
+				_current: lod::scene::LodSceneLevel,
+			) -> lod::scene::LodSceneCulls {
 				self.structural_lod()
 					.map(|band| $crate::grove::grove_lod_culls(band, lod_ref))
-					.unwrap_or(lod::gen::LodSceneCulls::None)
+					.unwrap_or(lod::scene::LodSceneCulls::None)
 			}
 
 			fn scene_with_level(
 				&self,
 				lod_ref: &lod::lod_ref::LodRef,
-				level: lod::gen::LodSceneLevel,
+				level: lod::scene::LodSceneLevel,
 			) -> impl bevy::scene::prelude::Scene + 'static {
 				($lod).scene_with_level(self, lod_ref, level)
 			}
@@ -230,9 +230,9 @@ macro_rules! impl_woody_grove_lod {
 			fn scene_chunks_with_level(
 				&self,
 				lod_ref: &lod::lod_ref::LodRef,
-				level: lod::gen::LodSceneLevel,
+				level: lod::scene::LodSceneLevel,
 			) -> lod::SceneChunk {
-				($lod).scene_chunks(level, lod_ref, self.nest_plant_chunks(lod_ref), self)
+				($lod).scene_chunks(level, lod_ref, self.nest_plant_chunks(lod_ref, level), self)
 			}
 
 			fn scene_bounds(&self) -> bevy::math::bounding::Aabb3d {

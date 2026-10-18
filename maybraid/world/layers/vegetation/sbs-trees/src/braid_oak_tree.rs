@@ -17,7 +17,7 @@ pub(crate) mod stick;
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::NoiseParams;
 use sbs_geometry::{BallStickChain, BraidOakTreeSbs, StorybookTreeChain};
 use vegetation_components::{

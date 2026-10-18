@@ -10,9 +10,8 @@ use firearms::{
 	WeaponFired, WeaponTrigger,
 };
 use movement_intelligence::{MovementBody, MovementIntelligence};
-use player::{PlayerLook, PlayerYawOwner};
+use player::{clamp_aim_pitch, look_delta, PlayerLook, PlayerYawOwner};
 use spotting_intelligence::{SpotBounds, SpotSubject};
-use std::f32::consts::FRAC_PI_2;
 
 use crate::engagement::{allows_fire, FirearmEngagement};
 use crate::targeting::FirearmTargeting;
@@ -135,6 +134,128 @@ impl FirearmIntelligence {
 			counter_recoil_ready_at: 0.0,
 		}
 	}
+
+	fn realize_aim(&mut self, look: &mut PlayerLook, desired: Option<Vec2>, now: f32, dt: f32) {
+		let observed = Vec2::new(look.yaw, look.pitch);
+		if !self.aim_initialized {
+			self.tracked_look = observed;
+			self.last_output_look = observed;
+			self.aim_initialized = true;
+		} else {
+			self.recoil_offset += look_delta(self.last_output_look, observed);
+		}
+
+		if let Some(desired) = desired {
+			self.tracked_look = Self::move_look_towards(
+				self.tracked_look,
+				desired,
+				self.settings.tracking_rate.max(0.0) * dt.max(0.0),
+			);
+		}
+
+		let recovery_dt = (now - self.counter_recoil_ready_at).clamp(0.0, dt.max(0.0));
+		self.recoil_offset = self.settings.recover_recoil(self.recoil_offset, recovery_dt);
+
+		let output = Vec2::new(
+			self.tracked_look.x + self.recoil_offset.x,
+			clamp_aim_pitch(self.tracked_look.y + self.recoil_offset.y),
+		);
+		look.yaw = output.x;
+		look.pitch = output.y;
+		self.last_output_look = output;
+	}
+
+	fn move_look_towards(current: Vec2, target: Vec2, max_step: f32) -> Vec2 {
+		let delta = look_delta(current, target);
+		let distance = delta.length();
+		if distance <= max_step || distance <= 1e-6 {
+			return current + delta;
+		}
+		current + delta * (max_step.max(0.0) / distance)
+	}
+}
+
+impl FirearmIntelligenceSettings {
+	fn motion_tracking_delay(&self) -> f32 {
+		let skill = self.motion_tracking.clamp(0.0, 1.0);
+		0.3 + (0.03 - 0.3) * skill
+	}
+
+	pub(crate) fn perceive_motion(&self, position: Vec3, velocity: Vec3) -> Vec3 {
+		position - velocity * self.motion_tracking_delay()
+	}
+
+	fn counter_recoil_delay(&self) -> f32 {
+		let skill = self.counter_recoil.clamp(0.0, 1.0);
+		0.15 + (0.025 - 0.15) * skill
+	}
+
+	fn counter_recoil_half_life(&self) -> f32 {
+		let skill = self.counter_recoil.clamp(0.0, 1.0);
+		0.3 + (0.05 - 0.3) * skill * skill
+	}
+
+	fn recover_recoil(&self, offset: Vec2, dt: f32) -> Vec2 {
+		if dt <= 0.0 {
+			return offset;
+		}
+		offset * (-dt / self.counter_recoil_half_life()).exp2()
+	}
+
+	fn acquire_delay(&self) -> f32 {
+		0.45 * (1.0 - self.trigger_happiness.clamp(0.0, 1.0))
+	}
+
+	/// First shot needs a bore on the capsule. An acquired shot may remain held for
+	/// a bounded grace period while recoil carries the bore off target.
+	fn hold_trigger(
+		&self,
+		aligned: bool,
+		within_alignment_grace: bool,
+		obstruction_allowed: bool,
+	) -> bool {
+		if self.trigger_happiness <= 0.0 || !obstruction_allowed {
+			return false;
+		}
+		aligned || within_alignment_grace
+	}
+
+	/// Cosine of the allowed bore error. Tightens with range so a passing shot can
+	/// actually hit the capsule; `accuracy` adds a little extra miss.
+	fn fire_alignment(&self, distance: f32, radius: f32) -> f32 {
+		let hit = (radius.max(0.05) / distance.max(0.2)).atan();
+		let slack = (1.0 - self.accuracy.clamp(0.0, 1.0)) * 0.05 + 0.012;
+		(hit + slack).clamp(0.01, 0.4).cos()
+	}
+
+	fn willing_to_fire_through_wall(&self, entity: Entity, now: f32) -> bool {
+		let willingness = self.wall_firing.clamp(0.0, 1.0);
+		if willingness <= 0.0 {
+			return false;
+		}
+		if willingness >= 1.0 {
+			return true;
+		}
+		Self::frac_noise(entity.to_bits() as f32 * 0.017 + now.floor() * 7.13) < willingness
+	}
+
+	fn look_angles(&self, to: Vec3, entity: Entity, elapsed: f32) -> (f32, f32) {
+		let cone = (1.0 - self.accuracy.clamp(0.0, 1.0)) * 0.12;
+		let shake = Self::jitter(entity, elapsed) * cone;
+		let yaw = (-to.x).atan2(-to.z) + shake.x;
+		let xz = Vec2::new(to.x, to.z).length();
+		let pitch = to.y.atan2(xz.max(1e-4)) + shake.y;
+		(yaw, clamp_aim_pitch(pitch))
+	}
+
+	fn jitter(entity: Entity, elapsed: f32) -> Vec2 {
+		let seed = entity.to_bits() as f32 * 0.013 + elapsed.floor();
+		Vec2::new(Self::frac_noise(seed), Self::frac_noise(seed * 1.37)) * 2.0 - Vec2::ONE
+	}
+
+	fn frac_noise(x: f32) -> f32 {
+		(x.sin() * 43_758.547).fract().abs()
+	}
 }
 
 impl Default for FirearmIntelligence {
@@ -171,7 +292,7 @@ pub(crate) fn aim_at_firearm_targets(
 		let from = aim_pivot(user.held, transform.translation, movement, &guns, &maps, &globals);
 		let desired = targeting.best_contact().copied().map(|target| {
 			if targeting.engaged != Some(target.subject) || elapsed >= brain.next_aim_choice_at {
-				brain.aiming_head = frac_noise(
+				brain.aiming_head = FirearmIntelligenceSettings::frac_noise(
 					entity.to_bits() as f32 * 0.013
 						+ target.subject.to_bits() as f32 * 0.019
 						+ elapsed.floor(),
@@ -185,23 +306,17 @@ pub(crate) fn aim_at_firearm_targets(
 				current.map_or(remembered, |position| remembered + (position - target.position));
 			let perceived =
 				firearm_targeting.select(target.subject, brain.aiming_head, false).map_or_else(
-					|| {
-						perceive_motion(
-							aim_at,
-							target.movement_vector,
-							brain.settings.motion_tracking,
-						)
-					},
+					|| brain.settings.perceive_motion(aim_at, target.movement_vector),
 					|trajectory| trajectory.aim_point,
 				);
 			let to = perceived - from;
-			let (yaw, pitch) = look_angles(to, brain.settings.accuracy, entity, elapsed);
+			let (yaw, pitch) = brain.settings.look_angles(to, entity, elapsed);
 			Vec2::new(yaw, pitch)
 		});
 		if desired.is_none() {
 			targeting.clear_engagement();
 		}
-		realize_aim(&mut brain, &mut look, desired, elapsed, dt);
+		brain.realize_aim(&mut look, desired, elapsed, dt);
 	}
 }
 
@@ -218,47 +333,9 @@ pub(crate) fn note_weapon_recoil(
 			continue;
 		}
 		if let Ok(mut brain) = combatants.get_mut(event.shooter) {
-			let delay = counter_recoil_delay(brain.settings.counter_recoil);
-			brain.counter_recoil_ready_at = now + delay;
+			brain.counter_recoil_ready_at = now + brain.settings.counter_recoil_delay();
 		}
 	}
-}
-
-fn realize_aim(
-	brain: &mut FirearmIntelligence,
-	look: &mut PlayerLook,
-	desired: Option<Vec2>,
-	now: f32,
-	dt: f32,
-) {
-	let observed = Vec2::new(look.yaw, look.pitch);
-	if !brain.aim_initialized {
-		brain.tracked_look = observed;
-		brain.last_output_look = observed;
-		brain.aim_initialized = true;
-	} else {
-		brain.recoil_offset += look_delta(brain.last_output_look, observed);
-	}
-
-	if let Some(desired) = desired {
-		brain.tracked_look = move_look_towards(
-			brain.tracked_look,
-			desired,
-			brain.settings.tracking_rate.max(0.0) * dt.max(0.0),
-		);
-	}
-
-	let recovery_dt = (now - brain.counter_recoil_ready_at).clamp(0.0, dt.max(0.0));
-	brain.recoil_offset =
-		recover_recoil(brain.recoil_offset, brain.settings.counter_recoil, recovery_dt);
-
-	let output = Vec2::new(
-		brain.tracked_look.x + brain.recoil_offset.x,
-		clamp_aim_pitch(brain.tracked_look.y + brain.recoil_offset.y),
-	);
-	look.yaw = output.x;
-	look.pitch = output.y;
-	brain.last_output_look = output;
 }
 
 /// Turn the visual body toward combat look before the held-firearm pose applies
@@ -278,15 +355,22 @@ pub(crate) fn orient_firearm_combatants(
 		};
 		if targeting.engaged.is_none() {
 			if let Some(mut yaw_owner) = yaw_owner {
-				*yaw_owner = PlayerYawOwner::Wish;
+				if *yaw_owner != PlayerYawOwner::Wish {
+					*yaw_owner = PlayerYawOwner::Wish;
+				}
 			}
 			continue;
 		}
 		if let Some(mut yaw_owner) = yaw_owner {
-			*yaw_owner = PlayerYawOwner::Look;
+			if *yaw_owner != PlayerYawOwner::Look {
+				*yaw_owner = PlayerYawOwner::Look;
+			}
 		}
 		let forward = Quat::from_axis_angle(Vec3::Y, look.yaw) * -Vec3::Z;
-		let current = heading.resolve(&visual);
+		if !heading.would_turn_toward(&visual, forward) {
+			continue;
+		}
+		let current = heading.facing(&visual);
 		heading.set(&mut visual, current.slerp(forward, amount));
 	}
 }
@@ -327,7 +411,7 @@ pub(crate) fn fire_at_spotted_targets(
 		};
 		let (muzzle, bore) = muzzle_world(global);
 		let fresh = target.is_fresh(now, brain.settings.fire_spotting_freshness);
-		let allow_blocked = willing_to_fire_through_wall(entity, now, brain.settings.wall_firing);
+		let allow_blocked = brain.settings.willing_to_fire_through_wall(entity, now);
 		let Some(trajectory) =
 			firearm_targeting.select(target.subject, brain.aiming_head, allow_blocked)
 		else {
@@ -347,8 +431,7 @@ pub(crate) fn fire_at_spotted_targets(
 			subjects.get(target.subject).ok().map_or(0.4, |subject| match subject.bounds {
 				SpotBounds::Capsule { radius, .. } => radius,
 			});
-		let aligned =
-			bore.dot(desired) >= fire_alignment(brain.settings.accuracy, distance, radius);
+		let aligned = bore.dot(desired) >= brain.settings.fire_alignment(distance, radius);
 		if aligned {
 			brain.last_aligned_at = now;
 		}
@@ -356,11 +439,10 @@ pub(crate) fn fire_at_spotted_targets(
 			effective_alignment_grace(brain.settings.alignment_grace, weapon, control);
 		let within_alignment_grace =
 			brain.on_target && now - brain.last_aligned_at <= alignment_grace;
-		if !hold_trigger(
+		if !brain.settings.hold_trigger(
 			aligned,
 			within_alignment_grace,
 			trajectory.clear || allow_blocked,
-			brain.settings.trigger_happiness,
 		) {
 			brain.on_target = false;
 			set_trigger(user, false, &mut weapon_control.triggers);
@@ -368,7 +450,7 @@ pub(crate) fn fire_at_spotted_targets(
 		}
 		if !brain.on_target {
 			brain.on_target = true;
-			brain.next_trigger_at = now + acquire_delay(brain.settings.trigger_happiness);
+			brain.next_trigger_at = now + brain.settings.acquire_delay();
 		}
 		set_cadenced_trigger(
 			user,
@@ -475,111 +557,9 @@ fn effective_alignment_grace(
 	configured.max(cadence_floor).max(0.0)
 }
 
-fn acquire_delay(happiness: f32) -> f32 {
-	0.45 * (1.0 - happiness.clamp(0.0, 1.0))
-}
-
-fn move_look_towards(current: Vec2, target: Vec2, max_step: f32) -> Vec2 {
-	let delta = look_delta(current, target);
-	let distance = delta.length();
-	if distance <= max_step || distance <= 1e-6 {
-		return current + delta;
-	}
-	current + delta * (max_step.max(0.0) / distance)
-}
-
-fn look_delta(from: Vec2, to: Vec2) -> Vec2 {
-	Vec2::new(wrap_pi(to.x - from.x), to.y - from.y)
-}
-
-fn wrap_pi(angle: f32) -> f32 {
-	(angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
-}
-
-fn clamp_aim_pitch(pitch: f32) -> f32 {
-	pitch.clamp(-FRAC_PI_2 + 0.1, FRAC_PI_2 - 0.1)
-}
-
-fn motion_tracking_delay(skill: f32) -> f32 {
-	let skill = skill.clamp(0.0, 1.0);
-	0.3 + (0.03 - 0.3) * skill
-}
-
-pub(crate) fn perceive_motion(position: Vec3, velocity: Vec3, skill: f32) -> Vec3 {
-	position - velocity * motion_tracking_delay(skill)
-}
-
-fn counter_recoil_delay(skill: f32) -> f32 {
-	let skill = skill.clamp(0.0, 1.0);
-	0.15 + (0.025 - 0.15) * skill
-}
-
-fn counter_recoil_half_life(skill: f32) -> f32 {
-	let skill = skill.clamp(0.0, 1.0);
-	0.3 + (0.05 - 0.3) * skill * skill
-}
-
-fn recover_recoil(offset: Vec2, skill: f32, dt: f32) -> Vec2 {
-	if dt <= 0.0 {
-		return offset;
-	}
-	offset * (-dt / counter_recoil_half_life(skill)).exp2()
-}
-
-/// First shot needs a bore on the capsule. An acquired shot may remain held for
-/// a bounded grace period while recoil carries the bore off target.
-fn hold_trigger(
-	aligned: bool,
-	within_alignment_grace: bool,
-	obstruction_allowed: bool,
-	happiness: f32,
-) -> bool {
-	if happiness <= 0.0 || !obstruction_allowed {
-		return false;
-	}
-	aligned || within_alignment_grace
-}
-
-/// Cosine of the allowed bore error. Tightens with range so a passing shot can
-/// actually hit the capsule; `accuracy` adds a little extra miss.
-fn fire_alignment(accuracy: f32, distance: f32, radius: f32) -> f32 {
-	let hit = (radius.max(0.05) / distance.max(0.2)).atan();
-	let slack = (1.0 - accuracy.clamp(0.0, 1.0)) * 0.05 + 0.012;
-	(hit + slack).clamp(0.01, 0.4).cos()
-}
-
-fn willing_to_fire_through_wall(entity: Entity, now: f32, willingness: f32) -> bool {
-	let willingness = willingness.clamp(0.0, 1.0);
-	if willingness <= 0.0 {
-		return false;
-	}
-	if willingness >= 1.0 {
-		return true;
-	}
-	frac_noise(entity.to_bits() as f32 * 0.017 + now.floor() * 7.13) < willingness
-}
-
-fn look_angles(to: Vec3, accuracy: f32, entity: Entity, elapsed: f32) -> (f32, f32) {
-	let cone = (1.0 - accuracy.clamp(0.0, 1.0)) * 0.12;
-	let shake = jitter(entity, elapsed) * cone;
-	let yaw = (-to.x).atan2(-to.z) + shake.x;
-	let xz = Vec2::new(to.x, to.z).length();
-	let pitch = to.y.atan2(xz.max(1e-4)) + shake.y;
-	(yaw, clamp_aim_pitch(pitch))
-}
-
 #[cfg(test)]
 fn look_dir(yaw: f32, pitch: f32) -> Vec3 {
 	Quat::from_axis_angle(Vec3::Y, yaw) * Quat::from_rotation_x(pitch) * -Vec3::Z
-}
-
-fn jitter(entity: Entity, elapsed: f32) -> Vec2 {
-	let seed = entity.to_bits() as f32 * 0.013 + elapsed.floor();
-	Vec2::new(frac_noise(seed), frac_noise(seed * 1.37)) * 2.0 - Vec2::ONE
-}
-
-fn frac_noise(x: f32) -> f32 {
-	(x.sin() * 43_758.547).fract().abs()
 }
 
 #[cfg(test)]
@@ -589,7 +569,8 @@ mod tests {
 	#[test]
 	fn look_dir_matches_look_angles_without_jitter() -> anyhow::Result<()> {
 		let to = Vec3::new(3.0, 1.0, -4.0);
-		let (yaw, pitch) = look_angles(to, 1.0, Entity::from_bits(1), 0.0);
+		let settings = FirearmIntelligenceSettings { accuracy: 1.0, ..Default::default() };
+		let (yaw, pitch) = settings.look_angles(to, Entity::from_bits(1), 0.0);
 		let aimed = look_dir(yaw, pitch);
 		let expected = to.normalize();
 		assert!(aimed.dot(expected) > 0.999, "{aimed} vs {expected}");
@@ -598,8 +579,10 @@ mod tests {
 
 	#[test]
 	fn trigger_happiness_shortens_acquire_delay() {
-		assert!(acquire_delay(1.0) < acquire_delay(0.0));
-		assert!(acquire_delay(1.0) < 1e-4);
+		let eager = FirearmIntelligenceSettings { trigger_happiness: 1.0, ..Default::default() };
+		let hesitant = FirearmIntelligenceSettings { trigger_happiness: 0.0, ..Default::default() };
+		assert!(eager.acquire_delay() < hesitant.acquire_delay());
+		assert!(eager.acquire_delay() < 1e-4);
 	}
 
 	#[test]
@@ -607,19 +590,23 @@ mod tests {
 		let mut brain = FirearmIntelligence::new();
 		brain.settings.tracking_rate = 1.0;
 		let mut look = PlayerLook::default();
-		realize_aim(&mut brain, &mut look, Some(Vec2::new(1.0, 0.0)), 0.1, 0.1);
+		brain.realize_aim(&mut look, Some(Vec2::new(1.0, 0.0)), 0.1, 0.1);
 		assert!((look.yaw - 0.1).abs() < 1e-5);
 	}
 
 	#[test]
 	fn motion_tracking_skill_reduces_perception_delay() {
-		assert!((motion_tracking_delay(0.0) - 0.3).abs() < 1e-5);
-		assert!((motion_tracking_delay(1.0) - 0.03).abs() < 1e-5);
+		let poor_settings =
+			FirearmIntelligenceSettings { motion_tracking: 0.0, ..Default::default() };
+		let skilled_settings =
+			FirearmIntelligenceSettings { motion_tracking: 1.0, ..Default::default() };
+		assert!((poor_settings.motion_tracking_delay() - 0.3).abs() < 1e-5);
+		assert!((skilled_settings.motion_tracking_delay() - 0.03).abs() < 1e-5);
 
 		let position = Vec3::new(2.0, 0.0, 0.0);
 		let velocity = Vec3::new(4.0, 0.0, 0.0);
-		let poor = perceive_motion(position, velocity, 0.0);
-		let skilled = perceive_motion(position, velocity, 1.0);
+		let poor = poor_settings.perceive_motion(position, velocity);
+		let skilled = skilled_settings.perceive_motion(position, velocity);
 		assert!(poor.x < skilled.x);
 		assert!(skilled.x < position.x);
 	}
@@ -628,17 +615,19 @@ mod tests {
 	fn look_tracking_takes_the_short_way_across_pi() {
 		let current = Vec2::new(std::f32::consts::PI - 0.05, 0.0);
 		let target = Vec2::new(-std::f32::consts::PI + 0.05, 0.0);
-		let moved = move_look_towards(current, target, 0.04);
+		let moved = FirearmIntelligence::move_look_towards(current, target, 0.04);
 		assert!((moved.x - current.x - 0.04).abs() < 1e-5);
 	}
 
 	#[test]
 	fn better_counter_recoil_recovers_faster() {
 		let offset = Vec2::new(0.08, 0.08);
-		let poor = recover_recoil(offset, 0.0, 0.05);
-		let skilled = recover_recoil(offset, 1.0, 0.05);
-		assert!(skilled.length() < poor.length());
-		assert!((skilled.length() - offset.length() * 0.5).abs() < 1e-5);
+		let poor = FirearmIntelligenceSettings { counter_recoil: 0.0, ..Default::default() };
+		let skilled = FirearmIntelligenceSettings { counter_recoil: 1.0, ..Default::default() };
+		let poor_offset = poor.recover_recoil(offset, 0.05);
+		let skilled_offset = skilled.recover_recoil(offset, 0.05);
+		assert!(skilled_offset.length() < poor_offset.length());
+		assert!((skilled_offset.length() - offset.length() * 0.5).abs() < 1e-5);
 	}
 
 	#[test]
@@ -646,40 +635,44 @@ mod tests {
 		let mut brain = FirearmIntelligence::new();
 		brain.counter_recoil_ready_at = 1.0;
 		let mut look = PlayerLook::default();
-		realize_aim(&mut brain, &mut look, Some(Vec2::ZERO), 0.0, 0.0);
+		brain.realize_aim(&mut look, Some(Vec2::ZERO), 0.0, 0.0);
 		look.yaw += 0.04;
 		look.pitch += 0.08;
-		realize_aim(&mut brain, &mut look, Some(Vec2::ZERO), 0.02, 0.02);
+		brain.realize_aim(&mut look, Some(Vec2::ZERO), 0.02, 0.02);
 		assert!((look.yaw - 0.04).abs() < 1e-5);
 		assert!((look.pitch - 0.08).abs() < 1e-5);
 	}
 
 	#[test]
 	fn fire_alignment_tightens_with_range() {
-		let close = fire_alignment(1.0, 2.0, 0.4);
-		let far = fire_alignment(1.0, 20.0, 0.4);
+		let settings = FirearmIntelligenceSettings { accuracy: 1.0, ..Default::default() };
+		let close = settings.fire_alignment(2.0, 0.4);
+		let far = settings.fire_alignment(20.0, 0.4);
 		assert!(far > close, "{far} vs {close}");
 		assert!(far > 0.99, "{far}");
 	}
 
 	#[test]
 	fn right_offset_pivot_aims_left_of_eye() {
+		let settings = FirearmIntelligenceSettings { accuracy: 1.0, ..Default::default() };
 		let target = Vec3::new(0.0, 1.0, -10.0);
 		let (eye_yaw, _) =
-			look_angles(target - Vec3::new(0.0, 1.0, 0.0), 1.0, Entity::from_bits(1), 0.0);
+			settings.look_angles(target - Vec3::new(0.0, 1.0, 0.0), Entity::from_bits(1), 0.0);
 		let (stock_yaw, _) =
-			look_angles(target - Vec3::new(0.3, 1.0, 0.0), 1.0, Entity::from_bits(1), 0.0);
+			settings.look_angles(target - Vec3::new(0.3, 1.0, 0.0), Entity::from_bits(1), 0.0);
 		assert!(stock_yaw > eye_yaw, "{stock_yaw} vs {eye_yaw}");
 	}
 
 	#[test]
 	fn raised_muzzle_is_not_the_pose_pivot() {
+		let settings = FirearmIntelligenceSettings { accuracy: 1.0, ..Default::default() };
 		let target = Vec3::new(0.0, 1.05, -8.0);
 		let stock = Vec3::new(0.25, 1.35, 0.0);
 		let muzzle = Vec3::new(0.25, 1.55, -0.55);
-		let (stock_yaw, stock_pitch) = look_angles(target - stock, 1.0, Entity::from_bits(1), 0.0);
+		let (stock_yaw, stock_pitch) =
+			settings.look_angles(target - stock, Entity::from_bits(1), 0.0);
 		let (muzzle_yaw, muzzle_pitch) =
-			look_angles(target - muzzle, 1.0, Entity::from_bits(1), 0.0);
+			settings.look_angles(target - muzzle, Entity::from_bits(1), 0.0);
 		let stock_dir = look_dir(stock_yaw, stock_pitch);
 		let muzzle_dir = look_dir(muzzle_yaw, muzzle_pitch);
 		assert!(
@@ -690,16 +683,20 @@ mod tests {
 
 	#[test]
 	fn zero_wall_firing_rejects_obstructions() {
-		assert!(!willing_to_fire_through_wall(Entity::from_bits(1), 0.0, 0.0));
-		assert!(willing_to_fire_through_wall(Entity::from_bits(1), 0.0, 1.0));
+		let none = FirearmIntelligenceSettings { wall_firing: 0.0, ..Default::default() };
+		let all = FirearmIntelligenceSettings { wall_firing: 1.0, ..Default::default() };
+		assert!(!none.willing_to_fire_through_wall(Entity::from_bits(1), 0.0));
+		assert!(all.willing_to_fire_through_wall(Entity::from_bits(1), 0.0));
 	}
 
 	#[test]
 	fn hold_trigger_only_keeps_a_lock_inside_alignment_grace() {
-		assert!(hold_trigger(false, true, true, 0.9));
-		assert!(!hold_trigger(false, false, true, 0.9));
-		assert!(!hold_trigger(true, true, false, 0.9));
-		assert!(!hold_trigger(true, true, true, 0.0));
+		let settings = FirearmIntelligenceSettings { trigger_happiness: 0.9, ..Default::default() };
+		assert!(settings.hold_trigger(false, true, true));
+		assert!(!settings.hold_trigger(false, false, true));
+		assert!(!settings.hold_trigger(true, true, false));
+		let never = FirearmIntelligenceSettings { trigger_happiness: 0.0, ..Default::default() };
+		assert!(!never.hold_trigger(true, true, true));
 	}
 
 	#[test]

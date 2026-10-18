@@ -6,10 +6,10 @@
 
 use bevy::math::bounding::Aabb3d;
 use bevy::scene::prelude::{bsn, template_value, Scene};
-use lod::gen::{
+use lod::lod_ref::LodRef;
+use lod::scene::{
 	cull_offset_bands_from_factor, LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus,
 };
-use lod::lod_ref::LodRef;
 use lod::SceneChunk;
 
 use crate::foliage::collection::{

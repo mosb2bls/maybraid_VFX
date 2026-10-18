@@ -16,7 +16,7 @@ use crate::{
 	nodes::{PartNode, RigNode},
 	species::common::{nodes as humanoid, BODY_SHARK},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Grener data attached to the character root entity.
 ///

@@ -11,8 +11,6 @@ use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec3;
 use bevy::prelude::*;
 
-use crate::model::TerrainModel;
-
 /// Whether fill and dependent streams may advance for contract owner `M`.
 #[derive(Resource, Debug, PartialEq, Eq)]
 pub struct TerrainStreaming<M: Send + Sync + 'static> {
@@ -40,8 +38,8 @@ impl<M: Send + Sync + 'static> TerrainStreaming<M> {
 	}
 }
 
-/// Run condition: [`TerrainStreaming<M::Base>`] is on.
-pub fn terrain_streaming<M: TerrainModel>(flag: Res<TerrainStreaming<M::Base>>) -> bool {
+/// Run condition: [`TerrainStreaming<M>`] is on.
+pub fn terrain_streaming<M: Send + Sync + 'static>(flag: Res<TerrainStreaming<M>>) -> bool {
 	flag.enabled
 }
 
@@ -94,11 +92,11 @@ impl<M: Send + Sync + 'static> Default for TerrainExtent<M> {
 	}
 }
 
-/// Read-only contract for model `M`, keyed by [`TerrainModel::Base`].
+/// Read-only contract for model `M`.
 #[derive(SystemParam)]
-pub struct TerrainContract<'w, M: TerrainModel> {
-	pub streaming: Res<'w, TerrainStreaming<<M as TerrainModel>::Base>>,
-	pub extent: Res<'w, TerrainExtent<<M as TerrainModel>::Base>>,
+pub struct TerrainContract<'w, M: Send + Sync + 'static> {
+	pub streaming: Res<'w, TerrainStreaming<M>>,
+	pub extent: Res<'w, TerrainExtent<M>>,
 }
 
 /// Ordering sets layers use instead of Durham's collider enum.

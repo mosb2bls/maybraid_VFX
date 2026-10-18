@@ -7,7 +7,7 @@
 use bevy_math::Vec3;
 use building_components::panels::{PanelGeometry, PanelNode, PanelStyle};
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::paneling::panel_complex::DEFAULT_PANEL_THICKNESS;
 use crate::paneling::rect_fit::{fallback_oriented, orient_rectangle, OrientedRect, RectInset};

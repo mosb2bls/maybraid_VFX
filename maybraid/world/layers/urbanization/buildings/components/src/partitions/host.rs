@@ -11,7 +11,7 @@
 
 use bevy::prelude::Transform;
 use bevy::scene::prelude::Scene;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use scene_ref::{MirrorAxis, SceneRef};
 
 use crate::lod_host_helper::LodHostHelper;

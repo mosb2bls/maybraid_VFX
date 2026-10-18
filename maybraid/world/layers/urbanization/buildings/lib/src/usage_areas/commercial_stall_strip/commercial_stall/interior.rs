@@ -10,7 +10,7 @@
 use building_components::furniture::FurnitureNode;
 use building_components::panels::PanelNode;
 use building_components::{BuildingComponents, LabelNode, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{NoiseParams, NoiseType, TypedBucketThrow};
 
 use crate::fit::{Confines, FillableRegions, Fit, FitError};

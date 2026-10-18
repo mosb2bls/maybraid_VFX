@@ -30,14 +30,12 @@ pub enum PlaySession {
 	#[default]
 	None,
 	Discovery,
-	Training,
 }
 
 impl PlaySession {
 	pub fn label(self) -> &'static str {
 		match self {
 			Self::Discovery | Self::None => "Discovery",
-			Self::Training => "Training Ground",
 		}
 	}
 }
@@ -45,11 +43,7 @@ impl PlaySession {
 /// What the executable does with a home-row pick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomeRoute {
-	World {
-		session: PlaySession,
-	},
-	/// Pick who plays the Training rounds before loading.
-	TrainingSetup,
+	World { session: PlaySession },
 	Characters,
 	Settings,
 	Unimplemented,
@@ -59,7 +53,7 @@ impl HomeRoute {
 	pub fn from_choice(choice: HomeMenuChoice) -> Self {
 		match choice {
 			HomeMenuChoice::Discovery => Self::World { session: PlaySession::Discovery },
-			HomeMenuChoice::TrainingGround => Self::TrainingSetup,
+			HomeMenuChoice::TrainingGround => Self::Unimplemented,
 			HomeMenuChoice::Characters => Self::Characters,
 			HomeMenuChoice::Settings => Self::Settings,
 			HomeMenuChoice::Reliquary => match reliquary::route() {
@@ -84,11 +78,7 @@ impl PauseMenuRoute {
 			InGameMenuChoice::Leave => Self::Leave,
 			InGameMenuChoice::Settings => Self::Settings,
 			InGameMenuChoice::Character => Self::Character,
-			// The pause screen flips the next round's mode and the markers itself.
-			InGameMenuChoice::NextRound
-			| InGameMenuChoice::EnemyMarkers
-			| InGameMenuChoice::Records
-			| InGameMenuChoice::Help => Self::Stay,
+			InGameMenuChoice::Records | InGameMenuChoice::Help => Self::Stay,
 		}
 	}
 }
@@ -98,55 +88,28 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn discovery_enters_world() {
-		assert_eq!(
-			HomeRoute::from_choice(HomeMenuChoice::Discovery),
-			HomeRoute::World { session: PlaySession::Discovery }
-		);
+	fn home_menu_choices_map_to_executable_routes() {
+		for (choice, want) in [
+			(HomeMenuChoice::Discovery, HomeRoute::World { session: PlaySession::Discovery }),
+			(HomeMenuChoice::TrainingGround, HomeRoute::Unimplemented),
+			(HomeMenuChoice::Characters, HomeRoute::Characters),
+			(HomeMenuChoice::Settings, HomeRoute::Settings),
+			(HomeMenuChoice::Reliquary, HomeRoute::Unimplemented),
+		] {
+			assert_eq!(HomeRoute::from_choice(choice), want, "{choice:?}");
+		}
 	}
 
 	#[test]
-	fn reliquary_is_unimplemented() {
-		assert_eq!(HomeRoute::from_choice(HomeMenuChoice::Reliquary), HomeRoute::Unimplemented);
-	}
-
-	#[test]
-	fn characters_is_its_own_shell() {
-		assert_eq!(HomeRoute::from_choice(HomeMenuChoice::Characters), HomeRoute::Characters);
-	}
-
-	#[test]
-	fn training_picks_a_character_mode_first() {
-		assert_eq!(
-			HomeRoute::from_choice(HomeMenuChoice::TrainingGround),
-			HomeRoute::TrainingSetup
-		);
-		assert_eq!(PauseMenuRoute::from_choice(InGameMenuChoice::NextRound), PauseMenuRoute::Stay);
-	}
-
-	#[test]
-	fn settings_opens_the_shared_settings_screen() {
-		assert_eq!(HomeRoute::from_choice(HomeMenuChoice::Settings), HomeRoute::Settings);
-	}
-
-	#[test]
-	fn pause_settings_opens_settings() {
-		assert_eq!(
-			PauseMenuRoute::from_choice(InGameMenuChoice::Settings),
-			PauseMenuRoute::Settings
-		);
-	}
-
-	#[test]
-	fn pause_leave_returns_home() {
-		assert_eq!(PauseMenuRoute::from_choice(InGameMenuChoice::Leave), PauseMenuRoute::Leave);
-	}
-
-	#[test]
-	fn pause_character_opens_the_editor() {
-		assert_eq!(
-			PauseMenuRoute::from_choice(InGameMenuChoice::Character),
-			PauseMenuRoute::Character
-		);
+	fn pause_menu_choices_map_to_executable_routes() {
+		for (choice, want) in [
+			(InGameMenuChoice::Leave, PauseMenuRoute::Leave),
+			(InGameMenuChoice::Settings, PauseMenuRoute::Settings),
+			(InGameMenuChoice::Character, PauseMenuRoute::Character),
+			(InGameMenuChoice::Records, PauseMenuRoute::Stay),
+			(InGameMenuChoice::Help, PauseMenuRoute::Stay),
+		] {
+			assert_eq!(PauseMenuRoute::from_choice(choice), want, "{choice:?}");
+		}
 	}
 }

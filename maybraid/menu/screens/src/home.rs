@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use character_model_user::list_summaries;
 use character_persist::SaveRoot;
+use item_icons::RequestPruneItemIconCache;
 use maybraid_menu_controller::MenuController;
 use menu_components::info::description::{set_description_for_menu, TextMenuDescription};
 use menu_components::single_select::text_cursor::TextCursorColumn;
@@ -12,11 +13,12 @@ use menu_components::TextMenuPlugin;
 use menu_components::{MenuObjectiveKind, TextCursorRow};
 
 use crate::input::add_menu_input;
-use crate::show::take_menu_show_request;
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::MenuScreen;
 
 /// Queue a home-screen spawn (despawns any existing home UI first).
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowHome;
 
 /// Marker on the spawned home-screen root.
@@ -61,18 +63,22 @@ impl HomeMenuChoice {
 				"Team up to gather and return artifacts from an opponent's reliquary. Move fast. Wager yourself."
 			}
 			Self::Characters => "Create and edit your characters. Check your inventory.",
-			Self::TrainingGround => "Run around with your characters in a small arena.",
+			Self::TrainingGround => "Temporarily removed while it is rebuilt.",
 			Self::Settings => "Adjust user and system settings to your liking.",
 		}
 	}
 
-	/// Home row chrome for the current roster. Reliquary is always coming-soon.
+	/// Home row chrome for the current roster. Reliquary is always coming-soon and
+	/// Training Ground is always temporarily removed.
 	pub fn row(self, has_characters: bool) -> TextCursorRow<Self> {
 		let row = TextCursorRow::new(self.label(), self);
 		match self {
 			Self::Reliquary => row.with_objective(MenuObjectiveKind::ComingSoon).locked(),
+			Self::TrainingGround => {
+				row.with_objective(MenuObjectiveKind::TemporarilyRemoved).locked()
+			}
 			Self::Characters if !has_characters => row.with_objective(MenuObjectiveKind::StartHere),
-			Self::Discovery | Self::TrainingGround if !has_characters => {
+			Self::Discovery if !has_characters => {
 				row.with_objective(MenuObjectiveKind::NeedsCharacter).locked()
 			}
 			_ => row,
@@ -113,6 +119,7 @@ impl HomeScreen {
 
 pub fn request_show_home(commands: &mut Commands) {
 	commands.spawn(RequestShowHome);
+	commands.spawn(RequestPruneItemIconCache);
 }
 
 pub struct HomeScreenPlugin;
@@ -120,18 +127,18 @@ pub struct HomeScreenPlugin;
 impl Plugin for HomeScreenPlugin {
 	fn build(&self, app: &mut App) {
 		add_menu_input(app);
-		app.add_plugins(TextMenuPlugin::<HomeMenuChoice>::default())
-			.add_systems(Update, apply_show_home);
+		app.add_plugins(TextMenuPlugin::<HomeMenuChoice>::default());
+		add_menu_show_systems(app, apply_show_home);
 	}
 }
 
 fn apply_show_home(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowHome>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowHome>>,
+	screens: MenuScreens,
 	save_root: Option<Res<SaveRoot>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	let has_characters = roster_has_characters(save_root.as_deref());
@@ -174,6 +181,16 @@ mod tests {
 	}
 
 	#[test]
+	fn training_ground_is_always_temporarily_removed_and_locked() {
+		for has_characters in [false, true] {
+			let row = HomeMenuChoice::TrainingGround.row(has_characters);
+			assert_eq!(row.objective, Some(MenuObjectiveKind::TemporarilyRemoved));
+			assert!(row.locked);
+			assert!(row.subtext.is_none());
+		}
+	}
+
+	#[test]
 	fn empty_roster_onboards_from_characters() {
 		let characters = HomeMenuChoice::Characters.row(false);
 		assert_eq!(characters.objective, Some(MenuObjectiveKind::StartHere));
@@ -183,10 +200,6 @@ mod tests {
 		assert_eq!(discovery.objective, Some(MenuObjectiveKind::NeedsCharacter));
 		assert!(discovery.locked);
 		assert!(discovery.subtext.is_none());
-
-		let training = HomeMenuChoice::TrainingGround.row(false);
-		assert_eq!(training.objective, Some(MenuObjectiveKind::NeedsCharacter));
-		assert!(training.locked);
 
 		let settings = HomeMenuChoice::Settings.row(false);
 		assert!(settings.objective.is_none());
@@ -201,14 +214,20 @@ mod tests {
 		let discovery = HomeMenuChoice::Discovery.row(true);
 		assert!(discovery.objective.is_none());
 		assert!(!discovery.locked);
-
-		let training = HomeMenuChoice::TrainingGround.row(true);
-		assert!(training.objective.is_none());
-		assert!(!training.locked);
 	}
 
 	#[test]
 	fn missing_save_root_is_an_empty_roster() {
 		assert!(!roster_has_characters(None));
+	}
+
+	#[test]
+	fn showing_home_also_requests_an_icon_cache_prune() {
+		let mut world = bevy::prelude::World::new();
+		let mut commands = world.commands();
+		super::request_show_home(&mut commands);
+		world.flush();
+		assert_eq!(world.query::<&super::RequestShowHome>().iter(&world).count(), 1);
+		assert_eq!(world.query::<&item_icons::RequestPruneItemIconCache>().iter(&world).count(), 1);
 	}
 }

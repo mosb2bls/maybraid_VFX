@@ -1,7 +1,7 @@
 //! Region queries for LOD refresh (hosts overlapping an AABB).
 //!
-//! Separate from [`crate::gen::SpatialIndex`]: refresh only needs “which
-//! [`LodScene`] hosts overlap this AABB?”, not generation/storage/`Id`s.
+//! Separate from HCSG storage: refresh only needs “which [`LodScene`] hosts
+//! overlap this AABB?”, not generated values or their `Id`s.
 
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;

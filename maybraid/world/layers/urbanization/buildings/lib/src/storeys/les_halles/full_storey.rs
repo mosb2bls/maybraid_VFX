@@ -9,7 +9,7 @@ use building_components::joints::JointNode;
 use building_components::labels::LabelNode;
 use building_components::panels::PanelNode;
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::NoiseParams;
 
 use crate::fit::{Confines, FillableRegions, Fit, FitError};
@@ -86,7 +86,7 @@ mod tests {
 	use bevy_math::bounding::Aabb3d;
 	use bevy_math::Vec3;
 	use building_components::BuildingComponents;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 	use procedural_common::NoiseParams;
 
 	use crate::fit::SpaceKind;

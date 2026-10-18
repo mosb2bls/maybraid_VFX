@@ -25,11 +25,15 @@ pub struct SpatialOneShot {
 	pub radius: f32,
 	pub gain: f32,
 	pub bus: AudioBus,
+	/// Seconds of silence before the clip. Sample-accurate on the mixer clock.
+	pub delay: f32,
+	/// When false, skip the [`AudioBus::PlayerWeapon`] transient duck.
+	pub duck: bool,
 }
 
 impl SpatialOneShot {
 	pub fn at(position: Vec3) -> Self {
-		Self { position, radius: 1.0, gain: 1.0, bus: AudioBus::Weapons }
+		Self { position, radius: 1.0, gain: 1.0, bus: AudioBus::Weapons, delay: 0.0, duck: true }
 	}
 
 	pub fn radius(mut self, radius: f32) -> Self {
@@ -44,6 +48,16 @@ impl SpatialOneShot {
 
 	pub fn bus(mut self, bus: AudioBus) -> Self {
 		self.bus = bus;
+		self
+	}
+
+	pub fn delay(mut self, delay: f32) -> Self {
+		self.delay = delay.max(0.0);
+		self
+	}
+
+	pub fn duck(mut self, duck: bool) -> Self {
+		self.duck = duck;
 		self
 	}
 }
@@ -197,12 +211,12 @@ impl Audio {
 		listener: &GlobalTransform,
 		name: &'static str,
 	) {
-		if spec.bus == AudioBus::PlayerWeapon {
+		if spec.duck && spec.bus == AudioBus::PlayerWeapon {
 			mixer.duck_player_shot();
 		}
 		let stop = Arc::new(AtomicBool::new(false));
-		let (mut gain, signal) =
-			Gain::new(Stoppable::new(FramesSignal::from(clip.frames.clone()), stop.clone()));
+		let (_, frames) = FramesSignal::new(clip.frames.clone(), -f64::from(spec.delay));
+		let (mut gain, signal) = Gain::new(Stoppable::new(frames, stop.clone()));
 		let peak = spec.gain * mixer.gain(spec.bus);
 		gain.set_amplitude_ratio(peak);
 		let Some(spatial) = self.play_buffered(
@@ -435,10 +449,17 @@ mod tests {
 
 	#[test]
 	fn oneshot_builder_is_world_fixed() {
-		let spec = SpatialOneShot::at(Vec3::X).radius(20.0).gain(0.7).bus(AudioBus::PlayerWeapon);
+		let spec = SpatialOneShot::at(Vec3::X)
+			.radius(20.0)
+			.gain(0.7)
+			.bus(AudioBus::PlayerWeapon)
+			.delay(0.016)
+			.duck(false);
 		assert!((spec.position - Vec3::X).length() < 1e-5);
 		assert!((spec.radius - 20.0).abs() < 1e-5);
 		assert!(matches!(spec.bus, AudioBus::PlayerWeapon));
+		assert!((spec.delay - 0.016).abs() < 1e-5);
+		assert!(!spec.duck);
 	}
 
 	#[test]

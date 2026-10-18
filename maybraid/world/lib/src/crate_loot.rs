@@ -7,10 +7,12 @@ use std::collections::HashMap;
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use character_items::{random_starter_firearms, Inventory, ItemRng};
+use character_items::{Inventory, ItemRng};
 use furniture_assemblies::{FurnitureKitPart, PartKind};
 use lod::gen::Id;
-use maputo::PresentedFurnitureCellId;
+use lod::hcsg::HcsgNode;
+
+use crate::WorldFurnished;
 
 use crate::stash::{spawn_world_stash, StashPolicy, DEFAULT_CLAIM_RADIUS, DEFAULT_LOOT_SECS};
 
@@ -64,7 +66,7 @@ pub(crate) struct ClosedCrateQuery<'w, 's> {
 	>,
 	parts: Query<'w, 's, (Entity, &'static FurnitureKitPart, &'static GlobalTransform)>,
 	child_of: Query<'w, 's, &'static ChildOf>,
-	hosts: Query<'w, 's, &'static PresentedFurnitureCellId>,
+	hosts: Query<'w, 's, &'static HcsgNode<WorldFurnished>>,
 }
 
 impl ClosedCrateQuery<'_, '_> {
@@ -161,7 +163,7 @@ fn roll_crate_bag(finish_seed: u64) -> Inventory {
 	}
 	let mut rng = ItemRng::from_seed(finish_seed);
 	let mut bag = Inventory {
-		items: random_starter_firearms(&mut rng, 1),
+		items: rng.random_starter_firearms(1),
 		clothing: Vec::new(),
 		weapons: Vec::new(),
 		skills: Vec::new(),
@@ -198,7 +200,7 @@ pub(crate) fn open_nearest_crate(
 	>,
 	parts: &Query<(Entity, &FurnitureKitPart, &GlobalTransform)>,
 	child_of: &Query<&ChildOf>,
-	hosts: &Query<&PresentedFurnitureCellId>,
+	hosts: &Query<&HcsgNode<WorldFurnished>>,
 ) {
 	let Some(hit) = nearest_closed_crate(origin, crates, lids, parts, child_of, hosts) else {
 		return;
@@ -246,7 +248,7 @@ pub(crate) fn sync_crate_lid_poses(
 	assets: Option<Res<AssetServer>>,
 	mut crates: ResMut<CrateLoot>,
 	child_of: Query<&ChildOf>,
-	hosts: Query<&PresentedFurnitureCellId>,
+	hosts: Query<&HcsgNode<WorldFurnished>>,
 	parts: Query<(Entity, &FurnitureKitPart, &GlobalTransform)>,
 	mut lids: Query<(
 		Entity,
@@ -310,7 +312,7 @@ pub(crate) fn nearest_closed_crate_floor(
 	>,
 	parts: &Query<(Entity, &FurnitureKitPart, &GlobalTransform)>,
 	child_of: &Query<&ChildOf>,
-	hosts: &Query<&PresentedFurnitureCellId>,
+	hosts: &Query<&HcsgNode<WorldFurnished>>,
 ) -> Option<Vec3> {
 	nearest_closed_crate(origin, crates, lids, parts, child_of, hosts).map(|hit| hit.floor)
 }
@@ -324,7 +326,7 @@ fn nearest_closed_crate(
 	>,
 	parts: &Query<(Entity, &FurnitureKitPart, &GlobalTransform)>,
 	child_of: &Query<&ChildOf>,
-	hosts: &Query<&PresentedFurnitureCellId>,
+	hosts: &Query<&HcsgNode<WorldFurnished>>,
 ) -> Option<ClosedCrateHit> {
 	let mut best: Option<(ClosedCrateHit, f32)> = None;
 	for (entity, part, global) in lids {
@@ -360,7 +362,7 @@ fn trunk_floor_y(
 	key: CrateKey,
 	parts: &Query<(Entity, &FurnitureKitPart, &GlobalTransform)>,
 	child_of: &Query<&ChildOf>,
-	hosts: &Query<&PresentedFurnitureCellId>,
+	hosts: &Query<&HcsgNode<WorldFurnished>>,
 ) -> Option<f32> {
 	parts.iter().find_map(|(entity, part, global)| {
 		if part.kind != PartKind::ChestTrunk
@@ -409,17 +411,32 @@ fn apply_pose(transform: &mut Transform, want: Transform) {
 fn presented_cell_id(
 	start: Entity,
 	child_of: &Query<&ChildOf>,
-	hosts: &Query<&PresentedFurnitureCellId>,
+	hosts: &Query<&HcsgNode<WorldFurnished>>,
 ) -> Option<Id> {
 	let mut current = Some(start);
 	for _ in 0..24 {
 		let entity = current?;
-		if let Ok(id) = hosts.get(entity) {
-			return Some(id.0);
+		if let Ok(node) = hosts.get(entity) {
+			return Some(node.id);
 		}
 		current = child_of.get(entity).ok().map(|child| child.parent());
 	}
 	None
+}
+
+#[cfg(test)]
+pub(crate) fn spawn_furniture_host(world: &mut World, id: Id) -> Entity {
+	use std::sync::Arc;
+
+	use lod::gen::Version;
+	use maputo::FurnitureCellExtent;
+
+	let extent = FurnitureCellExtent::from_id(id)
+		.unwrap_or_else(|| FurnitureCellExtent::from_cell_index(0, 0));
+	let (value, bounds) = WorldFurnished::empty_host(extent);
+	world
+		.spawn(HcsgNode { id, version: Version(1), bounds, value: Arc::new(value) })
+		.id()
 }
 
 #[cfg(test)]
@@ -445,7 +462,7 @@ mod tests {
 	}
 
 	fn spawn_crate(world: &mut World, seed: u64, at: Vec3) -> Entity {
-		let host = world.spawn(PresentedFurnitureCellId(Id::Universal)).id();
+		let host = spawn_furniture_host(world, Id::Universal);
 		world.spawn((lid_bundle(seed, at), ChildOf(host))).id()
 	}
 

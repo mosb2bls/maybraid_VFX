@@ -117,15 +117,3 @@ impl OriginalId {
 		Self(Id::Universal)
 	}
 }
-
-/// Ids that are tracked in the region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TrackedId(pub Id);
-
-/// Whether or not a given id is tracked in the region.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum StorageStatus {
-	NotTracked,
-	TrackedWithin,
-	TrackedOutside,
-}

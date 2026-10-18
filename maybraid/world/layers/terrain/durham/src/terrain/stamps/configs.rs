@@ -1,6 +1,5 @@
 //! Universal per-family guillotine + stamp authoring knobs (dual band).
 
-use crate::terrain::cell::universal_bounds;
 use crate::terrain::stamps::canyon::{
 	CanyonHighPassControllerLayout, CanyonLowPassControllerLayout,
 };
@@ -19,11 +18,8 @@ use crate::terrain::stamps::rolling::{
 use crate::terrain::stamps::valley::{
 	ValleyHighPassControllerLayout, ValleyLowPassControllerLayout,
 };
-use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use comproc::guillotine::GuillotineConfig;
-use lod::gen::{GenerationScheme, Id, OriginalId};
-use lod::lod_ref::LodRef;
 use terrain_stamps::{
 	CanyonParams, PlateauCapParams, PocketWaterParams, RollingGroundParams, RuggedMassifParams,
 	ValleyTrainParams,
@@ -221,25 +217,4 @@ impl Default for TerrainStampConfigs {
 	}
 }
 
-/// Bootstrap source for [`TerrainStampConfigs`] at [`Id::Universal`].
-pub trait BootstrapTerrainStampConfigs {
-	fn bootstrap_terrain_stamp_configs(&self) -> TerrainStampConfigs;
-}
-
-impl<S> GenerationScheme<S> for TerrainStampConfigs
-where
-	S: BootstrapTerrainStampConfigs,
-{
-	fn original_ids_for(_spatial_index: &mut S, _region: Aabb3d) -> Vec<OriginalId> {
-		vec![OriginalId::universal()]
-	}
-
-	fn build_with_id(spatial_index: &mut S, id: Id, _lod_ref: &LodRef) -> Option<(Self, Aabb3d)> {
-		if id != Id::Universal {
-			return None;
-		}
-		Some((spatial_index.bootstrap_terrain_stamp_configs(), universal_bounds()))
-	}
-
-	fn descendants_with_lod(_id: Id, _spatial_index: &mut S, _lod_ref: &LodRef) {}
-}
+lod::seeded_root!(TerrainStampConfigs);

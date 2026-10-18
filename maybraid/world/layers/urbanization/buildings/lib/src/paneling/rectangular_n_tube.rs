@@ -14,7 +14,7 @@ use bevy_math::Vec3;
 use building_components::joints::JointNode;
 use building_components::panels::{PanelNode, PanelStyle};
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::paneling::clipped_rectangular_strip::ClippedRectangularStrip;
 use crate::paneling::panel_complex::PanelComplexJointPolicy;
@@ -386,7 +386,7 @@ mod tests {
 	#[test]
 	fn omitted_face_edges_skip_presentation() {
 		use building_components::BuildingComponents;
-		use lod::gen::LodSceneLevel;
+		use lod::scene::LodSceneLevel;
 
 		let full = RectangularNTube::from_stations(
 			PanelStyle::RoughStonework,

@@ -2,13 +2,13 @@
 
 use bevy::math::bounding::{Aabb3d, IntersectsVolume};
 use bevy::math::{Vec2, Vec3};
-use bevy::prelude::*;
 use comproc::guillotine::{Bounds2, Guillotine, GuillotineCuts};
 use comproc::noise::config::NoiseConfig;
-use lod::gen::{GeneratingSpatialIndex, Id, OriginalId, SpatialIndex};
-use lod::lod_ref::LodRef;
+use lod::gen::{Id, OriginalId};
+use lod::hcsg::{self, GenerationContext};
 use noise::Perlin;
 use procedural_common::Bounds2 as ProcBounds2;
+use terrain_stamps::StampModulation;
 
 use crate::terrain::cell::{cell_coords_for_region, TERRAIN_CELL_VERTICAL_HALF_EXTENT};
 use crate::terrain::stamps::configs::FamilyGuillotineConfig;
@@ -44,6 +44,14 @@ impl OffsetControllerGrid {
 			Vec3::new(region.min.x - ox, region.min.y, region.min.z - oz),
 			Vec3::new(region.max.x - ox, region.max.y, region.max.z - oz),
 		)
+	}
+
+	/// Controller-cell ids intersecting `region`.
+	pub fn cell_ids(&self, region: Aabb3d) -> Vec<OriginalId> {
+		cell_coords_for_region(self.region_in_grid_space(region), self.cell_size)
+			.map(|(ix, iz)| OriginalId(Id::from_cell(self.cell_bounds(ix, iz))))
+			.filter(|OriginalId(id)| id.origin_cell_bounds().is_some_and(|b| region.intersects(&b)))
+			.collect()
 	}
 }
 
@@ -162,69 +170,31 @@ pub fn leaf_aabbs(cell: Aabb3d, cuts: &GuillotineCuts<2>) -> Vec<Aabb3d> {
 		.collect()
 }
 
-/// Controller-cell ids covering `region` for an offset grid layout type.
-pub fn original_ids_for_controller_cells<S, L>(
-	spatial_index: &mut S,
-	region: Aabb3d,
-	grid: impl FnOnce(&L) -> &OffsetControllerGrid,
-) -> Vec<OriginalId>
-where
-	S: GeneratingSpatialIndex<L>,
-{
-	let identity = Transform::IDENTITY;
-	let lod_ref = LodRef {
-		entity: Entity::PLACEHOLDER,
-		previous_transform: &identity,
-		current_transform: &identity,
-		bounds: &region,
-	};
-	if GeneratingSpatialIndex::<L>::get_or_generate(spatial_index, Id::Universal, &lod_ref)
-		.is_none()
-	{
-		return Vec::new();
-	}
-	let Some(layout) = <S as SpatialIndex<L>>::get(spatial_index, Id::Universal) else {
-		return Vec::new();
-	};
-	let grid = grid(layout).clone();
-	let grid_region = grid.region_in_grid_space(region);
-	cell_coords_for_region(grid_region, grid.cell_size)
-		.map(|(ix, iz)| OriginalId(Id::from_cell(grid.cell_bounds(ix, iz))))
-		.filter(|OriginalId(id)| id.origin_cell_bounds().is_some_and(|b| region.intersects(&b)))
-		.collect()
-}
-
-/// Leaf ids from controllers that expose [`leaf_aabbs`](LeafAabbs::leaf_aabbs).
-pub fn original_ids_for_leaves<S, C>(spatial_index: &mut S, region: Aabb3d) -> Vec<OriginalId>
-where
-	S: GeneratingSpatialIndex<C>,
-	C: LeafAabbs,
-{
-	let identity = Transform::IDENTITY;
-	let lod_ref = LodRef {
-		entity: Entity::PLACEHOLDER,
-		previous_transform: &identity,
-		current_transform: &identity,
-		bounds: &region,
-	};
-	let controllers =
-		GeneratingSpatialIndex::<C>::get_or_generate_region(spatial_index, region, &lod_ref);
-	let mut out = Vec::new();
-	for (controller_id, _) in controllers {
-		let Some(controller) = <S as SpatialIndex<C>>::get(spatial_index, controller_id) else {
-			continue;
-		};
-		for leaf in controller.leaf_aabbs() {
-			if region.intersects(&leaf) {
-				out.push(OriginalId(Id::from_cell(leaf)));
-			}
-		}
-	}
-	out.sort();
-	out.dedup();
-	out
-}
-
-pub trait LeafAabbs {
+/// A controller that partitions its cell into leaf cells.
+pub trait LeafAabbs: Sized {
 	fn leaf_aabbs(&self) -> Vec<Aabb3d>;
+
+	/// Sorted, deduplicated leaf ids intersecting `region`, from the
+	/// controllers in `region`. Only the controller level materializes.
+	fn leaf_ids_in(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId>
+	where
+		Self: hcsg::GenerationScheme,
+	{
+		let mut ids: Vec<OriginalId> = cx
+			.get_or_generate_in::<Self>(region)
+			.iter()
+			.flat_map(|controller| controller.leaf_aabbs())
+			.filter(|leaf| region.intersects(leaf))
+			.map(|leaf| OriginalId(Id::from_cell(leaf)))
+			.collect();
+		ids.sort();
+		ids.dedup();
+		ids
+	}
+}
+
+/// Leaf output of any jersey family band, so composers stay band-agnostic.
+pub trait StampLeaf {
+	fn cell(&self) -> Aabb3d;
+	fn modulations(&self) -> &[StampModulation];
 }

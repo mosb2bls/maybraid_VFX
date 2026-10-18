@@ -5,8 +5,8 @@ use bevy::math::{Quat, Vec3};
 use bevy::prelude::{Component, Transform, Visibility};
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use character_items::{ClothingHost, ClothingMaterial, ClothingMesh, ItemColor};
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
 use material_ref::MaterialRef;
 use std::f32::consts::FRAC_PI_2;
@@ -122,6 +122,15 @@ impl HitCapsule {
 	pub fn aft_extent(self) -> f32 {
 		self.along - (self.length * 0.5 + self.radius)
 	}
+
+	/// Rest-pose AABB of the horizontal body hull, centered on the motor origin.
+	pub fn preview_aabb(self) -> Aabb3d {
+		let half = self.length * 0.5 + self.radius;
+		Aabb3d::from_min_max(
+			Vec3::new(-self.radius, -self.radius, self.along - half),
+			Vec3::new(self.radius, self.radius, self.along + half),
+		)
+	}
 }
 
 /// Query-only vertical hull for an oversized orthograde head.
@@ -164,6 +173,15 @@ impl HeadCapsule {
 	/// Parent-local Y of the top of the head volume.
 	pub fn crown_y(self) -> f32 {
 		self.above + self.length * 0.5 + self.radius
+	}
+
+	/// Rest-pose AABB of the oversized head volume, in motor-origin space.
+	pub fn preview_aabb(self) -> Aabb3d {
+		let half = self.length * 0.5 + self.radius;
+		Aabb3d::from_min_max(
+			Vec3::new(-self.radius, self.above - half, -self.radius),
+			Vec3::new(self.radius, self.above + half, self.radius),
+		)
 	}
 }
 
@@ -344,6 +362,40 @@ impl LocomotionCapsule {
 	pub fn origin_delta(self, next: Self) -> Vec3 {
 		Vec3::new(0.0, next.half_height() - self.half_height(), 0.0)
 	}
+
+	/// Motor-origin AABB covering the vertical hull, plus head / hit volumes.
+	pub fn preview_aabb(self) -> Aabb3d {
+		let half = self.half_height();
+		let mut min = Vec3::new(-self.radius, -half, -self.radius);
+		let mut max = Vec3::new(self.radius, half, self.radius);
+		if let Some(head) = self.head_capsule() {
+			let head = head.preview_aabb();
+			min = min.min(Vec3::from(head.min));
+			max = max.max(Vec3::from(head.max));
+		}
+		if let Some(hit) = self.hit_capsule() {
+			let hit = hit.preview_aabb();
+			min = min.min(Vec3::from(hit.min));
+			max = max.max(Vec3::from(hit.max));
+		}
+		Aabb3d::from_min_max(min, max)
+	}
+
+	/// [`Self::preview_aabb`] expanded for skeleton families whose mesh is
+	/// longer than the vertical motor stand-in (forelimbed fish).
+	pub fn preview_aabb_for(self, kind: crate::rig::RigSkeletonKind) -> Aabb3d {
+		let aabb = self.preview_aabb();
+		let extra = kind.preview_longitudinal_half(self.half_height());
+		if extra <= 1e-4 {
+			return aabb;
+		}
+		let min = Vec3::from(aabb.min);
+		let max = Vec3::from(aabb.max);
+		Aabb3d::from_min_max(
+			Vec3::new(min.x, min.y, min.z.min(-extra)),
+			Vec3::new(max.x, max.y, max.z.max(extra)),
+		)
+	}
 }
 
 impl Default for LocomotionCapsule {
@@ -366,6 +418,13 @@ pub trait CharacterComponents {
 	/// limb length), not the animated mesh.
 	fn locomotion_capsule(&self) -> LocomotionCapsule {
 		LocomotionCapsule::HUMANOID
+	}
+
+	/// Rest-pose preview envelope from the locomotion hull. Species whose mesh
+	/// is longer than the motor stand-in should prefer
+	/// [`LocomotionCapsule::preview_aabb_for`].
+	fn preview_aabb(&self) -> Aabb3d {
+		self.locomotion_capsule().preview_aabb()
 	}
 }
 
@@ -777,5 +836,40 @@ mod tests {
 		assert!(whelp.head_capsule().is_some());
 		assert!(LocomotionCapsule::HUMANOID.head_capsule().is_none());
 		Ok(())
+	}
+
+	#[test]
+	fn preview_aabb_covers_the_motor_and_oversized_head() -> Result<()> {
+		let human = LocomotionCapsule::HUMANOID.preview_aabb();
+		assert!((Vec3::from(human.min).y + 0.9).abs() < 1e-5);
+		assert!((Vec3::from(human.max).y - 0.9).abs() < 1e-5);
+
+		let headed =
+			LocomotionCapsule::humanoid_from_pose(&character_rigs::ResolvedRigPose::new(), 2.0);
+		let head = headed
+			.head_capsule()
+			.ok_or_else(|| anyhow!("2× head should get a head volume"))?;
+		let aabb = headed.preview_aabb();
+		assert!(Vec3::from(aabb.max).y + 1e-4 >= head.crown_y());
+		assert!(Vec3::from(aabb.max).y > Vec3::from(human.max).y);
+		Ok(())
+	}
+
+	#[test]
+	fn preview_aabb_covers_quadruped_length_and_forelimbed_stand_in() {
+		use crate::rig::RigSkeletonKind;
+
+		let quad = LocomotionCapsule::quadruped_for_limb_length(1.35);
+		let hit = quad.hit_capsule().expect("pronograde");
+		let aabb = quad.preview_aabb();
+		assert!(Vec3::from(aabb.min).z <= hit.aft_extent() + 1e-4);
+
+		let shark = LocomotionCapsule::HUMANOID.scaled(1.5);
+		let motor = shark.preview_aabb();
+		let framed = shark.preview_aabb_for(RigSkeletonKind::Forelimbed);
+		assert!(
+			Vec3::from(framed.max).z - Vec3::from(framed.min).z
+				> Vec3::from(motor.max).z - Vec3::from(motor.min).z
+		);
 	}
 }

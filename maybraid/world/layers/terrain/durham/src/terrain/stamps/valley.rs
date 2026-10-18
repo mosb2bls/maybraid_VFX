@@ -6,10 +6,8 @@ use terrain_stamps::ValleyTrain;
 
 define_stamp_family! {
 	layout: ValleyLowPassControllerLayout,
-	bootstrap_layout: BootstrapValleyLowPassControllerLayout / bootstrap_valley_low_pass_controller_layout,
 	controller: ValleyLowPassControllerCell,
 	stamp: ValleyLowPassStampCell,
-	leaves_fn: original_ids_for_valley_low_pass_leaves,
 	family_salt: 77,
 	cell_size: (TERRAIN_CELL_SIZE * 1.25, MACRO_CELL_SIZE * 1.5),
 	controller_cell_size: MACRO_CELL_SIZE * 6.0,
@@ -28,10 +26,8 @@ define_stamp_family! {
 
 define_stamp_family! {
 	layout: ValleyHighPassControllerLayout,
-	bootstrap_layout: BootstrapValleyHighPassControllerLayout / bootstrap_valley_high_pass_controller_layout,
 	controller: ValleyHighPassControllerCell,
 	stamp: ValleyHighPassStampCell,
-	leaves_fn: original_ids_for_valley_high_pass_leaves,
 	family_salt: 177,
 	cell_size: (MACRO_CELL_SIZE * 2.0, MACRO_CELL_SIZE * 8.0),
 	controller_cell_size: MACRO_CELL_SIZE * 40.0,

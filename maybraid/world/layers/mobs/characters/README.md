@@ -20,6 +20,4 @@ The generated mob-character crate is [`generated/`](generated/) (`mob-characters
 | [`model-user/`](model-user/) | **`character-model-user`** |
 | [`inventory-user/`](inventory-user/) | **`character-inventory-user`** |
 | [`playground/`](playground/) | **`characters-playground`** |
-| [`world-movements-playground/`](world-movements-playground/) | **`character-world-movements-playground`** |
-
 Character UI menus live under [`maybraid/menu/`](../../../../menu/).

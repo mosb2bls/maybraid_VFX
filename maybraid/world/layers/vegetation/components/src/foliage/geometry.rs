@@ -1,6 +1,6 @@
 //! Foliage continuous forms.
 
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::assets::{foliage as foliage_assets, AssetPath};
 use crate::foliage::collection::{CheapBallCollection, FrondCollection, FrondKit};

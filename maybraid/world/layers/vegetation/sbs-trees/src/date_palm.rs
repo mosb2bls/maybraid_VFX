@@ -18,7 +18,7 @@ mod crown;
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use sbs_geometry::FrondCrownShape;
 use sbs_geometry::{BallStickChain, DatePalmChain, DatePalmSbs};
 use vegetation_components::{
@@ -172,7 +172,7 @@ impl VegetationComponents for DatePalm {
 mod tests {
 	use super::*;
 	use anyhow::Result;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 
 	#[test]
 	fn high_collections_use_structural_crown_probe() -> Result<()> {

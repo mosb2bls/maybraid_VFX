@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use bevy::prelude::*;
 
-use crate::bone_map::{bone_map_ready, BoneMap, RigRoot};
+use crate::bone_map::{BoneMap, RigRoot};
 
 /// Scale multiplier for one named bone.
 #[derive(Debug, Clone, PartialEq)]
@@ -232,7 +232,7 @@ pub fn maintain_bind_pose(
 	skip_rotation: Query<(), With<PoseSkipRotation>>,
 ) {
 	for (entity, bone_map, active_pose, mut bind, rig, pose_applied) in &mut rig_roots {
-		if !bone_map_ready(bone_map, rig.landmarks) {
+		if !bone_map.landmarks_ready(rig.landmarks) {
 			continue;
 		}
 

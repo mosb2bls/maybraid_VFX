@@ -1,8 +1,11 @@
 //! Avian broadphase discovery and fixed-geometry line-of-sight for
 //! `spotting-intelligence`.
 
+mod candidate;
+mod discover;
 mod los;
 mod observe;
+mod probe;
 
 use bevy::prelude::*;
 use intelligence_lod::IntelligencePriority;

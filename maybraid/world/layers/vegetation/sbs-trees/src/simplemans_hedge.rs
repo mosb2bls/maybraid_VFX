@@ -12,7 +12,7 @@
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{NoiseConfig, NoiseParams};
 use vegetation_components::{
 	leaf_material_ref, FoliageNode, Layers, Placement, StickNode, StructuralLod,

@@ -1,41 +1,39 @@
 //! Humanoid mapping for [`Jab`](crate::animations::Jab).
 //!
-//! Humerus: [`HumanoidRig::humerus_along_with_roll`] with [`Jab::humerus_along`] + punch
-//! roll. Punch travel = humerus +Z whip + elbow uncoil. Cover arm holds the guard along
-//! frame with a tucked elbow. Trunk yaw spreads across lumbar → midback → upper_back and
-//! both pelves; waist bend (spine twist = sagittal pitch) folds into the punch, weighted
-//! toward root / lumbar with lighter mid / upper.
+//! The punching humerus aims in character space (+Z fight-forward). Elbow flexion
+//! stays bone-local. Trunk turn is axial yaw spread across lumbar, mid-back, and
+//! upper back. Waist bend and root lean are sagittal flexion.
 
-use character_rigs::humanoid::HumanoidRig;
+use bevy::prelude::Vec3;
+use character_rigs::authoring::{ArmAim, HumanoidPose};
+use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use character_rigs::Side;
 
 use crate::animations::Jab;
-use crate::rigs::humanoid::apply::apply_leg;
 use crate::Animation;
 
-impl<R: HumanoidRig> Animation<R> for Jab<R> {
-	fn apply_for(&self, rig: &mut R, progress: f32) {
+impl Animation<HumanoidV0Rig> for Jab {
+	fn apply_for(&self, rig: &mut HumanoidV0Rig, progress: f32) {
+		let mut pose = HumanoidPose::default();
 		let jab_side = self.side;
 		let guard_side = self.opposite_side();
 
-		apply_leg(rig, jab_side, self.lead_femur_swing(progress), self.stance_shin_flex(progress));
-		apply_leg(
-			rig,
+		pose.apply_leg(jab_side, self.lead_femur_swing(progress), self.stance_shin_flex(progress));
+		pose.apply_leg(
 			guard_side,
 			self.rear_femur_swing(progress),
 			self.stance_shin_flex(progress),
 		);
 		apply_trunk(
-			rig,
+			&mut pose,
 			jab_side,
 			self.torso_turn(progress),
 			self.waist_bend(progress),
 			self.root_lean(progress),
 		);
-		apply_hip_turn(rig, jab_side, self.hip_turn(progress));
-
+		apply_hip_turn(&mut pose, jab_side, self.hip_turn(progress));
 		apply_arm(
-			rig,
+			&mut pose,
 			jab_side,
 			self.humerus_along(jab_side, progress),
 			humerus_roll(jab_side, self.punch_roll(progress)),
@@ -43,229 +41,176 @@ impl<R: HumanoidRig> Animation<R> for Jab<R> {
 			self.jab_elbow(progress),
 		);
 		apply_arm(
-			rig,
+			&mut pose,
 			guard_side,
 			self.humerus_along(guard_side, progress),
 			humerus_roll(guard_side, self.punch_roll(progress)),
 			0.0,
 			self.guard_elbow(progress),
 		);
+		rig.write_pose(&pose);
 	}
 }
 
-/// Long-axis roll after aim; mirrored so both elbows share the fight plane.
+/// Long-axis roll after aim. The sign follows the punching side so both elbows
+/// share the fight plane; it is aim roll, not a mirrored flexion axis.
 fn humerus_roll(side: Side, punch_roll: f32) -> f32 {
 	punch_roll * side.sign()
 }
 
-fn apply_arm<R: HumanoidRig>(
-	rig: &mut R,
+fn apply_arm(
+	pose: &mut HumanoidPose,
 	side: Side,
-	along_world: bevy::prelude::Vec3,
+	along: Vec3,
 	roll: f32,
 	shoulder_carry: f32,
 	elbow: f32,
 ) {
-	let mut arm = rig.arm_pose(side);
-	arm.shoulder = rig.articulate_on_rig(arm.shoulder, shoulder_carry, 0.0);
-	arm.humerus = rig.humerus_along_with_roll(side, along_world, roll);
-	arm.forearm = rig.articulate_on_rig(arm.forearm, 0.0, elbow);
-	rig.pose_arm(arm);
+	let arm = pose.arm_mut(side);
+	arm.shoulder_forward += shoulder_carry;
+	arm.elbow_flexion += elbow;
+	arm.aim = Some(ArmAim { along, roll });
 }
 
-fn apply_trunk<R: HumanoidRig>(
-	rig: &mut R,
+fn apply_trunk(
+	pose: &mut HumanoidPose,
 	jab_side: Side,
 	turn: f32,
 	waist_bend: f32,
 	root_lean: f32,
 ) {
 	let yaw = turn * -jab_side.sign();
-	let mut spine = rig.spine_pose();
-	// DEFAULT spine: swing Y ≈ yaw, flex Z ≈ coronal, twist X ≈ sagittal pitch.
-	// Pitch is mostly root + lumbar; mid/upper keep a lighter share so the fold
-	// still reads through the thoracic stack without living only up high.
-	spine.root = rig.articulate_on_rig_twisted(spine.root, root_lean, 0.0, waist_bend * 0.40);
-	spine.lumbar = rig.articulate_on_rig_twisted(spine.lumbar, yaw * 0.35, 0.0, waist_bend * 0.35);
-	spine.midback = rig.articulate_on_rig_twisted(spine.midback, yaw * 0.4, 0.0, waist_bend * 0.15);
-	spine.upper_back =
-		rig.articulate_on_rig_twisted(spine.upper_back, yaw * 0.25, 0.0, waist_bend * 0.10);
-	rig.pose_spine(spine);
+	pose.spine.add_root_forward(root_lean);
+	pose.spine.add_waist_forward(waist_bend);
+	pose.spine.add_turn(yaw);
 }
 
-fn apply_hip_turn<R: HumanoidRig>(rig: &mut R, jab_side: Side, hip: f32) {
+fn apply_hip_turn(pose: &mut HumanoidPose, jab_side: Side, hip: f32) {
 	let yaw = hip * -jab_side.sign();
-	for (side, weight) in [(jab_side, 1.0), (jab_side.opposite(), 0.65)] {
-		let mut leg = rig.leg_pose(side);
-		leg.pelvis = rig.articulate_on_rig(leg.pelvis, yaw * weight, 0.0);
-		rig.pose_leg(leg);
-	}
+	pose.leg_mut(jab_side).pelvis_turn += yaw;
+	pose.leg_mut(jab_side.opposite()).pelvis_turn += yaw * 0.65;
 }
 
 #[cfg(test)]
 mod tests {
-	use std::f32::consts::FRAC_PI_2;
-
-	use bevy::prelude::Vec3;
+	use bevy::prelude::*;
 	use character_rigs::articulation::BONE_LENGTH_AXIS;
 	use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 
 	use super::*;
 	use crate::Animation;
 
+	fn tip(rig: &HumanoidV0Rig, name: &str) -> Vec3 {
+		rig.rotation(name) * Vec3::Y
+	}
+
+	fn aimed_length(rig: &HumanoidV0Rig, name: &str) -> Vec3 {
+		let bone = rig.binding.definition.id(name).expect(name);
+		let parent = rig.binding.definition.parent_rotation(&rig.pose, bone);
+		(parent * rig.pose.rotation(bone) * BONE_LENGTH_AXIS).normalize()
+	}
+
 	#[test]
 	fn jab_extends_punching_forearm() -> anyhow::Result<()> {
-		let jab = Jab::<HumanoidV0Rig>::default();
+		let jab = Jab::default();
 		let mut rig = HumanoidV0Rig::imported();
 		jab.apply(&mut rig, 0.47);
 
-		let forearm = rig
-			.pose()
-			.get(&rig.arm(Side::Right).forearm.name)
-			.ok_or_else(|| anyhow::anyhow!("missing jab forearm pose"))?;
-		assert!(forearm.flex.abs() < 0.2);
+		assert!(rig.posed_angle("forearm.R") < 0.2, "extended elbow stays near rest");
 		Ok(())
 	}
 
 	#[test]
 	fn jab_applies_lead_stance() -> anyhow::Result<()> {
-		let jab = Jab::<HumanoidV0Rig>::default();
-		let mut rig = HumanoidV0Rig::imported();
+		let jab = Jab::default();
+		let mut rig = HumanoidV0Rig::for_clip_test();
 		jab.apply(&mut rig, 0.47);
 
-		let lead = rig
-			.pose()
-			.get(&rig.leg(jab.side).femur.name)
-			.ok_or_else(|| anyhow::anyhow!("missing lead femur pose"))?;
-		let rear = rig
-			.pose()
-			.get(&rig.leg(jab.opposite_side()).femur.name)
-			.ok_or_else(|| anyhow::anyhow!("missing rear femur pose"))?;
-		assert!(lead.swing > 0.0);
-		assert!(rear.swing < 0.0);
+		assert!(rig.posed_angle("femur.R") > 0.0, "lead hip leaves rest");
+		assert!(rig.posed_angle("femur.L") > 0.0, "rear hip leaves rest");
+		assert!(
+			(rig.character_length("femur.L").z - rig.character_length("femur.R").z).abs() > 0.05,
+			"lead and rear stance should differ"
+		);
 		Ok(())
 	}
 
 	#[test]
 	fn cover_arm_keeps_tucked_elbow() -> anyhow::Result<()> {
-		let jab = Jab::<HumanoidV0Rig>::default().with_side(Side::Right);
+		let jab = Jab::default().with_side(Side::Right);
 		let mut rig = HumanoidV0Rig::imported();
 		jab.apply(&mut rig, 0.47);
 
-		let forearm = rig
-			.pose()
-			.get(&rig.arm(Side::Left).forearm.name)
-			.ok_or_else(|| anyhow::anyhow!("left forearm"))?;
-		assert!(forearm.flex > 1.0, "cover elbow should stay tucked, got {}", forearm.flex);
+		assert!(rig.posed_angle("forearm.L") > 0.5, "cover elbow should stay tucked");
 		Ok(())
 	}
 
 	#[test]
-	fn punch_roll_locks_humerus_twist_near_ninety() -> anyhow::Result<()> {
-		let jab = Jab::<HumanoidV0Rig>::default().with_side(Side::Right);
+	fn punch_aims_humerus_along_character_forward() -> anyhow::Result<()> {
+		let jab = Jab::default().with_side(Side::Right);
 		let mut rig = HumanoidV0Rig::imported();
 		jab.apply(&mut rig, 0.0);
 
-		let humerus = rig
-			.pose()
-			.get(&rig.arm(Side::Right).humerus.name)
-			.ok_or_else(|| anyhow::anyhow!("right humerus"))?;
-		assert!(
-			(humerus.twist + FRAC_PI_2).abs() < 1e-3,
-			"expected ventral punch roll on twist, got {}",
-			humerus.twist
-		);
-		assert!(humerus.swing.abs() < 1e-4);
+		let along = jab.humerus_along(Side::Right, 0.0);
+		let aimed = aimed_length(&rig, "humerus.R");
+		assert!(aimed.dot(along.normalize()) > 0.99, "expected {along:?}, got {aimed:?}");
 		assert!(jab.shoulder_carry(0.0) < 0.2);
 		Ok(())
 	}
 
 	#[test]
-	fn humerus_along_with_roll_aims_length_in_world() -> anyhow::Result<()> {
-		let rig = HumanoidV0Rig::imported();
-		let along = Vec3::new(-0.35, -0.75, -0.55).normalize();
-		let humerus = rig.humerus_along_with_roll(Side::Right, along, FRAC_PI_2);
-		let parent = rig.parent_world_rotation(&humerus.name);
-		let aimed_world = (parent * humerus.transform.rotation * BONE_LENGTH_AXIS).normalize();
-		assert!(aimed_world.dot(along) > 0.99, "expected world aim {along:?}, got {aimed_world:?}");
-		Ok(())
-	}
-
-	#[test]
 	fn higher_target_aims_humerus_less_down() -> anyhow::Result<()> {
-		let sternum = Jab::<HumanoidV0Rig>::default().with_side(Side::Right);
-		let chin = Jab::<HumanoidV0Rig>::default()
-			.with_side(Side::Right)
-			.with_target(Vec3::new(0.0, 0.55, 0.7));
+		let sternum = Jab::default().with_side(Side::Right);
+		let chin = Jab::default().with_side(Side::Right).with_target(Vec3::new(0.0, 0.55, 0.7));
 		assert!(chin.humerus_along(Side::Right, 0.0).y > sternum.humerus_along(Side::Right, 0.0).y);
 		Ok(())
 	}
 
 	#[test]
-	fn torso_turn_spreads_across_spine() -> anyhow::Result<()> {
-		let jab = Jab::<HumanoidV0Rig>::default();
+	fn torso_turn_is_yaw_and_lean_is_sagittal() -> anyhow::Result<()> {
+		let jab = Jab::default();
 		let mut rig = HumanoidV0Rig::imported();
 		jab.apply(&mut rig, 0.47);
 
-		let lumbar = rig
-			.pose()
-			.get(&rig.spine().lumbar.name)
-			.ok_or_else(|| anyhow::anyhow!("missing lumbar pose"))?;
-		let midback = rig
-			.pose()
-			.get(&rig.spine().midback.name)
-			.ok_or_else(|| anyhow::anyhow!("missing midback pose"))?;
-		let upper = rig
-			.pose()
-			.get(&rig.spine().upper_back.name)
-			.ok_or_else(|| anyhow::anyhow!("missing upper_back pose"))?;
-		assert!(lumbar.swing.abs() > 0.05);
-		assert!(midback.swing.abs() > 0.05);
-		assert!(upper.swing.abs() > 0.03);
+		for name in ["lumbar", "midback", "upper_back"] {
+			let yawed = rig.rotation(name) * Vec3::Z;
+			assert!(yawed.x.abs() > 0.02, "{name} should yaw, got {yawed:?}");
+		}
+		let root = tip(&rig, "root");
+		assert!(root.z > 0.02, "root lean is sagittal, got {root:?}");
+		assert!(root.x.abs() < 0.05, "root lean is not the turn, got {root:?}");
 		Ok(())
 	}
 
 	#[test]
-	fn waist_bend_loads_full_spine_pitch() -> anyhow::Result<()> {
-		let jab = Jab::<HumanoidV0Rig>::default();
+	fn waist_bend_loads_the_spine_sagittally() -> anyhow::Result<()> {
+		let jab = Jab::default();
 		let mut rig = HumanoidV0Rig::imported();
 		jab.apply(&mut rig, 0.47);
 
-		let root = rig
-			.pose()
-			.get(&rig.spine().root.name)
-			.ok_or_else(|| anyhow::anyhow!("missing root pose"))?;
-		let lumbar = rig
-			.pose()
-			.get(&rig.spine().lumbar.name)
-			.ok_or_else(|| anyhow::anyhow!("missing lumbar pose"))?;
-		let midback = rig
-			.pose()
-			.get(&rig.spine().midback.name)
-			.ok_or_else(|| anyhow::anyhow!("missing midback pose"))?;
-		let upper = rig
-			.pose()
-			.get(&rig.spine().upper_back.name)
-			.ok_or_else(|| anyhow::anyhow!("missing upper_back pose"))?;
-		assert!(root.twist > lumbar.twist, "root should carry more pitch than lumbar");
-		assert!(lumbar.twist > midback.twist, "lumbar should carry more pitch than mid");
-		assert!(midback.twist > 0.0);
-		assert!(upper.twist > 0.0);
-		assert!(upper.twist < midback.twist);
+		let root = tip(&rig, "root");
+		let lumbar = tip(&rig, "lumbar");
+		let midback = tip(&rig, "midback");
+		let upper = tip(&rig, "upper_back");
+		assert!(root.z > lumbar.z, "root should carry more pitch than lumbar");
+		assert!(lumbar.z > midback.z, "lumbar should carry more pitch than mid");
+		assert!(midback.z > 0.0);
+		assert!(upper.z > 0.0);
+		assert!(upper.z < midback.z);
+		for bone in [root, lumbar, midback, upper] {
+			assert!(bone.x.abs() < 0.15, "pitch stays mostly sagittal, got {bone:?}");
+		}
 		Ok(())
 	}
 
 	#[test]
-	fn hip_turn_drives_pelvis_swing() -> anyhow::Result<()> {
-		let jab = Jab::<HumanoidV0Rig>::default().with_side(Side::Right);
+	fn hip_turn_yaws_the_pelvis() -> anyhow::Result<()> {
+		let jab = Jab::default().with_side(Side::Right);
 		let mut rig = HumanoidV0Rig::imported();
 		jab.apply(&mut rig, 0.47);
 
-		let jab_pelvis = rig
-			.pose()
-			.get(&rig.leg(Side::Right).pelvis.name)
-			.ok_or_else(|| anyhow::anyhow!("jab pelvis"))?;
-		assert!(jab_pelvis.swing.abs() > 0.02);
+		let pelvis = rig.rotation("pelvis.R") * Vec3::Z;
+		assert!(pelvis.x.abs() > 0.02, "pelvis yaw, got {pelvis:?}");
 		Ok(())
 	}
 }

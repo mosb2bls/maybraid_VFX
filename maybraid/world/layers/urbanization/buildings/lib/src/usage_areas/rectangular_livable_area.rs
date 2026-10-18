@@ -21,9 +21,9 @@ use bevy_math::{Vec2, Vec3};
 use building_components::furniture::FurnitureNode;
 use building_components::joints::JointNode;
 use building_components::labels::{LabelNode, LabelStyle};
-use building_components::panels::{PanelNode, PanelStyle};
+use building_components::panels::PanelNode;
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{
 	aabb2_area, aabb3_to_plan, Aabb2dPack, NoiseConfig, NoiseParams, PlanAxes, PlanOpeningFace,
 };
@@ -31,10 +31,8 @@ use procedural_common::{
 use crate::fit::{Confines, FillRegion, FillableRegions, Fit, FitError, SpaceKind};
 use crate::openings::{Opening, OpeningId, OpeningLabel, Openings};
 use crate::paneling::clipped_rectangular_strip::ClippedRectangularStrip;
-use crate::paneling::rect_fit::RectInset;
-use crate::paneling::rectangular_strip::RectangularStripNode;
 use crate::paneling::DEFAULT_PANEL_THICKNESS;
-use crate::shells::ortho::{standing_face_opening, WallEdge};
+use crate::shells::ortho::WallEdge;
 use crate::usage_areas::common_bedroom::CommonBedroom;
 use crate::usage_areas::label_util::label_filling_aabb;
 use crate::usage_areas::livable_quarters::{
@@ -1954,71 +1952,7 @@ fn partition_strip(
 		(Vec3::new(mid, y0, lo), Vec3::new(mid, y0, hi), Vec2::new(1.0, 0.0))
 	};
 	let edge = WallEdge::new(start, end, height, outward);
-	Some(wall_strip_with_openings(edge, openings, thickness))
-}
-
-fn wall_strip_with_openings(
-	edge: WallEdge,
-	openings: &Openings,
-	thickness: f32,
-) -> ClippedRectangularStrip {
-	let thickness = thickness.max(1e-4);
-	let len = edge.length();
-	let h = edge.height;
-	let tang = edge.tangent();
-	let style = PanelStyle::RoughStonework;
-
-	let mut cuts: Vec<(f32, f32, f32, f32)> = Vec::new();
-	for (_id, opening) in openings.iter() {
-		if !matches!(opening.label, OpeningLabel::Passage) {
-			continue;
-		}
-		let Some(face) = standing_face_opening(edge, &opening.bounds, thickness) else {
-			continue;
-		};
-		let s_lo = face.inset.bottom.clamp(0.0, len);
-		let s_hi = (len - face.inset.top).clamp(0.0, len);
-		if s_hi - s_lo < EPS {
-			continue;
-		}
-		cuts.push((s_lo, s_hi, face.inset.left, face.inset.right));
-	}
-	cuts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-
-	if cuts.is_empty() {
-		return ClippedRectangularStrip::from_nodes(
-			style,
-			[
-				RectangularStripNode::new(edge.start, h, thickness, 0.0),
-				RectangularStripNode::new(edge.end, h, thickness, 0.0),
-			],
-			[None],
-		);
-	}
-
-	let mut nodes = Vec::new();
-	let mut insets: Vec<Option<RectInset>> = Vec::new();
-	nodes.push(RectangularStripNode::new(edge.start, h, thickness, 0.0));
-	let mut cursor = 0.0_f32;
-	for (s_lo, s_hi, sill, header) in cuts {
-		if s_lo > cursor + EPS {
-			nodes.push(RectangularStripNode::new(edge.start + tang * s_lo, h, thickness, 0.0));
-			insets.push(None);
-			cursor = s_lo;
-		}
-		let s_hi = s_hi.max(cursor + EPS);
-		nodes.push(RectangularStripNode::new(edge.start + tang * s_hi, h, thickness, 0.0));
-		let jamb = 0.02_f32.min((s_hi - cursor) * 0.1);
-		insets.push(Some(RectInset::new(sill, header, jamb, jamb)));
-		cursor = s_hi;
-	}
-	if cursor < len - EPS {
-		nodes.push(RectangularStripNode::new(edge.end, h, thickness, 0.0));
-		insets.push(None);
-	} else if let Some(last) = nodes.last_mut() {
-		last.position = edge.end;
-	}
-	ClippedRectangularStrip::from_nodes(style, nodes, insets)
+	Some(ClippedRectangularStrip::from_wall_edge_with_passage_openings(edge, openings, thickness))
 }
 
 /// Authored passage openings for playground cells (on specified host faces).

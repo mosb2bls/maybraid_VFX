@@ -6,7 +6,7 @@ use building_components::joints::JointNode;
 use building_components::labels::{LabelNode, LabelStyle};
 use building_components::panels::{PanelNode, PanelStyle};
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{plan_to_aabb3, PlanAxes};
 
 use crate::fit::{

@@ -7,9 +7,9 @@ use bevy::prelude::{Component, Query, Transform, With};
 use bevy::scene::prelude::Scene;
 use bevy_math::bounding::Aabb3d;
 use bevy_math::Vec3;
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
 use lod::lod_scene_host::LodSceneHost;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use scene_ref::SceneRef;
 
 use crate::empty_scene;

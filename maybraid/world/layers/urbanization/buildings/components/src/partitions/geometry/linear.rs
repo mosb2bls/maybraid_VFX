@@ -10,7 +10,7 @@
 use bevy::prelude::Transform;
 use bevy::scene::prelude::Scene;
 use bevy_math::{Quat, Vec3};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use scene_ref::MirrorAxis;
 
 use crate::partitions::geometry::PartitionTile;

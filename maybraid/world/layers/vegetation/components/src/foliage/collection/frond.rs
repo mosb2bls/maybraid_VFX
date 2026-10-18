@@ -8,7 +8,7 @@
 //! drops or collapses whole runs so kinked blades stay connected.
 
 use bevy_math::Vec3;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::placed::Placement;
 use crate::procedural::FROND_KIT_HALF_X;

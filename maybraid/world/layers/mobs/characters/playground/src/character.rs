@@ -1,37 +1,46 @@
 use bevy::prelude::*;
-
-use crate::animation::AnimationMode;
-use crate::skinning::{
-	BoneMap, CharacterRig, DumpBonesRequest, ModularPart, ModularPartKind, NeedsSkinRemap,
-	NeedsSocketPlacement, PartRigRef, HEAD_SCALE, HEAD_SOCKET_BONE,
+use character_rigs::Side;
+use characters::{
+	spawn_fixed_character_assembly, species::braidman::BraidmanConfig, AnimProgress, AnimRefRoot,
+	CharacterMembers, CharacterRecipe, CharacterRig, CharacterRigRole, CharacterRoot,
 };
+use clap::ValueEnum;
 
-pub const DEFAULT_RIG: &str = "characters/bodies/biped/humanoid_rig.glb";
-pub const DEFAULT_BODY: &str = "characters/bodies/biped/humanoid_playground.glb";
+use crate::animation::{AnimationMode, AnimationPlayback};
+
+/// Lab subject. The playground is a clip viewer, not a species creator.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub enum CharacterSpecies {
+	#[default]
+	Braidman,
+}
+
+impl CharacterSpecies {
+	pub const fn label(self) -> &'static str {
+		match self {
+			Self::Braidman => "braidman",
+		}
+	}
+}
 
 #[derive(Component)]
-pub struct CharacterRoot;
+pub struct PlaygroundCharacter;
 
 #[derive(Resource, Clone)]
 pub struct CharacterConfig {
-	pub rig: String,
-	pub body: Option<String>,
-	pub head: Option<String>,
-	pub mouth: Option<String>,
-	pub nose: Option<String>,
+	pub species: CharacterSpecies,
 	pub animation: AnimationMode,
+	/// Sided gestures (`jab`) read this. Ignored by symmetric clips.
+	pub side: Side,
 	pub transform: Transform,
 }
 
 impl Default for CharacterConfig {
 	fn default() -> Self {
 		Self {
-			rig: DEFAULT_RIG.into(),
-			body: Some(DEFAULT_BODY.into()),
-			head: None,
-			mouth: None,
-			nose: None,
+			species: CharacterSpecies::Braidman,
 			animation: AnimationMode::default(),
+			side: Side::Right,
 			transform: Transform::IDENTITY,
 		}
 	}
@@ -39,115 +48,104 @@ impl Default for CharacterConfig {
 
 impl CharacterConfig {
 	pub fn status_label(&self) -> String {
-		let mut parts = vec![format!("rig={}", self.rig)];
-		if let Some(body) = &self.body {
-			parts.push(format!("body={body}"));
+		let mut parts = vec![format!("species={}", self.species.label())];
+		parts.push(format!("animation={}", self.animation.label()));
+		if self.animation.uses_side() {
+			parts.push(format!(
+				"side={}",
+				match self.side {
+					Side::Left => "left",
+					Side::Right => "right",
+				}
+			));
 		}
-		if let Some(head) = &self.head {
-			parts.push(format!("head={head}"));
-		}
-		if let Some(mouth) = &self.mouth {
-			parts.push(format!("mouth={mouth}"));
-		}
-		if let Some(nose) = &self.nose {
-			parts.push(format!("nose={nose}"));
-		}
-		parts.push(format!("animation={:?}", self.animation));
 		format!("character {}", parts.join(" "))
 	}
 
-	pub fn sync_key(&self) -> String {
-		format!(
-			"{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-			self.rig,
-			self.body,
-			self.head,
-			self.mouth,
-			self.nose,
-			self.transform.translation,
-			self.transform.rotation,
-		)
+	pub fn spawn_key(&self) -> String {
+		format!("{:?}|{:?}|{:?}", self.species, self.transform.translation, self.transform.rotation,)
 	}
 
-	fn part_specs(&self) -> Vec<(&'static str, &str, ModularPartKind)> {
-		let mut parts = Vec::new();
-		if let Some(body) = &self.body {
-			parts.push(("body", body.as_str(), ModularPartKind::Body));
-		}
-		if let Some(head) = &self.head {
-			parts.push(("head", head.as_str(), ModularPartKind::Head));
-		}
-		if let Some(mouth) = &self.mouth {
-			parts.push(("mouth", mouth.as_str(), ModularPartKind::Mouth));
-		}
-		if let Some(nose) = &self.nose {
-			parts.push(("nose", nose.as_str(), ModularPartKind::Nose));
-		}
-		parts
+	pub fn anim_ref(&self) -> characters::AnimRef {
+		self.animation.anim_ref(self.side)
 	}
 }
 
 #[derive(Resource, Default)]
 pub(crate) struct CharacterSyncState {
-	key: String,
+	spawn_key: String,
 }
 
 pub(crate) fn sync_character(
 	mut commands: Commands,
-	asset_server: Res<AssetServer>,
 	config: Res<CharacterConfig>,
 	mut sync_state: ResMut<CharacterSyncState>,
-	roots: Query<Entity, With<CharacterRoot>>,
+	roots: Query<Entity, With<PlaygroundCharacter>>,
 ) {
-	let key = config.sync_key();
-	if sync_state.key == key {
+	let spawn_key = config.spawn_key();
+	if sync_state.spawn_key == spawn_key {
 		return;
 	}
-	sync_state.key.clone_from(&key);
+	sync_state.spawn_key = spawn_key;
 
 	for entity in &roots {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 
-	let rig_path = config.rig.clone();
-	let transform = config.transform;
-	let parts: Vec<(String, String, ModularPartKind)> = config
-		.part_specs()
-		.into_iter()
-		.map(|(label, path, kind)| (label.to_string(), path.to_string(), kind))
-		.collect();
+	let clothed = match config.species {
+		CharacterSpecies::Braidman => CharacterRecipe::clothed(&BraidmanConfig::default_preview()),
+	};
+	let entity = spawn_fixed_character_assembly(&mut commands, &clothed, config.transform);
+	commands.entity(entity).insert(PlaygroundCharacter);
+}
 
-	let rig_entity = commands
-		.spawn((
-			WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(rig_path))),
-			CharacterRig,
-			BoneMap::default(),
-			CharacterRoot,
-			transform,
-			Name::new("character_rig"),
-		))
-		.id();
+/// Write the session clip onto the body member (`AnimRefRoot` defaults to still).
+pub(crate) fn stamp_anim(
+	mut commands: Commands,
+	config: Res<CharacterConfig>,
+	roots: Query<&CharacterMembers, With<CharacterRoot>>,
+	rigs: Query<&CharacterRig>,
+	anims: Query<&AnimRefRoot>,
+) {
+	let desired = config.anim_ref();
+	for members in &roots {
+		for member in members.iter() {
+			if !rigs.get(member).is_ok_and(|rig| rig.role == CharacterRigRole::Body) {
+				continue;
+			}
+			let needs = match anims.get(member) {
+				Ok(root) => root.0 != desired,
+				Err(_) => true,
+			};
+			if needs {
+				commands.entity(member).insert(AnimRefRoot(desired));
+			}
+		}
+	}
+}
 
-	for (label, path, kind) in parts {
-		let mut part = commands.spawn((
-			WorldAssetRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(path))),
-			ModularPart,
-			kind,
-			PartRigRef { rig_root: rig_entity },
-			NeedsSkinRemap,
-			CharacterRoot,
-			transform,
-			Name::new(format!("character_{label}")),
-		));
-
-		if kind == ModularPartKind::Head {
-			part.insert(NeedsSocketPlacement { socket_bone: HEAD_SOCKET_BONE, scale: HEAD_SCALE });
+/// Own mailbox time so `/character playback` can pause, scrub, and `--once`.
+pub(crate) fn drive_playback(
+	mut commands: Commands,
+	time: Res<Time>,
+	config: Res<CharacterConfig>,
+	mut playback: ResMut<AnimationPlayback>,
+	roots: Query<&CharacterMembers, With<CharacterRoot>>,
+	rigs: Query<&CharacterRig>,
+) {
+	playback.advance(time.delta_secs());
+	let progress = config.animation.mailbox_progress(playback.elapsed + playback.phase);
+	for members in &roots {
+		for member in members.iter() {
+			if rigs.get(member).is_ok_and(|rig| rig.role == CharacterRigRole::Body) {
+				commands.entity(member).insert(AnimProgress(progress));
+			}
 		}
 	}
 }
 
 pub fn request_dump_bones(commands: &mut Commands) {
 	commands.queue(|world: &mut World| {
-		world.resource_mut::<DumpBonesRequest>().0 = true;
+		world.resource_mut::<crate::skinning::DumpBonesRequest>().0 = true;
 	});
 }

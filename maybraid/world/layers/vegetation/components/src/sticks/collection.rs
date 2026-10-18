@@ -4,7 +4,7 @@
 //! one host per segment. Trunks stay at every band; branches thin like frond runs.
 
 use bevy_math::Vec3;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::foliage::collection::{
 	COLLECTION_HIGH_METERS, COLLECTION_LOW_METERS, COLLECTION_MEDIUM_METERS,

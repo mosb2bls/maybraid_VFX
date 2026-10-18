@@ -7,7 +7,7 @@ use bevy::scene::prelude::Scene;
 
 use crate::assets::AssetPath;
 
-/// Which resolution [`SceneRef`](scene_ref::SceneRef) is selected for a [`LodSceneLevel`](lod::gen::LodSceneLevel).
+/// Which resolution [`SceneRef`](scene_ref::SceneRef) is selected for a [`LodSceneLevel`](lod::scene::LodSceneLevel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PartitionMeshTier {
 	/// Shared by Low and UltraLow until a dedicated ultra-low GLB exists.

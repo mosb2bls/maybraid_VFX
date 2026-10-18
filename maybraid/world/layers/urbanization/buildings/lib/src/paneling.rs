@@ -27,6 +27,7 @@ pub mod ruled_pitch;
 pub mod ruled_strip;
 pub mod tessellated_triangle_panel;
 pub mod tube;
+pub mod wall_strip;
 
 pub use approximated_circle::{ApproximatedCircle, DEFAULT_SEGMENTS, MIN_SEGMENTS};
 pub use clipped_fitted_rectangular_strip::{

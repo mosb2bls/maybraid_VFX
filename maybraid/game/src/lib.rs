@@ -2,47 +2,63 @@
 
 mod flow;
 mod load;
+mod panic_log;
 mod paths;
+mod recovery;
 mod shell;
-mod training;
+mod supervisor;
 
 pub use flow::{GameFlow, HomeRoute, PauseMenuRoute, PlaySession, WorldPause};
+pub use panic_log::{
+	append_error_log, error_log_path, install_panic_log_hook, log_dir, panic_log_path, ENV_LOGS,
+};
 pub use paths::assets_root;
+pub use recovery::{
+	can_resume_world, clear_recovery_inbox, recovery_destination, strict_errors_from_env,
+	take_recovery_requests, LastRecovery, RecoverBoot, RecoveryDestination, RecoveryMode,
+	RecoveryPlugin, RecoverySystems, RecoveryToast, ENV_STRICT_ERRORS,
+};
+pub use supervisor::{
+	already_supervised, can_relaunch, child_command_args, child_is_abnormal, maybe_supervise,
+	should_run_supervisor, ENV_SUPERVISE, ENV_SUPERVISED, RELAUNCH_MAX, RELAUNCH_WINDOW,
+};
 
+use crate::recovery::remember_world_session;
 use crate::shell::{
-	ShellRoute, apply_pause_character_look, apply_shell_look, attach_preview_camera,
-	despawn_loading_backdrop, detach_preview_camera, enter_characters, enter_home,
-	enter_loading_world, enter_world, enter_world_menu, exit_world_menu,
-	restore_stashed_world_camera, spawn_loading_backdrop, stamp_preview_render_layers,
+	apply_pause_character_look, apply_shell_look, attach_preview_camera, despawn_loading_backdrop,
+	detach_preview_camera, enter_characters, enter_home, enter_loading_world, enter_world,
+	enter_world_menu, exit_world_menu, restore_stashed_world_camera, spawn_loading_backdrop,
+	stamp_preview_render_layers, ShellRoute,
 };
 use bevy::prelude::*;
+use bevy::render::renderer::RenderAdapterInfo;
+use bevy::window::PrimaryWindow;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
-use maybraid_game_mode_training_ground::{
-	TrainingEnemyMarkersEnabled, TrainingRound, TrainingSessionSet,
-};
-use maybraid_input::MenuNavPad;
+use maybraid_input::{MenuNav, MenuNavPad, PadButton, VirtualPad};
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
-	resume_discovery_from_saved_waypoints, InventoryEditCameraFollow, PlayerPhysicsEnabled,
-	Durham, PlayerSpawnXz, ShadowQuality, TerrainStreaming, WorldGameplayEnabled,
-	WorldMobHudEnabled, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceSet,
+	host_memory_bytes, parse_device_tier_env, parse_visual_style_env, reset_first_spawn_offer,
+	resume_discovery_from_saved_waypoints, AdapterKind, Durham, InventoryEditCameraFollow,
+	PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality, TerrainStreaming, VisualStyle,
+	VisualStyleAutoReason, VisualStyleSetting, VisualStyleSignals, WorldGameplayEnabled,
+	WorldMenuShell, WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
-	consume_screen_back, ActiveOverlayKey, MenuBackConsumed, ScreenBackPressed, ShortTextModal,
-	TextMenuSystems, MENU_CLEAR,
+	consume_screen_back, MenuModalStack, ScreenBackPressed, TextMenuSystems, MENU_CLEAR,
 };
 use menu_playground::{
-	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterLeavePrompt,
-	CharacterMenuState, CharacterModalMode, CharacterPreviewPlugin, CharacterScreen,
-	CharacterScreenPlugin, CharacterSessionPlugin, EditingCharacter, RequestEditCharacter,
+	ActiveCharacter, CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState,
+	CharacterPreviewPlugin, CharacterScreen, CharacterScreenPlugin, CharacterSessionPlugin,
+	EditingCharacter, RequestEditCharacter,
 };
 use menu_screens::{
-	cancel_pending_create, request_show_gallery, request_show_home, request_show_in_game,
-	request_show_in_game_settings, request_show_training, CreateCharacterPlugin, GalleryScreen,
-	GameMode, HomeMenuChoice, HomeScreenPlugin, InGameMenuChoice, InGameScreenPlugin,
-	InGameSettings, InGameSettingsScreen, InGameShadowQuality, LoadingScreenPlugin,
-	LoadingScreenSystems, MenuScreen, SpinRevealScreen, TrainingEnemyMarkers, TrainingScreen,
-	TrainingScreenPlugin, TrainingSpawn,
+	apply_unsaved_visual_style_default, cancel_pending_create, request_show_gallery,
+	request_show_home, request_show_in_game, request_show_in_game_settings, CreateCharacterPlugin,
+	GalleryScreen, GameMode, HomeMenuChoice, HomeScreenPlugin, InGameMenuChoice, InGameScreen,
+	InGameScreenPlugin, InGameSettings, InGameSettingsScreen, InGameSettingsSystems,
+	InGameShadowQuality, InGameVisualStyle, LoadingScreenPlugin, LoadingScreenSystems, MenuScreen,
+	MenuScreens, RenderScaleReadout, SpinRevealScreen, VisualStyleAutoPick, VisualStyleSaved,
 };
 
 pub struct GamePlugin;
@@ -51,6 +67,7 @@ impl Plugin for GamePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(WorldPlugin::game())
 			.insert_resource(WorldGameplayEnabled(false))
+			.insert_resource(WorldMenuShell(true))
 			.insert_resource(InventoryEditCameraFollow(false))
 			.insert_resource(PlayerPhysicsEnabled(false))
 			.insert_resource(TerrainStreaming::<Durham>::new(false))
@@ -58,11 +75,15 @@ impl Plugin for GamePlugin {
 			.insert_resource(ClearColor(MENU_CLEAR))
 			.init_resource::<PlaySession>()
 			.init_state::<GameFlow>()
-			.add_sub_state::<WorldPause>()
+			.add_sub_state::<WorldPause>();
+		if !app.world().contains_resource::<RecoveryMode>() {
+			app.insert_resource(RecoveryMode::from_runtime(false));
+		}
+		let recovery_mode = *app.world().resource::<RecoveryMode>();
+		app.add_plugins(RecoveryPlugin { mode: recovery_mode })
 			.add_plugins((
 				maybraid_game_mode_reliquary::ReliquaryPlugin,
 				HomeScreenPlugin,
-				TrainingScreenPlugin,
 				InGameScreenPlugin,
 				LoadingScreenPlugin,
 				CreateCharacterPlugin,
@@ -73,13 +94,7 @@ impl Plugin for GamePlugin {
 			))
 			.add_systems(
 				OnEnter(GameFlow::Home),
-				(
-					enter_home,
-					crate::training::clear_play_session,
-					apply_shell_look,
-					attach_preview_camera,
-				)
-					.chain(),
+				(enter_home, clear_play_session, apply_shell_look, attach_preview_camera).chain(),
 			)
 			.add_systems(
 				OnEnter(GameFlow::Characters),
@@ -91,14 +106,16 @@ impl Plugin for GamePlugin {
 				(
 					enter_loading_world,
 					spawn_loading_backdrop,
-					crate::training::reset_surface_ready,
+					reset_surface_ready,
 					apply_shell_look,
 					detach_preview_camera,
 					crate::load::arm_first_load,
-					crate::training::begin_training_round.before(load_active_player_loadout),
-					load_active_player_loadout.before(resume_discovery_from_saved_waypoints),
+					load_active_player_loadout,
+					remember_world_session,
+					reset_first_spawn_offer,
 					resume_discovery_from_saved_waypoints,
-				),
+				)
+					.chain(),
 			)
 			.add_systems(
 				OnExit(GameFlow::LoadingWorld),
@@ -122,6 +139,12 @@ impl Plugin for GamePlugin {
 					)
 						.chain(),
 					sync_world_shadows,
+					(
+						apply_unsaved_visual_style_from_host,
+						sync_world_render_scale,
+						sync_render_scale_readout,
+					)
+						.chain(),
 				),
 			)
 			.add_systems(PreUpdate, sync_inventory_edit_follow.run_if(in_state(WorldPause::Menu)))
@@ -134,20 +157,27 @@ impl Plugin for GamePlugin {
 						.after(WorldSurfaceSet)
 						.before(LoadingScreenSystems::Apply),
 					route_home_choice.run_if(in_state(GameFlow::Home)),
-					crate::training::start_training_session.run_if(in_state(GameFlow::Home)),
-					crate::training::reload_training_round
-						.run_if(in_state(GameFlow::World))
-						.after(TrainingSessionSet::LifeEnded),
 					home_settings_back
 						.after(TextMenuSystems::Navigate)
 						.run_if(in_state(GameFlow::Home)),
 					route_in_game_choice.run_if(in_state(WorldPause::Menu)),
 					apply_pause_character_look.run_if(in_state(WorldPause::Menu)),
-					sync_world_loadout_from_editor.run_if(in_state(WorldPause::Menu)),
+					// Discard restores the baseline from a Navigate observer; write it
+					// to the live player before the swap drops the editor return.
+					sync_world_loadout_from_editor
+						.after(TextMenuSystems::Navigate)
+						.run_if(in_state(WorldPause::Menu)),
 					persist_changed_player_inventory,
 					sync_world_mob_hud,
-					sync_training_enemy_markers,
 					sync_world_shadows,
+					(
+						apply_unsaved_visual_style_from_host,
+						sync_world_render_scale,
+						sync_render_scale_readout,
+					)
+						.chain()
+						.after(InGameSettingsSystems::ApplyChoice)
+						.before(InGameSettingsSystems::Show),
 					pause_menu_back
 						.after(TextMenuSystems::Navigate)
 						.run_if(in_state(WorldPause::Menu)),
@@ -156,6 +186,7 @@ impl Plugin for GamePlugin {
 						.run_if(in_state(GameFlow::Characters)),
 					toggle_world_pause
 						.after(CharacterControlSystems)
+						.before(TextMenuSystems::InputLock)
 						.run_if(in_state(GameFlow::World)),
 				),
 			);
@@ -168,36 +199,65 @@ fn starting_discovery_at_override(spawn: Res<PlayerSpawnXz>) -> bool {
 
 fn boot_shell(
 	spawn: Res<PlayerSpawnXz>,
+	recover: Option<Res<crate::recovery::RecoverBoot>>,
+	active: Option<Res<ActiveCharacter>>,
+	save_root: Res<character_persist::SaveRoot>,
 	mut route: ShellRoute,
 	mut mode: ResMut<GameMode>,
 	mut commands: Commands,
-	screens: Query<Entity, With<MenuScreen>>,
+	screens: MenuScreens,
 ) {
 	if spawn.0.is_some() {
 		mode.label = String::from("Discovery");
 		commands.insert_resource(PlaySession::Discovery);
 		enter_loading_world(commands, screens);
-		route.enter(GameFlow::LoadingWorld, PlaySession::Discovery);
+		route.enter(GameFlow::LoadingWorld);
 		return;
+	}
+	if recover.is_some() && crate::recovery::can_resume_world(save_root.as_ref(), active.is_some())
+	{
+		mode.label = String::from("Discovery");
+		commands.insert_resource(PlaySession::Discovery);
+		commands.insert_resource(crate::recovery::RecoveryToast::restarted_to_world());
+		enter_loading_world(commands, screens);
+		route.enter(GameFlow::LoadingWorld);
+		return;
+	}
+	if recover.is_some() {
+		commands.insert_resource(crate::recovery::RecoveryToast::restarted_to_home());
 	}
 	enter_home(commands);
 }
 
+fn reset_surface_ready(mut ready: ResMut<WorldSurfaceReady>) {
+	ready.0 = false;
+}
+
+/// Leave / Home: drop the session.
+fn clear_play_session(
+	mut session: ResMut<PlaySession>,
+	save_root: Option<Res<character_persist::SaveRoot>>,
+	mut mode: ResMut<GameMode>,
+	mut ready: ResMut<WorldSurfaceReady>,
+	mut ended: MessageWriter<WorldPlaySessionEnded>,
+) {
+	if *session == PlaySession::Discovery {
+		if let Some(save_root) = save_root {
+			crate::recovery::clear_last_session(&save_root);
+		}
+	}
+	ready.0 = false;
+	*session = PlaySession::None;
+	mode.label = String::from(PlaySession::Discovery.label());
+	ended.write(WorldPlaySessionEnded);
+}
+
 fn load_active_player_loadout(
 	mut commands: Commands,
-	session: Res<PlaySession>,
-	spawn: Option<Res<TrainingSpawn>>,
-	round: Option<Res<TrainingRound>>,
 	active: Option<Res<ActiveCharacter>>,
 	save_root: Res<character_persist::SaveRoot>,
 ) {
 	commands.remove_resource::<WorldPlayerLoadout>();
-	if let Some(trainee) =
-		crate::training::session_trainee(*session, spawn.as_deref(), round.as_deref())
-	{
-		commands.insert_resource(trainee);
-		return;
-	}
 	let Some(active) = active else {
 		warn!("entering world without an active character; using the default world loadout");
 		return;
@@ -223,7 +283,6 @@ fn read_player_loadout(
 
 fn route_home_choice(
 	mut choices: MessageReader<HomeMenuChoice>,
-	current: Res<PlaySession>,
 	mut route: ShellRoute,
 	mut mode: ResMut<GameMode>,
 	mut commands: Commands,
@@ -235,10 +294,9 @@ fn route_home_choice(
 		HomeRoute::World { session } => {
 			commands.insert_resource(session);
 			mode.label = String::from(session.label());
-			route.enter(GameFlow::LoadingWorld, session);
+			route.enter(GameFlow::LoadingWorld);
 		}
-		HomeRoute::TrainingSetup => request_show_training(&mut commands),
-		HomeRoute::Characters => route.enter(GameFlow::Characters, *current),
+		HomeRoute::Characters => route.enter(GameFlow::Characters),
 		HomeRoute::Settings => request_show_in_game_settings(&mut commands),
 		HomeRoute::Unimplemented => {}
 	}
@@ -246,7 +304,6 @@ fn route_home_choice(
 
 fn route_in_game_choice(
 	mut choices: MessageReader<InGameMenuChoice>,
-	session: Res<PlaySession>,
 	mut route: ShellRoute,
 	mut commands: Commands,
 	mut edits: MessageWriter<RequestEditCharacter>,
@@ -257,7 +314,7 @@ fn route_in_game_choice(
 		return;
 	};
 	match PauseMenuRoute::from_choice(choice) {
-		PauseMenuRoute::Leave => route.enter(GameFlow::Home, *session),
+		PauseMenuRoute::Leave => route.enter(GameFlow::Home),
 		PauseMenuRoute::Settings => request_show_in_game_settings(&mut commands),
 		PauseMenuRoute::Character => {
 			let Some(active) = active else {
@@ -265,7 +322,7 @@ fn route_in_game_choice(
 				return;
 			};
 			if !plays_saved_character(loadout.as_deref(), active.as_ref()) {
-				warn!("pause character: a random trainee has no saved character to edit");
+				warn!("pause character: the world loadout is not the active character's");
 				return;
 			}
 			edits.write(RequestEditCharacter {
@@ -300,8 +357,8 @@ fn persist_changed_player_inventory(
 	}
 }
 
-/// A Training trainee wears the world loadout under its own key, so neither its
-/// bag nor its editor may reach the active character's files.
+/// A world loadout under another key must not reach the active character's files,
+/// neither through its bag nor through the editor.
 fn plays_saved_character(loadout: Option<&WorldPlayerLoadout>, active: &ActiveCharacter) -> bool {
 	loadout.is_none_or(|loadout| loadout.key == active.id.to_hex())
 }
@@ -347,13 +404,6 @@ fn sync_world_mob_hud(settings: Res<InGameSettings>, mut hud: ResMut<WorldMobHud
 	}
 }
 
-fn sync_training_enemy_markers(
-	markers: Res<TrainingEnemyMarkers>,
-	mut enabled: ResMut<TrainingEnemyMarkersEnabled>,
-) {
-	enabled.set_if_neq(TrainingEnemyMarkersEnabled(markers.0));
-}
-
 fn sync_world_shadows(settings: Res<InGameSettings>, mut quality: ResMut<ShadowQuality>) {
 	let wanted = match settings.shadows {
 		InGameShadowQuality::High => ShadowQuality::High,
@@ -365,32 +415,129 @@ fn sync_world_shadows(settings: Res<InGameSettings>, mut quality: ResMut<ShadowQ
 	}
 }
 
+fn apply_unsaved_visual_style_from_host(
+	saved: Res<VisualStyleSaved>,
+	mut auto: ResMut<VisualStyleAutoPick>,
+	mut settings: ResMut<InGameSettings>,
+	adapter: Option<Res<RenderAdapterInfo>>,
+	windows: Query<&Window, With<PrimaryWindow>>,
+) {
+	if saved.0 || auto.reason.is_some() {
+		return;
+	}
+	let Some(adapter) = adapter else {
+		return;
+	};
+	let window = match windows.single() {
+		Ok(window) => UVec2::new(window.physical_width(), window.physical_height()),
+		Err(_) => UVec2::ZERO,
+	};
+	let signals = VisualStyleSignals {
+		adapter_kind: AdapterKind::from_wgpu_device_type_name(&format!(
+			"{:?}",
+			adapter.device_type
+		)),
+		name: adapter.name.clone(),
+		driver: adapter.driver.clone(),
+		driver_info: adapter.driver_info.clone(),
+		window,
+		cpu_cores: std::thread::available_parallelism().ok().map(|n| n.get() as u32),
+		memory_bytes: host_memory_bytes(),
+		device_tier: parse_device_tier_env(std::env::var(DEVICE_TIER_ENV).ok().as_deref()),
+	};
+	let Some(pick) = apply_unsaved_visual_style_default(saved.0, &mut settings, &signals) else {
+		return;
+	};
+	info!("visual style default {:?} ({})", pick.style, pick.reason.as_str());
+	auto.reason = Some(pick.reason);
+}
+
+fn sync_world_render_scale(
+	settings: Res<InGameSettings>,
+	mut visual_style: ResMut<VisualStyleSetting>,
+) {
+	let env = parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref());
+	if env.is_some() || settings.is_changed() || visual_style.requested().is_none() {
+		apply_settings_to_visual_style(&mut visual_style, settings.visual_style, env);
+	}
+}
+
+fn apply_settings_to_visual_style(
+	style: &mut VisualStyleSetting,
+	preference: InGameVisualStyle,
+	env: Option<VisualStyle>,
+) {
+	let wanted = env.unwrap_or_else(|| preference.to_visual_style());
+	if style.requested() == Some(wanted) {
+		return;
+	}
+	style.set(wanted);
+}
+
+fn sync_render_scale_readout(
+	style: Res<VisualStyleSetting>,
+	windows: Query<&Window, With<PrimaryWindow>>,
+	auto: Res<VisualStyleAutoPick>,
+	mut readout: ResMut<RenderScaleReadout>,
+) {
+	let env = parse_visual_style_env(std::env::var(VISUAL_STYLE_ENV).ok().as_deref());
+	let (physical, factor) = match windows.single() {
+		Ok(window) => {
+			(UVec2::new(window.physical_width(), window.physical_height()), window.scale_factor())
+		}
+		Err(_) => (UVec2::ZERO, 1.0),
+	};
+	let next = visual_style_readout(&style, physical, factor, env, auto.reason);
+	if *readout != next {
+		*readout = next;
+	}
+}
+
+fn visual_style_readout(
+	style: &VisualStyleSetting,
+	window_physical: UVec2,
+	window_scale_factor: f32,
+	env_override: Option<VisualStyle>,
+	auto_reason: Option<VisualStyleAutoReason>,
+) -> RenderScaleReadout {
+	let plan = style.plan(window_physical, window_scale_factor);
+	let effective_scale = if window_physical.y == 0 {
+		1.0
+	} else {
+		plan.target_size.y as f32 / window_physical.y as f32
+	};
+	RenderScaleReadout {
+		style: plan.style,
+		effective_scale,
+		window_physical,
+		target_physical: plan.target_size,
+		env_override,
+		auto_reason,
+	}
+}
+
 fn home_settings_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
-	screens: Query<(), Or<(With<InGameSettingsScreen>, With<TrainingScreen>)>>,
+	screens: Query<(), With<InGameSettingsScreen>>,
 ) {
 	if screens.is_empty() {
 		return;
 	}
-	if !consume_screen_back(nav.as_ref(), &overlay, modal.is_open(), &consumed, &mut backs) {
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	request_show_home(&mut commands);
 }
 
+/// Settings Back returns to the pause root. The character editor's leave
+/// prompt owns Back on that screen.
 fn pause_menu_back(
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	prompt: Res<CharacterLeavePrompt>,
-	mode: Res<CharacterModalMode>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
 	settings: Query<(), With<InGameSettingsScreen>>,
 	character: Query<(), With<CharacterScreen>>,
@@ -398,63 +545,64 @@ fn pause_menu_back(
 	if settings.is_empty() && character.is_empty() {
 		return;
 	}
-	if !consume_screen_back(
-		nav.as_ref(),
-		&overlay,
-		modal.is_open() || prompt.is_open() || (!character.is_empty() && mode.blocks_leave()),
-		&consumed,
-		&mut backs,
-	) {
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
-	commands.remove_resource::<CharacterEditorReturn>();
-	request_show_in_game(&mut commands);
+	if !settings.is_empty() {
+		request_show_in_game(&mut commands);
+	}
 }
 
+/// Where Start sends the pause state, if anywhere. Play opens pause and the
+/// pause root closes it; on a pause sub-screen (character editor, settings)
+/// Start is that screen's Select.
+fn start_pause_target(pause: WorldPause, sub_screen: bool) -> Option<WorldPause> {
+	match pause {
+		WorldPause::Playing => Some(WorldPause::Menu),
+		WorldPause::Menu if sub_screen => None,
+		WorldPause::Menu => Some(WorldPause::Playing),
+	}
+}
+
+/// Start is both a pause intent and a menu Select. When pause takes it, the
+/// Select is dropped before menus navigate so one press never confirms a row
+/// and unpauses in the same frame.
 fn toggle_world_pause(
 	pause: Res<State<WorldPause>>,
 	mut next: ResMut<NextState<WorldPause>>,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	mut intents: MessageReader<CharacterIntent>,
+	mut nav: ResMut<MenuNavPad>,
+	pad: Option<Res<VirtualPad>>,
+	sub_screens: Query<(), (With<MenuScreen>, Without<InGameScreen>)>,
 ) {
 	if !intents.read().any(|intent| matches!(intent, CharacterIntent::InGameMenu)) {
 		return;
 	}
-	match pause.get() {
-		WorldPause::Playing => {
-			gameplay.0 = false;
-			next.set(WorldPause::Menu);
-		}
-		WorldPause::Menu => next.set(WorldPause::Playing),
+	let Some(target) = start_pause_target(*pause.get(), !sub_screens.is_empty()) else {
+		return;
+	};
+	if !pad.is_some_and(|pad| pad.just_pressed(PadButton::A)) {
+		nav.events.retain(|event| *event != MenuNav::Select);
 	}
+	if target == WorldPause::Menu {
+		gameplay.0 = false;
+	}
+	next.set(target);
 }
 
+/// Gallery / spin-reveal Back. The character editor's leave prompt owns Back
+/// on that screen.
 fn character_back(
-	session: Res<PlaySession>,
 	mut route: ShellRoute,
 	mut commands: Commands,
 	nav: Res<MenuNavPad>,
-	overlay: Res<ActiveOverlayKey>,
-	modal: Res<ShortTextModal>,
-	prompt: Res<CharacterLeavePrompt>,
-	mode: Res<CharacterModalMode>,
-	consumed: Res<MenuBackConsumed>,
+	stack: Res<MenuModalStack>,
 	mut backs: MessageReader<ScreenBackPressed>,
-	character: Query<(), With<CharacterScreen>>,
 	spin: Query<(), With<SpinRevealScreen>>,
 	gallery: Query<(), With<GalleryScreen>>,
 ) {
-	if !consume_screen_back(
-		nav.as_ref(),
-		&overlay,
-		modal.is_open() || prompt.is_open() || (!character.is_empty() && mode.blocks_leave()),
-		&consumed,
-		&mut backs,
-	) {
-		return;
-	}
-	if !character.is_empty() {
-		request_show_gallery(&mut commands);
+	if !consume_screen_back(nav.as_ref(), &stack, &mut backs) {
 		return;
 	}
 	if !spin.is_empty() {
@@ -463,7 +611,7 @@ fn character_back(
 		return;
 	}
 	if !gallery.is_empty() {
-		route.enter(GameFlow::Home, *session);
+		route.enter(GameFlow::Home);
 	}
 }
 
@@ -480,18 +628,21 @@ mod tests {
 	use menu_playground::ActiveCharacter;
 
 	use crate::{
-		assets_root, load_active_player_loadout, persist_changed_player_inventory,
-		read_player_loadout, route_home_choice, sync_world_loadout_from_editor, sync_world_shadows,
-		GameFlow, PlaySession,
+		apply_settings_to_visual_style, assets_root, clear_play_session,
+		load_active_player_loadout, persist_changed_player_inventory, read_player_loadout,
+		route_home_choice, sync_world_loadout_from_editor, sync_world_shadows,
+		visual_style_readout, GameFlow, PlaySession,
 	};
-	use maybraid_game_mode_training_ground::TrainingRound;
-	use maybraid_world::{ShadowQuality, WorldPlayerLoadout};
+	use maybraid_world::{
+		ShadowQuality, VisualStyle, VisualStyleSetting, WorldPlaySessionEnded, WorldPlayerLoadout,
+		WorldSurfaceReady,
+	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
 	};
 	use menu_screens::{
-		GameMode, HomeMenuChoice, InGameSettings, InGameShadowQuality, RequestShowTraining,
-		TrainingCharacterChoice, TrainingSpawn,
+		GameMode, HomeMenuChoice, InGameSettings, InGameShadowQuality, InGameVisualStyle,
+		RenderScaleReadout,
 	};
 
 	#[test]
@@ -501,17 +652,61 @@ mod tests {
 	}
 
 	#[test]
-	fn training_loadout_uses_the_active_character() -> anyhow::Result<()> {
+	fn recover_boot_resumes_discovery_when_the_session_is_valid() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		crate::recovery::write_last_session(&root, PlaySession::Discovery);
+		let mut world = World::new();
+		world.insert_resource(root);
+		world.insert_resource(crate::recovery::RecoverBoot);
+		world.insert_resource(ActiveCharacter { id: CharacterId(1) });
+		world.insert_resource(maybraid_world::PlayerSpawnXz(None));
+		world.insert_resource(NextState::<GameFlow>::Unchanged);
+		world.insert_resource(NextState::<layer_stack::ActiveGenerationMode>::Unchanged);
+		world.insert_resource(GameMode::default());
+		world.insert_resource(PlaySession::None);
+		world
+			.run_system_once(crate::boot_shell)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(matches!(
+			world.resource::<NextState<GameFlow>>(),
+			NextState::Pending(GameFlow::LoadingWorld)
+		));
+		assert_eq!(*world.resource::<PlaySession>(), PlaySession::Discovery);
+		anyhow::ensure!(world.get_resource::<crate::recovery::RecoveryToast>().is_some());
+		Ok(())
+	}
+
+	#[test]
+	fn recover_boot_stays_home_without_a_last_session() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let mut world = World::new();
+		world.insert_resource(SaveRoot::at(dir.path()));
+		world.insert_resource(crate::recovery::RecoverBoot);
+		world.insert_resource(maybraid_world::PlayerSpawnXz(None));
+		world.insert_resource(NextState::<GameFlow>::Unchanged);
+		world.insert_resource(NextState::<layer_stack::ActiveGenerationMode>::Unchanged);
+		world.insert_resource(GameMode::default());
+		world.insert_resource(PlaySession::None);
+		world
+			.run_system_once(crate::boot_shell)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(matches!(world.resource::<NextState<GameFlow>>(), NextState::Unchanged));
+		anyhow::ensure!(world.get_resource::<crate::recovery::RecoveryToast>().is_some());
+		Ok(())
+	}
+
+	#[test]
+	fn world_loadout_uses_the_active_character() -> anyhow::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let root = SaveRoot::at(dir.path());
 		let id = CharacterId(11);
-		let model = CharacterModel::new(id, "Trainee", CharacterAppearance::default());
+		let model = CharacterModel::new(id, "Roamer", CharacterAppearance::default());
 		let inventory = Inventory::default();
 		character_model_user::save(&root, &model)?;
 		character_inventory_user::save(&root, id, &inventory)?;
 
 		let mut world = World::new();
-		world.insert_resource(PlaySession::Training);
 		world.insert_resource(root);
 		world.insert_resource(ActiveCharacter { id });
 		world
@@ -519,14 +714,14 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let loadout = world
 			.get_resource::<WorldPlayerLoadout>()
-			.ok_or_else(|| anyhow::anyhow!("training enter did not insert a loadout"))?;
+			.ok_or_else(|| anyhow::anyhow!("world enter did not insert a loadout"))?;
 		assert_eq!(loadout.key, id.to_hex());
 		assert_eq!(loadout.inventory, inventory);
 		Ok(())
 	}
 
 	#[test]
-	fn training_route_shows_the_setup_before_loading() -> anyhow::Result<()> {
+	fn the_removed_training_ground_route_stays_home() -> anyhow::Result<()> {
 		let mut world = World::new();
 		world.init_resource::<Messages<HomeMenuChoice>>();
 		world.write_message(HomeMenuChoice::TrainingGround);
@@ -539,44 +734,62 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(*world.resource::<PlaySession>(), PlaySession::None);
 		assert!(matches!(world.resource::<NextState<GameFlow>>(), NextState::Unchanged));
-		let mut requests = world.query::<&RequestShowTraining>();
-		assert_eq!(requests.iter(&world).count(), 1);
 		Ok(())
 	}
 
 	#[test]
-	fn a_random_training_round_plays_the_trainee() -> anyhow::Result<()> {
+	fn leave_from_discovery_clears_the_last_session_file() -> anyhow::Result<()> {
 		let dir = tempfile::tempdir()?;
-		let round = TrainingRound::new(3);
+		let root = SaveRoot::at(dir.path());
+		crate::recovery::write_last_session(&root, PlaySession::Discovery);
 		let mut world = World::new();
-		world.insert_resource(PlaySession::Training);
-		world.insert_resource(TrainingSpawn::new(TrainingCharacterChoice::Random));
-		world.insert_resource(round);
-		world.insert_resource(SaveRoot::at(dir.path()));
-		world.insert_resource(ActiveCharacter { id: CharacterId(11) });
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
+		world.insert_resource(root.clone());
+		world.insert_resource(PlaySession::Discovery);
+		world.insert_resource(GameMode::new("Elsewhere"));
+		world.insert_resource(WorldSurfaceReady(true));
 		world
-			.run_system_once(load_active_player_loadout)
+			.run_system_once(clear_play_session)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert_eq!(
-			world.get_resource::<WorldPlayerLoadout>(),
-			Some(&crate::training::trainee_loadout(round))
-		);
+		anyhow::ensure!(crate::recovery::read_last_session(&root).is_none());
 		Ok(())
 	}
 
 	#[test]
-	fn a_trainee_bag_is_never_saved_to_the_active_character() -> anyhow::Result<()> {
+	fn leave_drops_the_session() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
+		world.insert_resource(PlaySession::Discovery);
+		world.insert_resource(GameMode::new("Elsewhere"));
+		world.insert_resource(WorldSurfaceReady(true));
+		world
+			.run_system_once(clear_play_session)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(*world.resource::<PlaySession>(), PlaySession::None);
+		assert_eq!(world.resource::<GameMode>().label, "Discovery");
+		assert!(!world.resource::<WorldSurfaceReady>().0);
+		let ended = world.resource_mut::<Messages<WorldPlaySessionEnded>>().drain().count();
+		assert_eq!(ended, 1, "leave should emit WorldPlaySessionEnded for Lubikan teardown");
+		Ok(())
+	}
+
+	#[test]
+	fn a_foreign_bag_is_never_saved_to_the_active_character() -> anyhow::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let root = SaveRoot::at(dir.path());
 		let id = CharacterId(7);
 		character_inventory_user::save(&root, id, &Inventory::default())?;
 
-		let trainee = crate::training::trainee_loadout(TrainingRound::new(3));
-		assert!(!trainee.inventory.items.is_empty());
+		let foreign = WorldPlayerLoadout::new(
+			"foreign",
+			CharacterAppearance::default(),
+			Inventory::with_starter_outfit(vec![InventoryItem::firearm(FirearmMesh::Bullpup)]),
+		);
+		assert!(!foreign.inventory.items.is_empty());
 		let mut world = World::new();
 		world.insert_resource(root.clone());
 		world.insert_resource(ActiveCharacter { id });
-		world.insert_resource(trainee);
+		world.insert_resource(foreign);
 		world
 			.run_system_once(persist_changed_player_inventory)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -674,12 +887,184 @@ mod tests {
 	#[test]
 	fn pause_settings_copy_onto_the_sky_sun() -> anyhow::Result<()> {
 		let mut world = World::new();
-		world.insert_resource(InGameSettings { mob_hud: false, shadows: InGameShadowQuality::Low });
+		world.insert_resource(InGameSettings {
+			mob_hud: false,
+			shadows: InGameShadowQuality::Low,
+			visual_style: InGameVisualStyle::Impressionist,
+		});
 		world.insert_resource(ShadowQuality::High);
 		world
 			.run_system_once(sync_world_shadows)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(*world.resource::<ShadowQuality>(), ShadowQuality::Low);
+		Ok(())
+	}
+
+	#[test]
+	fn settings_visual_style_applies_until_env_wins() -> anyhow::Result<()> {
+		let mut style = VisualStyleSetting::default();
+		apply_settings_to_visual_style(&mut style, InGameVisualStyle::PrePostModern, None);
+		assert_eq!(style.requested(), Some(VisualStyle::PrePostModern));
+		apply_settings_to_visual_style(&mut style, InGameVisualStyle::Impressionist, None);
+		assert_eq!(style.requested(), Some(VisualStyle::Impressionist));
+		apply_settings_to_visual_style(
+			&mut style,
+			InGameVisualStyle::Retro,
+			Some(VisualStyle::Native),
+		);
+		assert_eq!(style.requested(), Some(VisualStyle::Native));
+		Ok(())
+	}
+
+	#[test]
+	fn visual_style_readout_reports_resolution_and_env() -> anyhow::Result<()> {
+		let mut style = VisualStyleSetting::default();
+		style.set(VisualStyle::Impressionist);
+		let readout = visual_style_readout(
+			&style,
+			UVec2::new(1920, 1080),
+			1.0,
+			Some(VisualStyle::Impressionist),
+			None,
+		);
+		assert_eq!(
+			readout,
+			RenderScaleReadout {
+				style: VisualStyle::Impressionist,
+				effective_scale: 394.0 / 1080.0,
+				window_physical: UVec2::new(1920, 1080),
+				target_physical: UVec2::new(700, 394),
+				env_override: Some(VisualStyle::Impressionist),
+				auto_reason: None,
+			}
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn unsaved_host_picks_sharp_on_low_unified_memory() -> anyhow::Result<()> {
+		use maybraid_world::{AdapterKind, VisualStyleAutoReason, VisualStyleSignals};
+		use menu_screens::apply_unsaved_visual_style_default;
+
+		let mut settings = InGameSettings {
+			mob_hud: false,
+			shadows: InGameShadowQuality::Off,
+			visual_style: InGameVisualStyle::Native,
+		};
+		let signals = VisualStyleSignals {
+			adapter_kind: AdapterKind::IntegratedGpu,
+			name: "Apple M1".into(),
+			window: UVec2::new(2560, 1600),
+			cpu_cores: Some(8),
+			memory_bytes: Some(16 * 1024 * 1024 * 1024),
+			..VisualStyleSignals::default()
+		};
+		let pick = apply_unsaved_visual_style_default(false, &mut settings, &signals)
+			.expect("unsaved pick");
+		assert_eq!(pick.style, VisualStyle::Sharp);
+		assert_eq!(pick.reason, VisualStyleAutoReason::UnifiedMemoryBelow24GiB);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+
+		settings.visual_style = InGameVisualStyle::Impressionist;
+		assert!(apply_unsaved_visual_style_default(true, &mut settings, &signals).is_none());
+		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
+		Ok(())
+	}
+
+	#[test]
+	fn start_closes_pause_only_from_the_pause_root() {
+		use crate::{start_pause_target, WorldPause};
+
+		assert_eq!(start_pause_target(WorldPause::Playing, false), Some(WorldPause::Menu));
+		assert_eq!(start_pause_target(WorldPause::Playing, true), Some(WorldPause::Menu));
+		assert_eq!(start_pause_target(WorldPause::Menu, false), Some(WorldPause::Playing));
+		assert_eq!(start_pause_target(WorldPause::Menu, true), None);
+	}
+
+	fn start_pressed_world(pause: crate::WorldPause) -> World {
+		use maybraid_character_controller::CharacterIntent;
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use maybraid_world::WorldGameplayEnabled;
+
+		let mut world = World::new();
+		world.insert_resource(State::new(pause));
+		world.insert_resource(NextState::<crate::WorldPause>::Unchanged);
+		world.insert_resource(WorldGameplayEnabled(pause == crate::WorldPause::Playing));
+		world.init_resource::<Messages<CharacterIntent>>();
+		world.write_message(CharacterIntent::InGameMenu);
+		let mut nav = MenuNavPad::default();
+		nav.events.push(MenuNav::Select);
+		world.insert_resource(nav);
+		world
+	}
+
+	#[test]
+	fn start_on_the_pause_root_unpauses_without_selecting_a_row() -> anyhow::Result<()> {
+		use crate::{toggle_world_pause, WorldPause};
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use menu_screens::{InGameScreen, MenuScreen};
+
+		let mut world = start_pressed_world(WorldPause::Menu);
+		world.spawn((InGameScreen, MenuScreen));
+		world
+			.run_system_once(toggle_world_pause)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		anyhow::ensure!(matches!(
+			world.resource::<NextState<WorldPause>>(),
+			NextState::Pending(WorldPause::Playing)
+		));
+		anyhow::ensure!(
+			!world.resource::<MenuNavPad>().just_pressed(MenuNav::Select),
+			"pause took Start; the pause row must not also activate"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn start_in_the_character_editor_stays_with_the_editor() -> anyhow::Result<()> {
+		use crate::{toggle_world_pause, WorldPause};
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use menu_playground::CharacterScreen;
+		use menu_screens::MenuScreen;
+
+		let mut world = start_pressed_world(WorldPause::Menu);
+		world.spawn((CharacterScreen, MenuScreen));
+		world
+			.run_system_once(toggle_world_pause)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		anyhow::ensure!(
+			matches!(world.resource::<NextState<WorldPause>>(), NextState::Unchanged),
+			"Start under a pause sub-screen must not unpause"
+		);
+		anyhow::ensure!(
+			world.resource::<MenuNavPad>().just_pressed(MenuNav::Select),
+			"the editor (and its leave prompt) should still see Start as Select"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn pause_back_leaves_the_editor_to_its_leave_prompt() -> anyhow::Result<()> {
+		use crate::pause_menu_back;
+		use maybraid_input::{MenuNav, MenuNavPad};
+		use menu_components::{MenuModalStack, ScreenBackPressed};
+		use menu_playground::CharacterScreen;
+		use menu_screens::{MenuScreen, MenuShowRequest};
+
+		let mut world = World::new();
+		world.init_resource::<Messages<ScreenBackPressed>>();
+		let mut nav = MenuNavPad::default();
+		nav.events.push(MenuNav::Back);
+		world.insert_resource(nav);
+		world.init_resource::<MenuModalStack>();
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.spawn((CharacterScreen, MenuScreen));
+		world
+			.run_system_once(pause_menu_back)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+		let requests = world.query::<&MenuShowRequest>().iter(&world).count();
+		anyhow::ensure!(requests == 0, "pause back must not route out of the editor");
 		Ok(())
 	}
 }

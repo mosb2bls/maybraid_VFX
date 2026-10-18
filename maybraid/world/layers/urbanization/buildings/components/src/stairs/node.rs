@@ -4,8 +4,8 @@ use bevy::math::bounding::Aabb3d;
 use bevy::prelude::Component;
 use bevy::scene::prelude::Scene;
 use bevy_math::{Quat, Vec2, Vec3};
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
 
 use crate::assets::stairs::rough_stonework::TREAD;

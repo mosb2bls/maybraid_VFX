@@ -1,6 +1,6 @@
 //! Fixed-envelope Les Halles arena for the firing-range free-for-all.
 //!
-//! The footprint is 36×10×36 m. Training Ground mounts seed [`PLAYGROUND_SEED`].
+//! The footprint is 36×10×36 m. The firing range mounts seed [`PLAYGROUND_SEED`].
 
 mod pad;
 
@@ -8,7 +8,6 @@ use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use building_components::{building_bounds, spawn_building_components};
 use building_physics::{spawn_building_walk_colliders, BUILDING_FRICTION};
-use buildings::wall_demo::TerrainPerimeterWall;
 use buildings::{Confines, Fit, FitError, Openings};
 use movement_intelligence_richmond::{
 	circulation_from_stairwell, circulation_from_storey, CirculationStairwell,
@@ -20,7 +19,7 @@ pub use pad::{spawn_pad, ArenaPad};
 
 /// Footprint large enough for a monotower (`≥ 28 m`) and two storeys (`height ≥ 10 m`).
 pub const ARENA_EXTENT: Vec3 = Vec3::new(36.0, 10.0, 36.0);
-/// Reproducible firing-range bench. Training does not use this seed.
+/// Reproducible firing-range bench.
 pub const PLAYGROUND_SEED: i32 = 1337;
 
 /// Marks every pad and building host so a session can despawn the set.
@@ -228,33 +227,6 @@ fn insert_hosts(commands: &mut Commands, dev: &MixedUseLesHallesDevelopment) {
 	let bounds = building_bounds(&dev.roof);
 	for entity in spawn_building_components(commands, &dev.roof, transform, bounds) {
 		spawn_building_walk_colliders(commands, entity, &dev.roof, BUILDING_FRICTION);
-		commands.entity(entity).insert(TrainingArena);
-	}
-}
-
-/// Half-extents of the training wall, just outside the 100×80 m pad.
-pub const TRAINING_PERIMETER_HALF: Vec2 = Vec2::new(58.0, 48.0);
-const TRAINING_PERIMETER_STEP: f32 = 8.0;
-const TRAINING_WALL_CLEARANCE: f32 = 4.0;
-
-/// XZ stations for the training perimeter, excluding the repeated close.
-pub fn training_perimeter_samples() -> Vec<Vec2> {
-	TerrainPerimeterWall::sample_rectangle(
-		-TRAINING_PERIMETER_HALF,
-		TRAINING_PERIMETER_HALF,
-		TRAINING_PERIMETER_STEP,
-	)
-}
-
-/// Spawn the closed stone perimeter and its walk colliders. `terrain_y` matches
-/// [`training_perimeter_samples`] one for one. `plaza_y` is the pad top.
-pub fn spawn_training_perimeter(commands: &mut Commands, terrain_y: &[f32], plaza_y: f32) {
-	let samples = training_perimeter_samples();
-	let wall =
-		TerrainPerimeterWall::from_samples(&samples, terrain_y, plaza_y, TRAINING_WALL_CLEARANCE);
-	let bounds = building_bounds(&wall);
-	for entity in spawn_building_components(commands, &wall, Transform::IDENTITY, bounds) {
-		spawn_building_walk_colliders(commands, entity, &wall, BUILDING_FRICTION);
 		commands.entity(entity).insert(TrainingArena);
 	}
 }

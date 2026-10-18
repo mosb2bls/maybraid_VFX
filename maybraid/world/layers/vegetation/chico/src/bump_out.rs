@@ -11,10 +11,12 @@
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::{Color, Vec2, Vec3};
 use lod::gen::Id;
+use procedural_common::NoiseParams;
+use vegetation_bumpout::{BumpOut, BumpOutNeighborhood, BumpOutStyle};
 use vegetation_groves::GroveExtent;
 
 use crate::{
-	ForestExtent, ForestGroveKind, ForestIndex, ForestLayer, SelectedLayers,
+	ForestExtent, ForestGroveKind, ForestLayer, ForestSelection, SelectedLayers,
 	DEFAULT_FOREST_GROVE_TILE_XZ,
 };
 
@@ -102,6 +104,16 @@ pub struct CanopyBumpOut {
 }
 
 impl CanopyBumpOut {
+	/// The proxy over the 160 m cell `bounds`; `None` for another cell size
+	/// or where nothing around it is selected.
+	pub fn select(selection: ForestSelection, bounds: Aabb3d) -> Option<Self> {
+		if (bounds.max.x - bounds.min.x - BUMP_OUT_CELL_XZ).abs() > 1e-2 {
+			return None;
+		}
+		let cell = Self { bounds, samples: blend_selection_neighborhood(selection, bounds) };
+		cell.has_density().then_some(cell)
+	}
+
 	pub fn id(&self) -> Id {
 		Id::from_cell(self.bounds)
 	}
@@ -120,6 +132,17 @@ impl CanopyBumpOut {
 pub struct MediumCanopyBumpOut(pub CanopyBumpOut);
 
 impl MediumCanopyBumpOut {
+	/// The proxy over the 320 m cell `bounds`; `None` for another cell size.
+	pub fn select(selection: ForestSelection, bounds: Aabb3d) -> Option<Self> {
+		if (bounds.max.x - bounds.min.x - MEDIUM_BUMP_OUT_CELL_XZ).abs() > 1e-2 {
+			return None;
+		}
+		Some(Self(CanopyBumpOut {
+			bounds,
+			samples: blend_selection_neighborhood(selection, bounds),
+		}))
+	}
+
 	pub fn cell_bounds(ix: i32, iz: i32) -> Aabb3d {
 		let size = MEDIUM_BUMP_OUT_CELL_XZ;
 		Aabb3d::from_min_max(
@@ -356,16 +379,16 @@ fn orchard() -> [Color; 3] {
 ///
 /// If this forest cell selected `None` on every layer, borrow occupied cardinal
 /// neighbors. Stay empty only when the cell and those neighbors are all empty.
-pub fn selection_sample_at(index: &ForestIndex, xz: Vec2) -> BumpOutSelectionSample {
+pub fn selection_sample_at(selection: ForestSelection, xz: Vec2) -> BumpOutSelectionSample {
 	let (ix, iz) = ForestExtent::cell_index_containing(Vec3::new(xz.x, 0.0, xz.y));
-	let self_layers = index.selected_layers_for(ForestExtent::from_cell_index(ix, iz));
+	let self_layers = selection.layers_for(ForestExtent::from_cell_index(ix, iz));
 	sample_with_neighbors(
 		self_layers,
 		[
-			index.selected_layers_for(ForestExtent::from_cell_index(ix, iz + 1)),
-			index.selected_layers_for(ForestExtent::from_cell_index(ix + 1, iz)),
-			index.selected_layers_for(ForestExtent::from_cell_index(ix, iz - 1)),
-			index.selected_layers_for(ForestExtent::from_cell_index(ix - 1, iz)),
+			selection.layers_for(ForestExtent::from_cell_index(ix, iz + 1)),
+			selection.layers_for(ForestExtent::from_cell_index(ix + 1, iz)),
+			selection.layers_for(ForestExtent::from_cell_index(ix, iz - 1)),
+			selection.layers_for(ForestExtent::from_cell_index(ix - 1, iz)),
 		],
 	)
 }
@@ -420,7 +443,10 @@ fn average_occupied(samples: &[BumpOutSelectionSample]) -> BumpOutSelectionSampl
 ///
 /// Empty tiles do not dilute occupied ones. The result is empty only when every
 /// overlapping tile (after neighbor borrow) is empty.
-pub fn blend_selection_on_bounds(index: &ForestIndex, bounds: Aabb3d) -> BumpOutSelectionSample {
+pub fn blend_selection_on_bounds(
+	selection: ForestSelection,
+	bounds: Aabb3d,
+) -> BumpOutSelectionSample {
 	let tiles = ForestExtent::grove_tiles_overlapping(bounds);
 	let mut occupied = Vec::new();
 
@@ -430,7 +456,7 @@ pub fn blend_selection_on_bounds(index: &ForestIndex, bounds: Aabb3d) -> BumpOut
 			continue;
 		}
 		let sample = selection_sample_at(
-			index,
+			selection,
 			Vec2::new((tile.min().x + tile.max().x) * 0.5, (tile.min().z + tile.max().z) * 0.5),
 		);
 		if sample.kind.is_none() && sample.density <= 0.001 {
@@ -491,7 +517,7 @@ pub fn blend_selection_on_bounds(index: &ForestIndex, bounds: Aabb3d) -> BumpOut
 
 /// 3×3 terrain-cell neighborhood centered on `bounds`, each sample blended from 100 m tiles.
 pub fn blend_selection_neighborhood(
-	index: &ForestIndex,
+	selection: ForestSelection,
 	bounds: Aabb3d,
 ) -> [BumpOutSelectionSample; 9] {
 	let size = (bounds.max.x - bounds.min.x).max(DEFAULT_FOREST_GROVE_TILE_XZ);
@@ -503,7 +529,7 @@ pub fn blend_selection_neighborhood(
 			let min = Vec3::new(bounds.min.x + dx, bounds.min.y, bounds.min.z + dz);
 			let max = Vec3::new(bounds.max.x + dx, bounds.max.y, bounds.max.z + dz);
 			samples[row * 3 + column] =
-				blend_selection_on_bounds(index, Aabb3d::from_min_max(min, max));
+				blend_selection_on_bounds(selection, Aabb3d::from_min_max(min, max));
 		}
 	}
 	samples
@@ -517,6 +543,37 @@ fn xz_overlap_area(a: Aabb3d, b: Aabb3d) -> f32 {
 	let x = (a.max.x.min(b.max.x) - a.min.x.max(b.min.x)).max(0.0);
 	let z = (a.max.z.min(b.max.z) - a.min.z.max(b.min.z)).max(0.0);
 	x * z
+}
+
+pub fn bump_out_from_cell(cell: &CanopyBumpOut, noise: NoiseParams) -> Option<BumpOut> {
+	let samples = cell.samples;
+	let neighborhood = BumpOutNeighborhood::new(
+		samples.map(|sample| sample.density),
+		samples.map(|sample| sample.bite_size),
+		samples.map(|sample| sample.bite_size_deviation),
+		samples.map(|sample| sample.height_m),
+		samples.map(|sample| sample.height_deviation_m),
+	);
+	if neighborhood.densities.iter().all(|density| *density <= 0.001) {
+		return None;
+	}
+	Some(
+		BumpOut::from_neighborhood(neighborhood, cell.center_palette(), noise).with_style(
+			BumpOutStyle::new(0.065, 0.88, 0.18)
+				.with_cheese(0.88, 1.0)
+				.with_fragment_height(4.5, 0.85),
+		),
+	)
+}
+
+pub fn bump_out_noise(forest: &NoiseParams) -> NoiseParams {
+	NoiseParams {
+		seed: forest.seed.wrapping_add(307),
+		frequency: 0.045,
+		amplitude: forest.amplitude,
+		octaves: 3,
+		..*forest
+	}
 }
 
 #[cfg(test)]
@@ -639,10 +696,12 @@ mod tests {
 
 	#[test]
 	fn blend_on_empty_layering_is_zero_density() -> Result<()> {
-		let mut index = ForestIndex::default();
-		index.layering = Some(LayeringKind::SunsBarren);
+		let selection = crate::ForestSelection {
+			layering: Some(LayeringKind::SunsBarren),
+			..Default::default()
+		};
 		let bounds = Aabb3d::from_min_max(Vec3::new(-80.0, 0.0, -80.0), Vec3::new(80.0, 1.0, 80.0));
-		let sample = blend_selection_on_bounds(&index, bounds);
+		let sample = blend_selection_on_bounds(selection, bounds);
 		// SunsBarren typical layers may still have groves; density is authored, not occupancy.
 		assert!(sample.density >= 0.0);
 		assert!(sample.density <= 1.0);

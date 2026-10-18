@@ -3,10 +3,10 @@
 use bevy::math::Vec2;
 use durham::terrain::{ElevationModulation, TerrainSdf};
 use procedural_common::Bounds2;
+use urbanization_developments::{PadParams, PadPlan};
 
 use super::index::PadFootprintIndex;
 use super::node::{PadNode, PadStage};
-use super::{nodes_from_graded_polyline, PadParams};
 
 /// Bag of pad nodes blended by occupancy softmax, with flatten terraces exact.
 ///
@@ -72,7 +72,7 @@ impl PadComplex {
 		half_width: f32,
 		params: PadParams,
 	) -> Self {
-		Self::from_nodes(nodes_from_graded_polyline(path, levels, half_width, params))
+		Self::from(&PadPlan::graded_polyline(path, levels, half_width, params))
 	}
 
 	pub fn is_empty(&self) -> bool {
@@ -106,6 +106,12 @@ impl PadComplex {
 			}
 		}
 		best.and_then(|(node, phi)| node.classification_at_distance(phi))
+	}
+}
+
+impl From<&PadPlan> for PadComplex {
+	fn from(plan: &PadPlan) -> Self {
+		Self::from_nodes(plan.forms.iter().map(PadNode::from).collect())
 	}
 }
 

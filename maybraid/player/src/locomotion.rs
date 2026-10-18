@@ -28,6 +28,9 @@ pub(crate) fn face_wish_yaw(
 		let Ok(wish) = wishes.get(child_of.parent()) else {
 			continue;
 		};
+		if !heading.would_turn_toward(&visual, wish.0) {
+			continue;
+		}
 		heading.turn_toward(&mut visual, wish.0, time.delta_secs());
 	}
 }
@@ -47,7 +50,7 @@ pub fn drive_player_locomotion(
 			continue;
 		};
 		let speed = Vec3::new(velocity.x, 0.0, velocity.z).length();
-		let kind = stance.map(|stance| stance.kind).unwrap_or(StanceKind::Stand);
+		let stance = stance.copied().unwrap_or_else(|| CharacterStance::settled(StanceKind::Stand));
 		for member in members.iter() {
 			let Ok(rig) = rigs.get(member) else {
 				continue;
@@ -55,7 +58,7 @@ pub fn drive_player_locomotion(
 			if rig.role != CharacterRigRole::Body {
 				continue;
 			}
-			let clip = locomotion_clip(rig.skeleton, jumping, kind, speed);
+			let clip = locomotion_clip(rig.skeleton, jumping, &stance, speed);
 			let desired = AnimRef::new(clip);
 			let needs = match anims.get(member) {
 				Ok(root) => root.0 != desired,
@@ -72,10 +75,10 @@ pub fn drive_player_locomotion(
 					JumpParams::default().elapsed_from_phase(phase)
 				};
 				commands.entity(member).insert(AnimProgress(progress));
-			} else if matches!(kind, StanceKind::Squat | StanceKind::Prone) {
-				commands
-					.entity(member)
-					.insert(AnimProgress(stance.map(|s| s.blend).unwrap_or(1.0)));
+			} else if !stance.squat_settled() {
+				commands.entity(member).insert(AnimProgress(stance.blend));
+			} else if matches!(stance.kind, StanceKind::Squat | StanceKind::Prone) {
+				commands.entity(member).insert(AnimProgress(stance.blend));
 			} else {
 				commands.entity(member).remove::<AnimProgress>();
 			}
@@ -86,7 +89,7 @@ pub fn drive_player_locomotion(
 fn locomotion_clip(
 	skeleton: RigSkeletonKind,
 	jumping: Option<&Jumping>,
-	stance: StanceKind,
+	stance: &CharacterStance,
 	speed: f32,
 ) -> AnimClip {
 	match skeleton {
@@ -95,8 +98,10 @@ fn locomotion_clip(
 				AnimClip::leap()
 			} else if jumping.is_some() {
 				AnimClip::jump()
+			} else if !stance.squat_settled() {
+				AnimClip::squat_descent()
 			} else {
-				match stance {
+				match stance.kind {
 					StanceKind::Prone => AnimClip::prone(),
 					StanceKind::Squat => AnimClip::squat(),
 					StanceKind::Stand => {
@@ -143,9 +148,10 @@ mod tests {
 	#[test]
 	fn standing_hop_uses_jump_clip() {
 		let jump = Jumping::start(0.0);
+		let stance = CharacterStance::settled(StanceKind::Stand);
 		assert!(!jump.leaping);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, Some(&jump), StanceKind::Stand, 0.0).id(),
+			locomotion_clip(RigSkeletonKind::Humanoid, Some(&jump), &stance, 0.0).id(),
 			AnimClip::jump().id()
 		);
 	}
@@ -153,26 +159,27 @@ mod tests {
 	#[test]
 	fn running_leap_uses_leap_clip() {
 		let jump = Jumping::start(MOVE_SPEED);
+		let stance = CharacterStance::settled(StanceKind::Stand);
 		assert!(jump.leaping);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, Some(&jump), StanceKind::Stand, MOVE_SPEED)
-				.id(),
+			locomotion_clip(RigSkeletonKind::Humanoid, Some(&jump), &stance, MOVE_SPEED).id(),
 			AnimClip::leap().id()
 		);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Quadruped, Some(&jump), StanceKind::Stand, 0.0).id(),
+			locomotion_clip(RigSkeletonKind::Quadruped, Some(&jump), &stance, 0.0).id(),
 			AnimClip::leap().id()
 		);
 	}
 
 	#[test]
 	fn clip_follows_the_cap() {
+		let stance = CharacterStance::settled(StanceKind::Stand);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, None, StanceKind::Stand, JOG_SPEED).id(),
+			locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, JOG_SPEED).id(),
 			AnimId::Walk
 		);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, None, StanceKind::Stand, MOVE_SPEED).id(),
+			locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, MOVE_SPEED).id(),
 			AnimId::Run
 		);
 	}
@@ -181,8 +188,9 @@ mod tests {
 	fn land_keeps_the_jump_clip() {
 		let mut jump = Jumping::start(0.0);
 		jump.phase = JumpPhase::Land;
+		let stance = CharacterStance::settled(StanceKind::Squat);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, Some(&jump), StanceKind::Squat, 0.0).id(),
+			locomotion_clip(RigSkeletonKind::Humanoid, Some(&jump), &stance, 0.0).id(),
 			AnimClip::jump().id()
 		);
 	}
@@ -190,21 +198,97 @@ mod tests {
 	#[test]
 	fn stance_clips_win_over_still_walk() {
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, None, StanceKind::Squat, 0.0).id(),
+			locomotion_clip(
+				RigSkeletonKind::Humanoid,
+				None,
+				&CharacterStance::settled(StanceKind::Squat),
+				0.0,
+			)
+			.id(),
 			AnimId::Squat
 		);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, None, StanceKind::Prone, 0.0).id(),
+			locomotion_clip(
+				RigSkeletonKind::Humanoid,
+				None,
+				&CharacterStance::settled(StanceKind::Prone),
+				0.0,
+			)
+			.id(),
 			AnimId::Prone
 		);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, None, StanceKind::Stand, 0.0).id(),
+			locomotion_clip(
+				RigSkeletonKind::Humanoid,
+				None,
+				&CharacterStance::settled(StanceKind::Stand),
+				0.0,
+			)
+			.id(),
 			AnimId::Still
 		);
 		let jump = Jumping::start(0.0);
 		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, Some(&jump), StanceKind::Squat, 0.0).id(),
+			locomotion_clip(
+				RigSkeletonKind::Humanoid,
+				Some(&jump),
+				&CharacterStance::settled(StanceKind::Squat),
+				0.0,
+			)
+			.id(),
 			AnimClip::jump().id()
 		);
+	}
+
+	#[test]
+	fn entering_squat_uses_descent_clip() {
+		let stance = CharacterStance { kind: StanceKind::Squat, blend: 0.0 };
+		assert_eq!(
+			locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, 0.0).id(),
+			AnimId::SquatDescent
+		);
+	}
+
+	#[test]
+	fn leaving_squat_uses_descent_until_blend_reaches_zero() {
+		let stance = CharacterStance { kind: StanceKind::Stand, blend: 0.5 };
+		assert_eq!(
+			locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, 0.0).id(),
+			AnimId::SquatDescent
+		);
+	}
+
+	#[test]
+	fn settled_wish_does_not_rewrite_heading() -> anyhow::Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
+
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		let body = world.spawn((CharacterController, MoveWish(Vec3::ZERO))).id();
+		let visual = world
+			.spawn((
+				CharacterRoot,
+				Transform::IDENTITY,
+				CharacterHeading::from_rotation(Quat::IDENTITY),
+				PlayerYawOwner::Wish,
+				ChildOf(body),
+			))
+			.id();
+		anyhow::ensure!(world.run_system_once(face_wish_yaw).is_ok());
+		let before = world
+			.entity(visual)
+			.get_change_ticks::<Transform>()
+			.ok_or_else(|| anyhow::anyhow!("missing transform"))?
+			.changed
+			.get();
+		anyhow::ensure!(world.run_system_once(face_wish_yaw).is_ok());
+		let after = world
+			.entity(visual)
+			.get_change_ticks::<Transform>()
+			.ok_or_else(|| anyhow::anyhow!("missing transform"))?
+			.changed
+			.get();
+		anyhow::ensure!(before == after);
+		Ok(())
 	}
 }

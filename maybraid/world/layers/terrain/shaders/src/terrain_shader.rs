@@ -1,13 +1,16 @@
 //! Durham terrain material with world-space palette noise ([RFC-170 4.7](https://github.com/ramate-io/maybraid/issues/178)).
 //!
 //! The fragment shader also applies a cheap ridged-height POM crack layer
-//! within 50 m of the camera.
+//! (full march to 60 m, faded by 150 m, with a persistent far pattern)
+//! and an optional world-space grass turf with its own 35–50 m march.
 
 mod band;
+mod grass;
 mod noise_uniform;
 mod swatch;
 
 pub use band::TerrainBandUniform;
+pub use grass::TerrainGrassUniform;
 pub use noise_uniform::{TerrainNoiseUniform, EVEN_BAND_BLEND_WEIGHT};
 pub use swatch::{TerrainSwatchUniform, EVEN_SWATCH_FOLD_WEIGHT};
 
@@ -37,6 +40,9 @@ pub struct TerrainShader {
 	/// RGB tint multiplied into the palette noise color; **w** = alpha.
 	#[uniform(2)]
 	pub base_color: Vec4,
+	/// Authored grass coverage and lush/dry blade palette.
+	#[uniform(3)]
+	pub grass: TerrainGrassUniform,
 }
 
 impl Default for TerrainShader {
@@ -45,6 +51,7 @@ impl Default for TerrainShader {
 			terrain_noise: TerrainNoiseUniform::default(),
 			style_params: Vec4::new(0.35, 2.0, 0.05, 0.82),
 			base_color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+			grass: TerrainGrassUniform::default(),
 		}
 	}
 }
@@ -67,6 +74,20 @@ impl TerrainShader {
 	#[inline]
 	pub fn with_base_color(mut self, base_color: Vec4) -> Self {
 		self.base_color = base_color;
+		self
+	}
+
+	/// Replaces the grass coverage / palette block.
+	#[inline]
+	pub fn with_grass(mut self, grass: TerrainGrassUniform) -> Self {
+		self.grass = grass;
+		self
+	}
+
+	/// Sets authored grass coverage only (`0` disables the turf).
+	#[inline]
+	pub fn with_grass_coverage(mut self, coverage: f32) -> Self {
+		self.grass = self.grass.with_coverage(coverage);
 		self
 	}
 }
@@ -100,6 +121,37 @@ mod tests {
 		assert!((m.style_params.x - 0.35).abs() < 1e-5);
 		assert!((m.style_params.w - 0.82).abs() < 1e-5);
 		assert!((m.base_color.x - 1.0).abs() < 1e-5);
+		assert!((m.grass.coverage() - 1.0).abs() < 1e-5);
+		assert!((m.grass.tint_amount() - 0.15).abs() < 1e-5);
+		assert!((m.grass.wind_color() - 0.035).abs() < 1e-5);
+	}
+
+	#[test]
+	fn grass_presets_cover_vibrant_dry_muted_and_off() {
+		let vibrant = TerrainGrassUniform::vibrant();
+		assert!((vibrant.coverage() - 1.0).abs() < 1e-5);
+		assert_ne!(vibrant.lush_mid, vibrant.dry_mid);
+
+		let dry = TerrainGrassUniform::dry();
+		assert!((dry.coverage() - 1.0).abs() < 1e-5);
+		assert_eq!(dry.lush_mid, dry.dry_mid);
+		assert_eq!(dry.lush_mid, vibrant.dry_mid);
+
+		let muted = TerrainGrassUniform::muted();
+		assert!((muted.coverage() - 1.0).abs() < 1e-5);
+		assert!(muted.lush_mid.y < vibrant.lush_mid.y);
+
+		let off = TerrainGrassUniform::disabled();
+		assert!(off.coverage().abs() < 1e-5);
+		assert_eq!(off.lush_mid, vibrant.lush_mid);
+	}
+
+	#[test]
+	fn with_grass_coverage_disables_turf() {
+		let m = TerrainShader::default().with_grass_coverage(0.0);
+		assert!(m.grass.coverage().abs() < 1e-5);
+		let muted = TerrainShader::default().with_grass(TerrainGrassUniform::muted());
+		assert_eq!(muted.grass.lush_mid, TerrainGrassUniform::muted().lush_mid);
 	}
 
 	#[test]

@@ -1,6 +1,8 @@
 use std::f32::consts::PI;
 
-use character_rigs::{quadruped::QuadrupedRig, Side};
+use character_rigs::authoring::QuadrupedPose;
+use character_rigs::rigs::quadruped_v0::QuadrupedV0Rig;
+use character_rigs::Side;
 
 use crate::animations::{Gallop, QuadrupedGallop};
 use crate::rigs::quadruped::apply::{apply_neck_axes, apply_spine};
@@ -21,46 +23,47 @@ const PAIR_STAGGER: f32 = 0.06;
 /// Where in each bound the spine is maximally gathered (just after the hind strikes).
 const SPINE_GATHER_CENTER: f32 = 0.06;
 
-impl<R: QuadrupedRig> Animation<R> for Gallop {
-	fn apply_for(&self, rig: &mut R, progress: f32) {
+impl Animation<QuadrupedV0Rig> for Gallop {
+	fn apply_for(&self, rig: &mut QuadrupedV0Rig, progress: f32) {
 		QuadrupedGallop::from_gallop(self).apply_for(rig, progress)
 	}
 }
 
-impl<R: QuadrupedRig> Animation<R> for QuadrupedGallop<R> {
-	fn apply_for(&self, rig: &mut R, progress: f32) {
-		let cycle = Progress(progress).cycle();
-		let bound_u = (cycle * BOUNDS_PER_CYCLE).fract();
-		let tuning = leg_tuning(self);
+impl Animation<QuadrupedV0Rig> for QuadrupedGallop {
+	fn apply_for(&self, rig: &mut QuadrupedV0Rig, progress: f32) {
+		let mut pose = QuadrupedPose::default();
+		sample_gallop(self, progress, &mut pose);
+		rig.write_pose(&pose);
+	}
+}
 
-		// Footfall order: BL, BR, FL, FR in the first bound, then BR, BL, FR, FL.
-		for side in [Side::Left, Side::Right] {
-			let (hind_first, hind_second) = strike_times(0.0, side);
-			apply_hind_leg_stride(
-				rig,
-				side,
-				gallop_leg_phase(cycle, hind_first, hind_second),
-				tuning,
-			);
+fn sample_gallop(gallop: &QuadrupedGallop, progress: f32, pose: &mut QuadrupedPose) {
+	let cycle = Progress(progress).cycle();
+	let bound_u = (cycle * BOUNDS_PER_CYCLE).fract();
+	let tuning = leg_tuning(gallop);
 
-			let (front_first, front_second) = strike_times(self.phase_separation, side);
-			apply_front_leg_stride(
-				rig,
-				side,
-				gallop_leg_phase(cycle, front_first, front_second),
-				tuning,
-			);
-		}
+	// Footfall order: BL, BR, FL, FR in the first bound, then BR, BL, FR, FL.
+	for side in [Side::Left, Side::Right] {
+		let (hind_first, hind_second) = strike_times(0.0, side);
+		apply_hind_leg_stride(pose, side, gallop_leg_phase(cycle, hind_first, hind_second), tuning);
 
-		let spine_flex = bound_spine_flex(bound_u, self.hind_bound_pitch, self.front_bound_pitch);
-		apply_spine(rig, spine_flex * 0.35, spine_flex);
-		apply_neck_axes(
-			rig,
-			-spine_flex * self.neck_follow,
-			-spine_flex * self.neck_bow,
-			-spine_flex * self.neck_pitch,
+		let (front_first, front_second) = strike_times(gallop.phase_separation, side);
+		apply_front_leg_stride(
+			pose,
+			side,
+			gallop_leg_phase(cycle, front_first, front_second),
+			tuning,
 		);
 	}
+
+	let spine_flex = bound_spine_flex(bound_u, gallop.hind_bound_pitch, gallop.front_bound_pitch);
+	apply_spine(pose, spine_flex * 0.35, spine_flex);
+	apply_neck_axes(
+		pose,
+		-spine_flex * gallop.neck_follow,
+		-spine_flex * gallop.neck_bow,
+		-spine_flex * gallop.neck_pitch,
+	);
 }
 
 /// Strike times over the full cycle for one leg of a pair whose lead leg
@@ -103,7 +106,7 @@ fn bound_spine_flex(bound_u: f32, hind_pitch: f32, front_pitch: f32) -> f32 {
 	}
 }
 
-fn leg_tuning<Rig>(gallop: &QuadrupedGallop<Rig>) -> LegStrideTuning {
+fn leg_tuning(gallop: &QuadrupedGallop) -> LegStrideTuning {
 	LegStrideTuning {
 		shoulder_swing: gallop.shoulder_swing,
 		shoulder_lift: gallop.shoulder_lift,
@@ -120,36 +123,36 @@ fn leg_tuning<Rig>(gallop: &QuadrupedGallop<Rig>) -> LegStrideTuning {
 
 #[cfg(test)]
 mod tests {
-	use anyhow::Context;
-	use character_rigs::{rigs::quadruped_v0::QuadrupedV0Rig, Side};
+	use bevy::prelude::*;
 
 	use super::*;
 
+	fn tip(rig: &QuadrupedV0Rig, name: &str) -> Vec3 {
+		rig.rotation(name) * Vec3::Y
+	}
+
 	#[test]
-	fn gallop_delegates_to_quadruped_default() -> anyhow::Result<()> {
+	fn gallop_delegates_to_quadruped_default() {
 		for &phase in &[0.0, 0.12, 0.25, 0.62, 0.75] {
 			let mut from_gallop = QuadrupedV0Rig::imported();
 			let mut from_template = QuadrupedV0Rig::imported();
 			Gallop::default().apply(&mut from_gallop, phase);
-			QuadrupedGallop::<QuadrupedV0Rig>::default().apply(&mut from_template, phase);
+			QuadrupedGallop::default().apply(&mut from_template, phase);
 
-			for bone in from_gallop.animation_bones() {
-				let Some(gallop_pose) = from_gallop.pose().get(&bone) else {
-					continue;
-				};
-				let template_pose = from_template.pose().get(&bone).context("template pose")?;
+			for name in from_gallop.animation_bone_names() {
+				let gallop_rot = from_gallop.rotation(name);
+				let template_rot = from_template.rotation(name);
 				assert!(
-					(gallop_pose.swing - template_pose.swing).abs() < 1e-5,
-					"swing mismatch on {bone} at {phase}"
+					gallop_rot.dot(template_rot).abs() > 1.0 - 1e-5,
+					"rotation mismatch on {name} at {phase}"
 				);
 			}
 		}
-		Ok(())
 	}
 
 	#[test]
 	fn gallop_footfall_order_swaps_lead_between_bounds() {
-		let phase_separation = QuadrupedGallop::<QuadrupedV0Rig>::default().phase_separation;
+		let phase_separation = QuadrupedGallop::default().phase_separation;
 		let (hind_left_first, hind_left_second) = strike_times(0.0, Side::Left);
 		let (hind_right_first, hind_right_second) = strike_times(0.0, Side::Right);
 		let (front_left_first, front_left_second) = strike_times(phase_separation, Side::Left);
@@ -168,8 +171,8 @@ mod tests {
 
 	#[test]
 	fn gallop_phase_separation_offsets_front_strikes() {
-		let mut tight = QuadrupedGallop::<QuadrupedV0Rig>::default();
-		let mut wide = QuadrupedGallop::<QuadrupedV0Rig>::default();
+		let mut tight = QuadrupedGallop::default();
+		let mut wide = QuadrupedGallop::default();
 		tight.phase_separation = 0.12;
 		wide.phase_separation = 0.32;
 
@@ -204,97 +207,80 @@ mod tests {
 	}
 
 	#[test]
-	fn gallop_hind_pair_stays_near_phase_during_hind_bound() -> anyhow::Result<()> {
-		let mut rig = QuadrupedV0Rig::imported();
-		QuadrupedGallop::<QuadrupedV0Rig>::default().apply(&mut rig, 0.03);
-
-		let hind_left =
-			rig.pose().get(&rig.hind_leg(Side::Left).thigh.name).context("hind left")?;
-		let hind_right =
-			rig.pose().get(&rig.hind_leg(Side::Right).thigh.name).context("hind right")?;
+	fn gallop_hind_pair_stays_near_phase_during_hind_bound() {
+		let mut a = QuadrupedV0Rig::imported();
+		let mut b = QuadrupedV0Rig::imported();
+		QuadrupedGallop::default().apply(&mut a, 0.03);
+		QuadrupedGallop::default().apply(&mut b, 0.28);
+		let bound = a.rotation("posterior_thigh.L").angle_between(a.rotation("posterior_thigh.R"));
+		let split = b.rotation("posterior_thigh.L").angle_between(b.rotation("posterior_thigh.R"));
 		assert!(
-			(hind_left.swing - hind_right.swing).abs() < 0.35,
-			"hind pair should stay near phase during the hind bound"
+			bound < split,
+			"hind pair should be closer during the bound than mid-cycle, bound={bound} split={split}"
 		);
-		Ok(())
 	}
 
 	#[test]
-	fn gallop_legs_are_continuous_between_adjacent_samples() -> anyhow::Result<()> {
-		let gallop = QuadrupedGallop::<QuadrupedV0Rig>::default();
-		let bones = {
-			let rig = QuadrupedV0Rig::imported();
-			[
-				rig.hind_leg(Side::Left).thigh.name,
-				rig.hind_leg(Side::Right).thigh.name,
-				rig.front_leg(Side::Left).thigh.name,
-				rig.front_leg(Side::Right).thigh.name,
-			]
-		};
+	fn gallop_legs_are_continuous_between_adjacent_samples() {
+		let gallop = QuadrupedGallop::default();
+		let bones =
+			["posterior_thigh.L", "posterior_thigh.R", "anterior_thigh.L", "anterior_thigh.R"];
 
-		let sample = |phase: f32| -> anyhow::Result<[f32; 4]> {
+		let sample = |phase: f32| {
 			let mut rig = QuadrupedV0Rig::imported();
 			gallop.apply(&mut rig, phase);
-			let mut swings = [0.0; 4];
-			for (swing, bone) in swings.iter_mut().zip(&bones) {
-				*swing = rig.pose().get(bone).context("thigh pose")?.swing;
-			}
-			Ok(swings)
+			bones.map(|name| rig.rotation(name))
 		};
 
-		let mut prev = sample(0.0)?;
+		let mut prev = sample(0.0);
 		for step in 1..=200 {
 			let phase = step as f32 / 200.0;
-			let swings = sample(phase)?;
-			for (bone, (swing, prev_swing)) in bones.iter().zip(swings.iter().zip(&prev)) {
-				let delta = (swing - prev_swing).abs();
+			let rots = sample(phase);
+			for (bone, (rot, prev_rot)) in bones.iter().zip(rots.iter().zip(&prev)) {
+				let delta = rot.angle_between(*prev_rot);
 				assert!(delta < 0.08, "leg jerk on {bone} at phase {phase}: delta={delta}");
 			}
-			prev = swings;
+			prev = rots;
 		}
-		Ok(())
 	}
 
 	#[test]
-	fn gallop_spine_is_continuous_between_adjacent_samples() -> anyhow::Result<()> {
-		let gallop = QuadrupedGallop::<QuadrupedV0Rig>::default();
+	fn gallop_spine_is_continuous_between_adjacent_samples() {
+		let gallop = QuadrupedGallop::default();
 		let mut rig_prev = QuadrupedV0Rig::imported();
 		gallop.apply(&mut rig_prev, 0.0);
-		let mut prev = rig_prev.pose().get(&rig_prev.spine().lumbar.name).context("lumbar")?.flex;
+		let mut prev = rig_prev.rotation("lumbar");
 
 		for step in 1..=200 {
 			let phase = step as f32 / 200.0;
 			let mut rig = QuadrupedV0Rig::imported();
 			gallop.apply(&mut rig, phase);
-			let flex = rig.pose().get(&rig.spine().lumbar.name).context("lumbar")?.flex;
-			let delta = (flex - prev).abs();
-			assert!(
-				delta < 0.08,
-				"spine jerk at phase {phase}: delta={delta} prev={prev} flex={flex}"
-			);
-			prev = flex;
+			let rot = rig.rotation("lumbar");
+			let delta = rot.angle_between(prev);
+			assert!(delta < 0.08, "spine jerk at phase {phase}: delta={delta}");
+			prev = rot;
 		}
-		Ok(())
 	}
 
 	#[test]
 	fn gallop_neck_bows_and_rotates_with_the_bound() {
 		let mut gathered = QuadrupedV0Rig::imported();
 		let mut extended = QuadrupedV0Rig::imported();
-		QuadrupedGallop::<QuadrupedV0Rig>::default().apply(&mut gathered, 0.03);
-		QuadrupedGallop::<QuadrupedV0Rig>::default().apply(&mut extended, 0.28);
+		QuadrupedGallop::default().apply(&mut gathered, 0.03);
+		QuadrupedGallop::default().apply(&mut extended, 0.28);
 
-		let gather_neck = gathered.pose().get(&gathered.neck().neck.name).expect("gather neck");
-		let extend_neck = extended.pose().get(&extended.neck().neck.name).expect("extend neck");
-		assert!(gather_neck.flex < -0.05, "gathered bound should keep side-to-side");
-		assert!(gather_neck.swing.abs() > 0.03, "gathered bound should roll the neck");
-		assert!(gather_neck.twist < -0.04, "gathered bound should nod down");
-		assert!(extend_neck.twist > gather_neck.twist, "extended bound should lift the nod");
+		let gather_y = tip(&gathered, "neck");
+		let extend_y = tip(&extended, "neck");
+		let gather_yaw = gathered.rotation("neck") * Vec3::Z;
+		assert!(gather_y.x > 0.05, "gathered tilt is lateral, got {gather_y:?}");
+		assert!(gather_yaw.x.abs() > 0.03, "gathered turn is yaw, got {gather_yaw:?}");
+		assert!(gather_y.z < -0.04, "gathered nod is down, got {gather_y:?}");
+		assert!(extend_y.z > gather_y.z, "extended bound should lift the nod");
 	}
 
 	#[test]
 	fn gallop_spine_gathers_at_hind_strike_and_extends_at_front_strike() {
-		let gallop = QuadrupedGallop::<QuadrupedV0Rig>::default();
+		let gallop = QuadrupedGallop::default();
 		let gathered = bound_spine_flex(
 			SPINE_GATHER_CENTER,
 			gallop.hind_bound_pitch,

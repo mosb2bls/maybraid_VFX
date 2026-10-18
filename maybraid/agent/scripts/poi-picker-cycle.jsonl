@@ -1,0 +1,35 @@
+# Home-first first-life picker: cycle building / grove pins, confirm, then
+# death-pick two more. Events record picker open/close and player Y vs ground.
+# No leading `start` / `--start-at`. Do not send `stats vsync`.
+
+{"cmd":"scenario","name":"poi-picker-cycle-warmup","mark":"start"}
+{"cmd":"wait","secs":1}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":28}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":10}
+{"cmd":"scenario","name":"poi-picker-cycle-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"poi-picker-cycle","mark":"start"}
+{"cmd":"console","line":"player down"}
+{"cmd":"wait","secs":5}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":10}
+{"cmd":"console","line":"player down"}
+{"cmd":"wait","secs":5}
+{"cmd":"press","button":"dpad_up"}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"jump"}
+{"cmd":"wait","secs":10}
+{"cmd":"scenario","name":"poi-picker-cycle","mark":"end"}
+{"cmd":"quit"}

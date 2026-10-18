@@ -1,8 +1,7 @@
 //! Pad support geometry: rectangular terraces and graded connecting reaches.
 
 use bevy::math::Vec2;
-
-use crate::cell::yawed_plan_aabb_extent;
+use urbanization_developments::yawed_plan_aabb_extent;
 
 /// Building-skirt and path-grade support geometry.
 #[derive(Debug, Clone)]
@@ -26,7 +25,7 @@ pub struct PadReach {
 pub struct PadRect {
 	pub center: Vec2,
 	pub half_extents: Vec2,
-	/// Radians about \(+Y\), same sense as [`crate::cell::yaw_about_xz`].
+	/// Radians about \(+Y\), same sense as [`urbanization_developments::yaw_about_xz`].
 	pub yaw: f32,
 	pub round: f32,
 }
@@ -56,7 +55,7 @@ impl PadFootprint {
 }
 
 impl PadRect {
-	/// World point → building-local frame (inverse of [`crate::cell::yaw_about_xz`]).
+	/// World point → building-local frame (inverse of [`urbanization_developments::yaw_about_xz`]).
 	///
 	/// Bevy `Quat::from_rotation_y` maps local \((x,z)\) to
 	/// \((x\cos\theta + z\sin\theta,\; -x\sin\theta + z\cos\theta)\).

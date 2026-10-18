@@ -1,18 +1,15 @@
-//! First-load unveil: Discovery waits on spawn terrain and quiet LOD work.
-//! Training unveils once the FinePatch surface and stamped development are ready and
-//! does not wait on the playable-world job wave.
+//! First-load unveil: Discovery waits on spawn terrain, Near HCSG work, and
+//! quiet pending-root fulfill.
 
-use crate::flow::{GameFlow, PlaySession};
+use crate::flow::GameFlow;
 use crate::shell::ShellRoute;
 use bevy::prelude::*;
-use layer_stack::GenerationReadiness;
-use maybraid_game_mode_training_ground::TrainingRound;
-use maybraid_world::{LodJobCounter, WorldSurfaceReady};
+use maybraid_world::{FirstWave, LodJobCounter, WorldSurfaceReady, FIRST_WAVE_JOB_THRESHOLD};
 use menu_screens::{request_loading_explainer, request_loading_progress};
 
-/// Remaining generate / present / pending-root tickets that still count as
-/// "the first wave is finishing." Streaming continues after unveil.
-pub const UNVEIL_JOB_THRESHOLD: u64 = 16;
+/// Remaining Near HCSG ids plus pending-root tickets that still count as
+/// "the first wave is finishing." Same threshold the spawn picker reads.
+pub const UNVEIL_JOB_THRESHOLD: u64 = FIRST_WAVE_JOB_THRESHOLD;
 /// Frames the counter must stay at or below [`UNVEIL_JOB_THRESHOLD`] after
 /// work has been observed.
 pub const UNVEIL_QUIET_FRAMES: u32 = 2;
@@ -50,13 +47,22 @@ impl FirstLoadGate {
 		}
 	}
 
-	pub fn should_unveil(&self, ready: bool, active: u64, now: f32) -> bool {
+	pub fn should_unveil(
+		&self,
+		ready: bool,
+		active: u64,
+		near_undiscovered: bool,
+		now: f32,
+	) -> bool {
 		if !ready {
 			return false;
 		}
 		let waited = now - self.entered_at;
 		if waited >= UNVEIL_TIMEOUT_SECS {
 			return true;
+		}
+		if near_undiscovered {
+			return false;
 		}
 		if !self.saw_work {
 			return waited >= UNVEIL_ARM_GRACE_SECS && active <= UNVEIL_JOB_THRESHOLD;
@@ -95,37 +101,6 @@ impl FirstLoadGate {
 	}
 }
 
-pub(crate) fn unveil_ready(
-	training: bool,
-	gate: &FirstLoadGate,
-	ready: bool,
-	active: u64,
-	now: f32,
-) -> bool {
-	if training {
-		ready
-	} else {
-		gate.should_unveil(ready, active, now)
-	}
-}
-
-pub(crate) fn loading_explainer(
-	training: bool,
-	gate: &FirstLoadGate,
-	ready: bool,
-	active: u64,
-) -> &'static str {
-	if training {
-		if ready {
-			"Almost ready…"
-		} else {
-			"Waiting for the ground…"
-		}
-	} else {
-		gate.explainer(ready, active)
-	}
-}
-
 pub(crate) fn arm_first_load(mut commands: Commands, time: Res<Time>) {
 	commands.insert_resource(FirstLoadGate::new(time.elapsed_secs()));
 }
@@ -136,60 +111,48 @@ pub(crate) fn disarm_first_load(mut commands: Commands) {
 
 pub(crate) fn finish_world_loading(
 	mut commands: Commands,
-	session: Res<PlaySession>,
 	ready: Res<WorldSurfaceReady>,
-	ready_for: Option<Res<GenerationReadiness>>,
-	round: Option<Res<TrainingRound>>,
 	jobs: Option<Res<LodJobCounter>>,
+	demand: Option<Res<maybraid_world::HcsgDemand>>,
+	mut wave: Option<ResMut<FirstWave>>,
 	mut gate: Option<ResMut<FirstLoadGate>>,
 	time: Res<Time>,
 	mut route: ShellRoute,
 ) {
-	let training = *session == PlaySession::Training;
-	let surface_ready = if training {
-		ready.0 && plaza_mounted_for(ready_for.as_deref(), round.as_deref())
-	} else {
-		ready.0
+	let surface_ready = ready.0;
+	let jobs = jobs.as_deref().map(LodJobCounter::active).unwrap_or(0);
+	let mut sampled = FirstWave::sample(demand.as_deref(), jobs);
+	if let Some(live) = wave.as_deref() {
+		sampled.passed = live.passed;
+	}
+	let active = sampled.remaining;
+	let undiscovered = sampled.undiscovered > 0;
+	let unveil = |wave: &mut Option<ResMut<FirstWave>>, route: &mut ShellRoute| {
+		if let Some(live) = wave.as_deref_mut() {
+			live.passed = true;
+		}
+		route.enter(GameFlow::World);
 	};
-	let active = jobs.as_deref().map(LodJobCounter::active).unwrap_or(0);
 	let Some(gate) = gate.as_deref_mut() else {
-		if surface_ready {
-			route.enter(GameFlow::World, *session);
+		if surface_ready && sampled.ready() {
+			unveil(&mut wave, &mut route);
 		}
 		return;
 	};
 	gate.observe(active);
 	let now = time.elapsed_secs();
 	request_loading_progress(&mut commands, gate.progress(surface_ready, active));
-	request_loading_explainer(
-		&mut commands,
-		loading_explainer(training, gate, surface_ready, active),
-	);
-	if unveil_ready(training, gate, surface_ready, active, now) {
-		route.enter(GameFlow::World, *session);
+	request_loading_explainer(&mut commands, gate.explainer(surface_ready, active));
+	if gate.should_unveil(surface_ready, active, undiscovered, now) {
+		unveil(&mut wave, &mut route);
 	}
-}
-
-/// The previous map's readiness stays until its teardown runs, so a new
-/// map must not unveil on it. A new life on the same map unveils on the live one.
-fn plaza_mounted_for(ready: Option<&GenerationReadiness>, round: Option<&TrainingRound>) -> bool {
-	ready.is_some_and(|ready| round.is_none_or(|round| ready.covers(round.map().readiness_key())))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn a_round_reload_waits_for_its_own_plaza() {
-		let round = TrainingRound::new(1);
-		let next = round.next();
-		let ready = GenerationReadiness::new(round.map().readiness_key());
-		assert!(plaza_mounted_for(Some(&ready), Some(&round)));
-		assert!(!plaza_mounted_for(Some(&ready), Some(&next)));
-		assert!(!plaza_mounted_for(None, Some(&next)));
-		assert!(plaza_mounted_for(Some(&ready), Some(&round.next_life())));
-	}
+	use bevy::ecs::system::RunSystemOnce;
+	use maybraid_world::UnitXTile;
 
 	fn gate_at(entered_at: f32) -> FirstLoadGate {
 		FirstLoadGate::new(entered_at)
@@ -198,15 +161,15 @@ mod tests {
 	#[test]
 	fn idle_zero_does_not_unveil_before_grace() {
 		let gate = gate_at(0.0);
-		assert!(!gate.should_unveil(true, 0, 0.2));
-		assert!(!gate.should_unveil(true, 0, UNVEIL_ARM_GRACE_SECS - 0.01));
+		assert!(!gate.should_unveil(true, 0, false, 0.2));
+		assert!(!gate.should_unveil(true, 0, false, UNVEIL_ARM_GRACE_SECS - 0.01));
 	}
 
 	#[test]
 	fn idle_after_grace_unveils_when_ready() {
 		let gate = gate_at(0.0);
-		assert!(gate.should_unveil(true, 0, UNVEIL_ARM_GRACE_SECS));
-		assert!(!gate.should_unveil(false, 0, UNVEIL_ARM_GRACE_SECS));
+		assert!(gate.should_unveil(true, 0, false, UNVEIL_ARM_GRACE_SECS));
+		assert!(!gate.should_unveil(false, 0, false, UNVEIL_ARM_GRACE_SECS));
 	}
 
 	#[test]
@@ -214,44 +177,29 @@ mod tests {
 		let mut gate = gate_at(0.0);
 		gate.observe(80);
 		assert!(gate.saw_work);
-		assert!(!gate.should_unveil(true, 80, 2.0));
+		assert!(!gate.should_unveil(true, 80, false, 2.0));
 		gate.observe(8);
-		assert!(!gate.should_unveil(true, 8, 2.0));
+		assert!(!gate.should_unveil(true, 8, false, 2.0));
 		gate.observe(8);
-		assert!(gate.should_unveil(true, 8, 2.0));
+		assert!(gate.should_unveil(true, 8, false, 2.0));
 	}
 
 	#[test]
 	fn timeout_unveils_only_when_ready() {
 		let mut gate = gate_at(0.0);
 		gate.observe(400);
-		assert!(!gate.should_unveil(false, 400, UNVEIL_TIMEOUT_SECS));
-		assert!(gate.should_unveil(true, 400, UNVEIL_TIMEOUT_SECS));
+		assert!(!gate.should_unveil(false, 400, false, UNVEIL_TIMEOUT_SECS));
+		assert!(gate.should_unveil(true, 400, false, UNVEIL_TIMEOUT_SECS));
 	}
 
 	#[test]
-	fn training_unveils_when_the_surface_is_ready_without_waiting_on_jobs() {
-		let gate = gate_at(0.0);
-		assert!(!unveil_ready(true, &gate, false, 400, 0.0));
-		assert!(unveil_ready(true, &gate, true, 400, 0.0));
-		assert!(!unveil_ready(false, &gate, true, 0, 0.2));
-		assert_eq!(loading_explainer(true, &gate, false, 0), "Waiting for the ground…");
-		assert_eq!(loading_explainer(true, &gate, true, 0), "Almost ready…");
-	}
-
-	#[test]
-	fn a_ready_training_surface_requests_world_without_leaving_training() -> anyhow::Result<()> {
-		use bevy::ecs::system::RunSystemOnce;
+	fn a_ready_surface_without_a_gate_requests_the_discovery_world() -> anyhow::Result<()> {
 		use layer_stack::ActiveGenerationMode;
-		use maybraid_game_mode_training_ground::TrainingGround;
-		let round = TrainingRound::new(1);
+		use maybraid_game_mode_discover::Discovery;
 		let mut world = World::new();
 		world.insert_resource(NextState::<GameFlow>::Unchanged);
 		world.insert_resource(NextState::<ActiveGenerationMode>::Unchanged);
-		world.insert_resource(PlaySession::Training);
 		world.insert_resource(WorldSurfaceReady(true));
-		world.insert_resource(GenerationReadiness::new(round.map().readiness_key()));
-		world.insert_resource(round);
 		world.init_resource::<Time>();
 		world
 			.run_system_once(finish_world_loading)
@@ -259,7 +207,7 @@ mod tests {
 		let flow = world.resource::<NextState<GameFlow>>();
 		let mode = world.resource::<NextState<ActiveGenerationMode>>();
 		let flow_ok = matches!(flow, NextState::Pending(GameFlow::World));
-		let mode_ok = matches!(mode, NextState::PendingIfNeq(mode) if mode.is::<TrainingGround>());
+		let mode_ok = matches!(mode, NextState::PendingIfNeq(mode) if mode.is::<Discovery>());
 		if !flow_ok || !mode_ok {
 			return Err(anyhow::anyhow!("unveil requested flow {flow:?} mode {mode:?}"));
 		}
@@ -273,6 +221,70 @@ mod tests {
 		gate.observe(4);
 		gate.observe(80);
 		assert_eq!(gate.quiet_frames, 0);
-		assert!(!gate.should_unveil(true, 80, 5.0));
+		assert!(!gate.should_unveil(true, 80, false, 5.0));
+	}
+
+	#[test]
+	fn grace_does_not_unveil_while_near_work_is_outstanding() {
+		let mut gate = gate_at(0.0);
+		gate.observe(40);
+		assert!(!gate.should_unveil(true, 40, false, UNVEIL_ARM_GRACE_SECS + 1.0));
+		assert!(!gate.should_unveil(true, 0, true, UNVEIL_ARM_GRACE_SECS + 1.0));
+	}
+
+	fn gated_world(demand: maybraid_world::HcsgDemand) -> World {
+		let mut world = World::new();
+		world.insert_resource(NextState::<GameFlow>::Unchanged);
+		world.insert_resource(NextState::<layer_stack::ActiveGenerationMode>::Unchanged);
+		world.insert_resource(WorldSurfaceReady(true));
+		world.init_resource::<Time>();
+		world.insert_resource(demand);
+		world
+	}
+
+	fn near_region() -> bevy::math::bounding::Aabb3d {
+		bevy::math::bounding::Aabb3d::from_min_max(Vec3::ZERO, Vec3::new(4.0, 1.0, 1.0))
+	}
+
+	fn unveiled(world: &World) -> bool {
+		matches!(world.resource::<NextState<GameFlow>>(), NextState::Pending(GameFlow::World))
+	}
+
+	#[test]
+	fn finish_world_loading_does_not_unveil_while_near_is_outstanding() -> anyhow::Result<()> {
+		let demand = maybraid_world::HcsgDemand::default();
+		demand.subscribe::<UnitXTile>(
+			None,
+			vec![near_region()],
+			None,
+			maybraid_world::HcsgClass::Near,
+		);
+		let mut world = gated_world(demand);
+		world
+			.run_system_once(finish_world_loading)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		if unveiled(&world) {
+			return Err(anyhow::anyhow!("unveil proceeded while near HCSG work was outstanding"));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn finish_world_loading_unveils_while_only_ambient_is_outstanding() -> anyhow::Result<()> {
+		let demand = maybraid_world::HcsgDemand::default();
+		demand.subscribe::<UnitXTile>(
+			None,
+			vec![near_region()],
+			None,
+			maybraid_world::HcsgClass::Ambient,
+		);
+		let mut world = gated_world(demand);
+		world
+			.run_system_once(finish_world_loading)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		if !unveiled(&world) {
+			return Err(anyhow::anyhow!("ambient outstanding blocked unveil"));
+		}
+		Ok(())
 	}
 }

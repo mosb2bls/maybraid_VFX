@@ -2,9 +2,9 @@
 
 use bevy::prelude::{Component, Query, Transform, With};
 use bevy_math::Vec3;
-use lod::gen::{LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
 use lod::lod_scene_host::LodSceneHost;
+use lod::scene::{LodSceneLevel, LodSceneStatus};
 
 use crate::foliage::collection::{
 	CheapBallCollection, FrondCollection, CHEAP_BALL_COLLECTION_HIGH_METERS,

@@ -13,7 +13,7 @@ use building_components::joints::JointNode;
 use building_components::panels::PanelNode;
 use building_components::partitions::{PartitionNode, PartitionStyle};
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::openings::{MapsOpenings, OpeningId, OpeningLabel, Openings};
 use crate::shells::arc_floor::{ArcFloor, ArcFloorSlab};

@@ -6,10 +6,8 @@ use terrain_stamps::RuggedMassif;
 
 define_stamp_family! {
 	layout: MassifLowPassControllerLayout,
-	bootstrap_layout: BootstrapMassifLowPassControllerLayout / bootstrap_massif_low_pass_controller_layout,
 	controller: MassifLowPassControllerCell,
 	stamp: MassifLowPassStampCell,
-	leaves_fn: original_ids_for_massif_low_pass_leaves,
 	family_salt: 33,
 	cell_size: (TERRAIN_CELL_SIZE * 1.25, MACRO_CELL_SIZE * 1.5),
 	controller_cell_size: MACRO_CELL_SIZE * 6.0,
@@ -29,10 +27,8 @@ define_stamp_family! {
 
 define_stamp_family! {
 	layout: MassifHighPassControllerLayout,
-	bootstrap_layout: BootstrapMassifHighPassControllerLayout / bootstrap_massif_high_pass_controller_layout,
 	controller: MassifHighPassControllerCell,
 	stamp: MassifHighPassStampCell,
-	leaves_fn: original_ids_for_massif_high_pass_leaves,
 	family_salt: 133,
 	cell_size: (MACRO_CELL_SIZE * 2.0, MACRO_CELL_SIZE * 8.0),
 	controller_cell_size: MACRO_CELL_SIZE * 40.0,

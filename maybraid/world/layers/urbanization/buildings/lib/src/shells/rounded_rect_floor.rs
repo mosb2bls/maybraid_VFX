@@ -17,7 +17,7 @@ use building_components::panels::PanelNode;
 use building_components::panels::PanelStyle;
 use building_components::partitions::PartitionNode;
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::arcs::ClippedArcSweep;
 use crate::openings::{MappedOpenings, Openings};

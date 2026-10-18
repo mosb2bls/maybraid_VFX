@@ -1,6 +1,6 @@
 //! Unused nested-host path: [`vegetation_components::ComponentsOnly`]`<`[`PlacedVegetation`]`<T>>`.
 //!
-//! Live groves compose with [`super::vc_compose::nest_flattened_plant_host`]. These
+//! Live groves pose plants with [`super::vc_compose::nest_flattened_plant_host`]. These
 //! helpers are extracted so they are not the documented compose surface.
 #![allow(dead_code)]
 

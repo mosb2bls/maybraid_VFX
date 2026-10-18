@@ -1,6 +1,6 @@
 //! Foliage IR node: geometry + placement + collection presentation.
 //!
-//! [`FoliageNode`] is authoring IR and the fine-phase [`lod::gen::LodScene`] host.
+//! [`FoliageNode`] is authoring IR and the fine-phase [`lod::scene::LodScene`] host.
 //! Scene emission is [`present`]; banding / culls are [`lod`].
 
 mod lod;
@@ -18,7 +18,7 @@ use crate::foliage::probe::FoliageLodProbe;
 use crate::materials::frond_material_ref;
 use crate::placed::Placement;
 
-/// Authoring IR for a foliage cluster — also the fine-phase [`lod::gen::LodScene`] host.
+/// Authoring IR for a foliage cluster — also the fine-phase [`lod::scene::LodScene`] host.
 #[derive(Debug, Clone, PartialEq, Component, Default)]
 pub struct FoliageNode {
 	pub geometry: FoliageGeometry,

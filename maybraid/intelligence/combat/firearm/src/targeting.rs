@@ -11,7 +11,7 @@ use lod_avian::PhysicsInteractionLayer;
 use spotting_intelligence::{SpotFeature, SpotSubject};
 use spotting_intelligence_avian::clear_segment;
 
-use crate::combat::{gun_landmark, perceive_motion, FirearmIntelligence};
+use crate::combat::{gun_landmark, FirearmIntelligence};
 
 const AIM_CACHE_SECS: f32 = 0.1;
 const ENDPOINT_EPSILON_SQUARED: f32 = 1e-6;
@@ -195,19 +195,15 @@ pub(crate) fn validate_firearm_aim_trajectories(
 			}
 			firearm_targeting.trajectories.retain(|trajectory| trajectory.target != target);
 
-			let center = perceive_motion(
+			let center = brain.settings.perceive_motion(
 				subject.bounds.center_mass(target_position),
 				contact.movement_vector,
-				brain.settings.motion_tracking,
 			);
 			let samples = subject.bounds.samples(muzzle, target_position);
 			let sample_count = sample_count.min(samples.len());
 			for sample in samples.into_iter().take(sample_count) {
-				let aim_point = perceive_motion(
-					sample.point,
-					contact.movement_vector,
-					brain.settings.motion_tracking,
-				);
+				let aim_point =
+					brain.settings.perceive_motion(sample.point, contact.movement_vector);
 				firearm_targeting.trajectories.push(AimTrajectory {
 					target,
 					feature: sample.feature,

@@ -17,10 +17,10 @@ macro_rules! impl_tuft_grove_lod {
 			fn tuft_scene_chunks(
 				&self,
 				lod_ref: &lod::lod_ref::LodRef,
-				level: lod::gen::LodSceneLevel,
+				level: lod::scene::LodSceneLevel,
 			) -> lod::SceneChunk {
 				match level {
-					lod::gen::LodSceneLevel::High | lod::gen::LodSceneLevel::Medium => {
+					lod::scene::LodSceneLevel::High | lod::scene::LodSceneLevel::Medium => {
 						self.body.high_medium_chunks(lod_ref, level)
 					}
 					_ => self.body.low_ultra_chunks(lod_ref, level),
@@ -41,33 +41,36 @@ macro_rules! impl_tuft_grove_lod_emit {
 				&self.body
 			}
 		}
-		impl lod::gen::LodScene for $Grove {
-			fn scene_lod_level(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::gen::LodSceneLevel {
+		impl lod::scene::LodScene for $Grove {
+			fn scene_lod_level(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::scene::LodSceneLevel {
 				self.structural_lod()
 					.map(|band| $crate::grove::grove_lod_level(band, lod_ref))
-					.unwrap_or(lod::gen::LodSceneLevel::High)
+					.unwrap_or(lod::scene::LodSceneLevel::High)
 			}
 
-			fn scene_lod_status(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::gen::LodSceneStatus {
+			fn scene_lod_status(
+				&self,
+				lod_ref: &lod::lod_ref::LodRef,
+			) -> lod::scene::LodSceneStatus {
 				self.structural_lod()
 					.map(|band| $crate::grove::grove_lod_status(band, lod_ref))
-					.unwrap_or(lod::gen::LodSceneStatus::Unchanged)
+					.unwrap_or(lod::scene::LodSceneStatus::Unchanged)
 			}
 
 			fn scene_lod_culls(
 				&self,
 				lod_ref: &lod::lod_ref::LodRef,
-				_current: lod::gen::LodSceneLevel,
-			) -> lod::gen::LodSceneCulls {
+				_current: lod::scene::LodSceneLevel,
+			) -> lod::scene::LodSceneCulls {
 				self.structural_lod()
 					.map(|band| $crate::grove::grove_lod_culls(band, lod_ref))
-					.unwrap_or(lod::gen::LodSceneCulls::None)
+					.unwrap_or(lod::scene::LodSceneCulls::None)
 			}
 
 			fn scene_with_level(
 				&self,
 				lod_ref: &lod::lod_ref::LodRef,
-				level: lod::gen::LodSceneLevel,
+				level: lod::scene::LodSceneLevel,
 			) -> impl bevy::scene::prelude::Scene + 'static {
 				vegetation_components::flattened_component_scene(self, lod_ref, level)
 			}
@@ -75,7 +78,7 @@ macro_rules! impl_tuft_grove_lod_emit {
 			fn scene_chunks_with_level(
 				&self,
 				lod_ref: &lod::lod_ref::LodRef,
-				level: lod::gen::LodSceneLevel,
+				level: lod::scene::LodSceneLevel,
 			) -> lod::SceneChunk {
 				self.tuft_scene_chunks(lod_ref, level)
 			}

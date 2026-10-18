@@ -12,6 +12,7 @@ pub mod placed;
 pub mod placed_vegetation;
 pub mod procedural;
 pub mod scene_children;
+pub mod shadow_proxy;
 pub mod sticks;
 pub mod structural_lod;
 
@@ -39,6 +40,11 @@ pub use procedural::{
 	VegetationProceduralAssets, VegetationProceduralPlugin, FROND_KIT_HALF_X, STICK_KIT_HALF,
 };
 pub use scene_children::{pose, posed_mesh, posed_mesh_material_ref, scene_children, with_pose};
+pub use shadow_proxy::{
+	posed_shadow_proxy, shadow_proxy_scenes_from_foliage, structural_shadow_proxy_scene,
+	with_shadow_proxy_children, CanopyShadowMode, CanopyShadowProxy, CanopyShadowProxyPlugin,
+	ENV_CANOPY_SHADOWS, SHADOW_PROXY_RENDER_LAYER,
+};
 pub use sticks::{
 	update_stick_host_levels, StickCollection, StickGeometry, StickLodProbe, StickMember,
 	StickNode, STICK_COLLECTION_HIGH_METERS, STICK_COLLECTION_LOW_METERS,
@@ -52,8 +58,8 @@ use bevy::ecs::template::template;
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::{Commands, CommandsSceneExt, Component, Entity, Transform, Visibility};
 use bevy::scene::prelude::{bsn, template_value, Scene};
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::{cull_offset_bands_from_factor, lod_host_scene_pending, SceneChunk};
 
 /// Domain IR exposed by a tree (or vegetation part) for structural composition.
@@ -335,9 +341,13 @@ pub fn flattened_canopy_proxy_chunks(
 	let sticks = vegetation.stick_nodes_for_level(stick_level).flatten();
 	let foliage =
 		FoliageNode::merge_canopy_proxies(vegetation.foliage_nodes_for_level(level).flatten());
+	let proxies = shadow_proxy_scenes_from_foliage(&foliage, level);
 	let n = sticks.len() + foliage.len();
 	if n == 0 {
-		return SceneChunk::primitive(scene_children(Vec::new()));
+		if proxies.is_empty() {
+			return SceneChunk::primitive(scene_children(Vec::new()));
+		}
+		return SceneChunk::weighted(FLATTENED_KIT_CHUNK_WEIGHT, scene_children(proxies));
 	}
 
 	let kit_w = FLATTENED_KIT_CHUNK_WEIGHT;
@@ -345,8 +355,18 @@ pub fn flattened_canopy_proxy_chunks(
 	for node in sticks {
 		chunks.push(SceneChunk::weighted(kit_w, node.scene_with_level(lod_ref, stick_level)));
 	}
-	for node in foliage {
-		chunks.push(SceneChunk::weighted(kit_w, node.scene_with_level(lod_ref, level)));
+	let foliage_last = foliage.len().saturating_sub(1);
+	let mut pending_proxies = Some(proxies);
+	for (index, node) in foliage.into_iter().enumerate() {
+		let scene = node.scene_with_level(lod_ref, level);
+		if index == foliage_last {
+			chunks.push(SceneChunk::weighted(
+				kit_w,
+				with_shadow_proxy_children(scene, pending_proxies.take().unwrap_or_default()),
+			));
+		} else {
+			chunks.push(SceneChunk::weighted(kit_w, scene));
+		}
 	}
 	if chunks.len() == 1 {
 		chunks
@@ -398,6 +418,9 @@ pub fn append_flattened_component_scenes(
 	for node in vegetation.foliage_nodes_for_level(level).flatten() {
 		children.push(Box::new(node.scene_with_level(lod_ref, level)));
 	}
+	if let Some(proxy) = structural_shadow_proxy_scene(vegetation) {
+		children.push(proxy);
+	}
 }
 
 /// All kit content for `level` as siblings under one parent (no fine-phase hosts).
@@ -423,7 +446,9 @@ pub fn flattened_vegetation_scene_chunks(
 ) -> SceneChunk {
 	let sticks = vegetation.stick_nodes_for_level(level).flatten();
 	let foliage = vegetation.foliage_nodes_for_level(level).flatten();
-	let n = sticks.len() + foliage.len();
+	let proxy = structural_shadow_proxy_scene(vegetation);
+	let extra = usize::from(proxy.is_some());
+	let n = sticks.len() + foliage.len() + extra;
 	if n == 0 {
 		return SceneChunk::primitive(scene_children(Vec::new()));
 	}
@@ -434,6 +459,7 @@ pub fn flattened_vegetation_scene_chunks(
 	let entity = lod_ref.entity;
 	let n_sticks = sticks.len();
 	let mut index = 0usize;
+	let mut pending_proxy = proxy;
 
 	let kit_w = FLATTENED_KIT_CHUNK_WEIGHT;
 	SceneChunk::lazy(n as u32 * kit_w, n, move || {
@@ -450,7 +476,7 @@ pub fn flattened_vegetation_scene_chunks(
 			index += 1;
 			return Some(SceneChunk::weighted(kit_w, node.scene_with_level(&kit_lod, level)));
 		}
-		None
+		pending_proxy.take().map(|scene| SceneChunk::weighted(kit_w, scene))
 	})
 }
 
@@ -660,6 +686,39 @@ mod tests {
 				FoliageNode::cheap_ball(Placement::foliage_uniform(Vec3::Y, 0.3)),
 			])
 		}
+	}
+
+	#[test]
+	fn flattened_chunks_include_structural_shadow_proxy() {
+		struct OneBall;
+		impl VegetationComponents for OneBall {
+			fn foliage_nodes_for_level(&self, _level: LodSceneLevel) -> Layers<FoliageNode> {
+				Layers::from_free(vec![FoliageNode::cheap_ball(Placement::foliage_uniform(
+					Vec3::Y,
+					0.3,
+				))])
+			}
+
+			fn structural_lod(&self) -> Option<StructuralLod> {
+				Some(StructuralLod::new(Vec3::Y * 4.0, 2.0))
+			}
+		}
+
+		let camera = Transform::from_translation(Vec3::new(0.0, 2.0, 8.0));
+		let bounds = Aabb3d::from_min_max(Vec3::ZERO, Vec3::ONE);
+		let lod_ref = LodRef {
+			entity: Entity::PLACEHOLDER,
+			previous_transform: &camera,
+			current_transform: &camera,
+			bounds: &bounds,
+		};
+		let SceneChunk::Lazy { remaining_primitives, remaining_weight, .. } =
+			flattened_vegetation_scene_chunks(&OneBall, &lod_ref, LodSceneLevel::High)
+		else {
+			panic!("expected lazy kit producer");
+		};
+		assert_eq!(remaining_primitives, 2);
+		assert_eq!(remaining_weight, 2 * FLATTENED_KIT_CHUNK_WEIGHT);
 	}
 
 	#[test]

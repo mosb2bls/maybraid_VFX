@@ -23,7 +23,7 @@ use characters::{
 	BuildPreset, CharacterComponents, CharacterPartSlot, CharacterRecipe, Clothed, HeadCapsule,
 	HitCapsule, Layer, LocomotionCapsule, PartNode, RigId,
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use scene_ref::MirrorAxis;
 
 fn assert_right_features_reflected(parts: &[characters::PartNode]) {

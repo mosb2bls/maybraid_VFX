@@ -123,7 +123,7 @@ In-game: press `/` for the command console (same clap commands as argv).
 - `show i-floor […] [--plan-l|--stem-only] [--no-top-left]… [--door-south]… [--opening SPEC]…` — I/T/U/L/Z storey from central bar + flanges; `side=` picks nearest outer edge
 - `show rect-ring-floor [--outer-x X] [--outer-z Z] [--inner-x X] [--inner-z Z] [--floor] [--ceiling] [--door-east]… [--opening SPEC]…` — courtyard rectangular ring; one opening → one outer/inner side (nearest); wide openings open that side — use several openings for a U / half-ring
 - `show circ-ring-floor [--outer-radius R] [--inner-radius R] [--floor] [--ceiling] [--opening id:label:t=0.25[,ring=inner]]…` — circular courtyard ring; `t=` openings map to nearest ring (or `ring=inner|outer`)
-- `show rectangle [--preset floor|wall|ceiling] [--origin X,Y,Z] [--edge X,Y,Z] [--height H] [--thickness T] [--roll R]` — oriented `richmond_buildings::Rectangle` (lowest-edge vector + height + roll; `0` roll ⇒ top toward `+Y`)
+- `show rectangle [--preset floor|wall|ceiling] [--origin X,Y,Z] [--edge X,Y,Z] [--height H] [--thickness T] [--roll R]` — oriented `buildings::Rectangle` (lowest-edge vector + height + roll; `0` roll ⇒ top toward `+Y`)
 - `show clipped-rectangle [--origin|--edge X,Y,Z] [--height H] [--thickness T] [--roll R] [--left|--right|--bottom|--top M]` — oriented rectangle with inset framed by rectangle kits
 - `show clipped-rectangular-strip [--inset M] [--min-dihedral R] [--no-joint]` — node-chain oriented rectangle strip; middle bay inset frame; crease joints on bay folds
 - `show fitted-rectangle [--preset floor|wall|ceiling|skew] [--a0|--a1|--b0|--b1 X,Y,Z]` — best-fit `FittedRectangle` from four (possibly skew) corners

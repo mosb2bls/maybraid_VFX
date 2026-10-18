@@ -21,7 +21,7 @@ Rough split:
 
 See also [`WATERSHED_CORRECTION.md`](src/WATERSHED_CORRECTION.md) (extents /
 discoverability) and Durham
-[`models/CONTRIBUTING.md`](../models/CONTRIBUTING.md) (cellular identity, water
+[`durham/CONTRIBUTING.md`](../durham/CONTRIBUTING.md) (cellular identity, water
 fill, shoreline roughness).
 
 ## What is strong

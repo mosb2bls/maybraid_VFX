@@ -14,12 +14,12 @@ use crate::partitions::probe::PartitionLodProbe;
 #[derive(Debug, Clone, Copy, PartialEq, Default, Component)]
 pub struct RoughStoneworkJoint;
 
-impl lod::gen::LodScene for RoughStoneworkJoint {
-	fn scene_lod_level(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::gen::LodSceneLevel {
+impl lod::scene::LodScene for RoughStoneworkJoint {
+	fn scene_lod_level(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::scene::LodSceneLevel {
 		JointLod::level_for_lod_ref(lod_ref)
 	}
 
-	fn scene_lod_status(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::gen::LodSceneStatus {
+	fn scene_lod_status(&self, lod_ref: &lod::lod_ref::LodRef) -> lod::scene::LodSceneStatus {
 		let probe = PartitionLodProbe::from_aabb(lod_ref.bounds);
 		let prev_factor =
 			lod_ref.previous_transform.translation.distance(probe.center) / probe.extent.max(1e-4);
@@ -28,24 +28,24 @@ impl lod::gen::LodScene for RoughStoneworkJoint {
 		let prev = JointLod::band_from_distance_factor(prev_factor);
 		let curr = JointLod::band_from_distance_factor(curr_factor);
 		if prev == curr {
-			lod::gen::LodSceneStatus::Unchanged
+			lod::scene::LodSceneStatus::Unchanged
 		} else {
-			lod::gen::LodSceneStatus::Changed(JointLod::level_for_lod_ref(lod_ref))
+			lod::scene::LodSceneStatus::Changed(JointLod::level_for_lod_ref(lod_ref))
 		}
 	}
 
 	fn scene_lod_culls(
 		&self,
 		_lod_ref: &lod::lod_ref::LodRef,
-		current: lod::gen::LodSceneLevel,
-	) -> lod::gen::LodSceneCulls {
+		current: lod::scene::LodSceneLevel,
+	) -> lod::scene::LodSceneCulls {
 		crate::lod_band::warm_mesh_lod_culls(current)
 	}
 
 	fn scene_with_level(
 		&self,
 		_lod_ref: &lod::lod_ref::LodRef,
-		level: lod::gen::LodSceneLevel,
+		level: lod::scene::LodSceneLevel,
 	) -> impl bevy::scene::Scene + 'static {
 		JointLod::posed_tier(Transform::IDENTITY, level)
 	}
@@ -53,7 +53,7 @@ impl lod::gen::LodScene for RoughStoneworkJoint {
 	fn scene_chunks_with_level(
 		&self,
 		lod_ref: &lod::lod_ref::LodRef,
-		level: lod::gen::LodSceneLevel,
+		level: lod::scene::LodSceneLevel,
 	) -> SceneChunk {
 		SceneChunk::primitive(self.scene_with_level(lod_ref, level))
 	}

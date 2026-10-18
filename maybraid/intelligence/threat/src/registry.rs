@@ -97,9 +97,13 @@ impl ThreatRegistry {
 		self.by_entity.get(&entity).and_then(|id| self.records.get(id))
 	}
 
-	pub fn local(&self, center: Vec3, radius: f32) -> Vec<ThreatRecord> {
+	/// Fill `out` with ids of records within `radius` of `center`, sorted by id.
+	///
+	/// Avoids cloning [`ThreatRecord`] payloads; pair with [`Self::get`] on the hot path.
+	pub fn collect_local(&self, center: Vec3, radius: f32, out: &mut Vec<ThreatId>) {
+		out.clear();
 		if !center.is_finite() || !radius.is_finite() {
-			return Vec::new();
+			return;
 		}
 		let radius = radius.clamp(0.0, MAX_QUERY_RADIUS);
 		let extent = Vec3::splat(radius);
@@ -107,14 +111,21 @@ impl ThreatRegistry {
 		let query_level = BaseScale::new(self.local.grid().base_scale())
 			.map(|base| base.insertion_level(&region))
 			.unwrap_or(0);
-		let mut records: Vec<_> = self
+		for (record, _) in self
 			.local
 			.query_values(region, BaseScale::levels_through(query_level.max(self.max_level)))
-			.map(|(record, _)| record.clone())
-			.filter(|record| center.distance(record.position) <= radius)
-			.collect();
-		records.sort_by_key(|record| record.id);
-		records
+		{
+			if center.distance(record.position) <= radius {
+				out.push(record.id);
+			}
+		}
+		out.sort_by_key(|id| *id);
+	}
+
+	pub fn local(&self, center: Vec3, radius: f32) -> Vec<ThreatRecord> {
+		let mut ids = Vec::new();
+		self.collect_local(center, radius, &mut ids);
+		ids.iter().filter_map(|id| self.get(*id).cloned()).collect()
 	}
 
 	pub fn len(&self) -> usize {

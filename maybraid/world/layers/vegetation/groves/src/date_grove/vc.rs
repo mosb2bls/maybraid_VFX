@@ -5,9 +5,10 @@ use std::sync::Arc;
 #[cfg(test)]
 use bevy::math::bounding::Aabb3d;
 use clap::Args;
-#[cfg(test)]
-use lod::gen::{LodScene, LodSceneLevel};
 use lod::lod_ref::LodRef;
+#[cfg(test)]
+use lod::scene::LodScene;
+use lod::scene::LodSceneLevel;
 use lod::SceneChunk;
 use material_ref::MaterialRef;
 use procedural_common::{BuildWithNoise, NoiseParams};
@@ -18,9 +19,9 @@ use super::{definition, DateGroveCell, DateGroveItem, FRUITING_DATE_PALM};
 use crate::grove::vc_tuft::{patch_variant_index, variant_noise};
 use crate::grove::{
 	canopy_ball_material_from_palette, canopy_proxy_crown, frond_material_from_palette,
-	grove_structural_footprint, nest_flattened_plant_chunk, placement_noise,
-	stick_material_from_palette, CanopyProxySite, FlatTerrainSample, GroveCellVariant, GroveExtent,
-	GroveFrontend, GrovePreviewParams,
+	grove_structural_footprint, lazy_flattened_plant_chunks, nest_flattened_plant_chunk,
+	placement_noise, stick_material_from_palette, CanopyProxySite, FlatTerrainSample,
+	GroveCellVariant, GroveExtent, GroveFrontend, GrovePreviewParams,
 };
 
 #[derive(Clone, Debug, Args)]
@@ -106,7 +107,7 @@ impl DateGrove {
 		Self { plants, structural_center, footprint_radius, extent: *extent }
 	}
 
-	fn nest_plant_chunks(&self, lod_ref: &LodRef) -> Vec<SceneChunk> {
+	fn nest_plant_chunks(&self, lod_ref: &LodRef, level: LodSceneLevel) -> Vec<SceneChunk> {
 		if self.plants.is_empty() {
 			return Vec::new();
 		}
@@ -117,7 +118,7 @@ impl DateGrove {
 		let bounds = *lod_ref.bounds;
 		let entity = lod_ref.entity;
 		let mut index = 0usize;
-		vec![SceneChunk::lazy(n as u32, n, move || {
+		vec![lazy_flattened_plant_chunks(n, move || {
 			if index >= plants.len() {
 				return None;
 			}
@@ -136,6 +137,7 @@ impl DateGrove {
 				&plant.ball_material,
 				&plant.frond_material,
 				&plant_lod,
+				level,
 			))
 		})]
 	}

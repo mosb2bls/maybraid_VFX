@@ -3,8 +3,8 @@
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::{Component, Quat, Transform};
 use bevy::scene::prelude::Scene;
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
 
 use crate::assets::panels::shepherds_thatch::{RECTANGLE_HIGH, RECTANGLE_LOW, RECTANGLE_MID};

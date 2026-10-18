@@ -24,7 +24,7 @@ use vegetation_components::{
 
 use crate::storybook_tree::{merge_cheap_ball_foliage, merge_kit_sticks};
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::torch_tree::{stick_nodes_high, stick_nodes_low, stick_nodes_medium};
 use canopy::{foliage_nodes_banded, foliage_nodes_low, foliage_nodes_medium, HIGH_FOLIAGE_BANDS};

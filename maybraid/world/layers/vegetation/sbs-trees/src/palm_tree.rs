@@ -186,7 +186,7 @@ pub(crate) fn trunk_stick_nodes<C: Hysteresis>(chain: &BallStickChain<C>) -> Vec
 pub(crate) fn assert_high_collections_match_structural_lod(
 	built: &impl vegetation_components::VegetationComponents,
 ) {
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 
 	let probe = built.structural_lod().expect("structural probe");
 	let nodes = built.foliage_nodes_for_level(LodSceneLevel::High).flatten();
@@ -223,7 +223,7 @@ mod tests {
 	#[test]
 	fn high_waialea_rachis_tips_hang() -> Result<()> {
 		use crate::waialea_palm::WaialeaPalmParams;
-		use lod::gen::LodSceneLevel;
+		use lod::scene::LodSceneLevel;
 		use vegetation_components::VegetationComponents;
 
 		let built = WaialeaPalmParams::default().build();

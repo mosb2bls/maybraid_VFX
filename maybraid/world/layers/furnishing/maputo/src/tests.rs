@@ -1,39 +1,36 @@
-//! [`FurnitureSlots`] for a stored Les Halles development.
+//! [`DevelopmentSlots`] for a stored Les Halles development.
 
-use bevy::ecs::system::RunSystemOnce;
+use std::sync::Arc;
+
 use bevy::math::bounding::Aabb3d;
-use bevy::math::{Vec2, Vec3};
-use bevy::prelude::{Res, World};
+use bevy::math::Vec3;
 use building_components::FurnitureNode;
 use buildings::{Confines, Fit};
+use durham::Durham;
 use furniture_usage_areas::expand_usages;
 use lod::gen::Id;
+use lod::hcsg::GenerationContext;
+use lod::hcsg::HcsgStorage;
 use procedural_common::NoiseParams;
-use richmond::{BuiltDevelopment, DevelopmentEntryStore, DevelopmentHosts, LesHallesDevelopment};
+use richmond::{Built, BuiltDevelopment, DevelopmentHosts};
+use terrain_layer_model::OnTerrain;
 use urbanization_developments::{MixedUseLesHallesDevelopment, PlacedBuilding};
-use urbanization_layer_model::Urbanization;
+use urbanization_layer_model::{UrbanSetting, Urbanization};
 
 use crate::cell::world_slot;
-use crate::slots::FurnitureSlots;
+use crate::hcsg::DevelopmentSlots;
 
-struct Silent;
+type Ground = OnTerrain<Durham>;
+type Urbanized = Urbanization<richmond::Richmond<Ground>>;
 
 fn les_halles(yaw: f32) -> anyhow::Result<BuiltDevelopment> {
 	let bounds = Aabb3d::from_min_max(Vec3::new(-18.0, 0.0, -18.0), Vec3::new(18.0, 10.0, 18.0));
-	let (development, _) = MixedUseLesHallesDevelopment::fit_to_confines(
+	let (mut development, _) = PlacedBuilding::<MixedUseLesHallesDevelopment>::fit_to_confines(
 		&Confines::from_bounds(bounds),
 		NoiseParams { seed: 1337, ..NoiseParams::default() },
 	)?;
-	Ok(BuiltDevelopment::LesHalles(Box::new(LesHallesDevelopment {
-		cell: bounds,
-		building: PlacedBuilding {
-			center_xz: Vec2::ZERO,
-			yaw,
-			footprint: Vec2::splat(36.0),
-			ground_height: 0.0,
-			building: development,
-		},
-	})))
+	development.yaw = yaw;
+	Ok(BuiltDevelopment::LesHalles(Box::new(development)))
 }
 
 fn expected_slots(development: &BuiltDevelopment) -> Vec<FurnitureNode> {
@@ -51,7 +48,7 @@ fn expected_slots(development: &BuiltDevelopment) -> Vec<FurnitureNode> {
 }
 
 #[test]
-fn furniture_slots_match_les_halles_world_slots() -> anyhow::Result<()> {
+fn development_slots_match_les_halles_world_slots() -> anyhow::Result<()> {
 	let built = les_halles(0.4)?;
 	let expected = expected_slots(&built);
 	anyhow::ensure!(!expected.is_empty(), "Les Halles should emit High slots");
@@ -61,40 +58,28 @@ fn furniture_slots_match_les_halles_world_slots() -> anyhow::Result<()> {
 		Aabb3d::from_min_max(Vec3::new(800.0, -8.0, 800.0), Vec3::new(880.0, 24.0, 880.0));
 	let other = les_halles(0.0)?;
 
-	let mut world = World::new();
-	world.insert_resource(DevelopmentEntryStore::default());
+	let storage = HcsgStorage::default();
 	{
-		let mut store = world.resource_mut::<DevelopmentEntryStore>();
-		store.insert_built(id, built, bounds);
-		store.insert_built(Id::from_cell(elsewhere), other, elsewhere);
+		let setting = |id| UrbanSetting { id, arrival_radius: 8.0 };
+		storage.publish(id, Arc::new(Built::<Ground>::new(built, setting(id), Vec3::ZERO)), bounds);
+		let other_id = Id::from_cell(elsewhere);
+		storage.publish(
+			other_id,
+			Arc::new(Built::<Ground>::new(other, setting(other_id), Vec3::ZERO)),
+			elsewhere,
+		);
 	}
 
-	let overlapping = world
-		.run_system_once(move |read: Res<DevelopmentEntryStore>| {
-			let version = read.built_at(id).map(|(_, version)| version);
-			let found =
-				<Urbanization<richmond::Richmond<Silent>> as FurnitureSlots>::slots_overlapping(
-					&read, bounds,
-				);
-			(version, found)
-		})
-		.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-	let (version, found) = overlapping;
-	let version = version.ok_or_else(|| anyhow::anyhow!("stored development"))?;
-	anyhow::ensure!(found.len() == 1, "only the overlapping development");
-	anyhow::ensure!(found[0].id == id, "development index id");
-	anyhow::ensure!(found[0].version == version, "store version");
-	anyhow::ensure!(found[0].slots == expected, "world-space slots match the host list");
+	let mut cx = GenerationContext::new(&storage);
+	let slots = cx
+		.get_or_generate::<DevelopmentSlots<Urbanized>>(id)
+		.ok_or_else(|| anyhow::anyhow!("development slots"))?;
+	anyhow::ensure!(slots.slots == expected, "world-space slots match the host list");
 
-	let missed = world
-		.run_system_once(move |read: Res<DevelopmentEntryStore>| {
-			<Urbanization<richmond::Richmond<Silent>> as FurnitureSlots>::slots_overlapping(
-				&read, elsewhere,
-			)
-		})
-		.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-	anyhow::ensure!(missed.len() == 1, "far development is its own overlap");
-	anyhow::ensure!(missed[0].id == Id::from_cell(elsewhere));
-	anyhow::ensure!(missed[0].slots != expected, "a different yaw is a different slot list");
+	let other_id = Id::from_cell(elsewhere);
+	let other_slots = cx
+		.get_or_generate::<DevelopmentSlots<Urbanized>>(other_id)
+		.ok_or_else(|| anyhow::anyhow!("other development slots"))?;
+	anyhow::ensure!(other_slots.slots != expected, "a different yaw is a different slot list");
 	Ok(())
 }

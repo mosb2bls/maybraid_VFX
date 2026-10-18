@@ -2,13 +2,13 @@
 //!
 //! Plain data returned from [`crate::VegetationComponents::structural_lod`] — not an
 //! ECS component. Host presentation uses [`crate::FlattenedComponentsOnly`] (plants)
-//! or a grove type that implements [`lod::gen::LodScene`].
+//! or a grove type that implements [`lod::scene::LodScene`].
 
 use bevy::prelude::Transform;
 use bevy_math::bounding::Aabb3d;
 use bevy_math::Vec3;
-use lod::gen::{LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodSceneLevel, LodSceneStatus};
 
 use crate::lod_band::DistanceLodBand;
 

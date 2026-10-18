@@ -8,7 +8,7 @@ use bevy_math::Vec3;
 use building_components::joints::JointNode;
 use building_components::panels::{PanelNode, PanelStyle};
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{AllowedAngles, NoiseParams, NoisyPathParams, StepLenRange};
 
 use crate::paneling::{

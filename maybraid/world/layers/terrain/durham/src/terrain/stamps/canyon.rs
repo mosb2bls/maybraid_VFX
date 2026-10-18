@@ -6,10 +6,8 @@ use terrain_stamps::Canyon;
 
 define_stamp_family! {
 	layout: CanyonLowPassControllerLayout,
-	bootstrap_layout: BootstrapCanyonLowPassControllerLayout / bootstrap_canyon_low_pass_controller_layout,
 	controller: CanyonLowPassControllerCell,
 	stamp: CanyonLowPassStampCell,
-	leaves_fn: original_ids_for_canyon_low_pass_leaves,
 	family_salt: 44,
 	cell_size: (TERRAIN_CELL_SIZE * 1.25, MACRO_CELL_SIZE * 1.5),
 	controller_cell_size: MACRO_CELL_SIZE * 3.0,
@@ -28,10 +26,8 @@ define_stamp_family! {
 
 define_stamp_family! {
 	layout: CanyonHighPassControllerLayout,
-	bootstrap_layout: BootstrapCanyonHighPassControllerLayout / bootstrap_canyon_high_pass_controller_layout,
 	controller: CanyonHighPassControllerCell,
 	stamp: CanyonHighPassStampCell,
-	leaves_fn: original_ids_for_canyon_high_pass_leaves,
 	family_salt: 144,
 	cell_size: (MACRO_CELL_SIZE * 2.0, MACRO_CELL_SIZE * 8.0),
 	controller_cell_size: MACRO_CELL_SIZE * 20.0,

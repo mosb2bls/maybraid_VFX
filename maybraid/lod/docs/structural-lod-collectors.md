@@ -1,6 +1,6 @@
 # Structural LOD collectors (models)
 
-This note describes a **future** presentation layer for bulk internal/external geometry in `-models` crates. It is not implemented yet. Today, Richmond uses per-node [`ParentConfines`](../../world/layers/urbanization/buildings/components/src/parent_confines.rs) and [`LodSceneHost`](../lib/src/lod_scene_host.rs) switches (Wizard’s Tower, partition mesh tiers).
+This note describes a **future** presentation layer for bulk internal/external geometry in `-models` crates. It is not implemented yet. Today, Richmond uses per-node [`ParentConfines`](../../world/layers/urbanization/buildings/components/src/parent_confines.rs) and [`LodSceneHost`](../lib/src/scene/host.rs) switches (Wizard’s Tower, partition mesh tiers).
 
 ## Fine phase vs broad phase
 
@@ -34,4 +34,4 @@ Ownership for **collection** is separate from **LOD confine**. A wall can be own
 ## Related
 
 - [Richmond CONTRIBUTING — LodScene](../../world/layers/urbanization/CONTRIBUTING.md#lodscene-on-buildings)
-- [`LodScene` / `RegionPresenter`](../lib/src/gen/presentation.rs)
+- [`LodScene`](../lib/src/scene/lod_scene.rs) and [`lod::hcsg::PresentationPlugin`](../lib/src/hcsg/presentation.rs)

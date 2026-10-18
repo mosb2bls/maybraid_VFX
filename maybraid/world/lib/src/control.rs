@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use durham::{
-	terrain_collider_covers_xz, CascadeChunk, TerrainCellLayout, TerrainEntryStore,
+	terrain_collider_covers_xz, CascadeChunk, DurhamSurface, TerrainCellLayout,
 	TerrainTrimeshCollider,
 };
 use game_commands::command::{CommandConsoleOutput, TextEntryFocus};
@@ -20,9 +20,17 @@ use world_player::{
 	MoveWish, MovementAction, Player, PlayerPhysicsEnabled, PlayerSpawnXz, PlaygroundMode,
 };
 
+use crate::map_view::WorldMapView;
+
 /// When `false`, world movement / POV intents are ignored (menus, pause overlay).
+/// Pause must not be treated as a play-session teardown.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorldGameplayEnabled(pub bool);
+
+/// Explicit play-session teardown. The game shell writes this when leaving
+/// to Home. Pause must not write it.
+#[derive(Message, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WorldPlaySessionEnded;
 
 /// Keep third-person follow while the in-game inventory editor is open.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -48,28 +56,31 @@ impl Default for WorldSceneryVisible {
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct WorldSurfaceReady(pub bool);
 
+/// Home / Characters shell. The game sets this from [`GameFlow`] so the agent
+/// can start Home-first scripts without inferring the menu from streaming.
+#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct WorldMenuShell(pub bool);
+
 /// Terrain column under the player. The shell unveils after this.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WorldSurfaceSet;
 
 pub(crate) fn update_world_surface_ready(
 	streaming: Res<terrain_layer_model::TerrainStreaming<durham::Durham>>,
-	store: Res<TerrainEntryStore>,
-	layout: Res<TerrainCellLayout>,
+	surface: DurhamSurface,
 	spawn: Res<PlayerSpawnXz>,
 	players: Query<&Transform, With<Player>>,
 	colliders: Query<&CascadeChunk, With<TerrainTrimeshCollider>>,
 	mut ready: ResMut<WorldSurfaceReady>,
 ) {
-	// Menu shells keep streaming off. Leave the ready bit alone; Training
-	// unveils from this same column once a padded FinePatch collider exists.
+	// Menu shells keep streaming off. Leave the ready bit alone.
 	if !streaming.enabled {
 		return;
 	}
-	let xz = discovery_xz(&spawn, &players, &layout);
+	let xz = discovery_xz(&spawn, &players, surface.layout());
 	let at = Vec3::new(xz.x, 0.0, xz.y);
-	ready.0 = terrain_collider_covers_xz(at, colliders.iter())
-		&& store.composed_height_at(&layout, xz.x, xz.y).is_some();
+	let height_ready = matches!(surface.height_at(xz), Ok(Some(_)));
+	ready.0 = terrain_collider_covers_xz(at, colliders.iter()) && height_ready;
 }
 
 fn discovery_xz(
@@ -86,24 +97,65 @@ fn discovery_xz(
 	layout.region_center_xz().xz()
 }
 
+type WorldOnlyPlayerQuery<'w, 's> =
+	Query<'w, 's, Entity, (With<Player>, Without<MaybraidPlayer>, Added<Player>)>;
+
+/// Mark the world capsule as a Lubikan owner. [`lubikans::LubikansPlugin`]
+/// attaches the Self ledger in `LubikanSystems::Owner`; do not insert
+/// `LubikanLedger::with_self` here. [#1112](https://github.com/ramate-io/maybraid/issues/1112)
+/// can drop its temporary attach once this grant is on the stack.
+///
+/// Also inserts `player::Player` (the generic player marker from the player crate)
+/// so that `combat-hud` vitals and continuous bars can query this entity.
+pub fn grant_world_player_lubikan_owner(
+	mut commands: Commands,
+	// Match world players that don't have generic player::Player marker
+	// This runs when the world player spawns AND when it respawns after death
+	world_only: WorldOnlyPlayerQuery,
+) {
+	for player in &world_only {
+		commands.entity(player).insert((
+			MaybraidPlayer, // This is player::Player
+			lubikans::LubikanOwner,
+		));
+	}
+}
+
+pub fn sync_lubikan_session(
+	mut ended: MessageReader<WorldPlaySessionEnded>,
+	mut lives: MessageWriter<lubikans::LubikanOwnerLifetime>,
+) {
+	if ended.read().next().is_none() {
+		return;
+	}
+	lives.write(lubikans::LubikanOwnerLifetime::new(
+		None,
+		None,
+		lubikans::LubikanOwnerLifetimeKind::RestartSession,
+	));
+}
+
 pub(crate) fn sync_combat_hud_visible(
 	gameplay: Res<WorldGameplayEnabled>,
+	map: Option<Res<WorldMapView>>,
 	hud: Option<ResMut<combat_hud::CombatHudVisible>>,
 ) {
 	let Some(mut hud) = hud else {
 		return;
 	};
-	if hud.0 != gameplay.0 {
-		hud.0 = gameplay.0;
+	let next = gameplay.0 && !map.is_some_and(|map| map.open);
+	if hud.0 != next {
+		hud.0 = next;
 	}
 }
 
 pub(crate) fn sync_skill_map_enabled(
 	gameplay: Res<WorldGameplayEnabled>,
 	text_focus: Res<TextEntryFocus>,
+	map: Option<Res<WorldMapView>>,
 	mut enabled: ResMut<SkillMapEnabled>,
 ) {
-	let next = gameplay.0 && !text_focus.0;
+	let next = gameplay.0 && !text_focus.0 && !map.is_some_and(|map| map.open);
 	if enabled.0 != next {
 		enabled.0 = next;
 	}
@@ -113,6 +165,7 @@ pub(crate) fn apply_intents_to_movement(
 	mode: Res<PlaygroundMode>,
 	text_focus: Res<TextEntryFocus>,
 	gameplay: Res<WorldGameplayEnabled>,
+	map: Option<Res<WorldMapView>>,
 	mut commands: Commands,
 	mut intents: MessageReader<CharacterIntent>,
 	cameras: Query<&CameraController, With<Camera3d>>,
@@ -120,7 +173,11 @@ pub(crate) fn apply_intents_to_movement(
 	mut player_wishes: Query<(Entity, &mut PlayerMoveWish, Has<Player>), With<CharacterController>>,
 	mut movement: MessageWriter<MovementAction>,
 ) {
-	if !gameplay.0 || *mode != PlaygroundMode::Character || text_focus.0 {
+	if !gameplay.0
+		|| *mode != PlaygroundMode::Character
+		|| text_focus.0
+		|| map.is_some_and(|map| map.open)
+	{
 		for _ in intents.read() {}
 		for mut wish in &mut wishes {
 			wish.0 = Vec3::ZERO;
@@ -157,8 +214,8 @@ pub(crate) fn apply_intents_to_movement(
 	for mut wish in &mut wishes {
 		wish.0 = wish_dir;
 	}
-	// Only the streamed vegetation body. Training Ground's free-for-all capsule
-	// is a foreign [`CharacterController`] that [`player`] already drove.
+	// Only the streamed vegetation body. A foreign [`CharacterController`] is
+	// one that [`player`] already drove.
 	for (entity, mut wish, world_body) in &mut player_wishes {
 		if !world_body {
 			continue;
@@ -240,20 +297,26 @@ pub(crate) fn stamp_vegetation_motor_traction(
 	}
 }
 
+type PlayerMotorMissingQuery<'w, 's> =
+	Query<'w, 's, Entity, (With<Player>, Without<CharacterController>)>;
+type PlayerMotorPresentQuery<'w, 's> = Query<
+	'w,
+	's,
+	(
+		Entity,
+		Option<&'static CharacterStance>,
+		Option<&'static RestLocomotionCapsule>,
+		Option<&'static LocomotionCapsule>,
+	),
+	(With<Player>, With<CharacterController>),
+>;
+
 /// Put the world player on the player-crate capsule motor so column buoyancy runs.
 pub(crate) fn stamp_world_player_motor(
 	physics: Res<PlayerPhysicsEnabled>,
 	mut commands: Commands,
-	missing: Query<Entity, (With<Player>, Without<CharacterController>)>,
-	present: Query<
-		(
-			Entity,
-			Option<&CharacterStance>,
-			Option<&RestLocomotionCapsule>,
-			Option<&LocomotionCapsule>,
-		),
-		(With<Player>, With<CharacterController>),
-	>,
+	missing: PlayerMotorMissingQuery,
+	present: PlayerMotorPresentQuery,
 ) {
 	if physics.0 {
 		for entity in &missing {
@@ -406,5 +469,48 @@ mod tests {
 		world.run_system_once(stamp_world_player_motor).expect("restore stance");
 		assert!(world.get::<CharacterStance>(player).is_some());
 		assert!(world.get::<RestLocomotionCapsule>(player).is_some());
+	}
+
+	#[test]
+	fn grant_marks_vegetation_player_without_inserting_a_ledger() {
+		use bevy::ecs::system::RunSystemOnce;
+		use lubikans::{LubikanLedger, LubikanOwner};
+
+		let mut world = World::new();
+		let player = world.spawn(Player).id();
+		world.run_system_once(grant_world_player_lubikan_owner).expect("grant owner");
+		assert!(world.get::<LubikanOwner>(player).is_some());
+		assert!(world.get::<LubikanLedger>(player).is_none());
+		world
+			.run_system_once(grant_world_player_lubikan_owner)
+			.expect("grant is idempotent");
+		assert!(world.get::<LubikanOwner>(player).is_some());
+	}
+
+	#[test]
+	fn pause_does_not_end_the_play_session() {
+		use bevy::ecs::system::RunSystemOnce;
+		use lubikans::{LubikanOwnerLifetime, LubikanOwnerLifetimeKind};
+
+		fn take_notices(
+			mut notices: MessageReader<LubikanOwnerLifetime>,
+		) -> Vec<LubikanOwnerLifetime> {
+			notices.read().copied().collect()
+		}
+
+		let mut world = World::new();
+		world.init_resource::<Messages<LubikanOwnerLifetime>>();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.run_system_once(sync_lubikan_session).expect("initial sync");
+		world.resource_mut::<WorldGameplayEnabled>().0 = false;
+		world.run_system_once(sync_lubikan_session).expect("paused sync");
+		let paused = world.run_system_once(take_notices).expect("read pause notices");
+		assert!(paused.is_empty());
+		world.write_message(WorldPlaySessionEnded);
+		world.run_system_once(sync_lubikan_session).expect("ended sync");
+		let notices = world.run_system_once(take_notices).expect("read restart notices");
+		assert_eq!(notices.len(), 1);
+		assert_eq!(notices[0].kind, LubikanOwnerLifetimeKind::RestartSession);
 	}
 }

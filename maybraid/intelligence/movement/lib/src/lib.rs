@@ -28,7 +28,7 @@ pub use intelligence_lod::{
 	due_by_rank, reserve_fairness, IntelligenceBand, IntelligenceLod, IntelligencePriority,
 };
 pub use location::MovementLocation;
-pub use objective::MovementObjective;
+pub use objective::{MovementObjective, ReplanThreshold};
 pub use plugin::MovementIntelligencePlugin;
 pub use step::{MovementDrive, MovementStep};
 pub use surface::{

@@ -18,7 +18,7 @@ use crate::{
 	nodes::{PartNode, RigNode},
 	species::common::{nodes as humanoid, EyeMesh, HairMesh, EAR_ROUND},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 const HEAD_RIG_SOCKET_SCALE: f32 = 2.0;
 

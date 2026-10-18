@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use maybraid_input::{MenuOwnsBack, PadButton, PadGameplayEnabled, VirtualPad, VirtualPadConfig};
 
-use crate::intent::CharacterIntent;
+use crate::intent::{CharacterIntent, InventoryCyclingCategory};
 
 const ANALOG_EPS: f32 = 1e-6;
 const STANCE_HOLD_SECS: f32 = 0.35;
@@ -41,8 +41,8 @@ pub fn collect(
 	if pad.pressed(PadButton::BumperFocus) {
 		out.push(CharacterIntent::Ads(1.0));
 	}
-	if pad.trigger_fire > ANALOG_EPS {
-		out.push(CharacterIntent::UseItem(pad.trigger_fire));
+	if pad.pressed(PadButton::TriggerFire) || pad.trigger_fire >= trigger_threshold {
+		out.push(CharacterIntent::UseItem(pad.trigger_fire.max(trigger_threshold)));
 	}
 
 	if pad.pressed(PadButton::StickClickMove) {
@@ -78,18 +78,34 @@ pub fn collect(
 	if pad.just_pressed(PadButton::Y) {
 		out.push(CharacterIntent::SwapActive);
 	}
-	// Arrow keys also hold D-Pad (menus + walk). Do not cycle maps on arrows.
+	// D-Pad selects the equipped queue **Y** cycles. Arrow keys mirror D-Pad for menus/walk only.
 	if pad.just_pressed(PadButton::DpadLeft) && !pad.keys.just_pressed(KeyCode::ArrowLeft) {
-		out.push(CharacterIntent::CycleSkillMap(-1));
+		out.push(CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Lubikans));
 	}
 	if pad.just_pressed(PadButton::DpadRight) && !pad.keys.just_pressed(KeyCode::ArrowRight) {
-		out.push(CharacterIntent::CycleSkillMap(1));
+		out.push(CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Weapons));
+	}
+	if pad.just_pressed(PadButton::DpadDown) && !pad.keys.just_pressed(KeyCode::ArrowDown) {
+		out.push(CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps));
+	}
+	if pad.keys.just_pressed(KeyCode::BracketLeft) {
+		out.push(CharacterIntent::CycleEquippedQueue(-1));
+	}
+	if pad.keys.just_pressed(KeyCode::BracketRight) {
+		out.push(CharacterIntent::CycleEquippedQueue(1));
 	}
 	if pad.just_pressed(PadButton::Start) {
 		out.push(CharacterIntent::InGameMenu);
 	}
-	if pad.just_pressed(PadButton::Select) {
+	// Tab also holds Select. Keep inventory on the key; Xbox View (pad Select) is the map.
+	if pad.keys.just_pressed(KeyCode::Tab) {
 		out.push(CharacterIntent::Inventory);
+	}
+	if pad.just_pressed(PadButton::Select) && !pad.keys.just_pressed(KeyCode::Tab) {
+		out.push(CharacterIntent::ToggleMap);
+	}
+	if pad.keys.just_pressed(KeyCode::KeyM) {
+		out.push(CharacterIntent::ToggleMap);
 	}
 	out
 }
@@ -165,7 +181,7 @@ mod tests {
 				CharacterIntent::Jump,
 				CharacterIntent::SwapActive,
 				CharacterIntent::InGameMenu,
-				CharacterIntent::Inventory,
+				CharacterIntent::ToggleMap,
 			]
 		);
 		Ok(())
@@ -250,6 +266,28 @@ mod tests {
 	}
 
 	#[test]
+	fn rest_analog_does_not_use_item() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.max_triggers(0.0, 0.02);
+		pad.apply_trigger_digital(0.5);
+		finish(&mut pad);
+		assert!(!intents(&pad).iter().any(|intent| matches!(intent, CharacterIntent::UseItem(_))));
+		Ok(())
+	}
+
+	#[test]
+	fn squeezed_trigger_uses_item() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.max_triggers(0.0, 0.9);
+		pad.apply_trigger_digital(0.5);
+		finish(&mut pad);
+		assert!(intents(&pad).contains(&CharacterIntent::UseItem(0.9)));
+		Ok(())
+	}
+
+	#[test]
 	fn rt_plus_x_is_power_use_not_interact() -> anyhow::Result<()> {
 		let mut pad = VirtualPad::default();
 		pad.begin_frame();
@@ -296,22 +334,38 @@ mod tests {
 	}
 
 	#[test]
-	fn dpad_cycles_the_skill_map() -> anyhow::Result<()> {
+	fn dpad_selects_inventory_cycling_categories() -> anyhow::Result<()> {
+		use crate::intent::InventoryCyclingCategory;
+
 		let mut pad = VirtualPad::default();
 		pad.begin_frame();
 		pad.hold_digital(PadButton::DpadRight);
 		finish(&mut pad);
-		assert_eq!(intents(&pad), vec![CharacterIntent::CycleSkillMap(1)]);
+		assert_eq!(
+			intents(&pad),
+			vec![CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Weapons)]
+		);
 
 		pad.begin_frame();
 		pad.hold_digital(PadButton::DpadLeft);
 		finish(&mut pad);
-		assert_eq!(intents(&pad), vec![CharacterIntent::CycleSkillMap(-1)]);
+		assert_eq!(
+			intents(&pad),
+			vec![CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Lubikans)]
+		);
+
+		pad.begin_frame();
+		pad.hold_digital(PadButton::DpadDown);
+		finish(&mut pad);
+		assert_eq!(
+			intents(&pad),
+			vec![CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps)]
+		);
 		Ok(())
 	}
 
 	#[test]
-	fn arrow_keys_do_not_cycle_the_skill_map() -> anyhow::Result<()> {
+	fn arrow_keys_do_not_select_inventory_categories() -> anyhow::Result<()> {
 		let mut pad = VirtualPad::default();
 		let mut keys = bevy::input::ButtonInput::<KeyCode>::default();
 		keys.press(KeyCode::ArrowLeft);
@@ -319,7 +373,67 @@ mod tests {
 		pad.begin_frame();
 		pad.hold_digital(PadButton::DpadLeft);
 		finish(&mut pad);
-		assert!(!intents(&pad).contains(&CharacterIntent::CycleSkillMap(-1)));
+		assert!(!intents(&pad)
+			.iter()
+			.any(|intent| matches!(intent, CharacterIntent::SelectInventoryCyclingCategory(_))));
+		Ok(())
+	}
+
+	#[test]
+	fn brackets_cycle_the_equipped_queue() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		let mut keys = bevy::input::ButtonInput::<KeyCode>::default();
+		keys.press(KeyCode::BracketRight);
+		pad.keys = keys;
+		pad.begin_frame();
+		finish(&mut pad);
+		assert_eq!(intents(&pad), vec![CharacterIntent::CycleEquippedQueue(1)]);
+		Ok(())
+	}
+
+	#[test]
+	fn m_toggles_the_world_map() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		let mut keys = bevy::input::ButtonInput::<KeyCode>::default();
+		keys.press(KeyCode::KeyM);
+		pad.keys = keys;
+		pad.begin_frame();
+		finish(&mut pad);
+		assert!(intents(&pad).contains(&CharacterIntent::ToggleMap));
+		Ok(())
+	}
+
+	#[test]
+	fn select_toggles_the_world_map() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.hold_digital(PadButton::Select);
+		finish(&mut pad);
+		assert_eq!(intents(&pad), vec![CharacterIntent::ToggleMap]);
+		Ok(())
+	}
+
+	#[test]
+	fn dpad_up_does_not_toggle_the_world_map() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.hold_digital(PadButton::DpadUp);
+		finish(&mut pad);
+		assert!(!intents(&pad).contains(&CharacterIntent::ToggleMap));
+		Ok(())
+	}
+
+	#[test]
+	fn tab_still_opens_inventory() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		let mut keys = bevy::input::ButtonInput::<KeyCode>::default();
+		keys.press(KeyCode::Tab);
+		pad.keys = keys;
+		pad.begin_frame();
+		pad.hold_digital(PadButton::Select);
+		finish(&mut pad);
+		assert!(intents(&pad).contains(&CharacterIntent::Inventory));
+		assert!(!intents(&pad).contains(&CharacterIntent::ToggleMap));
 		Ok(())
 	}
 }

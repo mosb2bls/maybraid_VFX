@@ -19,6 +19,7 @@ pub mod run;
 pub mod soaring;
 pub mod spring;
 pub mod squat;
+pub mod squat_descent;
 pub mod transition;
 pub mod tuck;
 pub mod tucked_flip;
@@ -39,8 +40,8 @@ pub use idle::Idle;
 pub use jab::{Jab, DEFAULT_BACKSWING, DEFAULT_JAB_TARGET};
 pub use land::Land;
 pub use lateral_undulation::LateralUndulation;
-pub use leap::{Leap, AIR_END, TAKEOFF_END};
-pub use mix::{smoothstep, Mix, Smooth};
+pub use leap::{Leap, LeapPhase, LeapTimeline, AIR_END, TAKEOFF_END};
+pub use mix::{burst_envelope, smoothstep, LinearBlend, Mix, Smooth, DEFAULT_BURST_EDGE};
 pub use prone::Prone;
 pub use quadruped_gallop::QuadrupedGallop;
 pub use quadruped_idle::QuadrupedIdle;
@@ -50,14 +51,14 @@ pub use run::Run;
 pub use soaring::Soaring;
 pub use spring::Spring;
 pub use squat::{vertical_drop, Squat};
+pub use squat_descent::{SquatDescent, DEFAULT_DESCENT_SPEED};
 pub use transition::{BlendCurve, Transition, TransitionCurve};
 pub use tuck::{Tuck, TuckProfile};
 pub use tucked_flip::{FlipDirection, TuckedFlip};
 pub use two_footed_jump::{
-	air_duration, ballistic_height, launch_speed, touchdown_time_since_launch, JumpSegment,
-	JumpTiming, TwoFootedJump, DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT, DEFAULT_LANDING_SQUAT_SPEED,
-	DEFAULT_PRE_SQUAT_SPEED, DEFAULT_SPRING_DURATION, FALL_BLEND_FRACTION, LAND_BLEND_FRACTION,
-	LAND_POSE_BLEND_MAX_SECS,
+	BallisticJump, JumpSegment, JumpTiming, TwoFootedJump, DEFAULT_GRAVITY, DEFAULT_JUMP_HEIGHT,
+	DEFAULT_LANDING_SQUAT_SPEED, DEFAULT_PRE_SQUAT_SPEED, DEFAULT_SPRING_DURATION,
+	FALL_BLEND_FRACTION, LAND_BLEND_FRACTION, LAND_POSE_BLEND_MAX_SECS,
 };
 pub use two_footed_tucked_flip::TwoFootedTuckedFlip;
 pub use upright_leap::UprightLeap;

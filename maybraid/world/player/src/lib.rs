@@ -23,8 +23,8 @@ pub use durham::{TerrainCoverage, WorldBaseTerrain, WORLD_FINE_HALF_EXTENT_CELLS
 pub use game_commands::command::PendingStartupCommand;
 pub use player::{
 	holding_elevation, player_position_above_surface, player_spawn_point_at, spawn_player_body,
-	AwaitingTerrainSurface, CharacterCameraFollowEnabled, CharacterLocomotion, Jumping, MoveWish,
-	MovementAction, OffTerrainAnchor, PadMovementEnabled, Player, PlayerCapsule,
+	surface_or_hold_at, AwaitingTerrainSurface, CharacterCameraFollowEnabled, CharacterLocomotion,
+	Jumping, MoveWish, MovementAction, OffTerrainAnchor, PadMovementEnabled, Player, PlayerCapsule,
 	PlayerControlSystems, PlayerPhysicsEnabled, PlayerPlugin, PlayerSpawnXz, PlaygroundMode,
 	VegetationPlayerMotor,
 };
@@ -41,8 +41,8 @@ use camera::{
 };
 use character::{apply_set_character, drive_player_locomotion};
 use characters::{CharacterHostsPlugin, CharacterMotionSystems};
-use durham::{TerrainCellLayout, TerrainEntryStore};
-use game_commands::command::{TextEntryBlocked, TextEntryFocus};
+use durham::DurhamSurface;
+use game_commands::command::TextEntryFocus;
 use game_commands::ui::GameCommandStatusText;
 use maybraid_input::{PadGameplayEnabled, VirtualPadPlugin, VirtualPadSystems};
 use player::{respawn_player_on_layout, snap_player_to_composed_surface};
@@ -97,9 +97,7 @@ fn apply_mode_commands(
 	mut commands: Commands,
 	mut mode: ResMut<PlaygroundMode>,
 	mut status: Option<ResMut<GameCommandStatusText>>,
-	layout: Res<TerrainCellLayout>,
-	base: Res<WorldBaseTerrain>,
-	store: Res<TerrainEntryStore>,
+	surface: DurhamSurface,
 	free: Query<Entity, With<RequestModeFree>>,
 	character: Query<Entity, With<RequestModeCharacter>>,
 	mut players: Query<(Entity, &mut Transform, &mut LinearVelocity), With<Player>>,
@@ -110,8 +108,8 @@ fn apply_mode_commands(
 		ui::write_status(&mut status, "mode free");
 		if let Ok((mut cam_t, mut controller)) = cameras.single_mut() {
 			refocus_camera_on_elevation(
-				&layout,
-				surface_or_hold(&layout, &store, &base.0),
+				surface.layout(),
+				surface_or_hold(&surface),
 				&mut cam_t,
 				&mut controller,
 			);
@@ -127,9 +125,9 @@ fn apply_mode_commands(
 		ui::write_status(&mut status, "mode character — WASD move, mouse look, Space jump");
 		if reset_to_layout_spawn {
 			if let Ok((player, mut transform, mut velocity)) = players.single_mut() {
-				let center = layout.region_center_xz();
-				if let Some(elevation) = store.composed_height_at(&layout, center.x, center.z) {
-					respawn_player_on_layout(&layout, elevation, &mut transform, &mut velocity);
+				let layout = surface.layout();
+				if let Ok(Some(elevation)) = surface.height_at(layout.region_center_xz().xz()) {
+					respawn_player_on_layout(layout, elevation, &mut transform, &mut velocity);
 				}
 				commands.entity(player).insert(AwaitingTerrainSurface);
 			}
@@ -138,13 +136,10 @@ fn apply_mode_commands(
 	}
 }
 
-fn sync_pad_gameplay(
-	focus: Option<Res<TextEntryFocus>>,
-	blocked: Option<Res<TextEntryBlocked>>,
-	mut enabled: ResMut<PadGameplayEnabled>,
-) {
-	let text = focus.is_some_and(|focus| focus.0) || blocked.is_some_and(|blocked| blocked.0);
-	enabled.0 = !text;
+fn sync_pad_gameplay(focus: Option<Res<TextEntryFocus>>, mut enabled: ResMut<PadGameplayEnabled>) {
+	// Only the console focus lane. A name-modal sets `TextEntryBlocked` so `/`
+	// stays off the field; the pad must stay up for the keypad.
+	enabled.set_text(!focus.is_some_and(|focus| focus.0));
 }
 
 #[cfg(test)]
@@ -152,7 +147,8 @@ mod tests {
 	use super::*;
 	use avian3d::prelude::GravityScale;
 	use bevy::ecs::system::RunSystemOnce;
-	use durham::{BaseTerrainNoise, TerrainConfig};
+	use durham::{BaseTerrainNoise, TerrainCellLayout, TerrainConfig};
+	use lod::hcsg::HcsgStorage;
 	use player::AwaitingTerrainSurface;
 
 	#[test]
@@ -186,7 +182,7 @@ mod tests {
 		app.insert_resource(PlaygroundMode::Character)
 			.insert_resource(PlayerPhysicsEnabled::default())
 			.insert_resource(TerrainCellLayout::default())
-			.insert_resource(TerrainEntryStore::default())
+			.init_resource::<HcsgStorage>()
 			.insert_resource(WorldBaseTerrain(BaseTerrainNoise::from_config(&TerrainConfig::new(
 				42,
 			))))
@@ -259,7 +255,7 @@ mod tests {
 		world.insert_resource(mode);
 		world.insert_resource(PlayerPhysicsEnabled::default());
 		world.insert_resource(TerrainCellLayout::default());
-		world.insert_resource(TerrainEntryStore::default());
+		world.init_resource::<HcsgStorage>();
 		world.insert_resource(WorldBaseTerrain(BaseTerrainNoise::from_config(
 			&TerrainConfig::new(42),
 		)));

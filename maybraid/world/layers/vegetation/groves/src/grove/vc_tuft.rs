@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bevy::prelude::*;
-use lod::gen::{LodScene, LodSceneLevel};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneLevel};
 use lod::SceneChunk;
 use material_ref::MaterialRef;
 use procedural_common::{BuildWithNoise, NoiseParams};

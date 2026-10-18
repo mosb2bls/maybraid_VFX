@@ -3,12 +3,10 @@
 //! [`UprightWalk`] holds art-level humanoid knobs. Rig-agnostic callers use [`Walk`](super::Walk)
 //! and convert via [`UprightWalk::from_walk`].
 
-use std::marker::PhantomData;
-
 use super::Walk;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UprightWalk<Rig> {
+pub struct UprightWalk {
 	/// Humerus flex bias that keeps forearms slightly forward of the torso.
 	pub arm_down: f32,
 	/// Baseline elbow bend while the arm hangs at the side.
@@ -37,10 +35,9 @@ pub struct UprightWalk<Rig> {
 	pub knee_stance_bend: f32,
 	/// Peak shin flex during swing for toe clearance (radians).
 	pub knee_swing_bend: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Default for UprightWalk<Rig> {
+impl Default for UprightWalk {
 	fn default() -> Self {
 		Self {
 			arm_down: 1.2,
@@ -57,12 +54,11 @@ impl<Rig> Default for UprightWalk<Rig> {
 			torso_lean: 0.08,
 			knee_stance_bend: 0.1,
 			knee_swing_bend: 0.8,
-			_rig: PhantomData,
 		}
 	}
 }
 
-impl<Rig> UprightWalk<Rig> {
+impl UprightWalk {
 	/// Scale the tuned upright template from rig-agnostic [`Walk`] knobs.
 	pub fn from_walk(walk: &Walk) -> Self {
 		let template = Self::default();
@@ -84,7 +80,6 @@ impl<Rig> UprightWalk<Rig> {
 			elbow_pump: template.elbow_pump,
 			elbow_cycle: template.elbow_cycle,
 			humerus_swing_scale: template.humerus_swing_scale,
-			_rig: PhantomData,
 		}
 	}
 }
@@ -96,14 +91,14 @@ mod tests {
 	#[test]
 	fn from_walk_default_matches_template() {
 		let walk = Walk::default();
-		assert_eq!(UprightWalk::<()>::from_walk(&walk), UprightWalk::<()>::default());
+		assert_eq!(UprightWalk::from_walk(&walk), UprightWalk::default());
 	}
 
 	#[test]
 	fn from_walk_scales_stride() {
 		let walk = Walk { stride: 0.7, ..Walk::default() };
-		let upright = UprightWalk::<()>::from_walk(&walk);
-		let template = UprightWalk::<()>::default();
+		let upright = UprightWalk::from_walk(&walk);
+		let template = UprightWalk::default();
 		assert!((upright.stride - template.stride * 2.0).abs() < 1e-5);
 		assert!((upright.knee_swing_bend - template.knee_swing_bend * 2.0).abs() < 1e-5);
 	}
@@ -111,8 +106,8 @@ mod tests {
 	#[test]
 	fn from_walk_scales_bounce_and_rotation() {
 		let walk = Walk { bounce: 2.0, rotation: 0.5, ..Walk::default() };
-		let upright = UprightWalk::<()>::from_walk(&walk);
-		let template = UprightWalk::<()>::default();
+		let upright = UprightWalk::from_walk(&walk);
+		let template = UprightWalk::default();
 		assert!((upright.hip_lift - template.hip_lift * 2.0).abs() < 1e-5);
 		assert!((upright.hip_swing - template.hip_swing * 0.5).abs() < 1e-5);
 		assert!((upright.torso_lean - template.torso_lean * 0.5).abs() < 1e-5);

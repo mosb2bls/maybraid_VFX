@@ -51,7 +51,10 @@ fn high_medium_nest_one_flattened_host_per_tree() -> Result<()> {
 		anyhow::bail!("Low palm-shade plants should be SceneChunk::Lazy");
 	};
 	assert_eq!(*remaining_primitives, grove.plants.len());
-	assert_eq!(*remaining_weight as usize, grove.plants.len());
+	assert_eq!(
+		*remaining_weight,
+		crate::grove::vc_compose::flattened_plant_lazy_weight(grove.plants.len())
+	);
 	Ok(())
 }
 

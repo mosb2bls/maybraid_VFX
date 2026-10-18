@@ -33,7 +33,10 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::lod_ref::{LodNodePlugin, LodNodeSystems};
-use crate::scene::host::{settle_lod_level_root_visibility, sync_lod_level_roots};
+use crate::scene::host::{
+	drain_lod_tree_vis, settle_lod_level_root_visibility, sync_lod_level_roots, LodTreeVisBudget,
+	LodTreeVisQueue,
+};
 use crate::scene::region_index::LodSceneHostIndex;
 use crate::scene::SemanticLodScene;
 
@@ -91,6 +94,11 @@ pub enum LodRefreshSystems {
 	Fulfill,
 	/// Enqueue + budgeted teardown of inactive level roots.
 	Cull,
+	/// Budgeted descendant [`Disabled`] apply for hide/show trees.
+	///
+	/// [`crate::LodTreeVisBudget::time_per_frame`] is a per-visit target, not a
+	/// hard cap — one wide [`Children`] copy can overrun.
+	VisDrain,
 }
 
 /// Order inside [`LodRefreshSystems::ProduceLevels`]: fill the shared cache, then emit.
@@ -113,6 +121,7 @@ pub(crate) fn configure_refresh_sets(app: &mut App) {
 			LodRefreshSystems::SyncRoots,
 			LodRefreshSystems::Fulfill,
 			LodRefreshSystems::Cull,
+			LodRefreshSystems::VisDrain,
 		)
 			.chain(),
 	);
@@ -142,6 +151,8 @@ impl Plugin for LodRefreshCorePlugin {
 		crate::jobs::ensure_lod_job_counter(app);
 		app.init_resource::<LodProduceCache>()
 			.init_resource::<LodCullProduceCache>()
+			.init_resource::<LodTreeVisBudget>()
+			.init_resource::<LodTreeVisQueue>()
 			.add_message::<LodSceneRefreshAabb>()
 			.add_message::<LodSceneCullAabb>()
 			.add_message::<LodSceneRefreshLevel>()
@@ -154,6 +165,7 @@ impl Plugin for LodRefreshCorePlugin {
 						.before(sync_lod_level_roots)
 						.in_set(LodRefreshSystems::SyncRoots),
 					sync_lod_level_roots.in_set(LodRefreshSystems::SyncRoots),
+					drain_lod_tree_vis.in_set(LodRefreshSystems::VisDrain),
 				),
 			);
 	}

@@ -6,12 +6,12 @@
 //! scale-dependent [`ParentConfines`] reveal — if internals would still be
 //! eligible at that range, showing them is fine.
 
-use bevy::prelude::Transform;
+use bevy::prelude::{GlobalTransform, Transform};
 use bevy_math::bounding::Aabb3d;
 use bevy_math::Vec3;
 use building_components::distance_to_segment;
-use lod::gen::LodSceneLevel;
 use lod::lod_ref::LodRef;
+use lod::scene::LodSceneLevel;
 
 /// High (exterior + internals) when capsule surface distance ≤ this × footprint radius.
 pub const HIGH_FOOTPRINT_MULTIPLIER: f32 = 5.0;
@@ -47,6 +47,7 @@ pub(crate) trait TowerLodFootprint {
 		(distance_to_segment(viewer.translation, a, b) - radius).max(0.0)
 	}
 
+	#[allow(dead_code)]
 	fn level_for(&self, viewer: &Transform) -> LodSceneLevel {
 		self.band_progress_for(viewer).0
 	}
@@ -69,11 +70,39 @@ pub(crate) trait TowerLodFootprint {
 		}
 	}
 
+	#[allow(dead_code)]
 	fn level_for_lod_ref(&self, lod_ref: &LodRef) -> LodSceneLevel {
 		self.level_for(lod_ref.current_transform)
 	}
 
+	#[allow(dead_code)]
 	fn band_progress_for_lod_ref(&self, lod_ref: &LodRef) -> (LodSceneLevel, f32) {
 		self.band_progress_for(lod_ref.current_transform)
+	}
+
+	fn level_for_world(&self, viewer_world: Vec3, host: &Transform) -> LodSceneLevel {
+		self.band_progress_for_world(viewer_world, host).0
+	}
+
+	fn band_progress_for_world(
+		&self,
+		viewer_world: Vec3,
+		host: &Transform,
+	) -> (LodSceneLevel, f32) {
+		let viewer_local =
+			GlobalTransform::from(*host).affine().inverse().transform_point3(viewer_world);
+		self.band_progress_for(&Transform::from_translation(viewer_local))
+	}
+
+	fn level_for_world_lod_ref(&self, lod_ref: &LodRef, host: &Transform) -> LodSceneLevel {
+		self.level_for_world(lod_ref.current_transform.translation, host)
+	}
+
+	fn band_progress_for_world_lod_ref(
+		&self,
+		lod_ref: &LodRef,
+		host: &Transform,
+	) -> (LodSceneLevel, f32) {
+		self.band_progress_for_world(lod_ref.current_transform.translation, host)
 	}
 }

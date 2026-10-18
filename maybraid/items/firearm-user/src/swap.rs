@@ -19,6 +19,8 @@ pub struct WeaponSwap {
 	pub elapsed: f32,
 	pub duration: f32,
 	pub swapped: bool,
+	/// When true, the queue steps backward at the swap midpoint.
+	pub reverse: bool,
 }
 
 impl Default for WeaponSwap {
@@ -29,7 +31,11 @@ impl Default for WeaponSwap {
 
 impl WeaponSwap {
 	pub fn start() -> Self {
-		Self { elapsed: 0.0, duration: WEAPON_SWAP_SECS, swapped: false }
+		Self::with_direction(false)
+	}
+
+	pub fn with_direction(reverse: bool) -> Self {
+		Self { elapsed: 0.0, duration: WEAPON_SWAP_SECS, swapped: false, reverse }
 	}
 
 	pub fn t(self) -> f32 {
@@ -134,11 +140,16 @@ mod tests {
 			elapsed: WEAPON_SWAP_SECS * 0.5,
 			duration: WEAPON_SWAP_SECS,
 			swapped: false,
+			reverse: false,
 		};
 		assert!((mid.dip() - 1.0).abs() < 1e-5);
 		assert!(mid.ready_to_swap());
-		let done =
-			WeaponSwap { elapsed: WEAPON_SWAP_SECS, duration: WEAPON_SWAP_SECS, swapped: true };
+		let done = WeaponSwap {
+			elapsed: WEAPON_SWAP_SECS,
+			duration: WEAPON_SWAP_SECS,
+			swapped: true,
+			reverse: false,
+		};
 		assert!(done.dip().abs() < 1e-5);
 		assert!(done.finished());
 		assert!(!done.ready_to_swap());
@@ -146,6 +157,7 @@ mod tests {
 			elapsed: WEAPON_SWAP_SECS,
 			duration: WEAPON_SWAP_SECS,
 			swapped: false,
+			reverse: false,
 		}
 		.finished());
 	}
@@ -153,8 +165,13 @@ mod tests {
 	#[test]
 	fn apply_to_lowers_the_bore() {
 		let mut transform = Transform::IDENTITY;
-		WeaponSwap { elapsed: WEAPON_SWAP_SECS * 0.5, duration: WEAPON_SWAP_SECS, swapped: false }
-			.apply_to(&mut transform);
+		WeaponSwap {
+			elapsed: WEAPON_SWAP_SECS * 0.5,
+			duration: WEAPON_SWAP_SECS,
+			swapped: false,
+			reverse: false,
+		}
+		.apply_to(&mut transform);
 		assert!(transform.translation.y < 0.0);
 		assert!((transform.rotation * Vec3::Z).y < 0.0);
 	}

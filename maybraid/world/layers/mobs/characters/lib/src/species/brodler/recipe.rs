@@ -14,7 +14,7 @@ use crate::{
 		nodes as humanoid, BodyMesh, EarMesh, EyeMesh, HairMesh, MouthMesh, NoseMesh,
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Brodler data attached to the character root entity.
 ///

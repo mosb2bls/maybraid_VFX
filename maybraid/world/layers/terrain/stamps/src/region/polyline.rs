@@ -1,6 +1,7 @@
 //! Polyline stadium corridors, closest-point queries, and piecewise grade.
 
 use bevy_math::Vec2;
+use procedural_common::Smoothstep01;
 
 /// Result of projecting a point onto a polyline.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -126,11 +127,6 @@ fn pitch_out_of_node(path: &[Vec2], levels: &[f32], node: usize) -> f32 {
 	(levels[node + 1] - levels[node]) / len
 }
 
-fn smoothstep01(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
-}
-
 /// Elevation at signed arc offset `s` from node `j`, blending inbound/outbound pitch.
 ///
 /// `s > 0` is downstream (toward higher indices), `s < 0` upstream.
@@ -146,7 +142,7 @@ fn elevation_from_node_pitches(
 	let pitch_out = pitch_out_of_node(path, levels, node);
 	let blend = blend.max(1e-6);
 	// Map s ∈ [-blend, +blend] → u ∈ [0, 1] (inbound → outbound).
-	let u = smoothstep01((s / blend + 1.0) * 0.5);
+	let u = Smoothstep01::eval((s / blend + 1.0) * 0.5);
 	let pitch = pitch_in + (pitch_out - pitch_in) * u;
 	w0 + pitch * s
 }
@@ -190,13 +186,13 @@ pub fn grade_along_polyline(path: &[Vec2], levels: &[f32], p: Vec2, node_blend: 
 	let mut blend_w = 0.0;
 
 	if s_from_a < blend {
-		let alpha = smoothstep01(1.0 - s_from_a / blend);
+		let alpha = Smoothstep01::eval(1.0 - s_from_a / blend);
 		let w_node = elevation_from_node_pitches(path, levels, seg, s_from_a, blend);
 		w += alpha * (w_node - w);
 		blend_w += alpha;
 	}
 	if s_from_b < blend {
-		let alpha = smoothstep01(1.0 - s_from_b / blend);
+		let alpha = Smoothstep01::eval(1.0 - s_from_b / blend);
 		// Upstream of node seg+1 ⇒ negative s.
 		let w_node = elevation_from_node_pitches(path, levels, seg + 1, -s_from_b, blend);
 		// Renormalize if both ends contribute on a short segment.

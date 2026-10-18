@@ -1,6 +1,6 @@
 //! Named firearm presets: a body plus whatever optional slots that kit fills.
 
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::kit::FirearmKit;
 use crate::parts::{BarrelMesh, BodyMesh, GripMesh, SightMesh, StockMesh, TriggerBoxMesh};

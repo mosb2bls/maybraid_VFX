@@ -35,7 +35,6 @@ terrain-chunk-ref = { workspace = true }
 terrain-layer-model = { workspace = true }
 urbanization-layer-model = { workspace = true }
 vegetation-layer-model = { workspace = true }
-vegetation-layer-presentation = { workspace = true }
 futures = { workspace = true }
 
 [dev-dependencies]

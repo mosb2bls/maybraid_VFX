@@ -1,6 +1,7 @@
+pub mod arm_reach;
 pub mod articulation;
+pub mod authoring;
 pub mod debug;
-pub mod forelimbed;
 pub mod humanoid;
 pub mod pose;
 pub mod quadruped;
@@ -69,6 +70,22 @@ impl Side {
 		match self {
 			Self::Left => 1.0,
 			Self::Right => -1.0,
+		}
+	}
+
+	/// Left = 0, right = 1. Indexes bilateral pose arrays.
+	pub fn index(self) -> usize {
+		match self {
+			Self::Left => 0,
+			Self::Right => 1,
+		}
+	}
+
+	/// Alternating gait timing. This does not choose a rotation axis or a mirror sign.
+	pub fn phase_offset(self) -> f32 {
+		match self {
+			Self::Left => 0.0,
+			Self::Right => 0.5,
 		}
 	}
 }
@@ -193,8 +210,16 @@ impl BonePose {
 		self.twist = twist;
 		let rest = self.transform.rotation;
 		self.transform.rotation =
-			articulation::compose_local_rotation(rest, axis, swing, flex, twist);
+			articulation::compose_parent_rotation(rest, axis, swing, flex, twist);
 		self
+	}
+
+	/// Copy transform and articulation from `other`, leaving `self.name` unchanged.
+	pub fn copy_fields_from(&mut self, other: &Self) {
+		self.transform = other.transform;
+		self.swing = other.swing;
+		self.flex = other.flex;
+		self.twist = other.twist;
 	}
 
 	/// Lerp translation/scale, slerp rotation, lerp swing/flex/twist.
@@ -260,6 +285,25 @@ impl RigPose {
 
 	pub fn is_empty(&self) -> bool {
 		self.0.is_empty()
+	}
+
+	/// Backing map capacity (for reuse / benchmark checks).
+	pub fn capacity(&self) -> usize {
+		self.0.capacity()
+	}
+
+	/// Copy pose fields into an existing entry, or insert a clone when missing.
+	pub fn upsert_from(&mut self, source: &BonePose) {
+		if let Some(existing) = self.0.get_mut(&source.name) {
+			existing.copy_fields_from(source);
+		} else {
+			self.0.insert(source.name.clone(), source.clone());
+		}
+	}
+
+	/// Drop entries whose names are not in `retained`.
+	pub fn retain_bones(&mut self, retained: &std::collections::HashSet<Name>) {
+		self.0.retain(|name, _| retained.contains(name));
 	}
 
 	/// Blend two absolute poses. Missing bones are taken from the other side.
@@ -336,6 +380,31 @@ mod tests {
 		assert_eq!(bone.swing, 0.5);
 		assert_eq!(bone.flex, 1.0);
 		assert_eq!(bone.transform.translation, Vec3::new(1.0, -0.1, 0.0));
+	}
+
+	#[test]
+	fn rig_pose_upsert_from_reuses_entry_without_cloning_name() {
+		let name = Name::from("femur.L");
+		let mut pose = RigPose::new();
+		pose.insert(BonePose::new(name.clone(), Transform::IDENTITY));
+		let source = BonePose::with_pose(name.clone(), 0.5, 1.0, Vec3::X);
+		pose.upsert_from(&source);
+
+		let bone = pose.get(&name).expect("femur");
+		assert_eq!(bone.swing, 0.5);
+		assert_eq!(bone.flex, 1.0);
+		assert_eq!(bone.transform.translation, Vec3::X);
+	}
+
+	#[test]
+	fn rig_pose_retain_bones_drops_stale_entries() {
+		let mut pose = RigPose::new();
+		pose.insert(BonePose::new("femur.L", Transform::IDENTITY));
+		pose.insert(BonePose::new("tibia.L", Transform::IDENTITY));
+		let retained = std::collections::HashSet::from([Name::from("femur.L")]);
+		pose.retain_bones(&retained);
+		assert_eq!(pose.len(), 1);
+		assert!(pose.get(&Name::from("femur.L")).is_some());
 	}
 
 	#[test]

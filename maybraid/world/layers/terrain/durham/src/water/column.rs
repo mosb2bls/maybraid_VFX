@@ -89,8 +89,9 @@ mod tests {
 	#[test]
 	fn snapshot_matches_fill_on_the_stored_cell() -> anyhow::Result<()> {
 		use crate::terrain::cell::{cell_bounds, TerrainCellLayout};
-		use crate::terrain::index::TerrainEntryStore;
+		use crate::terrain::index::{insert_water_for_test, TerrainStorage};
 		use crate::water::Water;
+		use lod::hcsg::HcsgStorage;
 
 		let layout = TerrainCellLayout::default();
 		let cell = cell_bounds(0, 0, layout.cell_size, layout.vertical_half_extent);
@@ -107,8 +108,8 @@ mod tests {
 			stream_ring: None,
 		};
 		let expected = water.column_at(8.0, 8.0);
-		let mut store = TerrainEntryStore::default();
-		store.insert_water_for_test(water);
+		let mut store = HcsgStorage::default();
+		insert_water_for_test(&mut store, water);
 		assert_eq!(store.water_column_at(&layout, 8.0, 8.0), expected);
 		assert_eq!(store.water_snapshot().column(&layout, 8.0, 8.0), expected);
 		Ok(())

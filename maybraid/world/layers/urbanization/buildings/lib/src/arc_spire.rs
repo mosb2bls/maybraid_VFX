@@ -11,7 +11,7 @@
 use bevy_math::Vec3;
 use building_components::stairs::{Stair, StairNode};
 use building_components::{BuildingComponents, Layers, Placement};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Inclusive scale range vs the target tread height used when fitting \(Y\) gaps.
 #[derive(Debug, Clone, Copy, PartialEq)]

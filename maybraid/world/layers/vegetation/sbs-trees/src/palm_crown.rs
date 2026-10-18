@@ -9,7 +9,7 @@
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use sbs_geometry::FrondCrownShape;
 use vegetation_components::{
 	FoliageNode, FrondCollection, FrondRun, Layers, Placement, StickNode, StructuralLod,
@@ -401,7 +401,7 @@ impl VegetationComponents for PalmCrown {
 mod tests {
 	use super::*;
 	use anyhow::Result;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 
 	fn crown(seed: i32) -> PalmCrownParams {
 		PalmCrownParams {

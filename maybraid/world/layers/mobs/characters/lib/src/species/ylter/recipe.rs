@@ -21,7 +21,7 @@ use crate::{
 		ylter::assets::{YilterBodyMesh, YilterHeadMesh, YilterMouthMesh},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Yilter data attached to the character root entity.
 ///

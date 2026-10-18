@@ -19,7 +19,7 @@ use crate::{
 		common::{nodes as humanoid, EarMesh, EyeMesh, EAR_FLANK, HEAD_COWDER, TAIL_CAT},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Caole data attached to the character root entity.
 ///

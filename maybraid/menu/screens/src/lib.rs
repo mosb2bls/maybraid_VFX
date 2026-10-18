@@ -15,7 +15,6 @@ pub mod loading;
 pub mod settings;
 pub mod show;
 pub mod spin_reveal;
-pub mod training;
 
 pub use create_character::{
 	cancel_pending_create, request_show_create_character, request_show_create_character_id,
@@ -37,21 +36,20 @@ pub use loading::{
 	LoadingScreenSystems, RequestShowLoading,
 };
 pub use settings::{
-	apply_seed, apply_shadows_env, classify_host, load_machine_settings, parse_shadows_env,
+	apply_seed, apply_shadows_env, apply_unsaved_visual_style_default, classify_host,
+	load_machine_settings, load_machine_settings_ex, parse_render_scale_env, parse_shadows_env,
 	request_show_in_game_settings, save_machine_settings, seed_device_class, DeviceClass,
-	DeviceType, HostProbe, InGameSettings, InGameSettingsChoice, InGameSettingsPlugin,
-	InGameSettingsScreen, InGameShadowQuality, PersistPolicy, Preference, QualitySeeded,
-	RequestShowInGameSettings, ENV_SHADOWS,
+	DeviceType, HostProbe, InGameRenderScale, InGameSettings, InGameSettingsChoice,
+	InGameSettingsPlugin, InGameSettingsScreen, InGameSettingsSystems, InGameShadowQuality,
+	InGameVisualStyle, PersistPolicy, Preference, QualitySeeded, RenderScaleReadout,
+	RequestShowInGameSettings, VisualStyleAutoPick, VisualStyleSaved, ENV_RENDER_SCALE,
+	ENV_SHADOWS,
 };
-pub use show::{despawn_menu_screens, take_menu_show_request};
+pub use show::{add_menu_show_systems, MenuScreenSystems, MenuScreens, MenuShowRequest};
 pub use spin_reveal::{
 	request_show_spin_reveal, RequestShowSpinReveal, SpinRevealChoice, SpinRevealCurrent,
 	SpinRevealFinished, SpinRevealItems, SpinRevealScreen, SpinRevealScreenPlugin,
 	SpinRevealSystems,
-};
-pub use training::{
-	request_show_training, RequestShowTraining, TrainingCharacterChoice, TrainingEnemyMarkers,
-	TrainingScreen, TrainingScreenPlugin, TrainingSpawn,
 };
 
 /// Marker on every full-screen menu root so show-requests can replace each other.

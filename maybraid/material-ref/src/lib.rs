@@ -197,7 +197,9 @@ mod tests {
 		let child = app.world_mut().spawn((Mesh3d(mesh), ChildOf(root))).id();
 		app.update();
 		app.world_mut().entity_mut(child).despawn();
-		app.world_mut().entity_mut(root).insert(MaterialRefRoot(MaterialRef::named("bark")));
+		app.world_mut()
+			.entity_mut(root)
+			.insert(MaterialRefRoot(MaterialRef::named("bark")));
 		app.update();
 		assert!(app.world().get::<MaterialRefApplied>(root).is_some());
 		Ok(())

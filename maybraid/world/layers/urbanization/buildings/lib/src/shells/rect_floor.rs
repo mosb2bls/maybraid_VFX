@@ -18,7 +18,7 @@ use bevy_math::{Vec2, Vec3};
 use building_components::joints::JointNode;
 use building_components::panels::{PanelNode, PanelStyle};
 use building_components::{BuildingComponents, BuildingStructuralLodProbe, Layers, MassingVolume};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::openings::{MappedOpenings, Openings};
 use crate::paneling::fitted_rectangle::{ClippedFittedRectangle, FittedRectangle};

@@ -11,7 +11,7 @@ use firearms::{
 	firearm_bounds, spawn_firearm_components, FireOnTrigger, FirearmConcept, FirearmMembers,
 	FirearmRoot, ProjectileSource, WeaponTrigger,
 };
-use player::{PlayerLook, PlayerUse};
+use player::{wrap_pi, yaw_xz, PlayerLook, PlayerUse};
 
 use crate::hold::HoldingArms;
 use crate::weapon::{LiveWeapon, RecoilPattern};
@@ -106,20 +106,6 @@ pub fn stamp_holding_arms(
 	}
 }
 
-pub(crate) fn yaw_xz(dir: Vec3) -> f32 {
-	let xz = Vec3::new(dir.x, 0.0, dir.z);
-	if xz.length_squared() < 1e-8 {
-		0.0
-	} else {
-		let n = xz.normalize();
-		n.x.atan2(n.z)
-	}
-}
-
-pub(crate) fn wrap_pi(angle: f32) -> f32 {
-	(angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
-}
-
 pub(crate) fn clamped_aim_yaw(facing: Vec3, look: Vec3, aim_yaw_limit: f32) -> f32 {
 	let face = yaw_xz(facing);
 	let delta = wrap_pi(yaw_xz(look) - face).clamp(-aim_yaw_limit, aim_yaw_limit);
@@ -156,8 +142,8 @@ fn right_shoulder_anchor(
 
 pub fn pose_held_firearm(
 	users: Query<(&FirearmUser, &PlayerLook)>,
-	mut visuals: Query<
-		(&Transform, &mut CharacterHeading, &CharacterMembers, &ChildOf),
+	visuals: Query<
+		(&Transform, &CharacterHeading, &CharacterMembers, &ChildOf),
 		(With<CharacterRoot>, Without<HeldFirearm>, Without<characters::AnimBone>),
 	>,
 	maps: Query<&BoneMap, Without<HeldFirearm>>,
@@ -170,7 +156,7 @@ pub fn pose_held_firearm(
 		Query<&mut Transform, (With<FirearmRoot>, With<HeldFirearm>, Without<CharacterRoot>)>,
 	)>,
 ) {
-	for (visual, mut heading, members, child_of) in &mut visuals {
+	for (visual, heading, members, child_of) in &visuals {
 		let Ok((user, look)) = users.get(child_of.parent()) else {
 			continue;
 		};
@@ -190,7 +176,7 @@ pub fn pose_held_firearm(
 			continue;
 		};
 		drop(current);
-		let facing = heading.resolve(visual);
+		let facing = heading.facing(visual);
 		let look_dir = Quat::from_axis_angle(Vec3::Y, look.yaw) * -Vec3::Z;
 		let rotation = gun_aim_rotation_for(
 			facing,

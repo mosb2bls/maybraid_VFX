@@ -123,13 +123,13 @@ separate spatial tiling and not a fitted vertical AABB.
 
 | Concern | Owner |
 | --- | --- |
-| Origin-cell tiling / cell size | [`TerrainCellLayout`](src/terrain/cell.rs) via `original_ids_for_origin_cells` (shared by `Terrain` and `Water`) |
+| Origin-cell tiling / cell size | [`TerrainCellLayout`](src/terrain/cell.rs); `PreWatershedTerrain` tiles it, `Terrain` and `Water` reuse those ids through `GeneratingSpatialIndex::original_ids_for` |
 | Heightfield composition | [`ComposedTerrain`](src/terrain/sdf.rs) / `Terrain::compose_sdf` |
 | Wet-volume composition | [`ComposedWater`](src/water/composed.rs) / `ComposedWater::compose` |
 | Cascade chunk (`origin`, extent, Y, `res_2`) | [`cascade_chunk_for_cell`](src/terrain/render.rs) for **both** `Terrain::scene` and `Water::scene` |
-| Mesh resolution | `TerrainPresentationAssets.res_2` on the terrain cell; `Water` copies `terrain.res_2` |
+| Mesh resolution | `TerrainMeshAssets` bands on the terrain cell; `Water` copies `terrain.res_2` |
 
-Marazion lake and stream stamps author [`WaterFill`](../marazion/src/fill.rs): softmask +
+Marazion lake and stream stamps author [`WaterFill`](../watersheds/src/primitive/fill.rs): softmask +
 undercut gate columns, then a **half-space below \(W\)** (flat or graded). That is
 what lets water share terrain's tall cell Y without vanishing under marching cubes.
 Subterranean wet volume is intentional. Stream fills should stay **liberal** vs the
@@ -152,8 +152,8 @@ Use lakes / streams as the template. The failure mode to avoid is a **thin**
 that then fights graded surfaces sharing a cell).
 
 1. **Stamp owns the fill product.** In Marazion (or the relevant stamp crate),
-   emit a [`WaterFill`](../marazion/src/fill.rs) whose hydro surface is a
-   [`HydrologyComplex`](../marazion/src/complex.rs). The complex owns \(W\) blend
+   emit a [`WaterFill`](../watersheds/src/primitive/fill.rs) whose hydro surface is a
+   [`HydroComplex`](../watersheds/src/primitive/complex.rs). The complex owns \(W\) blend
    and the water SDF — do not invent a second meshing grid in the stamp.
 2. **Wet solid = carve × half-space.** Outside carve, return approximate distance
    to \(\phi = 0\). Inside carve, distance is \(y - W\) (flat free surface;

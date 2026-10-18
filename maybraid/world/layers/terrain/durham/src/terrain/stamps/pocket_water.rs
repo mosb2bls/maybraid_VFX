@@ -6,10 +6,8 @@ use terrain_stamps::PocketWater;
 
 define_stamp_family! {
 	layout: PocketWaterLowPassControllerLayout,
-	bootstrap_layout: BootstrapPocketWaterLowPassControllerLayout / bootstrap_pocket_water_low_pass_controller_layout,
 	controller: PocketWaterLowPassControllerCell,
 	stamp: PocketWaterLowPassStampCell,
-	leaves_fn: original_ids_for_pocket_water_low_pass_leaves,
 	family_salt: 55,
 	cell_size: (TERRAIN_CELL_SIZE * 1.25, MACRO_CELL_SIZE * 1.5),
 	controller_cell_size: MACRO_CELL_SIZE * 3.0,
@@ -28,10 +26,8 @@ define_stamp_family! {
 
 define_stamp_family! {
 	layout: PocketWaterHighPassControllerLayout,
-	bootstrap_layout: BootstrapPocketWaterHighPassControllerLayout / bootstrap_pocket_water_high_pass_controller_layout,
 	controller: PocketWaterHighPassControllerCell,
 	stamp: PocketWaterHighPassStampCell,
-	leaves_fn: original_ids_for_pocket_water_high_pass_leaves,
 	family_salt: 155,
 	cell_size: (MACRO_CELL_SIZE * 2.0, MACRO_CELL_SIZE * 8.0),
 	controller_cell_size: MACRO_CELL_SIZE * 20.0,

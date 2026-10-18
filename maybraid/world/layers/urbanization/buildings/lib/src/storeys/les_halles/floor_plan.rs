@@ -7,7 +7,7 @@ use building_components::panels::{PanelNode, PanelStyle};
 use building_components::{
 	ring_strip_xz, BuildingComponents, BuildingStructuralLodProbe, Layers, MassingVolume,
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use material_ref::MaterialRef;
 use procedural_common::{NoiseConfig, NoiseParams};
 

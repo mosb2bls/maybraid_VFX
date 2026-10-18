@@ -26,6 +26,104 @@ impl RoutePlan {
 	pub fn finest_waypoints(&self) -> &[Vec3] {
 		self.finest().map(|layer| layer.waypoints.as_slice()).unwrap_or(&[])
 	}
+
+	/// Build coarse-to-fine corridors from `from` toward `goal`.
+	pub fn plan(
+		from: Vec3,
+		goal: Vec3,
+		settings: &RoutingSettings,
+		probe: &impl RouteProbe,
+		previous: Option<&RoutePlan>,
+		failed: &[FailedEdge],
+	) -> Self {
+		let sampler = RouteSampler { settings, probe };
+		let hint_y = from.y;
+		let Some(start) = sampler.snap_origin(from, hint_y) else {
+			return RoutePlan::default();
+		};
+		let end = sampler.snap_origin(goal, goal.y.max(hint_y)).unwrap_or(goal);
+		if settings.bands.is_empty() {
+			return RoutePlan {
+				layers: vec![LayerPlan {
+					segment: RouteGeom::xz(start, end).max(1.0),
+					waypoints: vec![start, end],
+				}],
+			};
+		}
+
+		let mut parent = vec![start, end];
+		let mut layers = Vec::with_capacity(settings.bands.len());
+		for (index, band) in settings.bands.iter().enumerate() {
+			let previous_layer = previous.and_then(|plan| plan.layers.get(index));
+			let waypoints = LayerPlan::refine(
+				start,
+				end,
+				&parent,
+				*band,
+				index as u8,
+				settings,
+				probe,
+				previous_layer,
+				failed,
+			);
+			parent = waypoints.clone();
+			layers.push(LayerPlan { segment: band.segment, waypoints });
+		}
+		RoutePlan { layers }
+	}
+}
+
+impl LayerPlan {
+	fn refine(
+		start: Vec3,
+		goal: Vec3,
+		parent: &[Vec3],
+		band: crate::band::RoutingBand,
+		layer: u8,
+		settings: &RoutingSettings,
+		probe: &impl RouteProbe,
+		previous: Option<&LayerPlan>,
+		failed: &[FailedEdge],
+	) -> Vec<Vec3> {
+		let sampler = RouteSampler { settings, probe };
+		let evaluator = ChordEvaluator { layer, settings, probe, previous, failed };
+		let slack = band.lateral_span.max(band.segment * 0.25);
+		let mut waypoints = vec![start];
+		let mut current = start;
+		for _ in 0..MAX_HOPS_PER_LAYER {
+			if RouteGeom::xz(current, goal) <= band.segment * 0.55 {
+				break;
+			}
+			let (forward, perp) = RouteGeom::corridor_frame(parent, current, goal);
+			let step = band.segment.min(RouteGeom::xz(current, goal));
+			let mut scores = Vec::new();
+			for sample in RouteGeom::candidate_offsets(current, forward, perp, step, band) {
+				if RouteGeom::polyline_distance(parent, sample) > slack + 1e-3 {
+					continue;
+				}
+				let Some(point) = sampler.snap_origin(sample, current.y) else {
+					continue;
+				};
+				scores.push(evaluator.score(current, point));
+			}
+			let best = ChordScore::pick_best(&scores);
+			let Some(next) = best else {
+				break;
+			};
+			if RouteGeom::xz(next.point, current) < 0.25 {
+				break;
+			}
+			waypoints.push(next.point);
+			current = next.point;
+		}
+		if waypoints
+			.last()
+			.is_none_or(|point| RouteGeom::xz(*point, goal) > settings.arrival_radius)
+		{
+			waypoints.push(goal);
+		}
+		waypoints
+	}
 }
 
 /// A chord that a finer layer could not walk; coarse replans add cost here.
@@ -44,8 +142,10 @@ impl FailedEdge {
 	pub fn overlaps(self, a: Vec3, b: Vec3, slop: f32) -> bool {
 		let p = Vec2::new(a.x, a.z);
 		let q = Vec2::new(b.x, b.z);
-		segment_distance(self.a, self.b, p) <= slop && segment_distance(self.a, self.b, q) <= slop
-			|| segment_distance(p, q, self.a) <= slop && segment_distance(p, q, self.b) <= slop
+		RouteGeom::segment_distance(self.a, self.b, p) <= slop
+			&& RouteGeom::segment_distance(self.a, self.b, q) <= slop
+			|| RouteGeom::segment_distance(p, q, self.a) <= slop
+				&& RouteGeom::segment_distance(p, q, self.b) <= slop
 	}
 }
 
@@ -57,6 +157,205 @@ struct ChordScore {
 	cliff: bool,
 }
 
+impl ChordScore {
+	fn pick_best(scores: &[Self]) -> Option<Self> {
+		let legal = scores.iter().copied().filter(|score| !score.blocked && !score.cliff);
+		legal
+			.min_by(|a, b| a.cost.total_cmp(&b.cost))
+			.or_else(|| scores.iter().copied().min_by(|a, b| a.cost.total_cmp(&b.cost)))
+	}
+}
+
+struct RouteSampler<'a, P: RouteProbe> {
+	settings: &'a RoutingSettings,
+	probe: &'a P,
+}
+
+impl<P: RouteProbe> RouteSampler<'_, P> {
+	fn snap_origin(&self, point: Vec3, hint_y: f32) -> Option<Vec3> {
+		let ground = self.probe.ground(Vec2::new(point.x, point.z), hint_y)?;
+		Some(Vec3::new(ground.x, ground.y + self.settings.feet_below_origin, ground.z))
+	}
+
+	fn hip(&self, origin: Vec3) -> Vec3 {
+		Vec3::new(
+			origin.x,
+			origin.y - self.settings.feet_below_origin + self.settings.hip_height,
+			origin.z,
+		)
+	}
+}
+
+struct ChordEvaluator<'a, P: RouteProbe> {
+	layer: u8,
+	settings: &'a RoutingSettings,
+	probe: &'a P,
+	previous: Option<&'a LayerPlan>,
+	failed: &'a [FailedEdge],
+}
+
+impl<P: RouteProbe> ChordEvaluator<'_, P> {
+	fn score(&self, from: Vec3, to: Vec3) -> ChordScore {
+		let sampler = RouteSampler { settings: self.settings, probe: self.probe };
+		let length = RouteGeom::xz(from, to).max(0.01);
+		let hip_from = sampler.hip(from);
+		let hip_to = sampler.hip(to);
+		let blocked = self.probe.blocked(hip_from, hip_to);
+		let (cliff, max_drop) = self.chord_drop(from, to);
+		let mut cost = length + self.settings.weight_drop * max_drop;
+		if blocked {
+			cost += self.settings.blocked_cost;
+		}
+		if cliff {
+			cost += self.settings.cliff_cost;
+		}
+		if self
+			.failed
+			.iter()
+			.any(|edge| edge.layer == self.layer && edge.overlaps(from, to, 4.0))
+		{
+			cost += self.settings.failed_cost;
+		}
+		if let Some(previous) = self.previous {
+			let pull = RouteGeom::polyline_distance(&previous.waypoints, to);
+			cost += pull * self.settings.continuity;
+		}
+		ChordScore { point: to, cost, blocked, cliff }
+	}
+
+	fn chord_drop(&self, from: Vec3, to: Vec3) -> (bool, f32) {
+		let step = self
+			.settings
+			.bands
+			.iter()
+			.find(|band| band.segment + 1e-3 >= RouteGeom::xz(from, to))
+			.map(|band| band.probe_step)
+			.unwrap_or_else(|| (RouteGeom::xz(from, to) / 4.0).max(2.0));
+		let last_y = from.y - self.settings.feet_below_origin;
+		let mut max_drop = 0.0_f32;
+		for point in RouteGeom::chord_samples(from, to, step) {
+			let Some(ground) = self.probe.ground(Vec2::new(point.x, point.z), point.y) else {
+				return (true, self.settings.max_fall + 1.0);
+			};
+			let drop = (last_y - ground.y).max(0.0);
+			if drop > self.settings.max_fall + 0.04 {
+				return (true, drop);
+			}
+			max_drop = max_drop.max(drop);
+		}
+		(false, max_drop)
+	}
+}
+
+struct RouteGeom;
+
+impl RouteGeom {
+	fn xz(a: Vec3, b: Vec3) -> f32 {
+		Vec2::new(a.x, a.z).distance(Vec2::new(b.x, b.z))
+	}
+
+	fn candidate_offsets(
+		current: Vec3,
+		forward: Vec3,
+		perp: Vec3,
+		step: f32,
+		band: crate::band::RoutingBand,
+	) -> Vec<Vec3> {
+		let mut points = vec![current + forward * step];
+		let sides = band.laterals;
+		if sides == 0 || band.lateral_span <= 1e-4 {
+			return points;
+		}
+		for i in 1..=sides {
+			let offset = band.lateral_span * (i as f32 / sides as f32);
+			points.push(current + forward * step + perp * offset);
+			points.push(current + forward * step - perp * offset);
+		}
+		points
+	}
+
+	fn corridor_frame(parent: &[Vec3], current: Vec3, goal: Vec3) -> (Vec3, Vec3) {
+		let remaining = Vec3::new(goal.x - current.x, 0.0, goal.z - current.z);
+		let to_goal =
+			if remaining.length_squared() < 1e-6 { Vec3::X } else { remaining.normalize() };
+		let along_parent = Self::parent_tangent(parent, current).unwrap_or(to_goal);
+		let blended = along_parent * 0.35 + to_goal * 0.65;
+		let forward = blended.try_normalize().unwrap_or(to_goal);
+		let perp = Vec3::new(-forward.z, 0.0, forward.x);
+		(forward, perp)
+	}
+
+	fn parent_tangent(parent: &[Vec3], current: Vec3) -> Option<Vec3> {
+		if parent.len() < 2 {
+			return None;
+		}
+		let mut best = (f32::MAX, Vec3::X);
+		for window in parent.windows(2) {
+			let a = window[0];
+			let b = window[1];
+			let delta = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
+			let len = delta.length();
+			if len < 1e-4 {
+				continue;
+			}
+			let t = ((Vec2::new(current.x - a.x, current.z - a.z))
+				.dot(Vec2::new(delta.x, delta.z))
+				/ (len * len))
+				.clamp(0.0, 1.0);
+			let closest = a + delta * t;
+			let dist = Self::xz(current, closest);
+			if dist < best.0 {
+				best = (dist, delta / len);
+			}
+		}
+		(best.0 < f32::MAX).then_some(best.1)
+	}
+
+	fn chord_samples(from: Vec3, to: Vec3, step: f32) -> Vec<Vec3> {
+		let delta = Vec3::new(to.x - from.x, 0.0, to.z - from.z);
+		let len = delta.length();
+		if len < 1e-4 {
+			return vec![to];
+		}
+		let n = ((len / step.max(0.5)).ceil() as usize).max(1);
+		(1..=n)
+			.map(|i| {
+				let t = i as f32 / n as f32;
+				Vec3::new(from.x + delta.x * t, from.y.lerp(to.y, t), from.z + delta.z * t)
+			})
+			.collect()
+	}
+
+	fn polyline_distance(points: &[Vec3], sample: Vec3) -> f32 {
+		if points.is_empty() {
+			return 0.0;
+		}
+		if points.len() == 1 {
+			return Self::xz(points[0], sample);
+		}
+		points
+			.windows(2)
+			.map(|window| {
+				Self::segment_distance(
+					Vec2::new(window[0].x, window[0].z),
+					Vec2::new(window[1].x, window[1].z),
+					Vec2::new(sample.x, sample.z),
+				)
+			})
+			.fold(f32::MAX, f32::min)
+	}
+
+	fn segment_distance(a: Vec2, b: Vec2, p: Vec2) -> f32 {
+		let ab = b - a;
+		let len_sq = ab.length_squared();
+		if len_sq < 1e-8 {
+			return (p - a).length();
+		}
+		let t = ((p - a).dot(ab) / len_sq).clamp(0.0, 1.0);
+		(a + ab * t - p).length()
+	}
+}
+
 /// Build coarse-to-fine corridors from `from` toward `goal`.
 pub fn plan_route(
 	from: Vec3,
@@ -66,268 +365,7 @@ pub fn plan_route(
 	previous: Option<&RoutePlan>,
 	failed: &[FailedEdge],
 ) -> RoutePlan {
-	let hint_y = from.y;
-	let Some(start) = snap_origin(from, hint_y, settings, probe) else {
-		return RoutePlan::default();
-	};
-	let end = snap_origin(goal, goal.y.max(hint_y), settings, probe).unwrap_or(goal);
-	if settings.bands.is_empty() {
-		return RoutePlan {
-			layers: vec![LayerPlan {
-				segment: xz(start, end).max(1.0),
-				waypoints: vec![start, end],
-			}],
-		};
-	}
-
-	let mut parent = vec![start, end];
-	let mut layers = Vec::with_capacity(settings.bands.len());
-	for (index, band) in settings.bands.iter().enumerate() {
-		let previous_layer = previous.and_then(|plan| plan.layers.get(index));
-		let waypoints = refine_layer(
-			start,
-			end,
-			&parent,
-			*band,
-			index as u8,
-			settings,
-			probe,
-			previous_layer,
-			failed,
-		);
-		parent = waypoints.clone();
-		layers.push(LayerPlan { segment: band.segment, waypoints });
-	}
-	RoutePlan { layers }
-}
-
-fn refine_layer(
-	start: Vec3,
-	goal: Vec3,
-	parent: &[Vec3],
-	band: crate::band::RoutingBand,
-	layer: u8,
-	settings: &RoutingSettings,
-	probe: &impl RouteProbe,
-	previous: Option<&LayerPlan>,
-	failed: &[FailedEdge],
-) -> Vec<Vec3> {
-	let slack = band.lateral_span.max(band.segment * 0.25);
-	let mut waypoints = vec![start];
-	let mut current = start;
-	for _ in 0..MAX_HOPS_PER_LAYER {
-		if xz(current, goal) <= band.segment * 0.55 {
-			break;
-		}
-		let (forward, perp) = corridor_frame(parent, current, goal);
-		let step = band.segment.min(xz(current, goal));
-		let mut scores = Vec::new();
-		for sample in candidate_offsets(current, forward, perp, step, band) {
-			if polyline_distance(parent, sample) > slack + 1e-3 {
-				continue;
-			}
-			let Some(point) = snap_origin(sample, current.y, settings, probe) else {
-				continue;
-			};
-			scores.push(score_chord(current, point, layer, settings, probe, previous, failed));
-		}
-		let best = pick_score(&scores);
-		let Some(next) = best else {
-			break;
-		};
-		if xz(next.point, current) < 0.25 {
-			break;
-		}
-		waypoints.push(next.point);
-		current = next.point;
-	}
-	if waypoints.last().is_none_or(|point| xz(*point, goal) > settings.arrival_radius) {
-		waypoints.push(goal);
-	}
-	waypoints
-}
-
-fn candidate_offsets(
-	current: Vec3,
-	forward: Vec3,
-	perp: Vec3,
-	step: f32,
-	band: crate::band::RoutingBand,
-) -> Vec<Vec3> {
-	let mut points = vec![current + forward * step];
-	let sides = band.laterals;
-	if sides == 0 || band.lateral_span <= 1e-4 {
-		return points;
-	}
-	for i in 1..=sides {
-		let offset = band.lateral_span * (i as f32 / sides as f32);
-		points.push(current + forward * step + perp * offset);
-		points.push(current + forward * step - perp * offset);
-	}
-	points
-}
-
-fn corridor_frame(parent: &[Vec3], current: Vec3, goal: Vec3) -> (Vec3, Vec3) {
-	let remaining = Vec3::new(goal.x - current.x, 0.0, goal.z - current.z);
-	let to_goal = if remaining.length_squared() < 1e-6 { Vec3::X } else { remaining.normalize() };
-	let along_parent = parent_tangent(parent, current).unwrap_or(to_goal);
-	let blended = along_parent * 0.35 + to_goal * 0.65;
-	let forward = blended.try_normalize().unwrap_or(to_goal);
-	let perp = Vec3::new(-forward.z, 0.0, forward.x);
-	(forward, perp)
-}
-
-fn parent_tangent(parent: &[Vec3], current: Vec3) -> Option<Vec3> {
-	if parent.len() < 2 {
-		return None;
-	}
-	let mut best = (f32::MAX, Vec3::X);
-	for window in parent.windows(2) {
-		let a = window[0];
-		let b = window[1];
-		let delta = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
-		let len = delta.length();
-		if len < 1e-4 {
-			continue;
-		}
-		let t = ((Vec2::new(current.x - a.x, current.z - a.z)).dot(Vec2::new(delta.x, delta.z))
-			/ (len * len))
-			.clamp(0.0, 1.0);
-		let closest = a + delta * t;
-		let dist = xz(current, closest);
-		if dist < best.0 {
-			best = (dist, delta / len);
-		}
-	}
-	(best.0 < f32::MAX).then_some(best.1)
-}
-
-fn score_chord(
-	from: Vec3,
-	to: Vec3,
-	layer: u8,
-	settings: &RoutingSettings,
-	probe: &impl RouteProbe,
-	previous: Option<&LayerPlan>,
-	failed: &[FailedEdge],
-) -> ChordScore {
-	let length = xz(from, to).max(0.01);
-	let hip_from = hip(from, settings);
-	let hip_to = hip(to, settings);
-	let blocked = probe.blocked(hip_from, hip_to);
-	let (cliff, max_drop) = chord_drop(from, to, settings, probe);
-	let mut cost = length + settings.weight_drop * max_drop;
-	if blocked {
-		cost += settings.blocked_cost;
-	}
-	if cliff {
-		cost += settings.cliff_cost;
-	}
-	if failed.iter().any(|edge| edge.layer == layer && edge.overlaps(from, to, 4.0)) {
-		cost += settings.failed_cost;
-	}
-	if let Some(previous) = previous {
-		let pull = polyline_distance(&previous.waypoints, to);
-		cost += pull * settings.continuity;
-	}
-	ChordScore { point: to, cost, blocked, cliff }
-}
-
-fn pick_score(scores: &[ChordScore]) -> Option<ChordScore> {
-	let legal = scores.iter().copied().filter(|score| !score.blocked && !score.cliff);
-	legal
-		.min_by(|a, b| a.cost.total_cmp(&b.cost))
-		.or_else(|| scores.iter().copied().min_by(|a, b| a.cost.total_cmp(&b.cost)))
-}
-
-fn chord_drop(
-	from: Vec3,
-	to: Vec3,
-	settings: &RoutingSettings,
-	probe: &impl RouteProbe,
-) -> (bool, f32) {
-	let step = settings
-		.bands
-		.iter()
-		.find(|band| band.segment + 1e-3 >= xz(from, to))
-		.map(|band| band.probe_step)
-		.unwrap_or_else(|| (xz(from, to) / 4.0).max(2.0));
-	let mut last_y = from.y - settings.feet_below_origin;
-	let mut max_drop = 0.0_f32;
-	for point in chord_samples(from, to, step) {
-		let Some(ground) = probe.ground(Vec2::new(point.x, point.z), point.y) else {
-			return (true, settings.max_fall + 1.0);
-		};
-		let drop = (last_y - ground.y).max(0.0);
-		if drop > settings.max_fall + 0.04 {
-			return (true, drop);
-		}
-		max_drop = max_drop.max(drop);
-		last_y = ground.y;
-	}
-	(false, max_drop)
-}
-
-fn chord_samples(from: Vec3, to: Vec3, step: f32) -> Vec<Vec3> {
-	let delta = Vec3::new(to.x - from.x, 0.0, to.z - from.z);
-	let len = delta.length();
-	if len < 1e-4 {
-		return vec![to];
-	}
-	let n = ((len / step.max(0.5)).ceil() as usize).max(1);
-	(1..=n)
-		.map(|i| {
-			let t = i as f32 / n as f32;
-			Vec3::new(from.x + delta.x * t, from.y.lerp(to.y, t), from.z + delta.z * t)
-		})
-		.collect()
-}
-
-fn snap_origin(
-	point: Vec3,
-	hint_y: f32,
-	settings: &RoutingSettings,
-	probe: &impl RouteProbe,
-) -> Option<Vec3> {
-	let ground = probe.ground(Vec2::new(point.x, point.z), hint_y)?;
-	Some(Vec3::new(ground.x, ground.y + settings.feet_below_origin, ground.z))
-}
-
-fn hip(origin: Vec3, settings: &RoutingSettings) -> Vec3 {
-	Vec3::new(origin.x, origin.y - settings.feet_below_origin + settings.hip_height, origin.z)
-}
-
-fn xz(a: Vec3, b: Vec3) -> f32 {
-	Vec2::new(a.x, a.z).distance(Vec2::new(b.x, b.z))
-}
-
-fn polyline_distance(points: &[Vec3], sample: Vec3) -> f32 {
-	if points.is_empty() {
-		return 0.0;
-	}
-	if points.len() == 1 {
-		return xz(points[0], sample);
-	}
-	points
-		.windows(2)
-		.map(|window| {
-			segment_distance(
-				Vec2::new(window[0].x, window[0].z),
-				Vec2::new(window[1].x, window[1].z),
-				Vec2::new(sample.x, sample.z),
-			)
-		})
-		.fold(f32::MAX, f32::min)
-}
-
-fn segment_distance(a: Vec2, b: Vec2, p: Vec2) -> f32 {
-	let ab = b - a;
-	let len_sq = ab.length_squared();
-	if len_sq < 1e-8 {
-		return (p - a).length();
-	}
-	let t = ((p - a).dot(ab) / len_sq).clamp(0.0, 1.0);
-	(a + ab * t - p).length()
+	RoutePlan::plan(from, goal, settings, probe, previous, failed)
 }
 
 #[cfg(test)]
@@ -404,10 +442,10 @@ mod tests {
 		assert!((plan.layers[0].segment - 80.0).abs() < 1e-4);
 		let coarse = &plan.layers[0].waypoints;
 		assert!(coarse.len() >= 2);
-		let first_hop = xz(coarse[0], coarse[1]);
+		let first_hop = RouteGeom::xz(coarse[0], coarse[1]);
 		assert!(
 			(first_hop - 80.0).abs() < 12.0
-				|| first_hop + 1.0 >= xz(coarse[0], *coarse.last().unwrap()),
+				|| first_hop + 1.0 >= RouteGeom::xz(coarse[0], *coarse.last().unwrap()),
 			"first hop {first_hop}"
 		);
 		Ok(())

@@ -5,9 +5,9 @@ use std::sync::Arc;
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
-use lod::{cull_non_adjacent_bands, SceneChunk};
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
+use lod::{cull_non_adjacent_bands, lod_host_scene_pending, SceneChunk};
 use mob_characters::{CharacterSpecies, FromMobNumber};
 
 use crate::roster_ref::MemberRosterRef;
@@ -79,23 +79,31 @@ impl MobScene {
 		self
 	}
 
-	pub fn spawn(&self, commands: &mut Commands, transform: Transform) -> Entity {
+	/// The mob's host at `transform`, its High band centered there.
+	pub fn scene(&self, transform: Transform) -> impl Scene + 'static {
 		let scene = self.clone().at(transform.translation);
-		let bounds = scene.scene_bounds();
-		let lod_ref = LodRef {
-			entity: Entity::PLACEHOLDER,
-			previous_transform: &transform,
-			current_transform: &transform,
-			bounds: &bounds,
-		};
-		commands
-			.spawn_scene((
-				scene.host(&lod_ref),
-				bsn! {
-					template_value(transform)
-				},
-			))
-			.id()
+		(
+			lod_host_scene_pending(scene.level_for(&transform), scene.scene_bounds()),
+			scene.contents(),
+			bsn! {
+				template_value(transform)
+			},
+		)
+	}
+
+	fn contents(&self) -> impl Scene + 'static {
+		let host = self.clone();
+		let kind = self.mob.kind;
+		bsn! {
+			template_value(host)
+			template_value(kind)
+			Name::new(format!("{kind:?} mob"))
+			Visibility::default()
+		}
+	}
+
+	pub fn spawn(&self, commands: &mut Commands, transform: Transform) -> Entity {
+		commands.spawn_scene(self.scene(transform)).id()
 	}
 
 	fn level_for(&self, transform: &Transform) -> LodSceneLevel {
@@ -186,14 +194,7 @@ impl LodScene for MobScene {
 	}
 
 	fn host_contents(&self, _lod_ref: &LodRef) -> impl Scene + 'static {
-		let host = self.clone();
-		let kind = self.mob.kind;
-		bsn! {
-			template_value(host)
-			template_value(kind)
-			Name::new(format!("{kind:?} mob"))
-			Visibility::default()
-		}
+		self.contents()
 	}
 }
 

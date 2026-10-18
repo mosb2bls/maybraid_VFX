@@ -4,8 +4,8 @@ use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec3;
 use bevy::prelude::Component;
 use bevy::scene::prelude::Scene;
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
 
 use crate::assets::panels::rough_stonework::{RECTANGLE_HIGH, RECTANGLE_LOW, RECTANGLE_MID};

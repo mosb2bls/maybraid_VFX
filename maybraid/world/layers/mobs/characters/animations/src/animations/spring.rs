@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::animations::Squat;
 use crate::Progress;
 
@@ -8,12 +6,11 @@ const HUMERUS_FLEX_BACK: f32 = 0.65;
 const FOREARM_EXTEND: f32 = -0.35;
 
 #[derive(Debug, Clone)]
-pub struct Spring<Rig> {
-	pub squat: Squat<Rig>,
-	_rig: PhantomData<Rig>,
+pub struct Spring {
+	pub squat: Squat,
 }
 
-impl<Rig> Spring<Rig> {
+impl Spring {
 	/// Ease-out 0 at crouch, 1 at full extension.
 	pub fn extend_amount(&self, progress: f32) -> f32 {
 		let t = Progress(progress).clamp();
@@ -54,9 +51,9 @@ impl<Rig> Spring<Rig> {
 	}
 }
 
-impl<Rig> Default for Spring<Rig> {
+impl Default for Spring {
 	fn default() -> Self {
-		Self { squat: Squat::default(), _rig: PhantomData }
+		Self { squat: Squat::default() }
 	}
 }
 
@@ -66,7 +63,7 @@ mod tests {
 
 	#[test]
 	fn spring_end_straens_legs() -> anyhow::Result<()> {
-		let spring = Spring::<()>::default();
+		let spring = Spring::default();
 		assert!(spring.femur_swing(0.99).abs() < 1e-2);
 		assert!(spring.shin_flex(0.99).abs() < 1e-2);
 		assert!(spring.root_swing(0.99).abs() < 1e-2);
@@ -75,8 +72,8 @@ mod tests {
 
 	#[test]
 	fn spring_start_matches_full_squat_angles() -> anyhow::Result<()> {
-		let squat = Squat::<()>::default();
-		let spring = Spring::<()>::default();
+		let squat = Squat::default();
+		let spring = Spring::default();
 		assert!((spring.femur_swing(0.0) - squat.femur_peak).abs() < 1e-5);
 		assert!((spring.shin_flex(0.0) - squat.shin_peak).abs() < 1e-5);
 		Ok(())
@@ -84,7 +81,7 @@ mod tests {
 
 	#[test]
 	fn spring_arms_reach_back_at_full_extension() -> anyhow::Result<()> {
-		let spring = Spring::<()>::default();
+		let spring = Spring::default();
 		assert!(spring.shoulder_swing(0.99) < -0.3);
 		assert!(spring.humerus_flex(0.99) > 0.0);
 		Ok(())

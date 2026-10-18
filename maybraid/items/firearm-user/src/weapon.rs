@@ -12,6 +12,9 @@ use std::hash::{Hash, Hasher};
 /// Kick range (radians) per catalog recoil unit. Positive pitch is look up.
 pub const RECOIL_PITCH_PER_UNIT: f32 = 0.02;
 
+/// Minimum seconds between semi-auto rising edges.
+pub const SEMI_INTERVAL_FLOOR: f32 = 1.0 / 20.0;
+
 /// Catalog recoil for the default 25 DPC bolt (duel / unspec'd spawn).
 const DEFAULT_CATALOG_RECOIL: f32 = 1.9;
 
@@ -93,7 +96,7 @@ fn cadence_from_stats(stats: FirearmStats) -> (FireControl, f32) {
 		Some(FireMode::Burst { rounds, rpm }) => {
 			(FireControl::burst(rounds), interval_from_rpm(rpm))
 		}
-		Some(FireMode::SemiAuto) => (FireControl::semi(), 0.0),
+		Some(FireMode::SemiAuto) => (FireControl::semi(), SEMI_INTERVAL_FLOOR),
 		Some(FireMode::Gated { recharge_tenths }) => {
 			(FireControl::gated(), f32::from(recharge_tenths) / 10.0)
 		}
@@ -202,6 +205,38 @@ mod tests {
 		assert_eq!(live.fire.cadence, Cadence::Burst);
 		assert_eq!(live.fire.burst_rounds, 3);
 		assert!((live.weapon.interval - 60.0 / 900.0).abs() < 1e-5);
+	}
+
+	#[test]
+	fn semi_uses_the_click_floor() {
+		let mut stats = bolt_auto();
+		stats.fire = Some(FireMode::SemiAuto);
+		let live = live_weapon_from_stats(stats, 0);
+		assert_eq!(live.fire.cadence, Cadence::Semi);
+		assert!((live.weapon.interval - SEMI_INTERVAL_FLOOR).abs() < 1e-5);
+	}
+
+	#[test]
+	fn semi_floor_rejects_a_second_shot_inside_the_window() {
+		use firearms::advance_shot_clock;
+		let mut stats = bolt_auto();
+		stats.fire = Some(FireMode::SemiAuto);
+		let live = live_weapon_from_stats(stats, 0);
+		let mut cooldown = 0.0;
+		let dt = 0.016;
+		assert_eq!(advance_shot_clock(&mut cooldown, live.weapon.interval, dt, 1).shots, 1);
+		let mut elapsed = dt;
+		loop {
+			let fired = advance_shot_clock(&mut cooldown, live.weapon.interval, dt, 1).shots;
+			elapsed += dt;
+			if fired > 0 {
+				assert!(elapsed + 1e-4 >= SEMI_INTERVAL_FLOOR, "{elapsed}");
+				return;
+			}
+			if elapsed > SEMI_INTERVAL_FLOOR + 0.1 {
+				panic!("semi never rearmed");
+			}
+		}
 	}
 
 	#[test]

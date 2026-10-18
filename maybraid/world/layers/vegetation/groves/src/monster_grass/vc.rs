@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{noise_params_from_scalar_str, NoiseParams};
 use sbs_trees::QuantizedPlant;
 use vegetation_components::{FoliageNode, Layers, StickNode, StructuralLod, VegetationComponents};
@@ -191,10 +191,10 @@ impl MonsterGrass {
 	fn tuft_scene_chunks(
 		&self,
 		lod_ref: &lod::lod_ref::LodRef,
-		level: lod::gen::LodSceneLevel,
+		level: lod::scene::LodSceneLevel,
 	) -> lod::SceneChunk {
 		match level {
-			lod::gen::LodSceneLevel::High | lod::gen::LodSceneLevel::Medium => {
+			lod::scene::LodSceneLevel::High | lod::scene::LodSceneLevel::Medium => {
 				self.body.high_medium_chunks(lod_ref, level)
 			}
 			_ => self.body.low_ultra_chunks(lod_ref, level),

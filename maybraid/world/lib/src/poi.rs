@@ -1,5 +1,11 @@
 //! Hierarchical world POIs over streamed Chico and Richmond scenes.
 
+mod hcsg;
+#[cfg(test)]
+mod scheme_timing;
+
+pub use hcsg::{GrovePois, PlacePois, UrbanPois, WorldPoiTiles};
+
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
@@ -8,13 +14,14 @@ use chico::ChicoGroveHost;
 use lod::LodScene;
 use mob_characters::{LOCAL_POI, SALOON_POI, URBAN_POI, VEGETATION_POI};
 use poi_intelligence::{
-	GlobalPoi, LocalPoi, Poi, PoiId, PoiIntelligencePlugin, PoiKind, PoiRegistry, PoiSystems,
+	DistantTilePoiLookup, GlobalPoi, LocalPoi, Poi, PoiId, PoiIntelligencePlugin, PoiKind,
+	PoiRegistry, PoiSystems,
 };
 use richmond::{DiscoverablePlace, DiscoverablePlaceLabel};
 use urbanization_layer_model::UrbanSetting;
 use vegetation_components::VegetationInstance;
 
-const LOCAL_VEGETATION_TILE: f32 = 48.0;
+const LOCAL_VEGETATION_TILE: f32 = 160.0;
 const VEGETATION_POI_SALT: u64 = 0x7665_6765_7461_7469;
 const GROVE_POI_SALT: u64 = 0x6772_6f76_652d_706f;
 const URBAN_POI_SALT: u64 = 0x7572_6261_6e2d_706f;
@@ -31,9 +38,9 @@ pub struct WorldPoiDiscoveryBudget {
 impl Default for WorldPoiDiscoveryBudget {
 	fn default() -> Self {
 		Self {
-			scene_candidates_per_frame: 16,
-			vegetation_candidates_per_frame: 24,
-			local_places_per_building: 6,
+			scene_candidates_per_frame: 24,
+			vegetation_candidates_per_frame: 6,
+			local_places_per_building: 8,
 		}
 	}
 }
@@ -82,6 +89,7 @@ impl Plugin for WorldPoiPlugin {
 		}
 		app.init_resource::<WorldPoiDiscoveryBudget>()
 			.init_resource::<WorldPoiDiscoveryState>()
+			.insert_resource(DistantTilePoiLookup::new(hcsg::WorldPoiTiles))
 			.configure_sets(
 				Update,
 				(WorldPoiSystems::Collect, WorldPoiSystems::Discover)
@@ -104,6 +112,7 @@ impl Plugin for WorldPoiPlugin {
 					.chain()
 					.in_set(WorldPoiSystems::Discover),
 			);
+		hcsg::register_world_poi_generation(app);
 	}
 }
 
@@ -217,7 +226,7 @@ fn queue_place(
 	});
 }
 
-fn place_kind(label: DiscoverablePlaceLabel) -> PoiKind {
+pub(super) fn place_kind(label: DiscoverablePlaceLabel) -> PoiKind {
 	match label {
 		DiscoverablePlaceLabel::Stall
 		| DiscoverablePlaceLabel::Lounge
@@ -362,7 +371,7 @@ fn discover_local_vegetation(
 			Transform::from_translation(instance.anchor),
 			Poi::new(spatial_poi_id(VEGETATION_POI_SALT, world), VEGETATION_POI)
 				.with_arrival_radius(instance.radius.clamp(0.5, 8.0))
-				.with_salience(1.0),
+				.with_salience(0.55),
 			LocalPoi,
 		));
 	}
@@ -400,6 +409,10 @@ mod tests {
 		assert_eq!(
 			vegetation_tile(Vec3::new(49.0, 2.0, -1.0)),
 			vegetation_tile(Vec3::new(49.0, 900.0, -1.0))
+		);
+		assert_ne!(
+			vegetation_tile(Vec3::new(0.0, 0.0, 0.0)),
+			vegetation_tile(Vec3::new(LOCAL_VEGETATION_TILE, 0.0, 0.0))
 		);
 	}
 

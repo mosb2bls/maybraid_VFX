@@ -1,8 +1,8 @@
 //! Right-side loadout plate: weapon card above the skill-map viewport.
 
 use bevy::prelude::*;
-use character_items::Inventory;
 use character_inventory_user::InventoryUser;
+use character_items::Inventory;
 use menu_components::{HudFonts, TEXT_YELLOW};
 
 use crate::user::SkillMapUser;
@@ -286,7 +286,10 @@ mod tests {
 
 	#[test]
 	fn name_stacks_on_word_breaks() {
-		assert_eq!(stacked_weapon_name("Brushed Midnight Hush Gun"), "Brushed\nMidnight\nHush\nGun");
+		assert_eq!(
+			stacked_weapon_name("Brushed Midnight Hush Gun"),
+			"Brushed\nMidnight\nHush\nGun"
+		);
 	}
 
 	#[test]

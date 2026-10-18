@@ -9,8 +9,8 @@
 use bevy::ecs::relationship::RelationshipTarget;
 use bevy::prelude::CommandsSceneExt;
 use bevy::prelude::*;
-use lod::gen::LodScene;
 use lod::lod_ref::LodRef;
+use lod::scene::LodScene;
 use rigs::AssemblyMembers;
 
 use crate::assembly::CharacterPartSlot;

@@ -55,7 +55,7 @@ via [`ComponentsOnly`](src/components.rs) [`LodScene::host`](../../../../../lod/
 Part colors live on [`PartNode::material`](src/nodes/part.rs) (`*Colors::color_for_slot`
 and [`ClothingLayer`](src/components.rs) stamp palette[0]). Live playground tint
 inserts [`MaterialRefRoot`](src/nodes/part.rs) on the part host (change-driven
-[`material-ref`](../../material-ref) fulfill); [`PreviewAssetTarget`](../character-concepts-playground/src/preview.rs)
+[`material-ref`](../../../../../material-ref) fulfill); [`PreviewAssetTarget`](../../../../../menu/character-concepts-playground/src/preview.rs)
 stays UI mapping, not the paint path. Live animation inserts [`AnimRefRoot`](src/anim.rs)
 on the body member (`ConceptAnimation` maps at the playground/menu edge).
 Playground live updates query [`CharacterMembers`](src/member.rs) of the preview
@@ -89,27 +89,27 @@ root — not the whole world.
 
 1. Add `src/characters/<name>.rs` — menu structs, `From` conversions to/from
    `*Config`, and `camera_focus_for_field`.
-2. Register the module in [`src/characters.rs`](../character-ui-menus/src/characters.rs).
-3. Extend [`src/character.rs`](../character-ui-menus/src/character.rs):
+2. Register the module in [`src/characters.rs`](../../../../../menu/character-creation-menus/src/characters.rs).
+3. Extend [`src/character.rs`](../../../../../menu/character-creation-menus/src/character.rs):
    - `ConceptSpecies::<Name>`
    - `CharacterMenu::<name>` field
    - `from_<name>`, `apply_<name>`, config accessor
-4. Extend [`src/event.rs`](../character-ui-menus/src/event.rs) with any new
+4. Extend [`src/event.rs`](../../../../../menu/character-creation-menus/src/event.rs) with any new
    `CharacterField`, `AssetValue`, and `SwatchValue` variants.
 
 ### 3. `character-concepts-playground`
 
 1. Add `src/commands/<name>.rs` for CLI preview `args`.
-2. Extend [`src/preview.rs`](../character-concepts-playground/src/preview.rs):
+2. Extend [`src/preview.rs`](../../../../../menu/character-concepts-playground/src/preview.rs):
    - `ConceptPreviewConfig::<Name>` (add the variant to `with_clothed_recipe!`)
    - `PreviewTarget::<Name>*` variants and `preview_asset_target` mapping
    - `*Colors::color_for_slot` (recipe stamps `PartNode.material`; spawn /
      `lod_rig_nodes` / `lod_part_nodes` go through the macro). Live tint writes
      `MaterialRefRoot` on the part member of the preview [`CharacterRoot`].
-3. Update [`src/menu_listeners.rs`](../character-concepts-playground/src/menu_listeners.rs),
-   [`src/species_session.rs`](../character-concepts-playground/src/species_session.rs),
-   [`src/focus_reference.rs`](../character-concepts-playground/src/focus_reference.rs),
-   and [`src/preview_color.rs`](../character-concepts-playground/src/preview_color.rs).
+3. Update [`src/menu_listeners.rs`](../../../../../menu/character-concepts-playground/src/menu_listeners.rs),
+   [`src/species_session.rs`](../../../../../menu/character-concepts-playground/src/species_session.rs),
+   [`src/focus_reference.rs`](../../../../../menu/character-concepts-playground/src/focus_reference.rs),
+   and [`src/preview_color.rs`](../../../../../menu/character-concepts-playground/src/preview_color.rs).
 
 ### Verify
 
@@ -117,26 +117,26 @@ root — not the whole world.
 cargo test -p characters
 cargo test -p character-creation-menus
 cargo check -p character-concepts-playground
-cargo check -p character-world-movements-playground
 ```
 
-World locomotion (walk / run / jump on a small Durham patch) is
-[`character-world-movements-playground`](../character-world-movements-playground/):
+World locomotion (walk / run / jump on streamed Durham ground) runs in
+[`maybraid-world-playground`](../../../../playground/):
 
 ```bash
-cargo run -p character-world-movements-playground
+cargo run -p maybraid-world-playground
 ```
 
-Spawn from the playground UI (species picker) or CLI:
+Spawn from the playground UI (species picker) or CLI (`character-concepts` is
+[`CONCEPTS_CLI_NAME`](../../../../../menu/character-concepts-playground/src/commands.rs)):
 
 ```bash
-crozon-concepts mygr preview --skin ginger --eyes green
+cargo run -p character-concepts-playground -- mygr preview --skin ginger --eyes green
 ```
 
 Preview socket/skin debug:
 
 ```bash
-CROZON_PREVIEW_DEBUG=1 crozon-concepts hars preview
+CROZON_PREVIEW_DEBUG=1 cargo run -p character-concepts-playground -- hars preview
 ```
 
 ### Socketing, scale, and shear

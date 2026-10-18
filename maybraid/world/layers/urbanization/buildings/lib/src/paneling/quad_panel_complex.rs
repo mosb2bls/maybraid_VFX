@@ -72,7 +72,7 @@ impl FromStr for QuadPanelComplex {
 mod tests {
 	use super::*;
 	use building_components::BuildingComponents;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 
 	#[test]
 	fn from_str_into_complex_escape_hatch() {

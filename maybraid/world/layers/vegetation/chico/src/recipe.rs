@@ -5,8 +5,8 @@
 use bevy::math::bounding::Aabb3d;
 use bevy_math::Vec2;
 use gimme_gen::Cell;
-use lod::gen::LodScene;
 use lod::lod_ref::LodRef;
+use lod::scene::LodScene;
 use lod::{LodSceneCulls, LodSceneLevel, LodSceneStatus, SceneChunk};
 use vegetation_groves::{
 	AlpineParams, AridConiferSaplingParams, BraidGrassParams, BushScrubParams,

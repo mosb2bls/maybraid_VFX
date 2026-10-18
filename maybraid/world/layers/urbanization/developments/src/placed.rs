@@ -2,6 +2,8 @@
 
 use bevy_math::bounding::Aabb2d;
 use bevy_math::Vec2;
+use buildings::{Confines, FillableRegions, Fit, FitError};
+use procedural_common::NoiseParams;
 
 /// Building geometry authored axis-aligned in world coordinates, plus the pose
 /// applied around its own plan center at host spawn.
@@ -23,6 +25,27 @@ impl<T> PlacedBuilding<T> {
 			ground_height: self.ground_height,
 			building: map(self.building),
 		}
+	}
+}
+
+/// `T` fitted to the unrotated confines, posed at their center and floor with
+/// their roll as yaw.
+impl<T: Fit> Fit for PlacedBuilding<T> {
+	fn fit_to_confines(
+		confines: &Confines,
+		noise: NoiseParams,
+	) -> Result<(Self, FillableRegions), FitError> {
+		let (building, regions) = T::fit_to_confines(confines, noise)?;
+		Ok((
+			Self {
+				center_xz: confines.center_xz(),
+				yaw: confines.roll,
+				footprint: confines.footprint(),
+				ground_height: confines.bounds.min.y,
+				building,
+			},
+			regions,
+		))
 	}
 }
 

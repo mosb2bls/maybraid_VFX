@@ -1,42 +1,46 @@
-//! Durham terrain models: LOD generation, Avian spatial index, SDF meshing.
+//! Durham terrain models: HCSG generation over [`lod::hcsg::HcsgStorage`], SDF meshing.
 //!
 //! Each model owns an idempotent plugin (e.g. [`terrain::TerrainResourcesPlugin`]). The
 //! crate-root [`DurhamTerrainModelsPlugin`] composes those model plugins.
 
+pub mod hcsg;
 pub mod terrain;
 pub mod water;
 
+#[cfg(any(test))]
+pub use hcsg::SharedTerrainStorageTestExt;
+pub use hcsg::{
+	register_durham_hcsg_session, BackgroundStream, DurhamPresentationPlugin, DurhamSurface,
+	DurhamWindow, DurhamWorldPlugin, FarStream, NearStream, PlayableStreams, SharedTerrainStorage,
+	StreamPresentationPlugin, StreamRing, Streamed, TerrainStream, WaterPresentationPlugin,
+};
+/// Frame-side terrain reads use [`SharedTerrainStorage`]; storage itself is
+/// [`lod::hcsg::HcsgStorage`].
 pub use terrain::render::cascade_chunk_for_cell;
 pub use terrain::{
-	fine_patch_cell_layout, origin_cell_ids_for_layout, playable_world_cell_layout,
-	register_terrain_plugin, retarget_presentation_assets, stream_banded_draws,
-	stream_banded_level, stream_banded_scene, terrain_collider_covers_xz, AvianTerrainIndex,
-	BaseTerrainNoise, CanyonHighPassControllerLayout, CanyonLowPassControllerLayout,
-	CanyonStampCell, CascadeChunk, ComposedTerrain, Durham, DurhamCells, DurhamHeightSnapshot,
-	DurhamRead, DurhamTerrainConfig, MacroCellLayout, MassifHighPassControllerLayout,
+	fine_patch_cell_layout, mesh_assets, playable_world_cell_layout, register_terrain_plugin,
+	retarget_mesh_assets, stream_banded_draws, stream_banded_level, stream_banded_scene,
+	terrain_collider_covers_xz, BaseTerrainNoise, CanyonHighPassControllerLayout,
+	CanyonLowPassControllerLayout, CanyonStampCell, CascadeChunk, CellTiling, ComposedTerrain,
+	Durham, DurhamRoots, GeographicBand, GeographicFamily, GeographicFeature, GeographicFeatureId,
+	GeographicFeatureKind, MacroCellLayout, MassifHighPassControllerLayout,
 	MassifLowPassControllerLayout, MassifStampCell, OuterCellRing, PlateauControllerLayout,
 	PlateauHighPassControllerLayout, PlateauLowPassControllerLayout, PlateauStampCell,
 	PocketWaterHighPassControllerLayout, PocketWaterLowPassControllerLayout, PocketWaterStampCell,
-	PrePocketHighPassLayout, PrePocketLowPassLayout, PreWatershedTerrain, PresentedTerrainScene,
+	PrePocketHighPassLayout, PrePocketLowPassLayout, PreWatershedTerrain,
 	RollingHighPassControllerLayout, RollingLowPassControllerLayout, RollingStampCell,
-	StampControllerLayouts, StreamBandedLod, Terrain, TerrainBackground,
-	TerrainBackgroundRegionPresenter, TerrainCellId, TerrainCellLayout, TerrainCellRing,
-	TerrainColliderEpoch, TerrainColliderMeshSource, TerrainColliderSystems, TerrainConfig,
-	TerrainCoverage, TerrainEntryStore, TerrainFar, TerrainFarRegionPresenter, TerrainFillSystems,
-	TerrainFrictionConfig, TerrainHeightSnapshot, TerrainLayoutPinned, TerrainMeshBuilder,
-	TerrainMeshLodBand, TerrainNear, TerrainNearRegionPresenter, TerrainPresentPending,
-	TerrainPresentationAssets, TerrainPresentationDirty, TerrainPresenterState,
-	TerrainRegionPresenter, TerrainRenderItem, TerrainResourcesPlugin, TerrainRetarget, TerrainSdf,
-	TerrainStampConfigs, TerrainStoreView, TerrainStreamMarker, TerrainStreamPresenterState,
-	TerrainStreamRegionPresenter, TerrainSuperseded, TerrainTrimeshCollider, TerrainVisualHost,
-	ValleyHighPassControllerLayout, ValleyLowPassControllerLayout, ValleyStampCell,
-	WaterSurfaceSnapshot, WatershedBandPass, WatershedConfigs, WatershedLeafBounds,
-	WatershedLeafKind, WorldBaseTerrain, MACRO_CELL_SIZE, TERRAIN_CELL_SIZE, TERRAIN_FRICTION,
-	WORLD_FINE_HALF_EXTENT_CELLS, WORLD_OUTER_2X_ROWS, WORLD_OUTER_4X_ROWS,
+	StreamBandedLod, Terrain, TerrainCellLayout, TerrainCellRing, TerrainColliderCookBudget,
+	TerrainColliderMeshSource, TerrainColliderSystems, TerrainConfig, TerrainCoverage,
+	TerrainFrictionConfig, TerrainHeightSnapshot, TerrainLayoutPinned, TerrainMeshAssets,
+	TerrainMeshBuilder, TerrainMeshLodBand, TerrainPresentPending, TerrainPresentationDirty,
+	TerrainRenderItem, TerrainResourcesPlugin, TerrainRetarget, TerrainSdf, TerrainStampConfigs,
+	TerrainTrimeshCollider, ValleyHighPassControllerLayout, ValleyLowPassControllerLayout,
+	ValleyStampCell, WaterSurfaceSnapshot, WatershedBandPass, WatershedConfigs,
+	WatershedLeafBounds, WatershedLeafKind, WorldBaseTerrain, MACRO_CELL_SIZE, TERRAIN_CELL_SIZE,
+	TERRAIN_FRICTION, WORLD_FINE_HALF_EXTENT_CELLS, WORLD_OUTER_2X_ROWS, WORLD_OUTER_4X_ROWS,
 };
 pub use water::{
-	register_water_plugin, ComposedWater, PresentedWaterScene, Water, WaterColumn, WaterPlugin,
-	WaterPresentationAssets, WaterPresenterState, WaterRegionPresenter, WaterStoreView,
+	register_water_plugin, ComposedWater, Water, WaterColumn, WaterMeshAssets, WaterPlugin,
 };
 
 use bevy::prelude::*;

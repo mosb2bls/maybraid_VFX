@@ -1,4 +1,5 @@
-use character_rigs::{quadruped::QuadrupedRig, Side};
+use character_rigs::authoring::QuadrupedPose;
+use character_rigs::Side;
 
 use crate::rigs::quadruped::apply::{apply_front_leg, apply_hind_leg};
 
@@ -40,8 +41,11 @@ pub(crate) fn leg_phase_from_strike(cycle: f32, strike: f32) -> f32 {
 }
 
 /// Continuous stride articulation at an arbitrary leg phase (`0` at foot strike).
-pub(crate) fn apply_front_leg_stride<R: QuadrupedRig>(
-	rig: &mut R,
+///
+/// Shoulder lift flips with the side as a gait bias. Shin hinge stays the same
+/// positive flexion on both legs.
+pub(crate) fn apply_front_leg_stride(
+	pose: &mut QuadrupedPose,
 	side: Side,
 	leg_phase: f32,
 	tuning: LegStrideTuning,
@@ -50,7 +54,7 @@ pub(crate) fn apply_front_leg_stride<R: QuadrupedRig>(
 	let lift_sign = if side == Side::Left { -1.0 } else { 1.0 };
 
 	apply_front_leg(
-		rig,
+		pose,
 		side,
 		swing * tuning.shoulder_swing,
 		swing * tuning.shoulder_lift * lift_sign,
@@ -60,8 +64,8 @@ pub(crate) fn apply_front_leg_stride<R: QuadrupedRig>(
 }
 
 /// Continuous stride articulation at an arbitrary leg phase (`0` at foot strike).
-pub(crate) fn apply_hind_leg_stride<R: QuadrupedRig>(
-	rig: &mut R,
+pub(crate) fn apply_hind_leg_stride(
+	pose: &mut QuadrupedPose,
 	side: Side,
 	leg_phase: f32,
 	tuning: LegStrideTuning,
@@ -70,7 +74,7 @@ pub(crate) fn apply_hind_leg_stride<R: QuadrupedRig>(
 	let lift_sign = if side == Side::Left { -1.0 } else { 1.0 };
 
 	apply_hind_leg(
-		rig,
+		pose,
 		side,
 		swing * tuning.hip_swing,
 		swing * tuning.hip_lift * lift_sign,
@@ -79,22 +83,22 @@ pub(crate) fn apply_hind_leg_stride<R: QuadrupedRig>(
 	);
 }
 
-pub(crate) fn apply_front_leg_at_strike<R: QuadrupedRig>(
-	rig: &mut R,
+pub(crate) fn apply_front_leg_at_strike(
+	pose: &mut QuadrupedPose,
 	side: Side,
 	cycle: f32,
 	strike: f32,
 	tuning: LegStrideTuning,
 ) {
-	apply_front_leg_stride(rig, side, leg_phase_from_strike(cycle, strike), tuning);
+	apply_front_leg_stride(pose, side, leg_phase_from_strike(cycle, strike), tuning);
 }
 
-pub(crate) fn apply_hind_leg_at_strike<R: QuadrupedRig>(
-	rig: &mut R,
+pub(crate) fn apply_hind_leg_at_strike(
+	pose: &mut QuadrupedPose,
 	side: Side,
 	cycle: f32,
 	strike: f32,
 	tuning: LegStrideTuning,
 ) {
-	apply_hind_leg_stride(rig, side, leg_phase_from_strike(cycle, strike), tuning);
+	apply_hind_leg_stride(pose, side, leg_phase_from_strike(cycle, strike), tuning);
 }

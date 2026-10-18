@@ -5,7 +5,7 @@ mod polyline;
 pub use polyline::{closest_on_polyline, grade_along_polyline, ClosestOnPolyline, PolylineRegion};
 
 use bevy_math::Vec2;
-use procedural_common::{NoiseConfig, NoiseParams, NoiseType};
+use procedural_common::{NoiseConfig, NoiseParams, NoiseType, Smoothstep01};
 
 #[derive(Debug, Clone)]
 pub struct RectRegion {
@@ -225,14 +225,9 @@ impl Region2D {
 			1.0
 		} else {
 			let t = (d + inner_radius) / (inner_radius + outer);
-			smoothstep(t)
+			Smoothstep01::eval(t)
 		}
 	}
-}
-
-fn smoothstep(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
 }
 
 #[cfg(test)]

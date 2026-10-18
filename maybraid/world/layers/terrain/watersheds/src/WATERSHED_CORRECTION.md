@@ -1,13 +1,13 @@
 ## Proposal: Hydrology nodes with conservative correction extents
 
-The correction pipeline should begin with authored `HydrologyNode`s and preserve those nodes as the source of truth for carving, rimming, and aproning. Each node describes its hydraulic primitive and correction parameters, while `max_correction_extent` describes only how far away a later correction pass may need to load that node.
+The correction pipeline should begin with authored `HydroNode`s and preserve those nodes as the source of truth for carving, rimming, and aproning. Each node describes its hydraulic primitive and correction parameters, while `max_correction_extent` describes only how far away a later correction pass may need to load that node.
 
 ```text
 Authored watershed plan
         │
         │ emits
         ▼
-HydrologyNode
+HydroNode
   ├─ hydraulic primitive
   ├─ water / bed fields
   ├─ rim and apron parameters
@@ -22,9 +22,9 @@ World Spatial Index
 `max_correction_extent` is not a stored AABB and does not describe a finalized apron. The node exposes a conservative distance from its intrinsic hydraulic support; the spatial index derives the expanded indexing bounds. Its purpose is to guarantee that any correction cell capable of being affected by the node can discover and load it.
 
 ```rust
-pub struct HydrologyNode {
+pub struct HydroNode {
     pub primitive: HydroPrimitive,
-    pub parameters: HydroParameters,
+    pub params: HydroParams,
 
     /// Maximum distance beyond the node's hydraulic support at which
     /// any watershed correction pass may need to reference this node.
@@ -32,18 +32,19 @@ pub struct HydrologyNode {
     /// Used for safe spatial loading of carve, rim, and apron passes;
     /// it does not itself define the final correction profile.
     pub max_correction_extent: f32,
+    pub backfill: Option<HydroBackfill>,
 }
 ```
 
-The indexed nodes are then gathered into a `WatershedDepressionComplex`. Complex aggregation establishes the semantic relationship between nearby hydrology primitives: streams entering lakes, tributaries joining, overlapping depressions, and internal boundaries that should disappear.
+The indexed nodes are then gathered into a `HydroComplex`. Complex aggregation establishes the semantic relationship between nearby hydrology primitives: streams entering lakes, tributaries joining, overlapping depressions, and internal boundaries that should disappear.
 
 ```text
 World Spatial Index
         │
-        │ WatershedDepressionComplexCell gathers related nodes
+        │ HydroComplex gathers related nodes
         ▼
-WatershedDepressionComplex
-  ├─ member HydrologyNode references
+HydroComplex
+  ├─ member HydroNode references
   ├─ union hydraulic footprint
   ├─ combined bed / water fields
   ├─ exposed rim boundary
@@ -55,7 +56,7 @@ The complex does not need to copy every carve, rim, or apron parameter into a se
 Correction cells then gather every complex intersecting their region. Because the complexes originate from nodes indexed by `max_correction_extent`, the gather is conservative for all three correction passes. Carving and rimming may overfetch nodes whose larger correction support exists primarily for aproning, but their evaluators can cheaply reject nodes that do not affect the sampled point.
 
 ```text
-WatershedDepressionComplex
+HydroComplex
         │
         ├──────────────┬───────────────┐
         ▼              ▼               ▼

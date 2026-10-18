@@ -2,28 +2,25 @@
 
 mod profile;
 
-use std::marker::PhantomData;
-
 pub use profile::TuckProfile;
 
 use crate::animations::FixedTuck;
 use crate::Progress;
 
 #[derive(Debug, Clone)]
-pub struct Tuck<Rig> {
-	pub fixed: FixedTuck<Rig>,
-	_rig: PhantomData<Rig>,
+pub struct Tuck {
+	pub fixed: FixedTuck,
 }
 
-impl<Rig> Default for Tuck<Rig> {
+impl Default for Tuck {
 	fn default() -> Self {
-		Self { fixed: FixedTuck::default(), _rig: PhantomData }
+		Self { fixed: FixedTuck::default() }
 	}
 }
 
-impl<Rig> Tuck<Rig> {
+impl Tuck {
 	pub fn new(tightness: f32) -> Self {
-		Self { fixed: FixedTuck::new(tightness), _rig: PhantomData }
+		Self { fixed: FixedTuck::new(tightness) }
 	}
 
 	pub fn tightness(&self) -> f32 {
@@ -51,7 +48,7 @@ mod tests {
 
 	#[test]
 	fn tuck_amount_ramps_then_holds() -> anyhow::Result<()> {
-		let tuck = Tuck::<()>::default();
+		let tuck = Tuck::default();
 		assert!(tuck.tuck_amount(0.0).abs() < 1e-5);
 		assert!((tuck.tuck_amount(0.15) - 1.0).abs() < 1e-5);
 		assert_eq!(tuck.tuck_amount(0.5), 1.0);

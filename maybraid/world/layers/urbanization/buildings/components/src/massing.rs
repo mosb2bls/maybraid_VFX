@@ -12,7 +12,7 @@ use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use bevy_math::bounding::Aabb2d;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use lod::LodLazyPending;
 use material_ref::{MaterialRef, MaterialRefRoot, PropagateToDescendants};
 

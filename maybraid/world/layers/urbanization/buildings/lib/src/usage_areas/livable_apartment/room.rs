@@ -5,7 +5,7 @@ use building_components::joints::JointNode;
 use building_components::labels::LabelNode;
 use building_components::panels::PanelNode;
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::fit::Confines;
 use crate::usage_areas::common_bedroom::CommonBedroom;

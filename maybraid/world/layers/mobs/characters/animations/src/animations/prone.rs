@@ -1,9 +1,8 @@
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_3};
-use std::marker::PhantomData;
 
 /// Held prone pose. `progress` is settle depth (0 = stand, 1 = flat).
 #[derive(Debug, Clone, Copy)]
-pub struct Prone<Rig> {
+pub struct Prone {
 	/// Total sagittal spine pitch toward horizontal at full depth (radians).
 	pub spine_peak: f32,
 	/// Femur aft swing at full depth (radians).
@@ -14,10 +13,9 @@ pub struct Prone<Rig> {
 	pub neck_peak: f32,
 	/// Hold-ready arm flex at full depth (radians).
 	pub arm_flex: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Prone<Rig> {
+impl Prone {
 	pub fn depth(progress: f32) -> f32 {
 		progress.clamp(0.0, 1.0)
 	}
@@ -47,7 +45,7 @@ impl<Rig> Prone<Rig> {
 	}
 }
 
-impl<Rig> Default for Prone<Rig> {
+impl Default for Prone {
 	fn default() -> Self {
 		Self {
 			spine_peak: FRAC_PI_2,
@@ -55,7 +53,6 @@ impl<Rig> Default for Prone<Rig> {
 			shin_peak: 0.15,
 			neck_peak: -FRAC_PI_2 * 0.35,
 			arm_flex: 0.35,
-			_rig: PhantomData,
 		}
 	}
 }
@@ -66,9 +63,9 @@ mod tests {
 
 	#[test]
 	fn depth_is_progress() -> anyhow::Result<()> {
-		assert!((Prone::<()>::depth(0.0)).abs() < 1e-6);
-		assert!((Prone::<()>::depth(1.0) - 1.0).abs() < 1e-6);
-		assert!((Prone::<()>::depth(2.0) - 1.0).abs() < 1e-6);
+		assert!((Prone::depth(0.0)).abs() < 1e-6);
+		assert!((Prone::depth(1.0) - 1.0).abs() < 1e-6);
+		assert!((Prone::depth(2.0) - 1.0).abs() < 1e-6);
 		Ok(())
 	}
 }

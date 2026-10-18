@@ -1,6 +1,4 @@
-use std::marker::PhantomData;
-
-use character_rigs::RigPose;
+use character_rigs::authoring::{ArmatureOffset, PoseBuffer};
 
 /// Remaps linear transition progress into blend weight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -45,20 +43,26 @@ pub type BlendCurve = TransitionCurve;
 /// construction time rather than re-sampled each frame. Call [`Transition::apply`] with
 /// separate animation and transition progress values.
 #[derive(Debug, Clone)]
-pub struct Transition<A, R> {
+pub struct Transition<A> {
 	/// Animation being transitioned into.
 	pub animation: A,
 	/// Pose captured when the transition began.
-	pub from_pose: RigPose,
+	pub from_pose: PoseBuffer,
+	/// Armature offset visible when the transition began. Identity fades in from rest.
+	pub from_offset: ArmatureOffset,
 	/// Curve used to remap transition progress into blend weight.
 	pub curve: TransitionCurve,
-	_rig: PhantomData<R>,
 }
 
-impl<A, R> Transition<A, R> {
-	/// Creates a transition from an explicit captured pose.
-	pub fn from_pose(animation: A, from_pose: RigPose) -> Self {
-		Self { animation, from_pose, curve: TransitionCurve::default(), _rig: PhantomData }
+impl<A> Transition<A> {
+	/// Creates a transition from an explicit captured pose. Offset starts at identity.
+	pub fn from_pose(animation: A, from_pose: PoseBuffer) -> Self {
+		Self::from_visible(animation, from_pose, ArmatureOffset::IDENTITY)
+	}
+
+	/// Latest-wins capture: blend from the last visible pose and armature offset.
+	pub fn from_visible(animation: A, from_pose: PoseBuffer, from_offset: ArmatureOffset) -> Self {
+		Self { animation, from_pose, from_offset, curve: TransitionCurve::default() }
 	}
 
 	pub fn with_curve(mut self, curve: TransitionCurve) -> Self {

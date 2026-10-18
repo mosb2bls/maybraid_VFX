@@ -1,31 +1,28 @@
 //! Two-footed jump with a tucked forward flip during the airborne segment.
 
-use std::marker::PhantomData;
-
 use character_rigs::humanoid::LegSegmentLengths;
 
 use crate::animations::{JumpSegment, JumpTiming, TuckedFlip, TwoFootedJump};
 
 #[derive(Debug, Clone)]
-pub struct TwoFootedTuckedFlip<Rig> {
-	pub jump: TwoFootedJump<Rig>,
-	pub flip: TuckedFlip<Rig>,
-	_rig: PhantomData<Rig>,
+pub struct TwoFootedTuckedFlip {
+	pub jump: TwoFootedJump,
+	pub flip: TuckedFlip,
 }
 
-impl<Rig> Default for TwoFootedTuckedFlip<Rig> {
+impl Default for TwoFootedTuckedFlip {
 	fn default() -> Self {
-		Self { jump: TwoFootedJump::default(), flip: TuckedFlip::default(), _rig: PhantomData }
+		Self { jump: TwoFootedJump::default(), flip: TuckedFlip::default() }
 	}
 }
 
-impl<Rig> TwoFootedTuckedFlip<Rig> {
-	pub fn with_jump(mut self, jump: TwoFootedJump<Rig>) -> Self {
+impl TwoFootedTuckedFlip {
+	pub fn with_jump(mut self, jump: TwoFootedJump) -> Self {
 		self.jump = jump;
 		self
 	}
 
-	pub fn with_flip(mut self, flip: TuckedFlip<Rig>) -> Self {
+	pub fn with_flip(mut self, flip: TuckedFlip) -> Self {
 		self.flip = flip;
 		self
 	}
@@ -68,7 +65,7 @@ mod tests {
 
 	#[test]
 	fn flip_pitch_zero_on_ground() -> anyhow::Result<()> {
-		let flip = TwoFootedTuckedFlip::<()>::default();
+		let flip = TwoFootedTuckedFlip::default();
 		let lengths = LegSegmentLengths::default();
 		assert!(flip.flip_pitch_radians(lengths, 0.0).abs() < 1e-5);
 		Ok(())
@@ -76,7 +73,7 @@ mod tests {
 
 	#[test]
 	fn flip_pitch_completes_turn_mid_air() -> anyhow::Result<()> {
-		let flip = TwoFootedTuckedFlip::<()>::default();
+		let flip = TwoFootedTuckedFlip::default();
 		let lengths = LegSegmentLengths::default();
 		let timings = flip.timings(lengths);
 		let mid_air = timings.spring_end() + timings.air_duration * 0.5;
@@ -87,8 +84,8 @@ mod tests {
 
 	#[test]
 	fn backward_flip_negates_airborne_pitch() -> anyhow::Result<()> {
-		let forward = TwoFootedTuckedFlip::<()>::default();
-		let mut backward = TwoFootedTuckedFlip::<()>::default();
+		let forward = TwoFootedTuckedFlip::default();
+		let mut backward = TwoFootedTuckedFlip::default();
 		backward.flip.direction = FlipDirection::Backward;
 		let lengths = LegSegmentLengths::default();
 		let timings = forward.timings(lengths);

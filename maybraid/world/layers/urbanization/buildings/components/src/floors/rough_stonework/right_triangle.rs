@@ -2,8 +2,8 @@
 
 use bevy::prelude::{Component, Transform};
 use bevy::scene::prelude::Scene;
-use lod::gen::LodSceneLevel;
 use lod::lod_ref::LodRef;
+use lod::scene::LodSceneLevel;
 use scene_ref::MirrorAxis;
 
 use crate::assets::panels::rough_stonework::{

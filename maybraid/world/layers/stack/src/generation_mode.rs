@@ -180,35 +180,15 @@ impl<M: GenerationMode> Plugin for GenerationModePlugin<M> {
 		}
 		app.configure_sets(
 			Update,
-			GenerationModeSystems::<M>::default()
-				.run_if(in_state(ActiveGenerationMode::of::<M>())),
+			GenerationModeSystems::<M>::default().run_if(in_state(ActiveGenerationMode::of::<M>())),
 		);
 	}
 }
 
 /// True while `M` is the active generation mode.
-pub fn in_generation_mode<M: GenerationMode>()
--> impl FnMut(Option<Res<State<ActiveGenerationMode>>>) -> bool + Clone {
+pub fn in_generation_mode<M: GenerationMode>(
+) -> impl FnMut(Option<Res<State<ActiveGenerationMode>>>) -> bool + Clone {
 	in_state(ActiveGenerationMode::of::<M>())
-}
-
-/// A mode holds the loading screen until this preparation is ready.
-///
-/// The key is the mode's own identity for the work in progress. Training uses
-/// the round's map, so a new life on that map stays ready and a new map does not.
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct GenerationReadiness {
-	key: u64,
-}
-
-impl GenerationReadiness {
-	pub fn new(key: u64) -> Self {
-		Self { key }
-	}
-
-	pub fn covers(self, key: u64) -> bool {
-		self.key == key
-	}
 }
 
 #[cfg(test)]

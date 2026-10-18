@@ -83,7 +83,14 @@ impl Plugin for FiringRangePlugin {
 			.add_plugins(PlayerPlugin)
 			.add_plugins(PlayerCameraPlugin)
 			.add_plugins(FirearmUserPlugin)
-			.add_plugins(CombatHudPlugin::default())
+			.add_plugins(CombatHudPlugin {
+				hit_markers: true,
+				directional_damage: true,
+				player_vitals: true,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
+				score: false,
+			})
 			.add_plugins(CharacterRagdollPlugin)
 			.add_plugins(FiringRangeDiagnosticsPlugin)
 			.add_plugins(FiringRangeBuildingsLodPlugin)
@@ -186,9 +193,6 @@ impl Plugin for FiringRangePlugin {
 					hit_debug::draw_dummy_hit_volumes,
 					apply_parent_confines.after(LodRefreshSystems::Cull),
 					ui::sync_command_status_text.before(game_commands::ui::update_debug_ui),
-					hud::sync_combat_hud_opponent_total
-						.before(combat_hud::CombatHudSystems::Health),
-					hud::sync_evasion_hud_status.before(combat_hud::CombatHudSystems::Health),
 					hud::sync_gun_stats,
 				),
 			)
@@ -207,7 +211,7 @@ impl Plugin for FiringRangePlugin {
 	}
 }
 
-/// Inserted by the game while Training Ground should be running free-for-all.
+/// Inserted by the host app while the free-for-all should be running.
 #[derive(Resource, Clone, Copy, Debug, Default)]
 pub struct FreeForAllLive;
 
@@ -555,7 +559,7 @@ fn spawn_reticle_system(
 }
 
 fn gate_pad(focus: Res<TextEntryFocus>, mut enabled: ResMut<PadGameplayEnabled>) {
-	enabled.0 = !focus.0;
+	enabled.set_text(!focus.0);
 }
 
 fn setup_lighting(mut commands: Commands) {

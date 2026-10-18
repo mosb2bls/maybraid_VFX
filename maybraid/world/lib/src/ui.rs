@@ -1,5 +1,7 @@
+use crate::WorldFurnished;
 use bevy::prelude::*;
 use bevy::text::FontSize;
+use combat_hud::ScreenPin;
 use damage::Downed;
 use evasion_intelligence::{EvasionActuator, EvasionIntelligenceUser};
 use game_commands::ui::{GameCommandStatusText, GameCommandUiConfig};
@@ -8,7 +10,7 @@ use player::Npc;
 use threat_management_intelligence::{ThreatManagementIntelligence, ThreatTactic};
 
 const HUD_PIN_COUNT: usize = 8;
-const HUD_MARGIN: f32 = 22.0;
+pub(crate) const HUD_MARGIN: f32 = 22.0;
 const HUD_PIN_WIDTH: f32 = 118.0;
 const HUD_PIN_WORLD_HEIGHT: f32 = 4.0;
 
@@ -19,7 +21,7 @@ pub fn ui_config() -> GameCommandUiConfig {
 		empty_console_text: "Console: `mode free`, `set-character`, `stats mesh`, `stats vsync`, `help`".into(),
 		root_background: Color::srgba(0.08, 0.16, 0.22, 0.82),
 		controls_hint:
-			"L-stick move — R-stick look — hold RB / V and flick a stick to throw the skill map — L3 / Shift sprint — R3 POV — A jump — B tap squat / hold prone — LT optic — LB irons — D-Pad / [ ] cycle map — RT use — X / E pick up — Tab drop — RT+X power — / commands"
+			"L-stick move — R-stick look — M / View map — hold RB / V and flick a stick to throw the skill map — L3 / Shift sprint — R3 POV — A jump — B tap squat / hold prone — LT optic — LB irons — D-Pad L Lubikans / D skill maps / R weapons — Y cycle queue — [ ] step queue — RT use — X / E pick up — Tab inventory — RT+X power — / commands"
 				.into(),
 	}
 }
@@ -101,8 +103,7 @@ pub(crate) fn sync_command_status_text(
 	mut status: ResMut<GameCommandStatusText>,
 	camera: Query<&GlobalTransform, With<Camera3d>>,
 	hosts: Query<(&MobScene, &GlobalTransform)>,
-	furniture: Query<&maputo::FurnitureCell>,
-	furniture_index: Option<Res<maputo::FurnitureIndex>>,
+	furniture: Query<&lod::hcsg::HcsgNode<WorldFurnished>>,
 ) {
 	let mut nearest = ranked_hosts(&camera, &hosts);
 	nearest.truncate(4);
@@ -117,12 +118,11 @@ pub(crate) fn sync_command_status_text(
 			.join("   ")
 	};
 	let furniture_cells = furniture.iter().count();
-	let furniture_items: usize = furniture.iter().map(|cell| cell.slots.len()).sum();
-	let furniture_generated = furniture_index.map(|index| index.cell_count()).unwrap_or(0);
+	let furniture_items: usize = furniture.iter().map(|node| node.value.cell.slots.len()).sum();
 	status.0 = format!(
 		"world  character  forest hopscotch  urbanization hopscotch  grove 1 km  bump-outs 1–5 km\n\
 		 mobs {presented} presented   nearest {nearest_line}\n\
-		 furniture  {furniture_cells}/{furniture_generated} cells   {furniture_items} items   pin dim = still fulfilling\n\
+		 furniture  {furniture_cells} cells   {furniture_items} items\n\
 		 HUD pins = 8 nearest (edge-clamped)   colored pole = host   plants only inside {DEFAULT_MOB_HIGH_RADIUS:.0} m\n\
 		 NPC behavior: gray circle = ignore   amber arrow = flee   blue square = hide   red cross = combat"
 	);
@@ -270,7 +270,7 @@ pub(crate) fn sync_mob_debug_pins(
 			continue;
 		};
 		let Some((screen, on_screen)) =
-			project_mob_pin(camera, camera_transform, mob_pin_anchor(host.at))
+			ScreenPin::project(camera, camera_transform, mob_pin_anchor(host.at), HUD_MARGIN)
 		else {
 			*visibility = Visibility::Hidden;
 			continue;
@@ -286,7 +286,7 @@ pub(crate) fn sync_mob_debug_pins(
 			continue;
 		}
 		let Some((screen, on_screen)) =
-			project_mob_pin(camera, camera_transform, mob_pin_anchor(host.at))
+			ScreenPin::project(camera, camera_transform, mob_pin_anchor(host.at), HUD_MARGIN)
 		else {
 			continue;
 		};
@@ -356,55 +356,8 @@ fn ranked_hosts_with_entity(
 	ranked
 }
 
-pub(crate) fn project_mob_pin(
-	camera: &Camera,
-	camera_transform: &GlobalTransform,
-	world: Vec3,
-) -> Option<(Vec2, bool)> {
-	let rect = camera.logical_viewport_rect()?;
-	let mut ndc = camera.world_to_ndc(camera_transform, world)?;
-	let in_frustum = ndc.z > 0.0 && ndc.z < 1.0;
-	if !in_frustum {
-		ndc.x = -ndc.x;
-		ndc.y = -ndc.y;
-	}
-	ndc.y = -ndc.y;
-	let mut screen = (ndc.truncate() + Vec2::ONE) / 2.0 * rect.size() + rect.min;
-	let on_screen = in_frustum
-		&& screen.x >= rect.min.x
-		&& screen.x <= rect.max.x
-		&& screen.y >= rect.min.y
-		&& screen.y <= rect.max.y;
-	if !on_screen {
-		screen = clamp_to_rect(
-			rect.center(),
-			screen,
-			rect.min + Vec2::splat(HUD_MARGIN),
-			rect.max - Vec2::splat(HUD_MARGIN),
-		);
-	}
-	Some((screen, on_screen))
-}
-
 fn mob_pin_anchor(host: Vec3) -> Vec3 {
 	host + Vec3::Y * HUD_PIN_WORLD_HEIGHT
-}
-
-pub(crate) fn clamp_to_rect(center: Vec2, point: Vec2, min: Vec2, max: Vec2) -> Vec2 {
-	let dir = point - center;
-	if dir.length_squared() < 1e-6 {
-		return Vec2::new(center.x.clamp(min.x, max.x), center.y.clamp(min.y, max.y));
-	}
-	let mut t = f32::INFINITY;
-	if dir.x.abs() > 1e-6 {
-		let edge = if dir.x > 0.0 { max.x } else { min.x };
-		t = t.min((edge - center.x) / dir.x);
-	}
-	if dir.y.abs() > 1e-6 {
-		let edge = if dir.y > 0.0 { max.y } else { min.y };
-		t = t.min((edge - center.y) / dir.y);
-	}
-	center + dir * t.clamp(0.0, 1.0)
 }
 
 pub(crate) fn pin_node(screen: Vec2) -> Node {
@@ -452,30 +405,6 @@ fn xz_ring(gizmos: &mut Gizmos, center: Vec3, radius: f32, color: Color) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn clamp_hits_the_near_edge() {
-		let clamped = clamp_to_rect(
-			Vec2::new(100.0, 100.0),
-			Vec2::new(400.0, 100.0),
-			Vec2::splat(20.0),
-			Vec2::splat(180.0),
-		);
-		assert!((clamped.x - 180.0).abs() < 1e-3);
-		assert!((clamped.y - 100.0).abs() < 1e-3);
-	}
-
-	#[test]
-	fn clamp_keeps_an_interior_point() {
-		let clamped = clamp_to_rect(
-			Vec2::new(100.0, 100.0),
-			Vec2::new(120.0, 110.0),
-			Vec2::splat(20.0),
-			Vec2::splat(180.0),
-		);
-		assert!((clamped.x - 120.0).abs() < 1e-3);
-		assert!((clamped.y - 110.0).abs() < 1e-3);
-	}
 
 	#[test]
 	fn mob_pin_anchor_is_lifted_above_the_surface() {

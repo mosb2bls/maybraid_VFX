@@ -1,7 +1,9 @@
 use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::NoAutoAabb;
+use bevy::ecs::template::template;
 use bevy::math::Vec3A;
 use bevy::prelude::*;
+use bevy::scene::prelude::{bsn, Scene};
 use material_ref::{MaterialRef, MaterialRefRoot};
 use procedural_common::NoiseParams;
 use terrain_chunk_ref::TerrainChunkRef;
@@ -71,6 +73,26 @@ impl BumpOut {
 		Aabb {
 			center: Vec3A::from((local_min + local_max) * 0.5),
 			half_extents: Vec3A::from((local_max - local_min) * 0.5),
+		}
+	}
+
+	/// The bump-out as a scene that lazily resolves `terrain_ref`, posed at
+	/// its chunk under an identity parent.
+	pub fn scene<T>(self, terrain_ref: TerrainChunkRef<T>) -> impl Scene + 'static
+	where
+		T: Clone + Send + Sync + 'static,
+	{
+		let aabb = self.aabb(&terrain_ref);
+		let transform = terrain_ref.transform();
+		let material = MaterialRefRoot(self.material.clone());
+		bsn! {
+			template(move |_ctx| Ok(self.clone()))
+			template(move |_ctx| Ok(terrain_ref.clone()))
+			template(move |_ctx| Ok(material.clone()))
+			template_value(transform)
+			Visibility::default()
+			template(move |_ctx| Ok(aabb))
+			template(|_ctx| Ok(NoAutoAabb))
 		}
 	}
 

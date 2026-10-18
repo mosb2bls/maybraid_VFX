@@ -12,6 +12,7 @@
 
 use crate::primitive::node::HydroNode;
 use bevy_math::Vec2;
+use procedural_common::Smoothstep01;
 use terrain_stamps::RegionNoise;
 
 /// Which footprint a backfill weights within (along occupancy \(\phi\)).
@@ -88,7 +89,7 @@ impl BasinBackfill {
 			0.0
 		} else {
 			let t = phi / fade;
-			1.0 - smoothstep01(t)
+			1.0 - Smoothstep01::eval(t)
 		}
 	}
 
@@ -111,7 +112,7 @@ impl RimBackfill {
 		let band = self.band.max(1e-3);
 		let phi = node.phi(p);
 		let t = (phi.abs() / band).clamp(0.0, 1.0);
-		1.0 - smoothstep01(t)
+		1.0 - Smoothstep01::eval(t)
 	}
 
 	pub fn delta(&self, p: Vec2) -> f32 {
@@ -139,19 +140,13 @@ impl NodeBackfill {
 			0.0
 		} else {
 			let t = (phi - support) / fade;
-			1.0 - smoothstep01(t)
+			1.0 - Smoothstep01::eval(t)
 		}
 	}
 
 	pub fn delta(&self, p: Vec2) -> f32 {
 		sample_delta(&self.noise, p, self.add_only)
 	}
-}
-
-#[inline]
-fn smoothstep01(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
 }
 
 #[inline]

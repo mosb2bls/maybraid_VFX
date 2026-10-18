@@ -66,11 +66,11 @@ pub fn rotation_along_with_roll(
 	aim * rest * Quat::from_axis_angle(length_axis, roll)
 }
 
-/// Compose a local bone rotation: flex, twist, then swing applied to the rest rotation.
+/// Parent-space swing, then twist, then flex, pre-multiplied onto `rest`.
 ///
-/// Axes come directly from the bone's [`RiggedAxis`], so the result is written straight
-/// back to `Transform.rotation` with no parent context or runtime probing.
-pub fn compose_local_rotation(
+/// This is the V0 clip path. The delta axes are constants in the bone's
+/// **parent** coordinates: `q = R(swing) * R(twist) * R(flex) * rest`.
+pub fn compose_parent_rotation(
 	rest: Quat,
 	axis: RiggedAxis,
 	swing: f32,
@@ -125,20 +125,20 @@ mod tests {
 	use std::f32::consts::FRAC_PI_2;
 
 	#[test]
-	fn compose_local_rotation_applies_swing_then_flex_order() {
+	fn compose_parent_rotation_applies_swing_then_flex_order() {
 		let rest = Quat::from_rotation_x(0.1);
 		let axis = RiggedAxis { swing_axis: Vec3::X, flex_axis: Vec3::Z, twist_axis: Vec3::Y };
-		let composed = compose_local_rotation(rest, axis, 0.3, 0.4, 0.0);
+		let composed = compose_parent_rotation(rest, axis, 0.3, 0.4, 0.0);
 		let expected =
 			Quat::from_axis_angle(Vec3::X, 0.3) * Quat::from_axis_angle(Vec3::Z, 0.4) * rest;
 		assert!((composed.dot(expected).abs() - 1.0).abs() < 1e-5);
 	}
 
 	#[test]
-	fn compose_local_rotation_applies_flex_twist_swing_order() {
+	fn compose_parent_rotation_applies_flex_twist_swing_order() {
 		let rest = Quat::IDENTITY;
 		let axis = RiggedAxis { swing_axis: Vec3::Y, flex_axis: Vec3::X, twist_axis: Vec3::Z };
-		let composed = compose_local_rotation(rest, axis, 0.2, 0.3, 0.4);
+		let composed = compose_parent_rotation(rest, axis, 0.2, 0.3, 0.4);
 		let expected = Quat::from_axis_angle(Vec3::Y, 0.2)
 			* Quat::from_axis_angle(Vec3::Z, 0.4)
 			* Quat::from_axis_angle(Vec3::X, 0.3);
@@ -146,9 +146,9 @@ mod tests {
 	}
 
 	#[test]
-	fn compose_local_rotation_with_zero_angles_is_rest() {
+	fn compose_parent_rotation_with_zero_angles_is_rest() {
 		let rest = Quat::from_rotation_y(0.2);
-		let composed = compose_local_rotation(rest, RiggedAxis::DEFAULT, 0.0, 0.0, 0.0);
+		let composed = compose_parent_rotation(rest, RiggedAxis::DEFAULT, 0.0, 0.0, 0.0);
 		assert!((composed.dot(rest).abs() - 1.0).abs() < 1e-6);
 	}
 

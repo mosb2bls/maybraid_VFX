@@ -33,7 +33,6 @@ material-ref = { workspace = true }
 scene-ref = { workspace = true }
 terrain-layer-model = { workspace = true }
 urbanization-layer-model = { workspace = true }
-urbanization-layer-presentation = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

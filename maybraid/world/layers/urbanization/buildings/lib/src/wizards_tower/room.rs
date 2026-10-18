@@ -10,7 +10,7 @@ use building_components::partitions::{
 	wall_placement_from_centered, Partition, PartitionNode, DEFAULT_THICK,
 };
 use building_components::{BuildingComponents, Layers, Placement};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use material_ref::MaterialRef;
 
 use crate::wizards_tower::floor_fill::{FLOOR_SLAB_Y_SCALE, INSCRIBED_HALF_FRAC};

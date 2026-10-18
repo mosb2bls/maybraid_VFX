@@ -17,7 +17,7 @@ use building_components::partitions::{
 };
 use building_components::placed::Placement;
 use building_components::{BuildingComponents, FloorNode, PanelNode, PartitionNode};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use lod::LodSceneHost;
 use lod_avian::PhysicsInteractionLayer;
 
@@ -34,6 +34,14 @@ pub struct BuildingWalkShapes {
 	pub friction: Friction,
 }
 
+impl BuildingWalkShapes {
+	/// `building`'s High-LOD walk shapes; `None` when it has nothing to stand on.
+	pub fn of(building: &impl BuildingComponents, friction: Friction) -> Option<Self> {
+		let shapes = walk_shapes(building);
+		(!shapes.is_empty()).then_some(Self { shapes, friction })
+	}
+}
+
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub(crate) struct BuildingWalkColliderAttached;
 
@@ -48,11 +56,9 @@ pub fn spawn_building_walk_colliders(
 	building: &impl BuildingComponents,
 	friction: Friction,
 ) {
-	let shapes = walk_shapes(building);
-	if shapes.is_empty() {
-		return;
+	if let Some(shapes) = BuildingWalkShapes::of(building, friction) {
+		commands.entity(parent).insert(shapes);
 	}
-	commands.entity(parent).insert(BuildingWalkShapes { shapes, friction });
 }
 
 /// Stamp one compound child once [`LodSceneHost`] is on the parent.

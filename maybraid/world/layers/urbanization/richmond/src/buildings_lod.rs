@@ -4,11 +4,12 @@ use avian3d::prelude::PhysicsPlugins;
 use avian3d::schedule::PhysicsSchedulePlugin;
 use bevy::prelude::*;
 use building_components::{
-	ComponentsOnly, DoorNode, FloorNode, FurnitureNode, JointNode, LabelNode, PanelNode,
-	PartitionNode, RoofNode, StairNode,
+	BuildingStructuralLodPlugin, ComponentsOnly, DoorNode, FloorNode, FurnitureNode, JointNode,
+	LabelNode, PanelNode, PartitionNode, RoofNode, StairNode,
 };
 use buildings::wall_demo::TerrainPerimeterWall;
 use buildings::wizards_tower::WizardsTower;
+use buildings::SingleHighrise;
 use buildings::{
 	ConnectingStairwell, MixedUseLesHallesStorey, PitchedRoof, RectangularPitchedRoofComplex,
 };
@@ -19,7 +20,7 @@ use lod::{
 use lod_gimme::{GimmeLodSceneCullPlugin, GimmeLodSceneRefreshPlugin};
 use std::sync::Arc;
 use urbanization_developments::{
-	CircularTower, GalleryColonnade, GalleryTerrace, ShepherdsHouse, ShepherdsHut, SingleHighrise,
+	CircularTower, GalleryColonnade, GalleryTerrace, ShepherdsHouse, ShepherdsHut,
 	Skybridge as SkybridgeHall, TempleSanctum, TrazaloidTower,
 };
 
@@ -76,6 +77,9 @@ impl Plugin for DevelopmentsBuildingsLodPlugin {
 		}
 		if !app.is_plugin_added::<LodRefreshCorePlugin>() {
 			app.add_plugins(LodRefreshCorePlugin);
+		}
+		if !app.is_plugin_added::<BuildingStructuralLodPlugin>() {
+			app.add_plugins(BuildingStructuralLodPlugin);
 		}
 
 		app.insert_resource(Bullseye { inner: 80.0, outer: 500.0 })

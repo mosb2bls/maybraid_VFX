@@ -1,26 +1,37 @@
-//! The world's layer stack: terrain, urbanization, vegetation, mobs, and
-//! furnishing, each generated and then presented.
+//! The world's layer stack: terrain, urbanization, vegetation, mobs and
+//! furnishing and language, generated on the shared HCSG runtime and presented around the
+//! viewer while Discovery streams.
 
-use barking::{Barking, BarkingConfig};
+use barking::{BarkingPresentationPlugin, MobNeighborhood, MobScenePresentationPlugin};
 use bevy::prelude::*;
-use chico::{Chico, ChicoConfig};
-use durham::{Durham, DurhamTerrainConfig};
-use furnishing_layer_model::Furnishing;
-use layer_stack::{Generate, GenerationModePlugin, Present};
-use maputo::Maputo;
-use maybraid_game_mode_discover::Discovery;
-use maybraid_game_mode_training_ground::{TrainingGround, TRAINING_FINE_HALF_EXTENT_CELLS};
-use mob_layer_model::Mobs;
-use richmond::{Richmond, RichmondConfig};
+use chico::{
+	BumpOutPresentationPlugin, BumpOutRing, CanopyBumpOut, ChicoPresentationPlugin,
+	GroveNeighborhood, MediumCanopyBumpOut,
+};
+use durham::{
+	BackgroundStream, Durham, DurhamWorldPlugin, FarStream, NearStream, StreamPresentationPlugin,
+	StreamRing, Water,
+};
+use geneva::{GenevaPlugin, LanguageNeighborhood};
+use layer_stack::{ActiveGenerationMode, GenerationModePlugin};
+use lod::hcsg::{request_hcsg_session_restart, HcsgBoundsPlugin};
+use maputo::{FurnitureNeighborhood, MaputoPresentationPlugin};
+use maybraid_game_mode_discover::{Discovery, InDiscovery};
+use richmond::{
+	AuthoredDevelopments, BuiltPresentationPlugin, DevelopmentNeighborhood, PaddedTerrain,
+	RichmondConfig,
+};
 use terrain_layer_model::OnTerrain;
 use urbanization_layer_model::Urbanization;
-use vegetation_layer_model::Vegetation;
 
 type Ground = OnTerrain<Durham>;
-type Urban = Urbanization<Richmond<Ground>>;
-type Veg = Vegetation<Chico<Urban>>;
-type Mob = Mobs<Barking<Veg>>;
-type Furniture = Furnishing<Maputo<Urban>>;
+type Urban = Urbanization<richmond::Richmond<Ground>>;
+
+/// Stream `R`'s cells while Discovery streams.
+type Ring<R> = InDiscovery<StreamRing<R>>;
+
+/// The world seed every layer derives from.
+const WORLD_SEED: u32 = 42;
 
 /// Every world layer at world defaults.
 ///
@@ -31,35 +42,58 @@ pub struct WorldLayersPlugin;
 
 impl Plugin for WorldLayersPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_plugins((
-			(
-				GenerationModePlugin::<Discovery>::initial(),
-				Generate::<Discovery, Ground>::new(DurhamTerrainConfig::playable_world()),
-				Generate::<Discovery, Urban>::new(RichmondConfig::world_defaults()),
-				Generate::<Discovery, Veg>::new(ChicoConfig::world_defaults()),
-				Generate::<Discovery, Mob>::new(BarkingConfig::world_defaults()),
-				Generate::<Discovery, Furniture>::new(()),
-				Present::<Discovery, Ground>::default(),
-				Present::<Discovery, Urban>::default(),
-				Present::<Discovery, Veg>::default(),
-				Present::<Discovery, Mob>::default(),
-				Present::<Discovery, Furniture>::default(),
-			),
-			(
-				GenerationModePlugin::<TrainingGround>::default(),
-				Generate::<TrainingGround, Ground>::new(DurhamTerrainConfig::fine_patch(
-					TRAINING_FINE_HALF_EXTENT_CELLS,
-				)),
-				Generate::<TrainingGround, Urban>::new(RichmondConfig::shared_world()),
-				Generate::<TrainingGround, Veg>::new(ChicoConfig::grove()),
-				Generate::<TrainingGround, Mob>::new(BarkingConfig::world_defaults()),
-				Generate::<TrainingGround, Furniture>::new(()),
-				Present::<TrainingGround, Ground>::default(),
-				Present::<TrainingGround, Urban>::default(),
-				Present::<TrainingGround, Veg>::default(),
-				Present::<TrainingGround, Mob>::default(),
-				Present::<TrainingGround, Furniture>::default(),
-			),
-		));
+		let richmond = RichmondConfig::world_defaults();
+		app.add_plugins((GenerationModePlugin::<Discovery>::initial(), DurhamWorldPlugin {
+			seed: WORLD_SEED,
+		}))
+		.insert_resource(richmond.development_config())
+		.insert_resource(richmond.urbanization_selection())
+		.init_resource::<AuthoredDevelopments>()
+		.add_plugins((
+			HcsgBoundsPlugin::<Ring<NearStream>>::default(),
+			HcsgBoundsPlugin::<Ring<FarStream>>::default(),
+			HcsgBoundsPlugin::<Ring<BackgroundStream>>::default(),
+			HcsgBoundsPlugin::<InDiscovery<DevelopmentNeighborhood>>::default(),
+			HcsgBoundsPlugin::<InDiscovery<GroveNeighborhood>>::default(),
+			HcsgBoundsPlugin::<InDiscovery<BumpOutRing<CanopyBumpOut>>>::default(),
+			HcsgBoundsPlugin::<InDiscovery<BumpOutRing<MediumCanopyBumpOut>>>::default(),
+			HcsgBoundsPlugin::<InDiscovery<MobNeighborhood>>::default(),
+			HcsgBoundsPlugin::<InDiscovery<FurnitureNeighborhood>>::default(),
+			HcsgBoundsPlugin::<InDiscovery<LanguageNeighborhood>>::default(),
+		))
+		.add_plugins((
+			StreamPresentationPlugin::<Ring<NearStream>, NearStream, PaddedTerrain<Ground>>::default(),
+			StreamPresentationPlugin::<Ring<FarStream>, FarStream, PaddedTerrain<Ground>>::default(),
+			StreamPresentationPlugin::<
+				Ring<BackgroundStream>,
+				BackgroundStream,
+				PaddedTerrain<Ground>,
+			>::default(),
+			StreamPresentationPlugin::<Ring<NearStream>, NearStream, Water>::default(),
+			StreamPresentationPlugin::<Ring<FarStream>, FarStream, Water>::default(),
+			StreamPresentationPlugin::<Ring<BackgroundStream>, BackgroundStream, Water>::default(),
+		))
+		.add_plugins((
+			BuiltPresentationPlugin::<InDiscovery<DevelopmentNeighborhood>, Ground>::default(),
+			ChicoPresentationPlugin::<InDiscovery<GroveNeighborhood>, Urban>::default(),
+			BumpOutPresentationPlugin::<
+				InDiscovery<BumpOutRing<CanopyBumpOut>>,
+				CanopyBumpOut,
+				Urban,
+			>::default(),
+			BumpOutPresentationPlugin::<
+				InDiscovery<BumpOutRing<MediumCanopyBumpOut>>,
+				MediumCanopyBumpOut,
+				Urban,
+			>::default(),
+			MaputoPresentationPlugin::<InDiscovery<FurnitureNeighborhood>, Urban>::default(),
+			BarkingPresentationPlugin::<InDiscovery<MobNeighborhood>, Urban>::default(),
+			MobScenePresentationPlugin,
+			GenevaPlugin::<InDiscovery<LanguageNeighborhood>, Urban>::default(),
+		))
+		.add_systems(
+			OnEnter(ActiveGenerationMode::of::<Discovery>()),
+			request_hcsg_session_restart,
+		);
 	}
 }

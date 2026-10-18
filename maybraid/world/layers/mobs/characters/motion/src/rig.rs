@@ -32,6 +32,23 @@ impl RigSkeletonKind {
 			Self::Neck => &["neck_base", "head_socket"],
 		}
 	}
+
+	/// 3/4 view used to frame a full-body preview of this skeleton family.
+	pub fn preview_view_direction(self) -> Vec3 {
+		match self {
+			Self::Humanoid | Self::Neck => Vec3::new(-0.35, 0.28, 1.0),
+			Self::Quadruped | Self::Forelimbed => Vec3::new(0.55, 0.35, 1.0),
+		}
+	}
+
+	/// Extra half-length along mesh Z when the motor hull is a vertical stand-in
+	/// for a long pronograde / swimming body.
+	pub fn preview_longitudinal_half(self, motor_half_height: f32) -> f32 {
+		match self {
+			Self::Forelimbed => motor_half_height.max(0.0),
+			Self::Humanoid | Self::Neck | Self::Quadruped => 0.0,
+		}
+	}
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -65,9 +82,9 @@ pub struct CharacterRig {
 }
 
 pub fn bone_map_ready(map: &BoneMap, skeleton: RigSkeletonKind) -> bool {
-	rigs::bone_map_ready(map, skeleton.landmark_bones())
+	map.landmarks_ready(skeleton.landmark_bones())
 }
 
 pub fn missing_landmark_bones(map: &BoneMap, skeleton: RigSkeletonKind) -> Vec<&'static str> {
-	rigs::missing_landmark_bones(map, skeleton.landmark_bones())
+	map.missing_landmarks(skeleton.landmark_bones())
 }

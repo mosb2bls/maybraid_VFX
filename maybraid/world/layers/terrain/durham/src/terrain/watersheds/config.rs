@@ -4,14 +4,10 @@
 //! layout consts (`define_marazion_band!` in [`super::low_pass`] /
 //! [`super::high_pass`]) — same pattern as Stamp `define_stamp_family!`.
 
-use crate::terrain::cell::universal_bounds;
 use crate::terrain::watersheds::high_pass::PrePocketHighPassLayout;
 use crate::terrain::watersheds::low_pass::PrePocketLowPassLayout;
-use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec2;
 use bevy::prelude::*;
-use lod::gen::{GenerationScheme, Id, OriginalId};
-use lod::lod_ref::LodRef;
 use terrain_watersheds::{
 	BogParams, LakeParams, PocketGuillotineParams, PrePocketParams, StreamParams,
 	StreamsGraphParams,
@@ -164,24 +160,4 @@ impl WatershedConfigs {
 	}
 }
 
-pub trait BootstrapWatershedConfigs {
-	fn bootstrap_watershed_configs(&self) -> WatershedConfigs;
-}
-
-impl<S> GenerationScheme<S> for WatershedConfigs
-where
-	S: BootstrapWatershedConfigs,
-{
-	fn original_ids_for(_spatial_index: &mut S, _region: Aabb3d) -> Vec<OriginalId> {
-		vec![OriginalId::universal()]
-	}
-
-	fn build_with_id(spatial_index: &mut S, id: Id, _lod_ref: &LodRef) -> Option<(Self, Aabb3d)> {
-		if id != Id::Universal {
-			return None;
-		}
-		Some((spatial_index.bootstrap_watershed_configs(), universal_bounds()))
-	}
-
-	fn descendants_with_lod(_id: Id, _spatial_index: &mut S, _lod_ref: &LodRef) {}
-}
+lod::seeded_root!(WatershedConfigs);

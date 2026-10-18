@@ -8,13 +8,14 @@ use characters::CharacterMotionSystems;
 use evasion_intelligence::{EvasionPlugin, EvasionSystems};
 use firearm_intelligence::{FirearmIntelligencePlugin, FirearmIntelligenceSystems};
 use firearm_user::FirearmUserPlugin;
-use firearms::{FirearmWeaponSystems, FirearmWeaponsPlugin};
+use firearms::FirearmWeaponsPlugin;
 use fleeing_intelligence::{FleeingPlugin, FleeingSystems};
+use grenade_user::GrenadeUserPlugin;
 use hiding_intelligence::{HidingPlugin, HidingSystems};
 use intelligence_lod::{
-	look_near_m, look_promotes, IntelligenceBand, IntelligenceFocus, IntelligenceFocusSample,
-	IntelligenceLod, IntelligenceLook, IntelligenceLookFrame, IntelligencePriority,
-	LOOK_APPLY_FOV_INSET, LOOK_FOV_INSET,
+	look_near_m, look_promotes, IntelligenceBakeKey, IntelligenceBand, IntelligenceFocus,
+	IntelligenceFocusSample, IntelligenceLod, IntelligenceLook, IntelligenceLookFrame,
+	IntelligencePriority, LOOK_APPLY_FOV_INSET, LOOK_FOV_INSET,
 };
 use lod::LodViewer;
 use meandering_intelligence::MeanderingIntelligencePlugin;
@@ -88,6 +89,9 @@ impl Plugin for WorldIntelligencePlugin {
 		}
 		if !app.is_plugin_added::<FirearmUserPlugin>() {
 			app.add_plugins(FirearmUserPlugin);
+		}
+		if !app.is_plugin_added::<GrenadeUserPlugin>() {
+			app.add_plugins(GrenadeUserPlugin);
 		}
 		if !app.is_plugin_added::<MovementIntelligencePlugin<AvianMovementSurface<'_, '_>>>() {
 			app.add_plugins(MovementIntelligencePlugin::<AvianMovementSurface<'_, '_>>::default());
@@ -179,10 +183,6 @@ impl Plugin for WorldIntelligencePlugin {
 			.configure_sets(
 				PostUpdate,
 				FirearmIntelligenceSystems::Fire.run_if(on_timer(Duration::from_millis(33))),
-			)
-			.configure_sets(
-				PostUpdate,
-				FirearmWeaponSystems::Fire.run_if(on_timer(Duration::from_millis(33))),
 			);
 	}
 }
@@ -190,7 +190,7 @@ impl Plugin for WorldIntelligencePlugin {
 /// Copy ADS / bore poses into the focus mailbox. Firearm control stays out of the bake.
 fn hip_fov(follow: &FollowCamera, controller: &CameraController) -> f32 {
 	match controller.pov {
-		CameraPov::ThirdPerson => follow.third_person_fov,
+		CameraPov::ThirdPerson | CameraPov::Map => follow.third_person_fov,
 		CameraPov::FirstPerson => follow.first_person_fov,
 	}
 }
@@ -262,6 +262,7 @@ fn bake_intelligence_lod(
 		&ThreatManagementIntelligence,
 	)>,
 	mut priority: ResMut<IntelligencePriority>,
+	mut rank_scratch: Local<Vec<(Entity, IntelligenceBakeKey)>>,
 ) {
 	let Ok(player) = player.single() else {
 		return;
@@ -277,7 +278,8 @@ fn bake_intelligence_lod(
 		))
 	});
 	let player_xz = player.translation().xz();
-	let mut rows: Vec<(Entity, IntelligenceLod)> = Vec::new();
+	rank_scratch.clear();
+	rank_scratch.reserve(plants.iter().len());
 	for (entity, transform, mut lod, management) in &mut plants {
 		let at = transform.translation();
 		let dist = at.xz().distance(player_xz);
@@ -285,11 +287,11 @@ fn bake_intelligence_lod(
 		lod.band =
 			IntelligenceBand::from_viewer(dist, management.tactic != ThreatTactic::Ignore, look);
 		lod.skips = lod.skips.saturating_add(1);
-		rows.push((entity, *lod));
+		rank_scratch.push((entity, lod.bake_key(entity)));
 	}
-	rows.sort_by_key(|&(entity, lod)| lod.bake_key(entity));
+	rank_scratch.sort_by_key(|&(_, key)| key);
 	priority.rank.clear();
-	for (i, (entity, _)) in rows.into_iter().enumerate() {
+	for (i, &(entity, _)) in rank_scratch.iter().enumerate() {
 		priority.rank.insert(entity, i as u32);
 	}
 }
@@ -337,14 +339,7 @@ mod tests {
 		app.world_mut().spawn((
 			LodViewer,
 			FollowCamera { first_person_fov: base_fov, third_person_fov: base_fov, ..default() },
-			CameraController {
-				yaw: 0.0,
-				pitch: 0.0,
-				pov: CameraPov::FirstPerson,
-				focus: 0.0,
-				ads: 0.0,
-				focus_blend: 0.0,
-			},
+			CameraController { pov: CameraPov::FirstPerson, ..default() },
 			Projection::Perspective(PerspectiveProjection {
 				fov: current_fov,
 				aspect_ratio: 16.0 / 9.0,
@@ -600,6 +595,7 @@ mod tests {
 			target: victim,
 			source: Some(player),
 			amount: 10.0,
+			applied: 10.0,
 			remaining: 90.0,
 			point: Vec3::ZERO,
 		});
@@ -625,5 +621,53 @@ mod tests {
 		app.world_mut()
 			.spawn((VegetationPlayer, Transform::default(), GlobalTransform::default()))
 			.id()
+	}
+
+	#[test]
+	#[ignore]
+	fn bake_lod_rank_scratch_timing() {
+		const PLANT_COUNT: usize = 256;
+		const BAKES: usize = 10_000;
+
+		let mut plants: Vec<(Entity, IntelligenceLod)> = Vec::with_capacity(PLANT_COUNT);
+		for index in 0..PLANT_COUNT {
+			let entity = Entity::from_bits(index as u64 + 1);
+			let band = match index % 3 {
+				0 => IntelligenceBand::Near,
+				1 => IntelligenceBand::Mid,
+				_ => IntelligenceBand::Far,
+			};
+			let skips = (index % (IntelligenceLod::FAIRNESS_CAP as usize + 1)) as u8;
+			plants.push((entity, IntelligenceLod { band, skips }));
+		}
+
+		let clone_start = std::time::Instant::now();
+		for _ in 0..BAKES {
+			let mut rows: Vec<(Entity, IntelligenceLod)> = Vec::with_capacity(PLANT_COUNT);
+			for &(entity, lod) in &plants {
+				rows.push((entity, lod));
+			}
+			rows.sort_by_key(|&(entity, lod)| lod.bake_key(entity));
+			std::hint::black_box(&rows);
+		}
+		let clone_elapsed = clone_start.elapsed();
+
+		let mut scratch: Vec<(Entity, IntelligenceBakeKey)> = Vec::with_capacity(PLANT_COUNT);
+		let key_start = std::time::Instant::now();
+		for _ in 0..BAKES {
+			scratch.clear();
+			scratch.reserve(PLANT_COUNT);
+			for &(entity, lod) in &plants {
+				scratch.push((entity, lod.bake_key(entity)));
+			}
+			scratch.sort_by_key(|&(_, key)| key);
+			std::hint::black_box(&scratch);
+		}
+		let key_elapsed = key_start.elapsed();
+
+		eprintln!(
+			"bake_lod_rank_scratch_timing: {PLANT_COUNT} plants × {BAKES} bakes — clone lod rows {:?}, key scratch {:?}",
+			clone_elapsed, key_elapsed,
+		);
 	}
 }

@@ -1,9 +1,11 @@
 use bevy::prelude::*;
-use intelligence_lod::{due_by_rank, IntelligenceBand, IntelligenceLod, IntelligencePriority};
+use intelligence_lod::{
+	due_by_rank, staggered_interval, IntelligenceBand, IntelligenceLod, IntelligencePriority,
+};
 
 use crate::{
-	GlobalPoi, LocalPoi, Poi, PoiDiscoverLimits, PoiIntelligenceUser, PoiKnowledge, PoiObservation,
-	PoiRecord, PoiRegistry, PoiSource,
+	GlobalPoi, LocalPoi, Poi, PoiDiscoverLimits, PoiId, PoiIntelligenceUser, PoiKnowledge,
+	PoiObservation, PoiRegistry, PoiSource,
 };
 
 type PoiEntity<'a> = (Entity, &'a Poi, &'a GlobalTransform, Has<LocalPoi>, Has<GlobalPoi>);
@@ -96,12 +98,18 @@ pub fn discover_pois(
 		&mut PoiKnowledge,
 		Option<&mut IntelligenceLod>,
 	)>,
+	mut local_candidates: Local<Vec<PoiId>>,
+	mut global_candidates: Local<Vec<PoiId>>,
 ) {
 	let now = time.elapsed_secs();
 	let delta = time.delta_secs();
 	for (entity, _, mut user, mut knowledge, _) in &mut users {
-		user.accrue_learning(delta);
-		forget_if_due(entity, now, &mut user, &mut knowledge);
+		if user.learning_credit != user.next_learning_credit(delta) {
+			user.accrue_learning(delta);
+		}
+		if now >= user.next_forget_at {
+			forget_if_due(entity, now, &mut user, &mut knowledge);
+		}
 	}
 
 	let mut due: Vec<Entity> = users
@@ -140,12 +148,17 @@ pub fn discover_pois(
 			user.next_local_scan_at = now
 				+ staggered_interval(user.policy.local_scan_interval, entity, 0)
 					* band.interval_scale();
-			let records =
-				registry.local_matching(position, user.policy.local_radius, &user.interests);
+			registry.collect_local_matching(
+				position,
+				user.policy.local_radius,
+				&user.interests,
+				&mut local_candidates,
+			);
 			let cursor = user.local_cursor;
 			learn_records(
 				entity,
-				records,
+				&local_candidates,
+				&registry,
 				PoiSource::LOCAL_SCAN,
 				now,
 				cursor,
@@ -159,11 +172,12 @@ pub fn discover_pois(
 			user.next_global_scan_at = now
 				+ staggered_interval(user.policy.global_scan_interval, entity, 1)
 					* band.interval_scale();
-			let records = registry.global_matching(&user.interests);
+			registry.collect_global_matching(&user.interests, &mut global_candidates);
 			let cursor = user.global_cursor;
 			learn_records(
 				entity,
-				records,
+				&global_candidates,
+				&registry,
 				PoiSource::GLOBAL_SCAN,
 				now,
 				cursor,
@@ -174,7 +188,9 @@ pub fn discover_pois(
 			user.global_cursor = user.global_cursor.wrapping_add(n);
 		}
 		if let Some(lod) = lod.as_deref_mut() {
-			lod.skips = 0;
+			if lod.skips != 0 {
+				lod.skips = 0;
+			}
 		}
 	}
 }
@@ -194,15 +210,10 @@ fn forget_if_due(
 	user.next_forget_at = now + staggered_interval(FORGET_INTERVAL, entity, 2);
 }
 
-fn staggered_interval(interval: f32, entity: Entity, salt: u64) -> f32 {
-	let bits = entity.to_bits().wrapping_add(salt.wrapping_mul(0x9e37_79b9));
-	let jitter = (bits % 1_001) as f32 / 1_000.0;
-	interval.max(0.05) * (0.8 + jitter * 0.4)
-}
-
 fn learn_records(
 	user_entity: Entity,
-	records: Vec<PoiRecord>,
+	ids: &[PoiId],
+	registry: &PoiRegistry,
 	source: PoiSource,
 	now: f32,
 	cursor: usize,
@@ -210,12 +221,14 @@ fn learn_records(
 	user: &mut PoiIntelligenceUser,
 	knowledge: &mut PoiKnowledge,
 ) {
-	if records.is_empty() {
+	if ids.is_empty() {
 		return;
 	}
-	let budget = budget.min(records.len());
+	let budget = budget.min(ids.len());
 	for offset in 0..budget {
-		let record = records[(cursor + offset) % records.len()];
+		let record = registry
+			.get(ids[(cursor + offset) % ids.len()])
+			.expect("collect_*_matching ids are indexed");
 		if knowledge.get(record.id).is_none() && !user.try_take_learning_credit() {
 			continue;
 		}

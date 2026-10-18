@@ -8,7 +8,7 @@ use building_components::joints::JointNode;
 use building_components::labels::LabelNode;
 use building_components::panels::PanelNode;
 use building_components::{BuildingComponents, BuildingStructuralLodProbe, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{NoiseConfig, NoiseParams};
 
 use crate::fit::{aabb_xz_extent, Confines, FillRegion, FillableRegions, Fit, FitError, SpaceKind};

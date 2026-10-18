@@ -9,7 +9,7 @@ use buildings::{
 	CommonBedroom, CommonBedroomParameterized, Confines, Kitchen, KitchenCounterLayout,
 	KitchenParameterized, LivingRoom, LivingRoomParameterized, Opening, OpeningId, Openings,
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::NoiseParams;
 
 /// One gallery cell: world-space slot (already offset).

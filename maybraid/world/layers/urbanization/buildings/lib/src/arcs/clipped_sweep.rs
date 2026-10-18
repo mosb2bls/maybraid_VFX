@@ -3,7 +3,7 @@
 use bevy_math::Vec3;
 use building_components::partitions::{Partition, PartitionNode, PartitionStyle};
 use building_components::{BuildingComponents, Layers, Placement};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::portals::SLICE_Y_FRAC;
 

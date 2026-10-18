@@ -16,8 +16,8 @@ layer-stack = { workspace = true }
 lod = { workspace = true }
 lod-gimme = { workspace = true }
 mob-characters = { workspace = true }
+mob-intelligence = { workspace = true }
 mob-layer-model = { workspace = true }
-mob-layer-presentation = { workspace = true }
 mob-scenes = { workspace = true }
 procedural-common = { workspace = true }
 richmond = { workspace = true }

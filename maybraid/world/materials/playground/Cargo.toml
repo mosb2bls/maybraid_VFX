@@ -1,0 +1,25 @@
+[package]
+name = "world-materials-playground"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[[bin]]
+name = "world-materials-playground"
+path = "src/main.rs"
+
+[dependencies]
+bevy = { workspace = true }
+clap = { workspace = true }
+firearms = { workspace = true }
+game-commands = { workspace = true }
+material-ref = { workspace = true }
+world-materials = { workspace = true }
+
+[lints]
+workspace = true

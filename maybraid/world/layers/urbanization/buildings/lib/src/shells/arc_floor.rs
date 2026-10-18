@@ -26,7 +26,7 @@ use bevy_math::{Vec2, Vec3};
 use building_components::floors::FloorNode;
 use building_components::partitions::{PartitionNode, PartitionStyle};
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::openings::{MappedOpenings, Openings};
 

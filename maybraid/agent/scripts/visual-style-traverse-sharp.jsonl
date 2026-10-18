@@ -1,0 +1,22 @@
+# Streaming route in Sharp (untreated 1080p offscreen, height-fit).
+
+{"cmd":"visual_style","style":"sharp"}
+{"cmd":"scenario","name":"visual-style-traverse-warmup","mark":"start"}
+{"cmd":"console","line":"sky noon"}
+{"cmd":"wait","secs":10}
+{"cmd":"hold","move":[0,1],"secs":6}
+{"cmd":"scenario","name":"visual-style-traverse-warmup","mark":"end"}
+
+{"cmd":"scenario","name":"visual-style-traverse","mark":"start"}
+{"cmd":"hold","move":[0,1],"buttons":["sprint"],"secs":8}
+{"cmd":"hold","look":[0.4,0],"secs":1.2}
+{"cmd":"press","button":"jump"}
+{"cmd":"goto","xz":[180,0],"timeout":90,"radius":6,"sprint":true,"look":[0.18,0]}
+{"cmd":"press","button":"jump"}
+{"cmd":"goto","xz":[180,180],"timeout":90,"radius":6,"sprint":true,"look":[-0.16,0.08]}
+{"cmd":"hold","look":[0,0.35],"secs":1.0}
+{"cmd":"goto","xz":[0,180],"timeout":90,"radius":6,"sprint":true}
+{"cmd":"goto","xz":[20,20],"timeout":90,"radius":6}
+{"cmd":"wait","secs":3}
+{"cmd":"scenario","name":"visual-style-traverse","mark":"end"}
+{"cmd":"quit"}

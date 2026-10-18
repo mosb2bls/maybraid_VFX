@@ -11,10 +11,7 @@
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 
-use crate::{
-	ClothingMaterial, ClothingMesh, FirearmSpec, Inventory, InventoryItem, ItemColor,
-	IRON_SIGHT_FOV,
-};
+use crate::{ClothingMaterial, ClothingMesh, FirearmSpec, Inventory, ItemColor, IRON_SIGHT_FOV};
 
 const BASE_HEALTH: i16 = 100;
 const BASE_RUNNING: i16 = 100;
@@ -297,7 +294,13 @@ impl CharacterSheet {
 			}
 		}
 		for &index in &inventory.weapons {
-			if let Some(stats) = inventory.items.get(index).and_then(InventoryItem::firearm_stats) {
+			let Some(item) = inventory.items.get(index) else {
+				continue;
+			};
+			if let Some(stats) = item.firearm_stats() {
+				sheet.weight = sheet.weight.saturating_add(stats.weight);
+			}
+			if let Some(stats) = item.grenade_stats() {
 				sheet.weight = sheet.weight.saturating_add(stats.weight);
 			}
 		}
@@ -422,6 +425,7 @@ fn signed_or_zero(value: i16) -> String {
 mod tests {
 	use super::*;
 	use crate::FirearmMesh;
+	use crate::InventoryItem;
 
 	#[test]
 	fn clothing_identity_is_stable_and_has_weight() {

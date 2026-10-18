@@ -1,24 +1,13 @@
-//! Urbanization as a layer over a [`UrbanizationModel`].
+//! Urbanization as a layer over ground model `U`.
 //!
-//! [`Urbanization<U>`] is `U::Ground` with pads composed in, plus the urban
-//! artifacts `U` stores. Storage stays in the model crate; this crate only
-//! declares the contract.
+//! [`Urbanization<U>`] is `U`'s ground with pads composed in.
 
-mod generation;
 mod model;
 mod pads;
 mod region;
 mod setting;
-mod urban;
 
-pub use generation::{
-	UrbanizationGeneration, UrbanizationGenerationSystems, UrbanizationLayerRegion,
-};
-pub use model::{UrbanRead, UrbanSnapshot, Urbanization};
+pub use model::Urbanization;
 pub use pads::PadOps;
 pub use region::{urbanization_host_region, urbanization_visual_region};
 pub use setting::UrbanSetting;
-pub use urban::{UrbanModel, UrbanizationModel};
-
-#[cfg(test)]
-mod tests;

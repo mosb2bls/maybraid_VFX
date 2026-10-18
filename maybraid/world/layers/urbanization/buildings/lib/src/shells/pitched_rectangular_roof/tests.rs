@@ -1,6 +1,6 @@
 use bevy_math::{Vec2, Vec3};
 use building_components::BuildingComponents;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::openings::{MapsOpenings, OpeningId, OpeningLabel, Openings};
 use crate::paneling::clipped_ruled_strip::ClippedStripPiece;
@@ -132,7 +132,7 @@ fn pitch_clip_is_centered_quad_on_face() {
 #[test]
 fn skylight_reduces_or_changes_pitch_panels() {
 	use building_components::BuildingComponents;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 	let base = PitchedRoofParams::rectangular_hip(Vec2::new(10.0, 6.0), 4.0, 2.5, 1.5);
 	let solid = PitchedRoof::new(base.clone());
 	let opening =

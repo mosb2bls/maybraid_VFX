@@ -5,11 +5,10 @@
 //! at rest so a period wrap is quiet. A small unwrapped sway keeps rest from
 //! looking frozen.
 //!
-//! Neck knobs follow [`crate::rigs::quadruped::apply::apply_neck_axes`]: local
-//! +Y is along the bone, so **flex** is side-to-side, **twist** is up / down,
-//! and **swing** is roll.
+//! Neck knobs follow [`crate::rigs::quadruped::apply::apply_neck_axes`]:
+//! **flex** is neck tilt, **twist** is neck nod, and **swing** is neck turn.
 
-use crate::animations::smoothstep;
+use crate::animations::{burst_envelope, smoothstep, DEFAULT_BURST_EDGE};
 
 const DEFAULT_GRAZE_NECK: f32 = 0.68;
 const DEFAULT_GRAZE_PITCH: f32 = 0.45;
@@ -21,15 +20,15 @@ const DEFAULT_SWAY: f32 = 0.018;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct QuadrupedIdle {
-	/// Side-to-side while the muzzle is down (flex / Z, radians).
+	/// Side-to-side while the muzzle is down (neck tilt, radians).
 	pub graze_neck: f32,
-	/// Up / down while the muzzle is down (twist / X, radians).
+	/// Up / down while the muzzle is down (neck nod, radians).
 	pub graze_pitch: f32,
-	/// Side-to-side while looking up (flex / Z, radians).
+	/// Side-to-side while looking up (neck tilt, radians).
 	pub look_neck: f32,
-	/// Up / down while looking up (twist / X, radians).
+	/// Up / down while looking up (neck nod, radians).
 	pub look_pitch: f32,
-	/// Roll during the shake burst (swing / Y, around the bone, radians).
+	/// Roll during the shake burst (neck turn, radians).
 	pub shake: f32,
 	/// Lumbar gather while grazing (radians).
 	pub lumbar: f32,
@@ -116,18 +115,10 @@ impl QuadrupedIdle {
 		if t < Self::LOOK_END || t >= Self::SHAKE_END {
 			return 0.0;
 		}
-		burst_envelope((t - Self::LOOK_END) / (Self::SHAKE_END - Self::LOOK_END))
-	}
-}
-
-fn burst_envelope(u: f32) -> f32 {
-	let edge = 0.22;
-	if u < edge {
-		smoothstep(u / edge)
-	} else if u > 1.0 - edge {
-		smoothstep((1.0 - u) / edge)
-	} else {
-		1.0
+		burst_envelope(
+			(t - Self::LOOK_END) / (Self::SHAKE_END - Self::LOOK_END),
+			DEFAULT_BURST_EDGE,
+		)
 	}
 }
 

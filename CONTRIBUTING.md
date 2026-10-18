@@ -181,6 +181,183 @@ Do **not** use [`.unwrap()`](https://doc.rust-lang.org/std/option/enum.Option.ht
 
 Prefer **`Result`** propagation instead: write helpers that return something like **`anyhow::Result`** (or your crate’s error type), use **`?`**, and declare **`#[test] fn case() -> anyhow::Result<()>`**, so harness failures surface structured errors. [`assert!`](https://doc.rust-lang.org/std/macro.assert.html) / [`assert_eq!`](https://doc.rust-lang.org/std/macro.assert_eq.html) remain appropriate for expectations.
 
+### Menu and shell systems
+
+New menu, shell, and editor systems should return [`Result`](https://docs.rs/bevy/0.19.1/bevy/ecs/error/type.Result.html) (or take `Option` / `Single`) instead of `unwrap` / `expect` when a missing entity or resource can happen during a screen swap. Commands that target a screen that may already be gone should use `try_insert` / `try_despawn`. Recoverable ECS errors go through the game error boundary ([game README](maybraid/game/README.md#error-recovery)); do not add a second handler.
+
+## Packaging and CI
+
+When working on game packaging or scripts in `packaging/`, include the **`ci-action::package`** marker in your commit message to trigger the [Package workflow](../.github/workflows/package.yml) on your PR branch. Without it, Package only runs on `main`, published releases, and manual `workflow_dispatch`.
+
+The [Package workflow](../.github/workflows/package.yml) builds unsigned macOS DMG, Windows zip, Linux Steam depot, and general Linux tarball artifacts. It runs on `main` and published releases automatically, but for feature branches you must opt in with the commit message marker. Local reproduction commands are in [packaging/README.md](packaging/README.md).
+
+To include the marker, add an `## Actions` section after `## Agent Dialogue` in your commit message file:
+
+````markdown
+## Actions
+
+```shell
+ci-action::package
+```
+````
+
+When you commit with `git commit-std`, the full commit message file (including the Actions section) becomes the commit message, and GitHub's workflow checks will see the token. See [ci-actions/README.md](../.github/workflows/ci-actions/README.md) for the index of available markers.
+
+**When to use `ci-action::package`:**
+- Changes to `packaging/scripts/` or packaging configuration
+- Modifications to build flags or linker settings that affect release binaries
+- Updates to the Package workflow or toolchain pins that could impact package outputs
+- Any change where you need to verify the packaged artifacts work correctly
+
+Without the marker, your CI checks will pass but no packages will be built, and packaging regressions may only surface later on `main`.
+
+## Traces Releases
+
+Profiling captures (Tracy `.tracy` files and Xcode Instruments `.trace` bundles) are published as **GitHub Release assets**, never committed to git. Each capture asset has an identically named companion `.md` with findings for that file.
+
+### Release identity
+
+One Traces release per workspace version. Read `X.Y.Z` from `[workspace.package] version` in the root `Cargo.toml`.
+
+| | |
+|---|---|
+| Title | `vX.Y.Z Traces` |
+| Tag | `vX.Y.Z-traces` |
+
+Later captures for the same version are **appended** as assets on that release. Do not open a second Traces release for the same version.
+
+The release must **not** be Latest, a pre-release, or a draft:
+
+```bash
+gh release create vX.Y.Z-traces \
+  --title "vX.Y.Z Traces" \
+  --latest=false \
+  --notes-file notes.md
+```
+
+Do not pass `--prerelease` or `--draft`. Release notes are an index table: file stem, scenario/setting, commit, date, device, one-line finding.
+
+### Packaging guard
+
+[`.github/workflows/package.yml`](.github/workflows/package.yml) runs on `release: published`. Its `publish-release` job builds the game and uploads DMG/zip/tarball into the release. That must not happen for Traces releases. Every job in that workflow skips when:
+
+```
+github.event_name == 'release' && endsWith(github.event.release.tag_name, '-traces')
+```
+
+**Release events use the workflow file at the tagged commit.** A Traces tag must point at a commit that already contains this guard. Until that change is on `main`, target the branch commit that added it; afterwards, any `main` commit is fine.
+
+### Asset naming
+
+```
+<commit7>_<YYYYMMDD>_<device>_<setting>.<ext>
+```
+
+Example: `1f79999_20261011_m4pro-macmini_crowd-16-ab-after-r1.tracy`
+
+| Field | Meaning |
+|---|---|
+| `commit7` | 7-character commit of the **source the binary was built from** |
+| `YYYYMMDD` | Capture date (UTC) |
+| `device` | Short slug, e.g. `m4pro-macmini` |
+| `setting` | Kebab-case scenario + variant + repeat, e.g. `crowd-16-ab-after-r1`, `crowd-0-gpu-metal-r1` |
+| `ext` | `tracy` for Tracy; `trace.zip` for zipped Instruments bundles |
+
+Zip Instruments bundles with `ditto -c -k --keepParent X.trace X.trace.zip`. Each asset has a companion with the **identical stem** and `.md` (e.g. `1f79999_20261011_m4pro-macmini_crowd-16-ab-after-r1.md`).
+
+Hard limits: **2 GB per asset**. Exclude incomplete, failed, or `Monitor removed` runs.
+
+### Companion `.md` template
+
+```markdown
+# <asset file name>
+
+- **Tool:** Tracy 0.13.1 `tracy-capture`  (or Xcode Instruments Metal System Trace)
+- **Commit:** [`<full hash>`](https://github.com/ramate-io/maybraid/commit/<full hash>)
+- **Date:** YYYY-MM-DD (UTC)
+- **Device:** Apple M4 Pro Mac mini, 48 GB, display 1920×1080 @ 60 Hz
+- **Build:** release, `--features bevy/trace_tracy`
+- **Env:** `MAYBRAID_VSYNC=off`
+- **Command:** <script or attach command>
+- **Setting:** <scenario, actor count, repeat>
+
+## Summary metrics
+
+| window | frames | main app | render app | present wait | GPU ms |
+|---|---|---|---|---|---|
+| … | … | … | … | … | … |
+
+## Findings
+
+- …
+- …
+
+## Related
+
+- [PR](…) · [issue](…) · [gist](…)
+- Sibling: `<partner stem>`
+
+## How to open
+
+Download the asset first. Open `.tracy` in Tracy GUI 0.13.x, or the [web viewer](https://topolarity.github.io/trace-viewer/) (release-asset URLs may fail CORS — download, then open the local file). Unzip `.trace.zip` and open the bundle in Instruments.
+```
+
+Findings should be 3–8 bullets about **this file**, including caveats (throttled regime, lost encoder labels, GPU clock state).
+
+### Latest Traces release
+
+Traces releases are never marked Latest, so "the latest Traces release" is the `*-traces` tag with the highest `X.Y.Z`:
+
+```bash
+gh release list -R ramate-io/maybraid -L 100 --json tagName -q '.[].tagName' \
+  | grep -- '-traces$' | sort -V | tail -1
+```
+
+If the workspace version has moved past it, create the new version's release first (see [Release identity](#release-identity)).
+
+### Gameplay scripts as assets
+
+Agent scripts ([`maybraid/agent`](maybraid/agent/README.md)) can be published on a Traces release, so capture runs can be reproduced and later scripts can build on earlier ones. They use the same naming with `script` in the device slot:
+
+```
+<commit7>_<YYYYMMDD>_script_<setting>.jsonl
+<commit7>_<YYYYMMDD>_script_<setting>.md
+```
+
+- `commit7` is the commit whose script API the script was written and parse-checked against.
+- The measure window is a `<setting>-warmup` / `<setting>` pair of `scenario` marks, followed by `quit`. The flight scripts read the last non-`-warmup` start mark.
+- Choose the start location with a leading `{"cmd":"start","xz":[X,Z]}` rather than relying on `--start-at`.
+- The companion `.md` states the **script API version** ([agent README](maybraid/agent/README.md#script-api-version)). It also covers start location, route, what the script exercises (streaming, locomotion, crowds, combat, …), which zones or passes it should stress, and which earlier scripts it extends.
+
+Check that a script parses before publishing it: run `profiling/tracy-flight.sh path/to/script.jsonl check 1`, or `cargo test -p maybraid-agent` with the script copied into `maybraid/agent/scripts/` locally.
+
+CPU captures come from `profiling/tracy-flight.sh <script.jsonl> <phase> <repeat>`, and GPU captures from `profiling/metal-flight.sh` (Metal System Trace; uploads `*.trace.zip`). Both accept a downloaded script path. See [`profiling/README.md`](profiling/README.md).
+
+### The `trace` label
+
+Issues, discussions, and PRs that come from Traces releases carry the `trace` label. That covers hitch, CPU, or GPU findings; crashes found in captures (`trace` + `bug`); and optimizations that cite a capture. Link the release assets they discuss. Optimization PRs post before/after captures to the release under the same naming.
+
+### Daily trace routines
+
+Scheduled agents keep the Traces release current. Times are CET; each routine is independent and skips quietly when it has nothing to do.
+
+| Time | Routine | Output |
+|---|---|---|
+| 07:00 | Bug fixes | PRs fixing open `trace` + `bug` issues |
+| 08:00 | Script writer | One new `script_<setting>.jsonl` + `.md` on the latest Traces release |
+| 09:00 | Trace capturer | CPU `.tracy` and GPU `.trace.zip` captures (+ `.md`) of interesting scripts — only when the `maybraid-gpu` machine is available |
+| 11:00 | Hitch finder | `trace` issue/discussion on frame hitches; `trace` + `bug` issue per crash |
+| 11:00 | CPU performance | `trace` issue/discussion on steady-state CPU zones |
+| 11:00 | GPU performance | `trace` issue/discussion on GPU passes |
+| 16:00 | Live optimizer | One well-scoped `trace` PR addressing captured findings, with before/after captures when `maybraid-gpu` is available |
+
+Rules for every routine:
+
+1. Read the latest Traces release's assets and companion `.md` files first, and do not repeat an existing script, capture, or finding. Search open `trace` issues and discussions before filing.
+2. Capture only on `maybraid-gpu`, one game at a time. The flight scripts refuse to start when `maybraid`, `tracy-capture`, or `xctrace` is running. Treat that as "machine unavailable" and skip.
+3. Asset names and companion `.md` files follow this section. Upload with `gh release upload vX.Y.Z-traces <files> -R ramate-io/maybraid`, never `--clobber` someone else's asset.
+4. Findings cite asset names and numbers from them (window means, p95, hitch frames). Speculation is labeled as such.
+
 ## Spotting and combat targeting
 
 Keep semantic eligibility, visual knowledge, combat membership, and weapon
@@ -279,18 +456,18 @@ Copies of Tracy CSVs and hitch logs from the orchard work (`frame_*.csv`, `*trac
 
 ## Migrating a grove to the orchard (flattened) approach
 
-Orchard High/Medium plants are **posed kit content**, not a nest of per-stick / per-ball [`LodSceneHost`](maybraid/lod/lib/src/scene/host.rs)s. That is what made `/show vast-orchards` scale: one Avian volume per plant, shared stick/ball [`SceneRef`](maybraid/scene-ref)s, and no fine-phase refresh per kit node.
+Orchard High/Medium plants are **posed kit content**, not a nest of per-stick / per-ball [`LodSceneHost`](maybraid/lod/lib/src/scene/host.rs)s. Forest tiles go further: kits live under the **grove** host (`ChicoGroveHost` / leftover grove `LodScene`), so hide/show is one apply per tile. Isolated `/show` trees still keep one Gimme-indexed host per plant. Shared stick/ball [`SceneRef`](maybraid/scene-ref)s; no fine-phase refresh per kit node.
 
 Canonical example: [`maybraid/world/layers/vegetation/groves/src/orchard.rs`](maybraid/world/layers/vegetation/groves/src/orchard.rs) (`nest_plant_chunks`) plus helpers in [`grove/vc_compose.rs`](maybraid/world/layers/vegetation/groves/src/grove/vc_compose.rs).
 
-1. **Compose with `nest_flattened_plant_chunk`**, not the unused nested-host helpers in [`placed_host.rs`](maybraid/world/layers/vegetation/groves/src/grove/placed_host.rs). Those wrap [`ComponentsOnly`](maybraid/world/layers/vegetation/components/src/lib.rs)`<PlacedVegetation<T>>` and spawn nested [`FoliageNode`](maybraid/world/layers/vegetation/components/src/foliage/node.rs) / [`StickNode`](maybraid/world/layers/vegetation/components/src/sticks/node.rs) LOD hosts. Flattened hosts wrap `FlattenedComponentsOnly<PlacedVegetation<T>>` and emit posed kits only.
+1. **Compose with `nest_flattened_plant_chunk`**, not the unused nested-host helpers in [`placed_host.rs`](maybraid/world/layers/vegetation/groves/src/grove/placed_host.rs). Those wrap [`ComponentsOnly`](maybraid/world/layers/vegetation/components/src/lib.rs)`<PlacedVegetation<T>>` and spawn nested [`FoliageNode`](maybraid/world/layers/vegetation/components/src/foliage/node.rs) / [`StickNode`](maybraid/world/layers/vegetation/components/src/sticks/node.rs) LOD hosts. `nest_flattened_plant_chunk` stamps `FlattenedComponentsOnly<PlacedVegetation<T>>` and emits posed kits under the **grove** host — no per-tree [`LodSceneHost`](maybraid/lod/lib/src/scene/host.rs).
 2. **Share the plant type with `Arc<T>`** when `T` is large (Storybook trees). Orchard stores `Arc<StorybookTree>` so begin/drain does not clone geometry per chunk. Register **that** wrapper in the playground:
-   `avian_host!(app, FlattenedComponentsOnly<PlacedVegetation<Arc<YourTree>>>);`
+   `flattened_plant_host!(app, YourTree);`
    in [`view.rs`](maybraid/world/layers/vegetation/chico/src/view.rs). Isolated leftover plant hosts use the same family.
-3. **Lazy `SceneChunk` for the plant list.** Build one `SceneChunk::lazy(n, n, …)` that yields `nest_flattened_plant_chunk` per plant (see Orchard `nest_plant_chunks`). Begin must not box every `scene_with_level` up front.
-4. **Leave Low / UltraLow as canopy proxies** (`canopy_proxy_site`, `ULTRA_LOW_CANOPY_BIN_METERS`). Flattening is for the High/Medium plant hosts.
+3. **Lazy `SceneChunk` for the plant list.** Use [`lazy_flattened_plant_chunks`](maybraid/world/layers/vegetation/groves/src/grove/vc_compose.rs) (kit weight × plant count) that yields `nest_flattened_plant_chunk` per plant (see Orchard `nest_plant_chunks`). Begin must not box every `scene_with_level` up front.
+4. **Leave Low / UltraLow as canopy proxies** (`canopy_proxy_site`, `ULTRA_LOW_CANOPY_BIN_METERS`). Flattening is for High/Medium posed plants (palm-only groves also pose through Low).
 5. **Charge kit weight.** Flattened kits use [`FLATTENED_KIT_CHUNK_WEIGHT`](maybraid/world/layers/vegetation/components/src/lib.rs) so drain does not admit a full SceneRef / `WorldAssetRoot` wave in one frame.
-6. **Do not add a second produce plugin per region channel.** `AvianLodSceneRefreshPlugin<T, M, F>` can still be added for bullseye and spotlight; fill/emit are registered once per `T`. Cull fill is the same pattern: one untyped host-hit query (`LodCullProduceCache`), then per-`T` enqueue (`AvianLodSceneCullPlugin`).
+6. **Do not add a second produce plugin per region channel.** `GimmeLodSceneRefreshPlugin<T, M, F>` can still be added for bullseye and spotlight; fill/emit are registered once per `T`. Cull fill is the same pattern: one untyped host-hit query (`LodCullProduceCache`), then per-`T` enqueue (`GimmeLodSceneCullPlugin`).
 
 7. **Quantize + merge kits on the plant.** Step-by-step for other constructions: [`sbs-trees` CONTRIBUTING](maybraid/world/layers/vegetation/sbs-trees/CONTRIBUTING.md) (tree / tuft `unit_from_num` + collection merge) and [`vegetation-groves` CONTRIBUTING](maybraid/world/layers/vegetation/groves/CONTRIBUTING.md) (`tree_variants` / flatten). Orchard uses [`StorybookTree::unit_from_num`](maybraid/world/layers/vegetation/sbs-trees/src/storybook_tree.rs) (`tree_variants`, default 100). Emission folds sticks and cheap balls into [`MultiSceneMerge`](maybraid/scene-ref) collections. Merge packs kit-local positions into vertex color so [`LeafMaterial`](maybraid/world/layers/vegetation/shaders/src/leaf_material.wgsl) breakup still works. World size stays on the plant [`Placement`](maybraid/world/layers/vegetation/components/src/placed.rs) scale.
 

@@ -5,6 +5,6 @@ mod terrain_shader;
 
 pub use refraction_water::{RefractionWater, RefractionWaterPlugin};
 pub use terrain_shader::{
-	TerrainBandUniform, TerrainNoiseUniform, TerrainShader, TerrainShaderPlugin,
-	TerrainSwatchUniform, EVEN_BAND_BLEND_WEIGHT, EVEN_SWATCH_FOLD_WEIGHT,
+	TerrainBandUniform, TerrainGrassUniform, TerrainNoiseUniform, TerrainShader,
+	TerrainShaderPlugin, TerrainSwatchUniform, EVEN_BAND_BLEND_WEIGHT, EVEN_SWATCH_FOLD_WEIGHT,
 };

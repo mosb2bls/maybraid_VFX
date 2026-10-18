@@ -1,6 +1,6 @@
 # Playgrounds
 
-A playground is a **single-layer** developer app next to the crate it inspects (`buildings-playground`, `furniture-playground`, `durham-playground`, …). Assembled world — Durham terrain, streamed forest, urbanization, character — lives in [`maybraid-world`](world/) and runs as [`maybraid-world-playground`](world/playground/).
+A playground is a **single-layer** developer app next to the crate it inspects (`buildings-playground`, `furniture-playground`, `durham-playground`, [`world-materials-playground`](world/materials/playground/), [`vfx-playground`](vfx/playground/), …). Assembled world — Durham terrain, streamed forest, urbanization, character — lives in [`maybraid-world`](world/) and runs as [`maybraid-world-playground`](world/playground/).
 
 Do not keep a second assembled-world app. Parameters and streaming knobs belong on `WorldPlugin` / `maybraid-world`, not on a parallel vegetation-on-terrain binary.
 
@@ -30,11 +30,35 @@ Last commit that still contained the trees below: [`9a9a74c6901ed4d7799a4e87d16f
 - **Did:** Small Durham fine-grid patch for iterating Chico groves on real ground. `/grove <kind>` tiled one grove type; `/forest` streamed the same generate/present/cull path as SBS, grown on Durham height. Character / free-look, canopy bump-outs, mesh stats.
 - **Replacement:** [`maybraid-world-playground`](world/playground/) (`cargo run -p maybraid-world-playground`). The crate is now only the character/player host and diagnostics library for `maybraid-world`. Richmond and mobs no longer use it.
 
+### `maybraid/world/layers/urbanization/richmond-playground`
+
+- **Last commit:** [`4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e`](https://github.com/ramate-io/maybraid/commit/4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e)
+- **Did:** Durham fine patch with Richmond developments, Chico groves and bump-outs, and Maputo furniture presented from the shared HCSG runtime. Terrain still came from the legacy `Generate::<PlaygroundMode, OnTerrain<Durham>>` stream. A command flag restarted the session, and an optional development focus narrowed it to one development.
+- **Replacement:** [`maybraid-world-playground`](world/playground/) runs the same layers in Discovery. Retired with the legacy HCSG path, so rewrite it on `DurhamWorldPlugin` rather than restoring it.
+
+### `maybraid/world/layers/mobs/barking-playground`
+
+- **Last commit:** [`4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e`](https://github.com/ramate-io/maybraid/commit/4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e)
+- **Did:** 4×4 Durham fine patch with a short authored mob list (herd, pack, or forced Hars/Ylter herds). No vegetation and no mob LOD stream. Used to tell grounding, routing hops and tethered High plants apart without world-stream noise.
+- **Replacement:** [`maybraid-world-playground`](world/playground/). Retired with the legacy HCSG path, so rewrite it on `DurhamWorldPlugin` rather than restoring it.
+
+### `maybraid/world/layers/mobs/characters/world-movements-playground` (`character-world-movements-playground`)
+
+- **Last commit:** [`4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e`](https://github.com/ramate-io/maybraid/commit/4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e)
+- **Did:** 4×4 Durham fine patch at the highest mesh band for character locomotion (walk, run, jump, facing, grounding on Avian colliders). `set-character <species>` and `stampede` (every biped and quadruped on its own capsule).
+- **Replacement:** [`maybraid-world-playground`](world/playground/) for locomotion on streamed ground; [`character-concepts-playground`](menu/character-concepts-playground/) for concept sliders. Retired with the legacy HCSG path, so rewrite it on `DurhamWorldPlugin` rather than restoring it.
+
+### `maybraid/intelligence/routing-playground`
+
+- **Last commit:** [`4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e`](https://github.com/ramate-io/maybraid/commit/4f1ff3b7eeb85a3aa36c00bf3bb25a123498856e)
+- **Did:** 4×4 Durham fine patch (survey camera, vegetation lighting, no groves). One NPC tethered to or stalked the player while gizmos drew coarse-to-fine routing corridors.
+- **Replacement:** None. Retired with the legacy HCSG path, so rewrite it on `DurhamWorldPlugin` rather than restoring it.
+
 ### `maybraid/world/layers/urbanization/richmond-playground` (catalog-batch mode)
 
 - **Last commit:** [`6925f413a28b1cc8e6a17f3f94e3922c37b92e66`](https://github.com/ramate-io/maybraid/commit/6925f413a28b1cc8e6a17f3f94e3922c37b92e66)
 - **Did:** `own_terrain: true` filled a FinePatch all at once (Durham shaders + `generate_terrain`, no `BaseTerrainGenerationPlugin`). With a development focus it used the 300 m occupancy lattice instead of hopscotch leaves, then batch-spawned hosts. `urbanization: None` was the default.
-- **Replacement:** The crate and binary stay. The binary is a stream assembler: `Generate::<PlaygroundMode, OnTerrain<Durham>>::new(DurhamTerrainConfig::fine_patch(r))`, `Present::<PlaygroundMode, OnTerrain<Durham>>`, and the urbanization `Generate` / `Present` plugins. Catalog-batch cannot satisfy urbanization `finish` without becoming that streamed FinePatch. Restore the batch path from `6925f413` if the lattice-without-hopscotch catalog is needed again.
+- **Replacement:** The streamed crate that replaced it was itself retired at `4f1ff3b7` (above). Restore the batch path from `6925f413` if the lattice-without-hopscotch catalog is needed again.
 
 ### `playgrounds/terrain` (`terrain-playground`)
 

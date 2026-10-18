@@ -3,12 +3,10 @@
 //! [`UprightLeap`] holds art-level humanoid knobs. Rig-agnostic callers use [`Leap`](super::Leap)
 //! and convert via [`UprightLeap::from_leap`].
 
-use std::marker::PhantomData;
-
 use super::Leap;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct UprightLeap<Rig> {
+pub struct UprightLeap {
 	/// Lead (right) femur forward swing at takeoff (radians, applied negative).
 	pub lead_stride: f32,
 	/// Trail (left) femur back swing at takeoff (radians, applied positive).
@@ -33,10 +31,9 @@ pub struct UprightLeap<Rig> {
 	pub air_arm: f32,
 	/// Baseline elbow bend through the shot.
 	pub elbow: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Default for UprightLeap<Rig> {
+impl Default for UprightLeap {
 	fn default() -> Self {
 		Self {
 			lead_stride: 0.85,
@@ -51,12 +48,11 @@ impl<Rig> Default for UprightLeap<Rig> {
 			arm_drive: 0.55,
 			air_arm: 0.35,
 			elbow: 1.1,
-			_rig: PhantomData,
 		}
 	}
 }
 
-impl<Rig> UprightLeap<Rig> {
+impl UprightLeap {
 	/// Scale the tuned upright template from rig-agnostic [`Leap`] knobs.
 	pub fn from_leap(leap: &Leap) -> Self {
 		let template = Self::default();
@@ -76,7 +72,6 @@ impl<Rig> UprightLeap<Rig> {
 			takeoff_knee_lead: template.takeoff_knee_lead,
 			takeoff_knee_trail: template.takeoff_knee_trail,
 			elbow: template.elbow,
-			_rig: PhantomData,
 		}
 	}
 }
@@ -87,14 +82,14 @@ mod tests {
 
 	#[test]
 	fn from_leap_default_matches_template() {
-		assert_eq!(UprightLeap::<()>::from_leap(&Leap::default()), UprightLeap::<()>::default());
+		assert_eq!(UprightLeap::from_leap(&Leap::default()), UprightLeap::default());
 	}
 
 	#[test]
 	fn from_leap_scales_stride_gather_and_lean() {
 		let leap = Leap { gather: 2.0, lean: 0.5, stride: 2.0 };
-		let upright = UprightLeap::<()>::from_leap(&leap);
-		let template = UprightLeap::<()>::default();
+		let upright = UprightLeap::from_leap(&leap);
+		let template = UprightLeap::default();
 		assert!((upright.lead_stride - template.lead_stride * 2.0).abs() < 1e-5);
 		assert!((upright.air_knee - template.air_knee * 2.0).abs() < 1e-5);
 		assert!((upright.lean - template.lean * 0.5).abs() < 1e-5);

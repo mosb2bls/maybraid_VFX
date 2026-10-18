@@ -5,7 +5,7 @@ use bevy::math::Vec3;
 use building_components::furniture::abutment::local_scale_for_yaw;
 use building_components::{FurnitureNode, FurnitureUsageNode, Placement};
 
-use crate::region::{along_is_x, along_span, floor_height_aabb, stamp_make};
+use crate::region::{along_is_x, along_span, clamp_grid, floor_height_aabb, stamp_make};
 
 const COMMUNAL: Vec3 = Vec3::new(2.20, 1.00, 1.40);
 const CAFE: Vec3 = Vec3::new(1.25, 1.00, 0.90);
@@ -66,16 +66,6 @@ impl BitesSeatingUsage {
 
 fn count_cells(span: f32, target: f32, max: usize) -> usize {
 	((span / target).floor() as usize).clamp(0, max)
-}
-
-fn clamp_grid(n_x: usize, n_z: usize, max: usize) -> (usize, usize) {
-	if n_x * n_z <= max {
-		return (n_x, n_z);
-	}
-	let scale = (max as f32 / (n_x * n_z) as f32).sqrt();
-	let nx = ((n_x as f32 * scale).floor() as usize).max(1);
-	let nz = (max / nx).max(1);
-	(nx, nz)
 }
 
 fn table_set(cell: &Aabb3d, host: &Aabb3d) -> Vec<FurnitureNode> {

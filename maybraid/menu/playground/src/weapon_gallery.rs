@@ -5,18 +5,20 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use camera_controls::look::CameraLookEnabled;
-use character_items::{random_gallery_firearms, FirearmSpec, ItemRng};
+use character_items::{FirearmSpec, ItemRng};
 use characters::species::braidman::BraidmanConfig;
 use characters::{character_bounds, CharacterMotionSystems, CharacterRecipe, ComponentsOnly};
 use characters_playground::CameraController;
 use firearm_user::{
 	pose_held_firearm, stamp_holding_arms, sync_hands_to_firearm, FirearmUser, HeldFirearm,
 };
-use lod::gen::LodScene;
 use lod::lod_ref::LodRef;
+use lod::scene::LodScene;
 use maybraid_menu_controller::MenuController;
 use menu_components::{screen_back_scene, BrandModeLine};
-use menu_screens::{add_menu_input, take_menu_show_request, MenuScreen};
+use menu_screens::{
+	add_menu_input, add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest,
+};
 use player::PlayerLook;
 
 use crate::preview::spawn_firearm;
@@ -28,6 +30,7 @@ const SPACING_Z: f32 = 1.8;
 
 /// Queue a generated-weapon gallery spawn.
 #[derive(Component, Debug, Clone, Copy)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowWeapons;
 
 /// Marker on the spawned weapon-gallery HUD root.
@@ -48,10 +51,10 @@ pub struct WeaponGalleryPlugin;
 impl Plugin for WeaponGalleryPlugin {
 	fn build(&self, app: &mut App) {
 		add_menu_input(app);
+		add_menu_show_systems(app, apply_show_weapons);
 		app.add_systems(
 			Update,
 			(
-				apply_show_weapons,
 				despawn_weapon_gallery_items,
 				sync_weapon_gallery_look,
 				stamp_holding_arms,
@@ -64,16 +67,16 @@ impl Plugin for WeaponGalleryPlugin {
 
 fn apply_show_weapons(
 	mut commands: Commands,
-	requests: Query<Entity, With<RequestShowWeapons>>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<(), With<RequestShowWeapons>>,
+	screens: MenuScreens,
 	items: Query<Entity, With<WeaponGalleryItem>>,
 	mut cameras: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
 ) {
-	if !take_menu_show_request(&mut commands, &requests, &existing) {
+	if screens.take(&mut commands, &requests).is_none() {
 		return;
 	}
 	for entity in &items {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 	commands.spawn_scene(weapon_gallery_scene());
 	spawn_gallery_operators(&mut commands);
@@ -83,7 +86,8 @@ fn apply_show_weapons(
 }
 
 fn spawn_gallery_operators(commands: &mut Commands) {
-	let items = random_gallery_firearms(&mut ItemRng::from_entropy(), GALLERY_COUNT);
+	let mut rng = ItemRng::from_entropy();
+	let items = rng.random_gallery_firearms(GALLERY_COUNT);
 	let rows = GALLERY_COUNT.div_ceil(GALLERY_COLS);
 	for (index, item) in items.into_iter().enumerate() {
 		let Some(spec) = item.firearm_spec() else {
@@ -163,7 +167,7 @@ fn despawn_weapon_gallery_items(
 		return;
 	}
 	for entity in &items {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 }
 
@@ -202,5 +206,26 @@ mod tests {
 		let last_col = cell_translation(GALLERY_COLS - 1, rows);
 		assert!((first.x + last_col.x).abs() < 1e-5);
 		assert!(first.y.abs() < 1e-5);
+	}
+
+	#[test]
+	fn teardown_ignores_items_that_are_already_gone() -> Result<(), Box<dyn std::error::Error>> {
+		use super::{despawn_weapon_gallery_items, WeaponGalleryItem};
+		use bevy::ecs::system::RunSystemOnce;
+		use bevy::prelude::*;
+
+		let mut world = World::new();
+		let stale = world.spawn(WeaponGalleryItem).id();
+		world.despawn(stale);
+		world.spawn(WeaponGalleryItem);
+		world
+			.run_system_once(despawn_weapon_gallery_items)
+			.map_err(|error| format!("{error:?}"))?;
+		world.flush();
+		let left = world.query::<&WeaponGalleryItem>().iter(&world).count();
+		if left != 0 {
+			return Err(format!("gallery items should despawn, left {left}").into());
+		}
+		Ok(())
 	}
 }

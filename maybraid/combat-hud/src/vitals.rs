@@ -1,27 +1,17 @@
-//! Bottom-left player name + segmented health bar.
+//! Bottom-left player name + continuous health bar.
 
 use bevy::prelude::*;
-use damage::Health;
-use menu_components::{
-	spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_SALMON, TEXT_YELLOW,
-};
+use damage::Downed;
+use menu_components::{spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT_YELLOW};
 use player::Player;
 
-pub(crate) const VITALS_INSET: f32 = 16.0;
-const VITALS_WIDTH: f32 = 228.0;
-pub(crate) const PLATE_PAD_X: f32 = 8.0;
-pub(crate) const PLATE_PAD_Y: f32 = 6.0;
-pub(crate) const PLATE_BORDER: f32 = 1.5;
-pub(crate) const PLATE_RADIUS: f32 = 8.0;
-pub(crate) const PLATE_FILL: Color = Color::srgba(0.52, 0.52, 0.56, 0.82);
-pub(crate) const PLATE_STROKE: Color = Color::srgba(0.78, 0.78, 0.82, 0.9);
-const WELL_FILL: Color = Color::srgb(0.10, 0.11, 0.13);
-const WELL_STROKE: Color = Color::srgba(0.08, 0.08, 0.10, 0.95);
-const PIP_EMPTY: Color = Color::srgb(0.18, 0.19, 0.22);
-const PIP_HEIGHT: f32 = 14.0;
-const PIP_RADIUS: f32 = 3.0;
+use crate::continuous_health::{
+	spawn_continuous_health_bar_in_builder, ContinuousHealthBar, ContinuousHealthConfig,
+	HealthAnimState,
+};
+use crate::plate::{spawn_hud_plate, HudPlateCorner, HudPlateLayout};
 
-pub(crate) const VITALS_PIPS: usize = 10;
+pub(crate) const VITALS_WIDTH: f32 = 228.0;
 pub(crate) const DEFAULT_VITALS_NAME: &str = "Player";
 
 #[derive(Component)]
@@ -31,7 +21,7 @@ pub(crate) struct PlayerVitalsRoot;
 pub(crate) struct PlayerVitalsName;
 
 #[derive(Component)]
-pub(crate) struct PlayerVitalsPip(pub u8);
+pub struct PlayerVitalsHealthBar;
 
 pub(crate) fn vitals_fonts(asset_server: Option<&AssetServer>) -> HudFonts {
 	match asset_server {
@@ -45,30 +35,25 @@ pub(crate) fn vitals_fonts(asset_server: Option<&AssetServer>) -> HudFonts {
 	}
 }
 
-pub(crate) fn spawn_player_vitals(parent: &mut ChildSpawnerCommands, fonts: &HudFonts) {
-	parent
-		.spawn((
-			Name::new("player-vitals"),
-			PlayerVitalsRoot,
-			Node {
-				position_type: PositionType::Absolute,
-				left: Val::Px(VITALS_INSET),
-				bottom: Val::Px(VITALS_INSET),
-				width: Val::Px(VITALS_WIDTH),
-				flex_direction: FlexDirection::Column,
-				align_items: AlignItems::Stretch,
-				row_gap: Val::Px(6.0),
-				padding: UiRect::axes(Val::Px(PLATE_PAD_X), Val::Px(PLATE_PAD_Y)),
-				border: UiRect::all(Val::Px(PLATE_BORDER)),
-				border_radius: BorderRadius::all(Val::Px(PLATE_RADIUS)),
-				..default()
-			},
-			BackgroundColor(PLATE_FILL),
-			BorderColor::all(PLATE_STROKE),
-			Visibility::Hidden,
-			Pickable::IGNORE,
-		))
-		.with_children(|plate| {
+pub(crate) fn spawn_player_vitals(
+	parent: &mut ChildSpawnerCommands,
+	fonts: &HudFonts,
+	config: &ContinuousHealthConfig,
+	player: Entity,
+) {
+	spawn_hud_plate(
+		parent,
+		"player-vitals",
+		PlayerVitalsRoot,
+		HudPlateLayout {
+			width: VITALS_WIDTH,
+			row_gap: 6.0,
+			corner: HudPlateCorner::BottomLeft,
+			bottom_lift: 0.0,
+		},
+		|plate| {
+			let bar_entity = spawn_continuous_health_bar_in_builder(plate, player, config);
+			plate.commands().entity(bar_entity).insert(PlayerVitalsHealthBar);
 			spawn_hud_text_card(plate, (), |card| {
 				card.spawn((
 					PlayerVitalsName,
@@ -78,101 +63,65 @@ pub(crate) fn spawn_player_vitals(parent: &mut ChildSpawnerCommands, fonts: &Hud
 					Pickable::IGNORE,
 				));
 			});
-			plate
-				.spawn((
-					Node {
-						width: Val::Percent(100.0),
-						height: Val::Px(PIP_HEIGHT + 6.0),
-						padding: UiRect::axes(Val::Px(4.0), Val::Px(3.0)),
-						column_gap: Val::Px(3.0),
-						align_items: AlignItems::Center,
-						border: UiRect::all(Val::Px(1.0)),
-						border_radius: BorderRadius::all(Val::Px(PIP_RADIUS + 2.0)),
-						..default()
-					},
-					BackgroundColor(WELL_FILL),
-					BorderColor::all(WELL_STROKE),
-					Pickable::IGNORE,
-				))
-				.with_children(|well| {
-					for index in 0..VITALS_PIPS {
-						well.spawn((
-							PlayerVitalsPip(index as u8),
-							Node {
-								height: Val::Px(PIP_HEIGHT),
-								flex_grow: 1.0,
-								border: UiRect::all(Val::Px(1.0)),
-								border_radius: BorderRadius::all(Val::Px(PIP_RADIUS)),
-								..default()
-							},
-							BackgroundColor(PIP_EMPTY),
-							BorderColor::all(WELL_STROKE),
-							Pickable::IGNORE,
-						));
-					}
-				});
-		});
+		},
+	);
 }
 
 pub(crate) fn sync_player_vitals(
 	hud: Res<crate::CombatHudVisible>,
-	players: Query<(&Health, Option<&Name>), With<Player>>,
+	players: Query<(Entity, Option<&Name>), (With<Player>, Without<Downed>)>,
 	mut roots: Query<&mut Visibility, With<PlayerVitalsRoot>>,
 	mut names: Query<&mut Text, With<PlayerVitalsName>>,
-	mut pips: Query<(&PlayerVitalsPip, &mut BackgroundColor)>,
+	mut health_bars: Query<
+		(&mut ContinuousHealthBar, &mut HealthAnimState),
+		With<PlayerVitalsHealthBar>,
+	>,
+	healths: Query<&damage::Health>,
 ) {
-	let Some((health, name)) = players.iter().next().filter(|_| hud.0) else {
+	let Some((player_entity, name)) = players.iter().next().filter(|_| hud.0) else {
 		hide_vitals(&mut roots);
 		return;
 	};
 	let label = display_name(name.map(|name| name.as_str()));
-	let fraction = health.fraction();
-	let fill = vitals_fill_color(fraction);
 	for mut visibility in &mut roots {
-		*visibility = Visibility::Visible;
+		if *visibility != Visibility::Visible {
+			*visibility = Visibility::Visible;
+		}
 	}
 	for mut text in &mut names {
 		if text.0 != label {
 			text.0 = label.clone();
 		}
 	}
-	for (pip, mut color) in &mut pips {
-		color.0 = if pip_lit(fraction, pip.0 as usize) { fill } else { PIP_EMPTY };
+	for (mut health_bar, mut anim) in &mut health_bars {
+		if health_bar.target != player_entity {
+			health_bar.target = player_entity;
+			*anim = HealthAnimState::snap_to(
+				healths.get(player_entity).map(|health| health.fraction()).unwrap_or(1.0),
+			);
+		}
 	}
 }
 
 fn hide_vitals(roots: &mut Query<&mut Visibility, With<PlayerVitalsRoot>>) {
 	for mut visibility in roots {
-		*visibility = Visibility::Hidden;
+		if *visibility != Visibility::Hidden {
+			*visibility = Visibility::Hidden;
+		}
 	}
 }
 
-pub(crate) fn display_name(name: Option<&str>) -> String {
+fn display_name(name: Option<&str>) -> String {
 	name.map(str::trim)
 		.filter(|name| !name.is_empty())
 		.unwrap_or(DEFAULT_VITALS_NAME)
 		.to_string()
 }
 
-pub(crate) fn pip_lit(fraction: f32, index: usize) -> bool {
-	fraction > index as f32 / VITALS_PIPS as f32
-}
-
-pub(crate) fn vitals_fill_color(fraction: f32) -> Color {
-	if fraction <= 0.0 {
-		PIP_EMPTY
-	} else if fraction < 0.35 {
-		TEXT_SALMON
-	} else if fraction < 0.7 {
-		Color::srgb(0.95, 0.62, 0.22)
-	} else {
-		TEXT_YELLOW
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use damage::Health;
 
 	#[test]
 	fn empty_name_falls_back_to_player() {
@@ -182,16 +131,84 @@ mod tests {
 	}
 
 	#[test]
-	fn pips_light_from_the_left() {
-		assert!(pip_lit(0.4, 0));
-		assert!(pip_lit(0.4, 3));
-		assert!(!pip_lit(0.4, 4));
-		assert!(!pip_lit(0.0, 0));
+	fn downed_player_hides_the_vitals_plate() {
+		use crate::CombatHudPlugin;
+		use crate::CombatHudVisible;
+
+		let mut app = App::new();
+		app.add_plugins(bevy::MinimalPlugins);
+		app.add_plugins(CombatHudPlugin {
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
+			score: false,
+		});
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let player =
+			app.world_mut().spawn((Player, Health::from_max(100.0), Name::new("Ada"))).id();
+		app.update();
+		{
+			let visibility = app
+				.world_mut()
+				.query_filtered::<&Visibility, With<PlayerVitalsRoot>>()
+				.iter(app.world())
+				.next()
+				.copied()
+				.expect("plate");
+			assert_eq!(visibility, Visibility::Visible);
+		}
+		app.world_mut().entity_mut(player).insert(Downed {
+			source: None,
+			point: Vec3::ZERO,
+			at: 0.0,
+		});
+		app.update();
+		let visibility = app
+			.world_mut()
+			.query_filtered::<&Visibility, With<PlayerVitalsRoot>>()
+			.iter(app.world())
+			.next()
+			.copied()
+			.expect("plate");
+		assert_eq!(visibility, Visibility::Hidden);
 	}
 
 	#[test]
-	fn full_bar_uses_maybraid_yellow() {
-		assert_eq!(vitals_fill_color(1.0), TEXT_YELLOW);
-		assert_eq!(vitals_fill_color(0.2), TEXT_SALMON);
+	fn vitals_continuous_bar_targets_player() {
+		// Test that spawned health bar has correct layout and target
+		use crate::CombatHudPlugin;
+		use bevy::app::App;
+
+		let mut app = App::new();
+		app.add_plugins(bevy::MinimalPlugins);
+		app.add_plugins(CombatHudPlugin {
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: true,
+			lubikan_charge: false,
+			lubikan_point_feedback: false,
+			score: false,
+		});
+
+		// Spawn player
+		let player = app
+			.world_mut()
+			.spawn((Player, Health::from_max(100.0), Name::new("TestPlayer")))
+			.id();
+
+		// Run one update to spawn HUD
+		app.update();
+
+		// Find the UI child health bar
+		let mut query = app
+			.world_mut()
+			.query_filtered::<&ContinuousHealthBar, With<ContinuousHealthBar>>();
+		let bars: Vec<_> = query.iter(app.world()).collect();
+
+		assert_eq!(bars.len(), 1, "should have one player health bar");
+		assert_eq!(bars[0].target, player, "bar should target the player entity");
 	}
 }

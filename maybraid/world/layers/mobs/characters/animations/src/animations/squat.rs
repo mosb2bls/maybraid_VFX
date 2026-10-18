@@ -1,5 +1,4 @@
 use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
-use std::marker::PhantomData;
 
 use character_rigs::humanoid::LegSegmentLengths;
 
@@ -8,7 +7,7 @@ use crate::Progress;
 const ROOT_SQUAT_DEG: f32 = 15.0;
 
 #[derive(Debug, Clone)]
-pub struct Squat<Rig> {
+pub struct Squat {
 	/// Stand-to-bottom rate: full descent takes `1/descent_speed` seconds.
 	pub descent_speed: f32,
 	/// Bottom-to-stand rate: full ascent takes `1/ascent_speed` seconds.
@@ -27,10 +26,9 @@ pub struct Squat<Rig> {
 	pub root_peak: f32,
 	/// Held-stance pelvis fold (radians). Jump windup leaves this at 0.
 	pub hip_peak: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Squat<Rig> {
+impl Squat {
 	/// Looping squat with independent descent and ascent half-cycle speeds.
 	pub fn for_loop(descent_speed: f32, ascent_speed: f32) -> Self {
 		Self { descent_speed, ascent_speed, one_shot: false, ..Self::default() }
@@ -137,7 +135,7 @@ impl<Rig> Squat<Rig> {
 	}
 }
 
-impl<Rig> Default for Squat<Rig> {
+impl Default for Squat {
 	fn default() -> Self {
 		Self {
 			descent_speed: 1.0,
@@ -149,7 +147,6 @@ impl<Rig> Default for Squat<Rig> {
 			shin_peak: FRAC_PI_2,
 			root_peak: ROOT_SQUAT_DEG.to_radians(),
 			hip_peak: 0.0,
-			_rig: PhantomData,
 		}
 	}
 }
@@ -167,15 +164,15 @@ mod tests {
 
 	#[test]
 	fn independent_half_speeds_stretch_descent() -> anyhow::Result<()> {
-		let slow = Squat::<()>::for_loop(0.25, 1.0);
-		let fast = Squat::<()>::for_loop(1.0, 1.0);
+		let slow = Squat::for_loop(0.25, 1.0);
+		let fast = Squat::for_loop(1.0, 1.0);
 		assert!(slow.depth(0.5) < fast.depth(0.5));
 		Ok(())
 	}
 
 	#[test]
 	fn segment_starts_and_ends_at_stand() -> anyhow::Result<()> {
-		let squat = Squat::<()>::with_speeds(0.5, 0.5);
+		let squat = Squat::with_speeds(0.5, 0.5);
 		assert!(squat.depth(0.0).abs() < 1e-5);
 		assert!(squat.depth(1.0).abs() < 1e-5);
 		Ok(())
@@ -183,7 +180,7 @@ mod tests {
 
 	#[test]
 	fn segment_peaks_at_end_of_descent() -> anyhow::Result<()> {
-		let squat = Squat::<()>::with_speeds(1.0, 1.0);
+		let squat = Squat::with_speeds(1.0, 1.0);
 		let peak_progress = squat.descent_duration() / squat.cycle_duration();
 		assert!((squat.depth(peak_progress) - 1.0).abs() < 1e-5);
 		Ok(())
@@ -191,19 +188,19 @@ mod tests {
 
 	#[test]
 	fn stand_phase_has_zero_drop() {
-		let squat = Squat::<()>::for_loop(1.0, 1.0);
+		let squat = Squat::for_loop(1.0, 1.0);
 		assert_eq!(squat.vertical_drop(0.0, LegSegmentLengths::default()), 0.0);
 	}
 
 	#[test]
 	fn deepest_squat_has_positive_drop() {
-		let squat = Squat::<()>::for_loop(1.0, 1.0);
+		let squat = Squat::for_loop(1.0, 1.0);
 		assert!(squat.vertical_drop(0.5, LegSegmentLengths::default()) > 0.0);
 	}
 
 	#[test]
 	fn held_depth_is_progress() -> anyhow::Result<()> {
-		let squat = Squat::<()>::held();
+		let squat = Squat::held();
 		assert!((squat.depth(0.0)).abs() < 1e-6);
 		assert!((squat.depth(1.0) - 1.0).abs() < 1e-6);
 		Ok(())
@@ -211,8 +208,8 @@ mod tests {
 
 	#[test]
 	fn held_squat_folds_harder_than_jump_windup() -> anyhow::Result<()> {
-		let held = Squat::<()>::held();
-		let jump = Squat::<()>::default();
+		let held = Squat::held();
+		let jump = Squat::default();
 		assert!(held.femur_peak.abs() > jump.femur_peak.abs());
 		assert!(held.hip_peak > jump.hip_peak);
 		Ok(())
@@ -220,7 +217,7 @@ mod tests {
 
 	#[test]
 	fn doubling_segment_lengths_doubles_drop() {
-		let squat = Squat::<()>::for_loop(1.0, 1.0);
+		let squat = Squat::for_loop(1.0, 1.0);
 		let unit = LegSegmentLengths { femur: 0.5, shin: 0.5 };
 		let doubled = LegSegmentLengths { femur: 1.0, shin: 1.0 };
 		assert!(

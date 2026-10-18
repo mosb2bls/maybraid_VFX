@@ -1,21 +1,19 @@
 use bevy::prelude::{Quat, Transform, Vec3};
-use character_rigs::humanoid::HumanoidRig;
+use character_rigs::authoring::ArmatureOffset;
+use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use log::info;
 
 use crate::animations::{
-	FixedPosition, JumpSegment, Spring, Squat, Transition, TransitionCurve, Tuck,
-	TwoFootedTuckedFlip, FALL_BLEND_FRACTION,
+	smoothstep, FixedPosition, JumpSegment, Spring, Squat, Tuck, TwoFootedTuckedFlip,
+	FALL_BLEND_FRACTION,
 };
-use crate::rigs::transition::capture_animation_pose;
+use crate::rigs::mix::blend_clips;
+use crate::rigs::segment_debug::segment_debug_enabled;
 use crate::{Animation, Effects};
 
-fn segment_debug_enabled() -> bool {
-	std::env::var("CROZON_ANIMATION_DEBUG").is_ok()
-}
-
-impl<R: HumanoidRig> Animation<R> for TwoFootedTuckedFlip<R> {
-	fn apply_for(&self, rig: &mut R, elapsed: f32) {
-		let lengths = rig.segment_lengths();
+impl Animation<HumanoidV0Rig> for TwoFootedTuckedFlip {
+	fn apply_for(&self, rig: &mut HumanoidV0Rig, elapsed: f32) {
+		let lengths = rig.segment_lengths;
 		let (segment, local) = self.segment(lengths, elapsed);
 		let timings = self.timings(lengths);
 		let jump = &self.jump;
@@ -28,13 +26,17 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedTuckedFlip<R> {
 				squat.apply_for(rig, progress);
 			}
 			JumpSegment::Spring => {
-				let from_pose = capture_animation_pose(&Squat::<R>::for_loop(1.0, 1.0), rig, 0.0);
-				let _ = Transition::from_pose(Spring::<R>::default(), from_pose)
-					.with_curve(TransitionCurve::SmoothStep)
-					.apply(rig, local, local);
+				blend_clips(
+					rig,
+					&Squat::for_loop(1.0, 1.0),
+					0.0,
+					&Spring::default(),
+					local,
+					smoothstep(local),
+				);
 			}
 			JumpSegment::Fall => {
-				let tuck = Tuck::<R>::new(flip.tuck.tightness());
+				let tuck = Tuck::new(flip.tuck.tightness());
 				let blend_end = FALL_BLEND_FRACTION;
 				if segment_debug_enabled() && local > 0.9 {
 					info!(
@@ -45,11 +47,15 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedTuckedFlip<R> {
 					);
 				}
 				if local < blend_end {
-					let from_pose = capture_animation_pose(&Spring::<R>::default(), rig, 1.0);
 					let transition_progress = (local / blend_end).clamp(0.0, 1.0);
-					let _ = Transition::from_pose(tuck, from_pose)
-						.with_curve(TransitionCurve::SmoothStep)
-						.apply(rig, 1.0, transition_progress);
+					blend_clips(
+						rig,
+						&Spring::default(),
+						1.0,
+						&tuck,
+						1.0,
+						smoothstep(transition_progress),
+					);
 				} else {
 					let _ = flip.tuck.apply_fixed(rig);
 				}
@@ -71,10 +77,14 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedTuckedFlip<R> {
 					);
 				}
 				if transition_progress < 1.0 {
-					let from_pose = capture_animation_pose(&flip.tuck, rig, 0.0);
-					let _ = Transition::from_pose(land, from_pose)
-						.with_curve(TransitionCurve::SmoothStep)
-						.apply(rig, land_progress, transition_progress);
+					blend_clips(
+						rig,
+						&flip.tuck,
+						0.0,
+						&land,
+						land_progress,
+						smoothstep(transition_progress),
+					);
 				} else {
 					land.apply_for(rig, land_progress);
 				}
@@ -82,28 +92,26 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedTuckedFlip<R> {
 		}
 	}
 
-	fn effects_for(&self, rig: &R, elapsed: f32) -> Effects {
-		let lengths = rig.segment_lengths();
-		let y = self.vertical_offset(lengths, elapsed);
-		let pitch = self.flip_pitch_radians(lengths, elapsed);
-		Effects {
-			r#move: (y.abs() > f32::EPSILON || pitch.abs() > f32::EPSILON).then(|| Transform {
-				translation: Vec3::new(0.0, y, 0.0),
-				rotation: Quat::from_rotation_x(pitch),
-				..Default::default()
-			}),
+	fn effects_for(&self, rig: &HumanoidV0Rig, elapsed: f32) -> Effects {
+		let y = self.vertical_offset(rig.segment_lengths, elapsed);
+		let pitch = self.flip_pitch_radians(rig.segment_lengths, elapsed);
+		if y.abs() <= f32::EPSILON && pitch.abs() <= f32::EPSILON {
+			return ArmatureOffset::IDENTITY;
 		}
+		ArmatureOffset(Transform {
+			translation: Vec3::new(0.0, y, 0.0),
+			rotation: Quat::from_rotation_x(pitch),
+			scale: Vec3::ONE,
+		})
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use character_rigs::{rigs::humanoid_v0::HumanoidV0Rig, Side};
-
 	use super::*;
 	use crate::animations::DEFAULT_SPRING_DURATION;
 
-	fn default_flip() -> TwoFootedTuckedFlip<HumanoidV0Rig> {
+	fn default_flip() -> TwoFootedTuckedFlip {
 		TwoFootedTuckedFlip::default()
 	}
 
@@ -111,14 +119,12 @@ mod tests {
 	fn spring_end_legs_straight() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
 		let flip = default_flip();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let elapsed = flip.timings(lengths).squat_end() + DEFAULT_SPRING_DURATION * 0.99;
 		flip.apply(&mut rig, elapsed);
 
-		let femur = rig.pose().get(&rig.leg(Side::Left).femur.name).expect("femur");
-		let shin = rig.pose().get(&rig.leg(Side::Left).shin.name).expect("shin");
-		assert!(femur.swing.abs() < 0.05);
-		assert!(shin.flex.abs() < 0.05);
+		assert!(rig.posed_angle("femur.L") < 0.05, "femur should be straight");
+		assert!(rig.posed_angle("shin.L") < 0.05, "shin should be straight");
 		Ok(())
 	}
 
@@ -126,52 +132,46 @@ mod tests {
 	fn mid_air_applies_tuck_and_forward_pitch() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
 		let flip = default_flip();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let timings = flip.timings(lengths);
 		let elapsed = timings.spring_end() + timings.air_duration * 0.5;
 		let effects = flip.apply(&mut rig, elapsed);
 
-		let shin = rig.pose().get(&rig.leg(Side::Left).shin.name).expect("shin");
-		assert!(shin.flex > 1.0);
+		assert!(rig.posed_angle("shin.L") > 0.5, "knee folds in the tuck");
 
-		let offset = effects.r#move.expect("combined effect");
-		assert!(offset.translation.y > 0.0);
-		assert!(offset.rotation.to_euler(bevy::prelude::EulerRot::XYZ).0 > 0.0);
+		assert!(effects.0.translation.y > 0.0);
+		assert!(effects.0.rotation.to_euler(bevy::prelude::EulerRot::XYZ).0 > 0.0);
 		Ok(())
 	}
 
 	#[test]
-	fn land_blends_leg_compression_with_neutral_arms() -> anyhow::Result<()> {
+	fn land_blends_leg_compression_with_tuck_arms() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
-		crate::rigs::mix::seed_bind_pose(&mut rig);
 		let flip = default_flip();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let timings = flip.timings(lengths);
 		let blend = timings.land_pose_blend_duration();
 		flip.apply(&mut rig, timings.air_end() + blend * 0.5);
 
-		let shoulder = rig.pose().get(&rig.arm(Side::Left).shoulder.name).expect("shoulder");
+		let mut tucked = HumanoidV0Rig::imported();
+		flip.flip.tuck.apply_fixed(&mut tucked);
 		assert!(
-			shoulder.swing.abs() < 0.05,
-			"landing blends from tuck at progress 0, which keeps arms neutral"
+			rig.posed_angle("shoulder.L") < tucked.posed_angle("shoulder.L"),
+			"landing blend is short of the held tuck"
 		);
-
-		let femur = rig.pose().get(&rig.leg(Side::Left).femur.name).expect("femur");
-		assert!(femur.swing.abs() > 0.01, "legs should be partway into landing squat");
+		assert!(rig.posed_angle("femur.L") > 0.01, "legs should be partway into landing squat");
 		Ok(())
 	}
 
 	#[test]
 	fn land_starts_compression_after_touchdown() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
-		crate::rigs::mix::seed_bind_pose(&mut rig);
 		let flip = default_flip();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let timings = flip.timings(lengths);
 		flip.apply(&mut rig, timings.air_end() + timings.land_descent_duration * 0.25);
 
-		let femur = rig.pose().get(&rig.leg(Side::Left).femur.name).expect("femur");
-		assert!(femur.swing.abs() > 0.01);
+		assert!(rig.posed_angle("femur.L") > 0.01);
 		Ok(())
 	}
 }

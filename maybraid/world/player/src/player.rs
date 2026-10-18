@@ -9,8 +9,8 @@ use std::f32::consts::PI;
 use avian3d::prelude::*;
 use bevy::{ecs::query::Has, prelude::*};
 use durham::{
-	terrain_collider_covers_xz, BaseTerrainNoise, CascadeChunk, TerrainCellLayout,
-	TerrainEntryStore, TerrainTrimeshCollider,
+	terrain_collider_covers_xz, BaseTerrainNoise, CascadeChunk, DurhamSurface, TerrainCellLayout,
+	TerrainTrimeshCollider,
 };
 use game_commands::command::TextEntryFocus;
 use lod_avian::PhysicsInteractionLayer;
@@ -300,9 +300,20 @@ pub fn player_position_above_surface(surface: Vec3) -> Vec3 {
 	surface + Vec3::Y * (capsule_half_height() + 0.5)
 }
 
-/// Elevation used before [`TerrainEntryStore`] has the cell underfoot.
+/// Elevation used before the cell underfoot is published.
 pub fn holding_elevation(base: &BaseTerrainNoise, x: f32, z: f32) -> f32 {
 	base.height_at(x, z) + base.height_scale * HOLD_ABOVE_BASE_FACTOR
+}
+
+/// Composed height at `xz`, or [`holding_elevation`] while the cell is unpublished or busy.
+///
+/// Spawn placement must not use [`DurhamSurface::height_or_fallback`]: raw base
+/// noise sits under jersey plateaus. Hold above the base until snap can drop
+/// onto the published cell.
+pub fn surface_or_hold_at(surface: &DurhamSurface, xz: Vec2) -> f32 {
+	surface
+		.composed_height_at(xz)
+		.unwrap_or_else(|| holding_elevation(surface.base(), xz.x, xz.y))
 }
 
 pub fn player_spawn_point_at(xz: Vec2, elevation: f32) -> Vec3 {
@@ -316,8 +327,7 @@ pub fn player_spawn_point(layout: &TerrainCellLayout, elevation: f32) -> Vec3 {
 pub(crate) fn snap_player_to_composed_surface(
 	mut commands: Commands,
 	physics: Res<PlayerPhysicsEnabled>,
-	store: Res<TerrainEntryStore>,
-	layout: Res<TerrainCellLayout>,
+	surface: DurhamSurface,
 	awaiting: Query<Entity, (With<Player>, With<AwaitingTerrainSurface>)>,
 	mut players: Query<
 		(Entity, &mut Transform, &mut LinearVelocity, &mut GravityScale, Option<&OffTerrainAnchor>),
@@ -343,10 +353,13 @@ pub(crate) fn snap_player_to_composed_surface(
 	}
 
 	let xz = transform.translation.xz();
-	let Some(elevation) = store.composed_height_at(&layout, xz.x, xz.y) else {
-		gravity.0 = 0.0;
-		**velocity = Vec3::ZERO;
-		return;
+	let elevation = match surface.height_at(xz) {
+		Ok(Some(elevation)) => elevation,
+		Ok(None) | Err(lod::hcsg::Busy) => {
+			gravity.0 = 0.0;
+			**velocity = Vec3::ZERO;
+			return;
+		}
 	};
 
 	let target = player_spawn_point_at(xz, elevation);
@@ -399,9 +412,7 @@ fn queue_void_player_respawn(
 
 fn recover_void_player(
 	time: Res<Time>,
-	store: Res<TerrainEntryStore>,
-	layout: Res<TerrainCellLayout>,
-	base: Res<WorldBaseTerrain>,
+	surface: DurhamSurface,
 	mut respawn: ResMut<PlayerRespawn>,
 	mut commands: Commands,
 	mut player: Query<
@@ -426,9 +437,10 @@ fn recover_void_player(
 		return;
 	}
 	let xz = transform.translation.xz();
-	let elevation = store
-		.composed_height_at(&layout, xz.x, xz.y)
-		.unwrap_or_else(|| holding_elevation(&base.0, xz.x, xz.y));
+	let elevation = match surface.height_at(xz) {
+		Ok(Some(elevation)) => elevation,
+		Ok(None) | Err(lod::hcsg::Busy) => holding_elevation(surface.base(), xz.x, xz.y),
+	};
 	transform.translation = player_spawn_point_at(xz, elevation);
 	**velocity = Vec3::ZERO;
 	respawn.queued_at = None;
@@ -714,6 +726,7 @@ fn follow_character_camera(
 mod tests {
 	use bevy::ecs::system::RunSystemOnce;
 	use durham::TerrainConfig;
+	use lod::hcsg::HcsgStorage;
 
 	use super::*;
 
@@ -722,6 +735,24 @@ mod tests {
 		let base = BaseTerrainNoise::from_config(&TerrainConfig::new(42));
 		let hold = holding_elevation(&base, 0.0, 0.0);
 		assert!(hold > base.height_at(0.0, 0.0) + 50.0);
+	}
+
+	#[test]
+	fn surface_or_hold_at_holds_above_unpublished_cells() -> anyhow::Result<()> {
+		let mut world = World::new();
+		let layout = TerrainCellLayout::default();
+		let base = BaseTerrainNoise::from_config(&TerrainConfig::new(42));
+		world.init_resource::<HcsgStorage>();
+		world.insert_resource(layout);
+		world.insert_resource(WorldBaseTerrain(base.clone()));
+
+		let mut state = bevy::ecs::system::SystemState::<DurhamSurface>::new(&mut world);
+		let surface = state.get(&world)?;
+		let xz = Vec2::new(80.0, 5.0);
+		let hold = surface_or_hold_at(&surface, xz);
+		assert_eq!(hold, holding_elevation(&base, xz.x, xz.y));
+		assert!(hold > surface.fallback_height_at(xz) + 50.0);
+		Ok(())
 	}
 
 	#[test]
@@ -866,7 +897,7 @@ mod tests {
 		world.insert_resource(PlayerPhysicsEnabled::default());
 		world.insert_resource(PlayerRespawn::default());
 		world.insert_resource(TerrainCellLayout::default());
-		world.insert_resource(TerrainEntryStore::default());
+		world.init_resource::<HcsgStorage>();
 		world.insert_resource(WorldBaseTerrain(BaseTerrainNoise::from_config(
 			&TerrainConfig::new(42),
 		)));

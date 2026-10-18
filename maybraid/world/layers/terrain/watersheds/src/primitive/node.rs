@@ -14,15 +14,9 @@ use crate::primitive::hydro::{
 };
 use crate::primitive::parameters::{CorrectionStage, TerrainBlendStage};
 use bevy_math::Vec2;
-use procedural_common::Bounds2;
+use procedural_common::{Bounds2, Smoothstep01};
 
 pub use crate::primitive::parameters::HydroParams;
-
-#[inline]
-fn smoothstep01(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
-}
 
 /// One hydrology entity indexed by hydraulic support ⊕ correction extent.
 #[derive(Debug, Clone)]
@@ -182,7 +176,7 @@ impl HydroNode {
 		}
 		let edge = self.params.boundary_noise_amp().max(2.0);
 		let t = (-phi / edge).clamp(0.0, 1.0);
-		let keep = t * t * (3.0 - 2.0 * t);
+		let keep = Smoothstep01::eval(t);
 		w - geo_depth * keep
 	}
 
@@ -212,7 +206,7 @@ impl HydroNode {
 			return if phi <= 0.0 { bed } else { bank };
 		}
 		// t = 0 at φ = -μ, t = 1 at φ = +μ.
-		let t = smoothstep01((phi + mu) / (2.0 * mu));
+		let t = Smoothstep01::eval((phi + mu) / (2.0 * mu));
 		bed * (1.0 - t) + bank * t
 	}
 
@@ -248,7 +242,7 @@ impl HydroNode {
 			return if d < rim_edge { rim_h } else { apron_h };
 		}
 		// t = 0 at φ = rim_edge - ν, t = 1 at φ = rim_edge + ν.
-		let t = smoothstep01((d - (rim_edge - nu)) / (2.0 * nu));
+		let t = Smoothstep01::eval((d - (rim_edge - nu)) / (2.0 * nu));
 		rim_h * (1.0 - t) + apron_h * t
 	}
 

@@ -16,7 +16,7 @@ pub use nodes::{FirearmPartSlot, PartNode, RigNode, RECEIVER_LANDMARKS};
 pub use plugin::{add_firearm_components_host, FirearmComponentsPlugin, FirearmHostSystems};
 pub use rigs::{
 	ActiveRigPose, AssemblyHost, AssemblyMembers as FirearmMembers, AssemblyRoot, BindPose,
-	BoneMap, BoneScale, MemberOf, ResolvedRigPose, RigPoseLayer, RigRoot, SocketRef,
+	BoneMap, BoneScale, MemberOf, PoseApplied, ResolvedRigPose, RigPoseLayer, RigRoot, SocketRef,
 	SocketRefApplied, SocketRefRoot,
 };
 
@@ -24,8 +24,8 @@ use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec3;
 use bevy::prelude::{Commands, CommandsSceneExt, Component, Entity, Transform, Visibility};
 use bevy::scene::prelude::{bsn, template_value, Scene};
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::{lod_host_scene_pending, SceneChunk};
 
 use crate::scene_children::scene_children;

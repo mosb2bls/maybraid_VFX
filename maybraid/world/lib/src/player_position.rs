@@ -12,7 +12,7 @@ use player_camera::FollowCamera;
 use serde::{Deserialize, Serialize};
 use terrain_layer_model::{terrain_streaming, TerrainStreaming};
 use world_player::player::{holding_elevation, player_spawn_point_at};
-use world_player::{ModePlayerPolicies, Player};
+use world_player::{AwaitingTerrainSurface, ModePlayerPolicies, Player};
 
 use layer_stack::ActiveGenerationMode;
 
@@ -31,6 +31,22 @@ const SAME_PLACE_M: f32 = 1.0;
 pub struct PlayerPositionWaypoints {
 	pub owner: Option<CharacterId>,
 	pub positions: Vec<Vec3>,
+	/// True after a character's file is read. The leftover body from the
+	/// previous character must not be written back onto this trail.
+	pub(crate) just_loaded: bool,
+	/// True while a loaded trail is waiting for the leftover body to arrive.
+	/// Retain and the first-life picker honor this even if `just_loaded` was
+	/// cleared by a same-frame write.
+	pub(crate) resume_pending: bool,
+}
+
+impl PlayerPositionWaypoints {
+	/// True when the file has a sample that is not the layout-center spawn.
+	/// Those characters resume; they must not get a first-life picker.
+	pub fn has_resume_trail(&self, default_spawn: Vec3) -> bool {
+		resume_for_new_character(default_spawn, &self.positions)
+			.is_some_and(|at| at.distance(default_spawn) > SAME_PLACE_M)
+	}
 }
 
 #[derive(Serialize, Deserialize)]
@@ -51,6 +67,7 @@ impl Plugin for PlayerPositionPlugin {
 			Update,
 			(
 				sync_waypoints_for_character,
+				apply_pending_resume,
 				retain_player_waypoints,
 				log_player_position
 					.run_if(terrain_streaming::<Durham>)
@@ -103,9 +120,16 @@ pub fn resume_discovery_from_saved_waypoints(
 	policies: Option<Res<ModePlayerPolicies>>,
 	layout: Res<TerrainCellLayout>,
 	base: Res<WorldBaseTerrain>,
+	mut commands: Commands,
 	mut waypoints: ResMut<PlayerPositionWaypoints>,
 	mut players: Query<
-		(&mut Transform, &mut GlobalTransform, Option<&mut Position>, Option<&mut LinearVelocity>),
+		(
+			Entity,
+			&mut Transform,
+			Option<&mut GlobalTransform>,
+			Option<&mut Position>,
+			Option<&mut LinearVelocity>,
+		),
 		With<Player>,
 	>,
 	mut cameras: Query<
@@ -122,7 +146,8 @@ pub fn resume_discovery_from_saved_waypoints(
 	let Some(id) = current_character_id(loadout.as_deref()) else {
 		return;
 	};
-	if waypoints.owner != Some(id) {
+	let character_changed = waypoints.owner != Some(id);
+	if character_changed {
 		*waypoints = load_waypoints(&save_root, id);
 		if !waypoints.positions.is_empty() {
 			info!(
@@ -135,22 +160,133 @@ pub fn resume_discovery_from_saved_waypoints(
 		}
 	}
 
-	let Ok((mut player_tf, mut player_global, mut body, mut velocity)) = players.single_mut()
-	else {
+	if !apply_resume_pose(
+		&mut commands,
+		&mut players,
+		&mut cameras,
+		&mut waypoints,
+		&layout,
+		&base,
+		character_changed,
+		Some(&save_root),
+		Some(id),
+	) {
+		warn!(target: "world.player", "resume found no player body to move");
+	}
+}
+
+/// OnEnter can miss the leftover body. Apply the pending trail in Update
+/// before retain, so a late player is moved instead of written back.
+fn apply_pending_resume(
+	spawn: Res<PlayerSpawnXz>,
+	save_root: Res<SaveRoot>,
+	loadout: Option<Res<WorldPlayerLoadout>>,
+	mode: Option<Res<State<ActiveGenerationMode>>>,
+	policies: Option<Res<ModePlayerPolicies>>,
+	layout: Res<TerrainCellLayout>,
+	base: Res<WorldBaseTerrain>,
+	mut commands: Commands,
+	mut waypoints: ResMut<PlayerPositionWaypoints>,
+	mut players: Query<
+		(
+			Entity,
+			&mut Transform,
+			Option<&mut GlobalTransform>,
+			Option<&mut Position>,
+			Option<&mut LinearVelocity>,
+		),
+		With<Player>,
+	>,
+	mut cameras: Query<
+		(&mut Transform, &mut GlobalTransform, &FollowCamera),
+		(With<Camera3d>, Without<Player>),
+	>,
+) {
+	if spawn.0.is_some() || !waypoints.resume_pending {
+		return;
+	}
+	if !mode_keeps_waypoints(mode.as_deref(), policies.as_deref()) {
+		return;
+	}
+	let Some(id) = current_character_id(loadout.as_deref()) else {
 		return;
 	};
+	// The leftover body is still the previous character's pose even after
+	// OnEnter loaded this file. Force the character-switch resume path.
+	let _ = apply_resume_pose(
+		&mut commands,
+		&mut players,
+		&mut cameras,
+		&mut waypoints,
+		&layout,
+		&base,
+		true,
+		Some(&save_root),
+		Some(id),
+	);
+}
+
+fn apply_resume_pose(
+	commands: &mut Commands,
+	players: &mut Query<
+		(
+			Entity,
+			&mut Transform,
+			Option<&mut GlobalTransform>,
+			Option<&mut Position>,
+			Option<&mut LinearVelocity>,
+		),
+		With<Player>,
+	>,
+	cameras: &mut Query<
+		(&mut Transform, &mut GlobalTransform, &FollowCamera),
+		(With<Camera3d>, Without<Player>),
+	>,
+	waypoints: &mut PlayerPositionWaypoints,
+	layout: &TerrainCellLayout,
+	base: &WorldBaseTerrain,
+	character_changed: bool,
+	save_root: Option<&SaveRoot>,
+	id: Option<CharacterId>,
+) -> bool {
+	let mut found = players.iter_mut();
+	let Some((player, mut player_tf, mut player_global, mut body, mut velocity)) = found.next()
+	else {
+		return false;
+	};
+	if found.next().is_some() {
+		warn!(target: "world.player", "resume expected one player body");
+	}
 	let center = layout.region_center_xz().xz();
 	let default_spawn =
 		player_spawn_point_at(center, holding_elevation(&base.0, center.x, center.y));
 	let at_default = player_tf.translation.distance(default_spawn) <= SAME_PLACE_M;
 	let trimmed =
 		at_default && trim_trailing_default_spawn(&mut waypoints.positions, default_spawn);
-	let resume_at = resume_translation(player_tf.translation, default_spawn, &waypoints.positions);
+	let resume_at = resume_translation(
+		player_tf.translation,
+		default_spawn,
+		&waypoints.positions,
+		character_changed,
+	);
 	if trimmed {
-		if let Err(error) = save_waypoints(&save_root, id, &waypoints.positions) {
-			warn!(target: "world.player", "failed to drop default-spawn waypoint: {error}");
+		if let (Some(save_root), Some(id)) = (save_root, id) {
+			if let Err(error) = save_waypoints(save_root, id, &waypoints.positions) {
+				warn!(target: "world.player", "failed to drop default-spawn waypoint: {error}");
+			}
 		}
 	}
+	info!(
+		target: "world.player",
+		"resume character_changed={character_changed} player=({:.1},{:.1},{:.1}) default=({:.1},{:.1},{:.1}) trail={} -> {resume_at:?}",
+		player_tf.translation.x,
+		player_tf.translation.y,
+		player_tf.translation.z,
+		default_spawn.x,
+		default_spawn.y,
+		default_spawn.z,
+		waypoints.positions.len()
+	);
 	if let Some(at) = resume_at {
 		info!(
 			target: "world.player",
@@ -160,27 +296,44 @@ pub fn resume_discovery_from_saved_waypoints(
 			at.z
 		);
 		player_tf.translation = at;
-		*player_global = GlobalTransform::from(*player_tf);
+		if let Some(global) = player_global.as_deref_mut() {
+			*global = GlobalTransform::from(*player_tf);
+		} else {
+			commands.entity(player).insert(GlobalTransform::from(*player_tf));
+		}
 		if let Some(position) = body.as_deref_mut() {
 			position.0 = at;
 		}
 		if let Some(velocity) = velocity.as_deref_mut() {
 			velocity.0 = Vec3::ZERO;
 		}
+		// Leftover bodies and persisted underground samples need a first-drop
+		// snap. Same-character resume from the default spawn already has this
+		// marker from startup; a character switch does not.
+		commands.entity(player).insert(AwaitingTerrainSurface);
 	}
 	let player_at = player_tf.translation;
 	drop((player_tf, player_global, body, velocity));
 
-	let Ok((mut camera_tf, mut camera_global, follow)) = cameras.single_mut() else {
-		return;
-	};
-	let parked = park_camera_on_player(player_at, follow);
-	*camera_tf = parked;
-	*camera_global = GlobalTransform::from(parked);
+	if let Ok((mut camera_tf, mut camera_global, follow)) = cameras.single_mut() {
+		let parked = park_camera_on_player(player_at, follow);
+		*camera_tf = parked;
+		*camera_global = GlobalTransform::from(parked);
+	}
+	true
 }
 
-/// Where to put a body that is still on the layout-center spawn.
-fn resume_translation(player: Vec3, default_spawn: Vec3, saved: &[Vec3]) -> Option<Vec3> {
+/// Where to put a body that is still on the layout-center spawn, or any leftover
+/// body after the active character changed in the same process.
+fn resume_translation(
+	player: Vec3,
+	default_spawn: Vec3,
+	saved: &[Vec3],
+	character_changed: bool,
+) -> Option<Vec3> {
+	if character_changed {
+		return resume_for_new_character(default_spawn, saved);
+	}
 	if player.distance(default_spawn) > SAME_PLACE_M {
 		return None;
 	}
@@ -189,6 +342,17 @@ fn resume_translation(player: Vec3, default_spawn: Vec3, saved: &[Vec3]) -> Opti
 		return None;
 	}
 	Some(at)
+}
+
+/// Leave + pick another character leaves the previous body in the world. Always
+/// move that leftover pose onto this character's trail (or back to layout center).
+fn resume_for_new_character(default_spawn: Vec3, saved: &[Vec3]) -> Option<Vec3> {
+	let mut positions = saved.to_vec();
+	trim_trailing_default_spawn(&mut positions, default_spawn);
+	match positions.last().copied() {
+		Some(at) if at.distance(default_spawn) > SAME_PLACE_M => Some(at),
+		_ => Some(default_spawn),
+	}
 }
 
 /// Drop a trailing layout-center sample. Discovery used to record that pose before
@@ -246,6 +410,17 @@ fn retain_player_waypoints(
 	let Ok(transform) = players.single() else {
 		return;
 	};
+	if waypoints.just_loaded || waypoints.resume_pending {
+		if waypoints
+			.positions
+			.last()
+			.is_some_and(|last| transform.translation.xz().distance(last.xz()) > SAME_PLACE_M)
+		{
+			return;
+		}
+		waypoints.just_loaded = false;
+		waypoints.resume_pending = false;
+	}
 	if !record_waypoint(&mut waypoints.positions, transform.translation) {
 		return;
 	}
@@ -294,19 +469,19 @@ fn format_waypoints(positions: &[Vec3]) -> String {
 fn load_waypoints(root: &SaveRoot, id: CharacterId) -> PlayerPositionWaypoints {
 	let path = root.position_path(id);
 	let Ok(json) = fs::read_to_string(&path) else {
-		return PlayerPositionWaypoints { owner: Some(id), positions: Vec::new() };
+		return PlayerPositionWaypoints { owner: Some(id), just_loaded: true, ..default() };
 	};
 	let Ok(file) = serde_json::from_str::<WaypointFile>(&json) else {
 		warn!(target: "world.player", "ignoring unreadable {}", path.display());
-		return PlayerPositionWaypoints { owner: Some(id), positions: Vec::new() };
+		return PlayerPositionWaypoints { owner: Some(id), just_loaded: true, ..default() };
 	};
 	if file.version != FILE_VERSION {
-		return PlayerPositionWaypoints { owner: Some(id), positions: Vec::new() };
+		return PlayerPositionWaypoints { owner: Some(id), just_loaded: true, ..default() };
 	}
-	PlayerPositionWaypoints {
-		owner: Some(id),
-		positions: file.waypoints.into_iter().map(|[x, y, z]| Vec3::new(x, y, z)).collect(),
-	}
+	let positions: Vec<Vec3> =
+		file.waypoints.into_iter().map(|[x, y, z]| Vec3::new(x, y, z)).collect();
+	let resume_pending = !positions.is_empty();
+	PlayerPositionWaypoints { owner: Some(id), positions, just_loaded: true, resume_pending }
 }
 
 fn save_waypoints(
@@ -364,6 +539,7 @@ mod tests {
 				home: Vec2::ZERO,
 				keep_waypoints: false,
 				respawn_ends_life: false,
+				pick_first_spawn: false,
 			},
 		);
 		world.insert_resource(policies);
@@ -411,7 +587,10 @@ mod tests {
 		let default_spawn = Vec3::new(0.0, 176.4, 0.0);
 		let saved = Vec3::new(-1369.0, 147.9, -568.0);
 		let positions = vec![saved];
-		assert_eq!(resume_translation(default_spawn, default_spawn, &positions), Some(saved));
+		assert_eq!(
+			resume_translation(default_spawn, default_spawn, &positions, false),
+			Some(saved)
+		);
 	}
 
 	#[test]
@@ -421,7 +600,10 @@ mod tests {
 		let mut positions = vec![earlier, default_spawn];
 		assert!(trim_trailing_default_spawn(&mut positions, default_spawn));
 		assert_eq!(positions, vec![earlier]);
-		assert_eq!(resume_translation(default_spawn, default_spawn, &positions), Some(earlier));
+		assert_eq!(
+			resume_translation(default_spawn, default_spawn, &positions, false),
+			Some(earlier)
+		);
 	}
 
 	#[test]
@@ -429,7 +611,101 @@ mod tests {
 		let default_spawn = Vec3::ZERO;
 		let positions = vec![Vec3::new(800.0, 1.0, 0.0), default_spawn];
 		let player = Vec3::new(40.0, 1.0, 0.0);
-		assert!(resume_translation(player, default_spawn, &positions).is_none());
+		assert!(resume_translation(player, default_spawn, &positions, false).is_none());
+	}
+
+	#[test]
+	fn a_character_switch_moves_off_the_previous_body() {
+		let default_spawn = Vec3::new(0.0, 176.4, 0.0);
+		let leftover = Vec3::new(2178.0, 36.6, 1383.0);
+		let next = Vec3::new(695.0, 73.0, 959.0);
+		assert_eq!(
+			resume_translation(leftover, default_spawn, &[default_spawn, next], true),
+			Some(next)
+		);
+	}
+
+	#[test]
+	fn a_saved_trail_is_a_resume_trail() {
+		let default_spawn = Vec3::new(0.0, 176.4, 0.0);
+		let trail = PlayerPositionWaypoints {
+			positions: vec![Vec3::new(695.6, 73.0, 959.5)],
+			just_loaded: true,
+			..default()
+		};
+		assert!(trail.has_resume_trail(default_spawn));
+		let only_default = PlayerPositionWaypoints {
+			positions: vec![default_spawn],
+			just_loaded: true,
+			..default()
+		};
+		assert!(!only_default.has_resume_trail(default_spawn));
+		assert!(!PlayerPositionWaypoints::default().has_resume_trail(default_spawn));
+	}
+
+	#[test]
+	fn a_character_switch_resets_a_fresh_character_to_the_default_spawn() {
+		let default_spawn = Vec3::new(0.0, 176.4, 0.0);
+		let leftover = Vec3::new(2178.0, 36.6, 1383.0);
+		assert_eq!(
+			resume_translation(leftover, default_spawn, &[default_spawn], true),
+			Some(default_spawn)
+		);
+		assert_eq!(resume_translation(leftover, default_spawn, &[], true), Some(default_spawn));
+	}
+
+	#[test]
+	fn resume_system_moves_a_leftover_body_onto_the_next_character() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		let previous = CharacterId(1);
+		let next = CharacterId(2);
+		let leftover = Vec3::new(2178.0, 36.6, 1383.0);
+		let saved = Vec3::new(695.6, 73.0, 959.5);
+		save_waypoints(&root, next, &[saved])?;
+
+		let mut world = World::new();
+		world.insert_resource(PlayerSpawnXz(None));
+		world.insert_resource(root);
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(crate::WorldPlayerLoadout::new(
+			next.to_hex(),
+			characters::CharacterAppearance::default(),
+			character_items::Inventory::default(),
+		));
+		world.insert_resource(PlayerPositionWaypoints {
+			owner: Some(previous),
+			positions: vec![leftover],
+			just_loaded: false,
+			..default()
+		});
+		let player = world
+			.spawn((
+				world_player::Player,
+				Transform::from_translation(leftover),
+				GlobalTransform::from_translation(leftover),
+			))
+			.id();
+		world.spawn((
+			Camera3d::default(),
+			FollowCamera::default(),
+			Transform::default(),
+			GlobalTransform::default(),
+		));
+		world
+			.run_system_once(resume_discovery_from_saved_waypoints)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+		let transform = world
+			.get::<Transform>(player)
+			.ok_or_else(|| anyhow::anyhow!("player transform"))?;
+		assert_eq!(transform.translation.xz(), saved.xz());
+		assert!(world.get::<AwaitingTerrainSurface>(player).is_some());
+		assert_eq!(world.resource::<PlayerPositionWaypoints>().owner, Some(next));
+		Ok(())
 	}
 
 	#[test]
@@ -442,10 +718,283 @@ mod tests {
 		let loaded = load_waypoints(&root, id);
 		assert_eq!(loaded.owner, Some(id));
 		assert_eq!(loaded.positions, positions);
+		assert!(loaded.just_loaded);
 		assert_eq!(
 			root.position_path(id),
 			dir.path().join("positions").join(format!("{}.json", id.to_hex()))
 		);
+		Ok(())
+	}
+
+	fn retain_world(
+		root: SaveRoot,
+		id: CharacterId,
+		waypoints: PlayerPositionWaypoints,
+		at: Vec3,
+	) -> World {
+		let mut world = World::new();
+		world.insert_resource(root);
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		world.insert_resource(waypoints);
+		world.insert_resource(crate::WorldPlayerLoadout::new(
+			id.to_hex(),
+			characters::CharacterAppearance::default(),
+			character_items::Inventory::default(),
+		));
+		world.spawn((world_player::Player, Transform::from_translation(at)));
+		world
+	}
+
+	#[test]
+	fn retain_does_not_write_a_leftover_body_onto_a_just_loaded_trail() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		let id = CharacterId(3);
+		let saved = Vec3::new(2178.3, 36.6, 1383.6);
+		let leftover = Vec3::new(-49.7, 78.3, 50.0);
+		save_waypoints(&root, id, &[saved])?;
+		let mut world = retain_world(
+			root.clone(),
+			id,
+			PlayerPositionWaypoints {
+				owner: Some(id),
+				positions: vec![saved],
+				just_loaded: true,
+				resume_pending: true,
+				..default()
+			},
+			leftover,
+		);
+		world
+			.run_system_once(retain_player_waypoints)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(retain_player_waypoints)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let waypoints = world.resource::<PlayerPositionWaypoints>();
+		assert_eq!(waypoints.positions, vec![saved]);
+		assert!(waypoints.just_loaded);
+		assert!(waypoints.resume_pending);
+		assert_eq!(load_waypoints(&root, id).positions, vec![saved]);
+		Ok(())
+	}
+
+	#[test]
+	fn retain_clears_just_loaded_once_the_body_is_on_the_trail() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		let id = CharacterId(4);
+		let saved = Vec3::new(695.6, 73.0, 959.5);
+		save_waypoints(&root, id, &[saved])?;
+		let mut world = retain_world(
+			root,
+			id,
+			PlayerPositionWaypoints {
+				owner: Some(id),
+				positions: vec![saved],
+				just_loaded: true,
+				resume_pending: true,
+				..default()
+			},
+			saved,
+		);
+		world
+			.run_system_once(retain_player_waypoints)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let waypoints = world.resource::<PlayerPositionWaypoints>();
+		assert!(!waypoints.just_loaded);
+		assert!(!waypoints.resume_pending);
+		assert_eq!(waypoints.positions, vec![saved]);
+		Ok(())
+	}
+
+	#[test]
+	fn resume_moves_a_leftover_body_that_has_no_global_transform() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		let previous = CharacterId(5);
+		let next = CharacterId(6);
+		let leftover = Vec3::new(2178.0, 36.6, 1383.0);
+		let saved = Vec3::new(695.6, 73.0, 959.5);
+		save_waypoints(&root, next, &[saved])?;
+
+		let mut world = World::new();
+		world.insert_resource(PlayerSpawnXz(None));
+		world.insert_resource(root);
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(crate::WorldPlayerLoadout::new(
+			next.to_hex(),
+			characters::CharacterAppearance::default(),
+			character_items::Inventory::default(),
+		));
+		world.insert_resource(PlayerPositionWaypoints {
+			owner: Some(previous),
+			positions: vec![leftover],
+			just_loaded: false,
+			..default()
+		});
+		let player =
+			world.spawn((world_player::Player, Transform::from_translation(leftover))).id();
+		world.spawn((
+			Camera3d::default(),
+			FollowCamera::default(),
+			Transform::default(),
+			GlobalTransform::default(),
+		));
+		world
+			.run_system_once(resume_discovery_from_saved_waypoints)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+
+		let transform = world
+			.get::<Transform>(player)
+			.ok_or_else(|| anyhow::anyhow!("player transform"))?;
+		assert_eq!(transform.translation.xz(), saved.xz());
+		assert!(world.get::<GlobalTransform>(player).is_some());
+		assert!(world.get::<AwaitingTerrainSurface>(player).is_some());
+		Ok(())
+	}
+
+	fn resume_world(
+		root: SaveRoot,
+		next: CharacterId,
+		waypoints: PlayerPositionWaypoints,
+		leftover: Vec3,
+	) -> (World, Entity) {
+		let mut world = World::new();
+		world.insert_resource(PlayerSpawnXz(None));
+		world.insert_resource(root);
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(crate::WorldPlayerLoadout::new(
+			next.to_hex(),
+			characters::CharacterAppearance::default(),
+			character_items::Inventory::default(),
+		));
+		world.insert_resource(waypoints);
+		let player =
+			world.spawn((world_player::Player, Transform::from_translation(leftover))).id();
+		world.spawn((
+			Camera3d::default(),
+			FollowCamera::default(),
+			Transform::default(),
+			GlobalTransform::default(),
+		));
+		(world, player)
+	}
+
+	#[test]
+	fn apply_pending_resume_moves_a_body_on_enter_missed() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		let next = CharacterId(8);
+		let leftover = Vec3::new(2178.0, 36.6, 1383.0);
+		let saved = Vec3::new(695.6, 73.0, 959.5);
+		save_waypoints(&root, next, &[saved])?;
+		let (mut world, player) = resume_world(
+			root,
+			next,
+			PlayerPositionWaypoints {
+				owner: Some(next),
+				positions: vec![saved],
+				just_loaded: true,
+				resume_pending: true,
+			},
+			leftover,
+		);
+		world
+			.run_system_once(apply_pending_resume)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let transform = world
+			.get::<Transform>(player)
+			.ok_or_else(|| anyhow::anyhow!("player transform"))?;
+		assert_eq!(transform.translation.xz(), saved.xz());
+		assert!(world.get::<AwaitingTerrainSurface>(player).is_some());
+		Ok(())
+	}
+
+	#[test]
+	fn apply_pending_resume_then_retain_does_not_clobber_the_trail() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		let next = CharacterId(10);
+		let leftover = Vec3::new(-49.7, 78.3, 50.0);
+		let saved = Vec3::new(2178.3, 36.6, 1383.6);
+		save_waypoints(&root, next, &[saved])?;
+		let (mut world, player) = resume_world(
+			root.clone(),
+			next,
+			PlayerPositionWaypoints {
+				owner: Some(next),
+				positions: vec![saved],
+				just_loaded: true,
+				resume_pending: true,
+			},
+			leftover,
+		);
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		world
+			.run_system_once(apply_pending_resume)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(retain_player_waypoints)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let transform = world
+			.get::<Transform>(player)
+			.ok_or_else(|| anyhow::anyhow!("player transform"))?;
+		assert_eq!(transform.translation.xz(), saved.xz());
+		let waypoints = world.resource::<PlayerPositionWaypoints>();
+		assert_eq!(waypoints.positions, vec![saved]);
+		assert!(!waypoints.resume_pending);
+		assert_eq!(load_waypoints(&root, next).positions, vec![saved]);
+		Ok(())
+	}
+
+	#[test]
+	fn resume_on_enter_without_a_body_leaves_the_trail_pending() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		let previous = CharacterId(11);
+		let next = CharacterId(12);
+		let leftover = Vec3::new(2178.0, 36.6, 1383.0);
+		let saved = Vec3::new(695.6, 73.0, 959.5);
+		save_waypoints(&root, next, &[saved])?;
+
+		let mut world = World::new();
+		world.insert_resource(PlayerSpawnXz(None));
+		world.insert_resource(root);
+		world.insert_resource(TerrainCellLayout::default());
+		world.insert_resource(WorldBaseTerrain(durham::BaseTerrainNoise::from_config(
+			&durham::TerrainConfig::new(42),
+		)));
+		world.insert_resource(crate::WorldPlayerLoadout::new(
+			next.to_hex(),
+			characters::CharacterAppearance::default(),
+			character_items::Inventory::default(),
+		));
+		world.insert_resource(PlayerPositionWaypoints {
+			owner: Some(previous),
+			positions: vec![leftover],
+			just_loaded: false,
+			..default()
+		});
+		world.spawn((
+			Camera3d::default(),
+			FollowCamera::default(),
+			Transform::default(),
+			GlobalTransform::default(),
+		));
+		world
+			.run_system_once(resume_discovery_from_saved_waypoints)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let waypoints = world.resource::<PlayerPositionWaypoints>();
+		assert_eq!(waypoints.owner, Some(next));
+		assert_eq!(waypoints.positions, vec![saved]);
+		assert!(waypoints.resume_pending);
 		Ok(())
 	}
 }

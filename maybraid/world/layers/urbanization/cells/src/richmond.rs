@@ -40,6 +40,12 @@ pub struct SelectedUrbanization {
 	pub leaves: Vec<DevelopmentLeaf>,
 }
 
+impl SelectedUrbanization {
+	pub fn leaf(&self, id: Id) -> Option<&DevelopmentLeaf> {
+		self.leaves.iter().find(|leaf| leaf.id() == id)
+	}
+}
+
 /// Authored Richmond urbanization Hopscotch graph.
 ///
 /// Anchor weights favour empty land (`None = 0.70`); each other kind is `0.05`.

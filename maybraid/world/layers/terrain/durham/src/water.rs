@@ -4,10 +4,10 @@
 //!
 //! | Layer | Terrain | Water |
 //! | --- | --- | --- |
-//! | Origin tiling | [`TerrainCellLayout`] | same (`original_ids_for_origin_cells`) |
+//! | Origin tiling | [`TerrainCellLayout`](crate::terrain::cell::TerrainCellLayout) | same ids, via `Terrain`'s `GenerationScheme::original_ids_for` |
 //! | Composition | [`ComposedTerrain`] / [`Terrain::compose_sdf`] | [`ComposedWater`] / [`ComposedWater::compose`] |
 //! | Cascade chunk | [`cascade_chunk_for_cell`] | **same helper**, same `cell` + `res_2` |
-//! | Mesh resolution | [`TerrainPresentationAssets::res_2`](crate::terrain::presentation::TerrainPresentationAssets) via the sibling [`Terrain`] cell | inherited from that [`Terrain::res_2`] — never a separate water grid |
+//! | Mesh resolution | sibling [`Terrain`] cell `res_2` via [`TerrainMeshAssets`](crate::terrain::mesh::TerrainMeshAssets) | inherited from that [`Terrain::res_2`] — never a separate water grid |
 //!
 //! Watershed stamps author [`WaterFill`]s backed by [`HydroComplex`] (carve ×
 //! half-space below \(W\)). This module collects those fills from an already composed
@@ -19,10 +19,10 @@
 
 pub mod column;
 pub mod composed;
+pub mod mesh;
 pub mod plugin;
-pub mod presentation;
 
-use crate::terrain::cell::{original_ids_for_origin_cells, TerrainCellLayout, TerrainCellRing};
+use crate::terrain::cell::TerrainCellRing;
 use crate::terrain::render::cascade_chunk_for_cell;
 use crate::terrain::sdf::TerrainSdf;
 use crate::terrain::stream_lod::{stream_banded_level, StreamBandedLod};
@@ -31,11 +31,10 @@ use bevy::ecs::template::template;
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
-use lod::gen::{
-	GeneratingSpatialIndex, GenerationScheme, Id, LodScene, LodSceneLevel, LodSceneStatus,
-	OriginalId,
-};
+use lod::gen::{Id, OriginalId};
+use lod::hcsg::{self, GenerationContext};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneLevel, LodSceneStatus};
 use render_item::mesh::handle::Cached;
 use sdf::Sdf;
 use terrain_shaders::RefractionWater;
@@ -43,11 +42,8 @@ use terrain_watersheds::WaterFill;
 
 pub use column::WaterColumn;
 pub use composed::ComposedWater;
+pub use mesh::WaterMeshAssets;
 pub use plugin::{register_water_plugin, WaterPlugin};
-pub use presentation::{
-	sync_unparented_water_pose, BootstrapWaterPresentationAssets, PresentedWaterScene,
-	WaterPresentationAssets, WaterPresenterState, WaterRegionPresenter, WaterStoreView,
-};
 
 /// Cell-level water collector: same origin cell as [`Terrain`], composed fills + mesh.
 #[derive(Debug, Clone, Component)]
@@ -92,7 +88,7 @@ impl Water {
 		Transform::from_translation(cascade_chunk_for_cell(self.cell, self.res_2).origin)
 	}
 
-	/// Unparented visual (FinePatch [`crate::water::WaterRegionPresenter`]).
+	/// Unparented visual at the cascade origin.
 	pub fn scene(&self) -> impl Scene + 'static {
 		self.mesh_scene(self.chunk_pose())
 	}
@@ -181,56 +177,47 @@ fn fill_has_wet_volume(fill: &WaterFill, terrain: &TerrainSdf) -> bool {
 	false
 }
 
-impl<S> GenerationScheme<S> for Water
-where
-	S: GeneratingSpatialIndex<Terrain>
-		+ GeneratingSpatialIndex<TerrainCellLayout>
-		+ GeneratingSpatialIndex<WaterPresentationAssets>,
-{
-	fn original_ids_for(spatial_index: &mut S, region: Aabb3d) -> Vec<OriginalId> {
-		// Same origin-cell tiling controller as terrain.
-		original_ids_for_origin_cells(spatial_index, region)
+/// Same origin ids as [`Terrain`]; terrain's whole stack stays behind that one bound.
+
+impl hcsg::GenerationScheme for Water {
+	lod::hcsg_index_scale!(crate::terrain::index::DURHAM_INDEX_SCALE);
+
+	fn original_ids_for(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+		cx.original_ids_for::<Terrain>(region)
 	}
 
-	fn build_with_id(spatial_index: &mut S, id: Id, lod_ref: &LodRef) -> Option<(Self, Aabb3d)> {
-		let bounds = id.origin_cell_bounds()?;
-		// Terrain composes every Watershed band before returning; fills ride along.
-		let terrain =
-			GeneratingSpatialIndex::<Terrain>::get_one_or_generate(spatial_index, id, lod_ref)?;
-		// Lattice resolution comes from the terrain cell — not a water-only knob.
-		let res_2 = terrain.res_2;
-		let stream_ring = terrain.stream_ring;
+	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
+		let (terrain, bounds) = cx.get_or_generate_stored::<Terrain>(id)?;
+		let assets = cx.get_or_generate::<WaterMeshAssets>(Id::Universal)?;
+		Some((Self::over(bounds, &terrain, &assets)?, bounds))
+	}
+}
+
+impl Water {
+	/// The water standing on `terrain`'s fills; `None` where none is wet.
+	fn over(cell: Aabb3d, terrain: &Terrain, assets: &WaterMeshAssets) -> Option<Self> {
 		let terrain_sdf = terrain.sdf.terrain().clone();
 		let fills: Vec<_> = terrain
 			.marazion_fills
 			.iter()
-			.cloned()
 			.filter(|fill| fill_has_wet_volume(fill, &terrain_sdf))
+			.cloned()
 			.collect();
 		if fills.is_empty() {
 			return None;
 		}
-		let assets = GeneratingSpatialIndex::<WaterPresentationAssets>::get_one_or_generate(
-			spatial_index,
-			Id::Universal,
-			lod_ref,
-		)?;
 		let sdf = ComposedWater::compose(terrain_sdf.clone(), fills.clone());
-		Some((
-			Self {
-				cell: bounds,
-				terrain: terrain_sdf,
-				fills,
-				sdf,
-				material: assets.material.clone(),
-				res_2,
-				stream_ring,
-			},
-			bounds,
-		))
+		Some(Self {
+			cell,
+			terrain: terrain_sdf,
+			fills,
+			sdf,
+			material: assets.material.clone(),
+			// Lattice resolution comes from the terrain cell — not a water-only knob.
+			res_2: terrain.res_2,
+			stream_ring: terrain.stream_ring,
+		})
 	}
-
-	fn descendants_with_lod(_id: Id, _spatial_index: &mut S, _lod_ref: &LodRef) {}
 }
 
 #[cfg(test)]

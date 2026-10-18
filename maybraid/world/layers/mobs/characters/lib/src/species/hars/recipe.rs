@@ -19,7 +19,7 @@ use crate::{
 		hars::assets::{HarsBodyMesh, HarsHeadMesh, HarsMouthMesh},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Hars data attached to the character root entity.
 ///

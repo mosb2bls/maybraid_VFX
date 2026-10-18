@@ -28,15 +28,15 @@ Orchard `grow_plant` is the woody template. Tuft groves implement `QuantizedPlan
 
 ## Flatten High / Medium
 
-1. Compose plants with [`nest_flattened_plant_chunk`](src/grove/vc_compose.rs), not the unused nested-host helpers in [`placed_host.rs`](src/grove/placed_host.rs). Flattened hosts wrap `FlattenedComponentsOnly<PlacedVegetation<T>>` and spawn posed kits only.
-2. Lazy `SceneChunk` for the plant list (`SceneChunk::lazy(n, n, …)` yielding one flattened chunk per plant). Begin must not box every `scene_with_level` up front. See Orchard `nest_plant_chunks`.
+1. Compose plants with [`nest_flattened_plant_chunk`](src/grove/vc_compose.rs), not the unused nested-host helpers in [`placed_host.rs`](src/grove/placed_host.rs). That helper poses kits under the **grove** level root (`FlattenedComponentsOnly<PlacedVegetation<T>>` + kit scenes). It does **not** spawn a per-tree [`LodSceneHost`](../../../lod/lib/src/scene/host.rs). Isolated `/show` trees still use [`flattened_components_only_host`](../components/src/lib.rs).
+2. Lazy plant list via [`lazy_flattened_plant_chunks`](src/grove/vc_compose.rs) (kit weight × plant count). Begin must not box every `scene_with_level` up front. See Orchard `nest_plant_chunks`.
 3. Feed that list through [`woody_grove_scene_chunks`](src/grove/vc_compose.rs) (or the tuft equivalent).
 4. UltraLow still author canopy proxies (`canopy_proxy_site` for broadleaf spheres, `canopy_proxy_column` for conifers, `canopy_proxy_crown` for palms; `ULTRA_LOW_CANOPY_BIN_METERS`) and emit them through [`flattened_canopy_proxy_chunks`](../components/src/lib.rs) (one cheap-ball collection kit, no per-plant `FoliageNode` hosts). Ordinary woody groves also use that on **tile Low**. Palms do not: a crown ball does not read as a palm. Palm-only groves ([Palm Shade](src/palm_shade.rs), [Date Grove](src/date_grove.rs)) nest flattened plants through Low via [`woody_grove_scene_chunks_keep_low_plants`](src/grove/vc_compose.rs) so tile Low instances the plant Low five-chord star. Mixed groves emit that star through [`placed_palm_low_fronds`](src/grove/vc_compose.rs) and keep cheap balls for the other types. Proxies must match silhouette: a 160 m fir is a tall thin ellipsoid, not a 80 m sphere. Waialea UltraLow still keeps a thin trunk column — [`canopy_proxy_waialea`](src/grove/vc_compose.rs). Rory's Head-trained is an umbrella, not a mid-tree sphere: [`canopy_proxy_rory`](src/grove/vc_compose.rs) emits one [`StickGeometry::Trunk`](../components/src/sticks/geometry.rs) (no branch segments) plus one leaf-material cheap ball at the stalk tip. Stick UltraLow is empty, so [`flattened_canopy_proxy_chunks`](../components/src/lib.rs) presents those trunks at Low. `merge_canopy_proxies` must not fold leftover stick-material cheap balls (Waialea columns) into a bark-colored crown kit. Uniform Low / UltraLow crowns stay **Y-up** (`foliage_placement_for_proxy`) — do not `foliage_uniform` tumble them; an edge-on cheap-ball kit plus rim `discard` reads as a bare pole. Sparse groves ([Forlorn Savanna](src/forlorn_savanna.rs)) skip UltraLow 8 m bins and keep one crown per plant — a shared ball does not sit on isolated trunks.
 5. Flattened kits already charge [`FLATTENED_KIT_CHUNK_WEIGHT`](../components/src/lib.rs). Do not treat a GLB instance as weight 1.
 
 ## Tile bands for large trees
 
-Woody High and Medium both nest plant hosts; Low swaps the tile to canopy proxies. The band edge is `factor × tile_radius`. Default preview / vast tiles stay near [`DEFAULT_GROVE_EXTENT_XZ`](src/grove/extent.rs) (100 m, **half-extent radius 50 m**). Factors are doubled from metre targets so `5.0` at a 100 m radius is `10.0` here.
+Woody High and Medium both pose plant kits on the tile host; Low swaps the tile to canopy proxies. The band edge is `factor × tile_radius`. Default preview / vast tiles stay near [`DEFAULT_GROVE_EXTENT_XZ`](src/grove/extent.rs) (100 m, **half-extent radius 50 m**). Factors are doubled from metre targets so `5.0` at a 100 m radius is `10.0` here.
 
 [`grove_bands_for_typical_height`](src/grove/vc_compose.rs) picks a height class (not plant-Medium projection):
 
@@ -53,16 +53,18 @@ Woody High and Medium both nest plant hosts; Low swaps the tile to canopy proxie
 Register **the flattened wrapper** in [`view.rs`](../forests/src/view.rs):
 
 ```rust
-avian_host!(app, FlattenedComponentsOnly<PlacedVegetation<Arc<YourTree>>>);
+flattened_plant_host!(app, YourTree);
 ```
+
+(`flattened_plant_host!` expands to `gimme_host!` on `FlattenedComponentsOnly<PlacedVegetation<Arc<YourTree>>>` plus High-IR stick colliders.)
 
 Isolated `/show` trees use that same family (identity [`Placement`](../components/src/placed.rs)). Do not add a second produce plugin per region channel.
 
 ## Tests
 
 - Same cell positions + `tree_variants = 4` (or similar) produce repeated archetypes (`tree_variants_quantize_archetypes` / `patch_variants_quantize_archetypes`). Call [`assert_quantized_archetypes`](src/grove/woody_checks.rs) / [`assert_shared_unit_arcs`](src/grove/woody_checks.rs) instead of copying the HashSet walk. Repeated variants share one unit `Arc` (`grow_num_reuses_arc_for_same_type_and_num` in `sbs-trees`).
-- High/Medium nest one flattened host per plant, not one host per kit node — [`assert_high_medium_nests_plants`](src/grove/woody_checks.rs).
-- Low / UltraLow `scene_chunks` emit flattened kits (ordinary woody: one cheap-ball collection; Rory Low: one merged trunk kit plus crown balls; palm-only Low: nested plant hosts with the shared star; mixed Low: star fronds plus merged balls). Not one `FoliageNode` host per plant.
+- High/Medium pose one lazy kit group per plant (no nested LOD host) — [`assert_high_medium_nests_plants`](src/grove/woody_checks.rs).
+- Low / UltraLow `scene_chunks` emit flattened kits (ordinary woody: one cheap-ball collection; Rory Low: one merged trunk kit plus crown balls; palm-only Low: posed plant kits with the shared star; mixed Low: star fronds plus merged balls). Not one `FoliageNode` host per plant.
 - Uniform Low crowns stay Y-up (`low_uniform_crown_stays_y_up`).
 
 ## What not to do

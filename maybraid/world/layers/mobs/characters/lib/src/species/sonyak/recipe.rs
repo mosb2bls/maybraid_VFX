@@ -21,7 +21,7 @@ use crate::{
 		sonyak::assets::{SonyakBodyMesh, SonyakHeadMesh, SonyakMouthMesh},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Sonyak data attached to the character root entity.
 ///

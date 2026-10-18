@@ -8,13 +8,11 @@
 //! - **+Y** = up
 //! - **+Z** = ahead (fight forward)
 //!
-//! [`Jab::humerus_along`] builds a length direction from that space. Humanoid apply
-//! aims with [`character_rigs::humanoid::HumanoidRig::humerus_along_with_roll`] so long-axis
-//! roll cannot fight aim via swing/flex. Related punches (cross, hook) should reuse the
-//! same contract: body-space target → along vector → along-with-roll → elbow uncoil.
+//! [`Jab::humerus_along`] builds a length direction in character space. The resolver
+//! aims the humerus with that direction and a roll. The elbow stays a bone-local
+//! flexion.
 
 use std::f32::consts::FRAC_PI_2;
-use std::marker::PhantomData;
 
 use bevy::prelude::Vec3;
 use character_rigs::Side;
@@ -69,31 +67,25 @@ const AIM_ROLL_X: f32 = 0.35;
 const AIM_YAW_X: f32 = 0.55;
 const AIM_ROLL_DELTA_MAX: f32 = 0.3;
 
-/// Boxing jab knobs. Rig impls map these onto concrete axes.
+/// Boxing jab knobs. The rig resolver maps these onto anatomical frames.
 #[derive(Debug, Clone)]
-pub struct Jab<Rig> {
+pub struct Jab {
 	pub side: Side,
 	/// Preparatory chamber depth scale.
 	pub backswing: f32,
 	/// Aim point relative to body COM ([`DEFAULT_JAB_TARGET`] axes).
 	pub target: Vec3,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Default for Jab<Rig> {
+impl Default for Jab {
 	fn default() -> Self {
-		Self {
-			side: Side::Right,
-			backswing: DEFAULT_BACKSWING,
-			target: DEFAULT_JAB_TARGET,
-			_rig: PhantomData,
-		}
+		Self { side: Side::Right, backswing: DEFAULT_BACKSWING, target: DEFAULT_JAB_TARGET }
 	}
 }
 
-impl<Rig> Jab<Rig> {
+impl Jab {
 	pub fn new(side: Side, backswing: f32, target: Vec3) -> Self {
-		Self { side, backswing, target, _rig: PhantomData }
+		Self { side, backswing, target }
 	}
 
 	pub fn with_side(mut self, side: Side) -> Self {
@@ -151,7 +143,8 @@ impl<Rig> Jab<Rig> {
 			0.0
 		} else if t < EXTEND_END {
 			let u = (t - BACKSWING_END) / (EXTEND_END - BACKSWING_END);
-			1.0 - (1.0 - u).powi(2)
+			// Quartic ease-out toward full extension reads as a sharper snap than quadratic.
+			1.0 - (1.0 - u).powi(4)
 		} else if t < HOLD_END {
 			1.0
 		} else {
@@ -199,7 +192,7 @@ impl<Rig> Jab<Rig> {
 		base + (self.target.x - base) * HUMERUS_LATERAL_BLEND * self.extension_amount(progress)
 	}
 
-	/// Body-space humerus length direction for [`HumanoidRig::humerus_along_with_roll`](character_rigs::humanoid::HumanoidRig::humerus_along_with_roll).
+	/// Character-space humerus length direction. The resolver aims with this vector.
 	pub fn humerus_along(&self, side: Side, progress: f32) -> Vec3 {
 		Vec3::new(
 			self.humerus_lateral(side, progress),
@@ -271,15 +264,45 @@ impl<Rig> Jab<Rig> {
 
 #[cfg(test)]
 mod tests {
+	use bevy::prelude::Vec3;
+	use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
+
 	use super::*;
+	use crate::Animation;
+
+	const FOREARM_SEGMENT: f32 = 0.48;
+	/// Punching-hand tip Z on `for_clip_test()` with quadratic extend easing (`main`).
+	const QUADRATIC_PUNCH_TIP_Z_AT_0312: f32 = 1.1004;
+	const HOLD_PUNCH_TIP_Z: f32 = 1.4488;
+	const HOLD_PUNCH_TIP_X: f32 = -0.0424;
 
 	fn peak() -> f32 {
 		(EXTEND_END + HOLD_END) * 0.5
 	}
 
+	fn forearm_hand_tip(rig: &HumanoidV0Rig, side: Side) -> Vec3 {
+		let name = match side {
+			Side::Left => "forearm.L",
+			Side::Right => "forearm.R",
+		};
+		rig.character_point(name) + rig.character_length(name) * FOREARM_SEGMENT
+	}
+
+	fn punch_tip_z(jab: &Jab, progress: f32) -> f32 {
+		let mut rig = HumanoidV0Rig::for_clip_test();
+		jab.apply(&mut rig, progress);
+		forearm_hand_tip(&rig, jab.side).z
+	}
+
+	fn cover_tip(jab: &Jab, progress: f32) -> Vec3 {
+		let mut rig = HumanoidV0Rig::for_clip_test();
+		jab.apply(&mut rig, progress);
+		forearm_hand_tip(&rig, jab.opposite_side())
+	}
+
 	#[test]
 	fn jab_chambers_before_extension() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		let mid_chamber = BACKSWING_END * 0.5;
 		assert!(jab.chamber_amount(mid_chamber) > 0.4);
 		assert!(jab.extension_amount(mid_chamber) < 0.05);
@@ -288,7 +311,7 @@ mod tests {
 
 	#[test]
 	fn jab_reaches_near_full_extension() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		assert!(jab.extension_amount(peak()) > 0.95);
 		assert!(jab.chamber_amount(peak()) < 0.05);
 		assert!(jab.jab_elbow(peak()) < GUARD_ELBOW * 0.25);
@@ -296,8 +319,93 @@ mod tests {
 	}
 
 	#[test]
+	fn jab_snap_poses_punch_hand_earlier_than_quadratic_baseline() -> anyhow::Result<()> {
+		let jab = Jab::default().with_side(Side::Right);
+		let progress = 0.312;
+		let z = punch_tip_z(&jab, progress);
+		assert!(
+			z > QUADRATIC_PUNCH_TIP_Z_AT_0312 + 0.08,
+			"quartic snap should reach farther (+Z) earlier than quadratic main, got {z}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn jab_snap_hold_punch_tip_matches_quadratic_peak() -> anyhow::Result<()> {
+		let jab = Jab::default().with_side(Side::Right);
+		let hold = peak();
+		let mut rig = HumanoidV0Rig::for_clip_test();
+		jab.apply(&mut rig, hold);
+		let tip = forearm_hand_tip(&rig, Side::Right);
+		assert!(
+			(tip.z - HOLD_PUNCH_TIP_Z).abs() < 1e-3,
+			"hold punch tip Z should match tuned peak, got {:?}",
+			tip
+		);
+		assert!((tip.x - HOLD_PUNCH_TIP_X).abs() < 1e-3, "hold punch tip X, got {:?}", tip);
+		Ok(())
+	}
+
+	#[test]
+	fn jab_snap_cover_hand_tip_unchanged_at_hold() -> anyhow::Result<()> {
+		let jab = Jab::default().with_side(Side::Right);
+		let hold = peak();
+		let cover = cover_tip(&jab, hold);
+		assert!(
+			(cover.x - -0.1203).abs() < 1e-3 && (cover.y - 0.9349).abs() < 1e-3
+				&& (cover.z - 0.5251).abs() < 1e-3,
+			"cover hand tip at hold should stay tucked, got {:?}",
+			cover
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn jab_snap_punch_hand_tips_mirror_for_left_jab() -> anyhow::Result<()> {
+		let progress = 0.312;
+		let right = Jab::default().with_side(Side::Right);
+		let left = Jab::default().with_side(Side::Left);
+		let mut right_rig = HumanoidV0Rig::for_clip_test();
+		let mut left_rig = HumanoidV0Rig::for_clip_test();
+		right.apply(&mut right_rig, progress);
+		left.apply(&mut left_rig, progress);
+		let right_tip = forearm_hand_tip(&right_rig, Side::Right);
+		let left_tip = forearm_hand_tip(&left_rig, Side::Left);
+		// Lead-leg stance is not symmetric, so punch tips approximate a body mirror.
+		assert!(
+			(right_tip.x + left_tip.x).abs() < 0.08,
+			"approx mirror X, got {right_tip:?} {left_tip:?}"
+		);
+		assert!(
+			(right_tip.y - left_tip.y).abs() < 0.05,
+			"approx mirror Y, got {right_tip:?} {left_tip:?}"
+		);
+		assert!(
+			(right_tip.z - left_tip.z).abs() < 0.06,
+			"approx mirror Z, got {right_tip:?} {left_tip:?}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn jab_snap_extend_start_has_continuous_forward_tip_motion() -> anyhow::Result<()> {
+		let jab = Jab::default().with_side(Side::Right);
+		let dt = 1.0 / 60.0;
+		let mut rig = HumanoidV0Rig::for_clip_test();
+		jab.apply(&mut rig, BACKSWING_END - dt);
+		let z_before = forearm_hand_tip(&rig, Side::Right).z;
+		jab.apply(&mut rig, BACKSWING_END + dt);
+		let z_after = forearm_hand_tip(&rig, Side::Right).z;
+		assert!(
+			z_after >= z_before - 0.02,
+			"punch hand should not jump backward across extend start, before={z_before} after={z_after}"
+		);
+		Ok(())
+	}
+
+	#[test]
 	fn jab_whips_humerus_and_uncoils_elbow() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default().with_side(Side::Right);
+		let jab = Jab::default().with_side(Side::Right);
 		let guard = 0.0;
 		let p = peak();
 		assert!((jab.jab_elbow(guard) - jab.jab_elbow(p)).abs() > 1.0);
@@ -315,9 +423,7 @@ mod tests {
 
 	#[test]
 	fn jab_humerus_swings_toward_target_x_on_extension() -> anyhow::Result<()> {
-		let across = Jab::<()>::default()
-			.with_side(Side::Right)
-			.with_target(Vec3::new(-0.25, 0.35, 0.7));
+		let across = Jab::default().with_side(Side::Right).with_target(Vec3::new(-0.25, 0.35, 0.7));
 		let guard_x = across.humerus_lateral(Side::Right, 0.0);
 		let peak_x = across.humerus_lateral(Side::Right, peak());
 		assert!(peak_x < guard_x);
@@ -327,7 +433,7 @@ mod tests {
 
 	#[test]
 	fn punch_roll_is_held_near_ninety_degrees() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		assert!((jab.punch_roll(0.0) - FRAC_PI_2).abs() < 1e-4);
 		assert!((jab.punch_roll(0.47) - jab.punch_roll(0.0)).abs() < 1e-4);
 		Ok(())
@@ -335,10 +441,8 @@ mod tests {
 
 	#[test]
 	fn higher_target_reduces_arm_drop() -> anyhow::Result<()> {
-		let sternum = Jab::<()>::default().with_side(Side::Right);
-		let chin = Jab::<()>::default()
-			.with_side(Side::Right)
-			.with_target(Vec3::new(0.0, 0.55, 0.7));
+		let sternum = Jab::default().with_side(Side::Right);
+		let chin = Jab::default().with_side(Side::Right).with_target(Vec3::new(0.0, 0.55, 0.7));
 		assert!(chin.arm_drop(Side::Right, 0.0) < sternum.arm_drop(Side::Right, 0.0));
 		assert!(chin.shoulder_carry(0.0) > sternum.shoulder_carry(0.0));
 		Ok(())
@@ -346,36 +450,31 @@ mod tests {
 
 	#[test]
 	fn lower_target_increases_arm_drop() -> anyhow::Result<()> {
-		let sternum = Jab::<()>::default().with_side(Side::Right);
-		let gut = Jab::<()>::default()
-			.with_side(Side::Right)
-			.with_target(Vec3::new(0.0, 0.15, 0.7));
+		let sternum = Jab::default().with_side(Side::Right);
+		let gut = Jab::default().with_side(Side::Right).with_target(Vec3::new(0.0, 0.15, 0.7));
 		assert!(gut.arm_drop(Side::Right, 0.0) > sternum.arm_drop(Side::Right, 0.0));
 		Ok(())
 	}
 
 	#[test]
 	fn across_body_target_increases_torso_turn_for_right_jab() -> anyhow::Result<()> {
-		let center = Jab::<()>::default().with_side(Side::Right);
-		let across = Jab::<()>::default()
-			.with_side(Side::Right)
-			.with_target(Vec3::new(-0.25, 0.35, 0.7));
+		let center = Jab::default().with_side(Side::Right);
+		let across = Jab::default().with_side(Side::Right).with_target(Vec3::new(-0.25, 0.35, 0.7));
 		assert!(across.torso_turn(peak()) > center.torso_turn(peak()));
 		Ok(())
 	}
 
 	#[test]
 	fn aim_keeps_punch_roll_near_sagittal_band() -> anyhow::Result<()> {
-		let high_across = Jab::<()>::default()
-			.with_side(Side::Right)
-			.with_target(Vec3::new(-0.4, 0.7, 0.7));
+		let high_across =
+			Jab::default().with_side(Side::Right).with_target(Vec3::new(-0.4, 0.7, 0.7));
 		assert!((high_across.punch_roll(0.0) - FRAC_PI_2).abs() <= AIM_ROLL_DELTA_MAX + 1e-4);
 		Ok(())
 	}
 
 	#[test]
 	fn jab_recovers_to_guard_by_cycle_end() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		assert!(jab.extension_amount(0.99) < 0.08);
 		assert!((jab.jab_elbow(0.99) - GUARD_ELBOW).abs() < 0.2);
 		Ok(())
@@ -383,8 +482,8 @@ mod tests {
 
 	#[test]
 	fn backswing_scales_chamber_depth() -> anyhow::Result<()> {
-		let deep = Jab::<()>::default().with_backswing(1.5);
-		let shallow = Jab::<()>::default().with_backswing(0.25);
+		let deep = Jab::default().with_backswing(1.5);
+		let shallow = Jab::default().with_backswing(0.25);
 		let t = BACKSWING_END * 0.5;
 		assert!(deep.chamber_amount(t) > shallow.chamber_amount(t));
 		Ok(())
@@ -392,15 +491,15 @@ mod tests {
 
 	#[test]
 	fn farther_target_increases_reach_scale() -> anyhow::Result<()> {
-		let near = Jab::<()>::default().with_target(Vec3::new(0.0, 0.35, 0.4));
-		let far = Jab::<()>::default().with_target(Vec3::new(0.0, 0.35, 1.0));
+		let near = Jab::default().with_target(Vec3::new(0.0, 0.35, 0.4));
+		let far = Jab::default().with_target(Vec3::new(0.0, 0.35, 1.0));
 		assert!(far.reach_scale() > near.reach_scale());
 		Ok(())
 	}
 
 	#[test]
 	fn chamber_deepens_elbow_bend() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		let mid_chamber = BACKSWING_END * 0.5;
 		assert!(jab.jab_elbow(mid_chamber) > jab.jab_elbow(0.0));
 		Ok(())
@@ -408,7 +507,7 @@ mod tests {
 
 	#[test]
 	fn torso_turns_into_the_extension() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		assert!(jab.torso_turn(peak()) > jab.torso_turn(0.0));
 		assert!(jab.hip_turn(peak()).abs() > 0.0);
 		Ok(())
@@ -416,7 +515,7 @@ mod tests {
 
 	#[test]
 	fn waist_bends_into_the_extension() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		assert!(jab.waist_bend(0.0) < 0.02);
 		assert!(jab.waist_bend(peak()) > 0.1);
 		Ok(())
@@ -424,7 +523,7 @@ mod tests {
 
 	#[test]
 	fn guard_lateral_is_inboard_for_both_sides() -> anyhow::Result<()> {
-		let jab = Jab::<()>::default();
+		let jab = Jab::default();
 		assert!(jab.humerus_lateral(Side::Left, 0.0) < 0.0);
 		assert!(jab.humerus_lateral(Side::Right, 0.0) > 0.0);
 		Ok(())

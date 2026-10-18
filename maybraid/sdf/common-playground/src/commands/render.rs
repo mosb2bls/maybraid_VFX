@@ -4,15 +4,14 @@ pub mod noisy_ball;
 pub mod noisy_crook_cylinder;
 pub mod noisy_cylinder;
 pub mod plugin;
+mod preview_from_helper;
 pub mod tapered_cylinder;
 mod vec3_args;
 
 use bevy::prelude::*;
 use clap::Subcommand;
-use sdf_common::NoisySurface;
 
 use crate::preview::PreviewConfig;
-use crate::primitive::PlaygroundPrimitive;
 
 pub use ball::BallHelper;
 pub use crook_cylinder::CrookCylinderHelper;
@@ -93,55 +92,15 @@ impl Render {
 	}
 
 	pub fn into_preview_config(&self) -> PreviewConfig {
+		use preview_from_helper::render_helper_preview_config;
+
 		match self {
-			Self::TaperedCylinder(h) => PreviewConfig {
-				primitive: PlaygroundPrimitive::TaperedCylinder(h.inner),
-				res_2: h.res_2,
-				transform: h.preview_transform(),
-			},
-			Self::NoisyCylinder(h) => {
-				let cyl = h.inner.cylinder;
-				let noise = h.inner.resolved_noise();
-				PreviewConfig {
-					primitive: PlaygroundPrimitive::NoisyCylinder(NoisySurface::from_params(
-						cyl, noise,
-					)),
-					res_2: h.res_2,
-					transform: h.preview_transform(),
-				}
-			}
-			Self::CrookCylinder(h) => PreviewConfig {
-				primitive: PlaygroundPrimitive::CrookCylinder(h.inner),
-				res_2: h.res_2,
-				transform: h.preview_transform(),
-			},
-			Self::NoisyCrookCylinder(h) => {
-				let crook = h.inner.crook;
-				let noise = h.inner.resolved_noise();
-				PreviewConfig {
-					primitive: PlaygroundPrimitive::NoisyCrookCylinder(NoisySurface::from_params(
-						crook, noise,
-					)),
-					res_2: h.res_2,
-					transform: h.preview_transform(),
-				}
-			}
-			Self::Ball(h) => PreviewConfig {
-				primitive: PlaygroundPrimitive::Ball(h.inner),
-				res_2: h.res_2,
-				transform: h.preview_transform(),
-			},
-			Self::NoisyBall(h) => {
-				let ball = h.inner.ball;
-				let noise = h.inner.resolved_noise();
-				PreviewConfig {
-					primitive: PlaygroundPrimitive::NoisyBall(NoisySurface::from_params(
-						ball, noise,
-					)),
-					res_2: h.res_2,
-					transform: h.preview_transform(),
-				}
-			}
+			Self::TaperedCylinder(h) => render_helper_preview_config(h),
+			Self::NoisyCylinder(h) => render_helper_preview_config(h),
+			Self::CrookCylinder(h) => render_helper_preview_config(h),
+			Self::NoisyCrookCylinder(h) => render_helper_preview_config(h),
+			Self::Ball(h) => render_helper_preview_config(h),
+			Self::NoisyBall(h) => render_helper_preview_config(h),
 		}
 	}
 }

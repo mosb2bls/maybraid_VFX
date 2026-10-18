@@ -10,8 +10,8 @@ use building_components::scene_children;
 use building_components::{
 	append_flattened_component_scenes, BuildingComponents, Layers, PartitionNode,
 };
-use lod::gen::{LodScene, LodSceneLevel};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneLevel};
 use material_ref::MaterialRef;
 use procedural_common::NoiseParams;
 
@@ -105,8 +105,8 @@ impl BuildingComponents for WizardsTowerPerch {
 }
 
 impl LodScene for WizardsTowerPerch {
-	fn scene_lod_status(&self, _lod_ref: &LodRef) -> lod::gen::LodSceneStatus {
-		lod::gen::LodSceneStatus::Unchanged
+	fn scene_lod_status(&self, _lod_ref: &LodRef) -> lod::scene::LodSceneStatus {
+		lod::scene::LodSceneStatus::Unchanged
 	}
 
 	fn scene_with_level(&self, lod_ref: &LodRef, _level: LodSceneLevel) -> impl Scene + 'static {

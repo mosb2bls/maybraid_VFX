@@ -10,6 +10,7 @@
 //! This crate does **not** implement [`lod::LodScene`] or species recipes.
 
 pub mod clip;
+pub mod clip_cache;
 pub mod elevation;
 pub mod mailbox;
 pub mod markers;
@@ -24,6 +25,12 @@ pub mod sync;
 pub use clip::{
 	AnimClip, AnimId, AnimRef, AnimRefRoot, JabParams, JumpParams, TuckParams, TuckedFlipParams,
 	TwoFootedTuckedFlipParams,
+};
+pub use clip_cache::{
+	apply_evaluated_sample, clip_bone_mask, parameters_key, AnimClipCache, AnimClipCacheSettings,
+	AnimClipCacheStats, CachedClipSample, ClipParametersId, ClipParametersKey, ClipVariantKey,
+	EvaluatedBoneOutput, PreparedClip, RigVariantId, SamplingSettings, CURRENT_CLIP_REVISION,
+	DEFAULT_MAX_UNBOUNDED_BINS, DEFAULT_MAX_VARIANTS,
 };
 pub use elevation::{
 	apply_terrain_pitch, draw_terrain_pitch_probes, is_local_visual_child, probe_origin,

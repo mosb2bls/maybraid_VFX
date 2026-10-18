@@ -4,8 +4,8 @@ use bevy::math::bounding::Aabb3d;
 use bevy::prelude::{Component, Vec3, Visibility};
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use character_rigs::ResolvedRigPose;
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
 use scene_ref::SceneRef;
 

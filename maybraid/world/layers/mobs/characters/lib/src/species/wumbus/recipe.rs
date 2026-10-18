@@ -18,7 +18,7 @@ use crate::{
 	nodes::{PartNode, RigNode},
 	species::common::{nodes as humanoid, EyeMesh, HairMesh, EAR_FLANK},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Wumbus data attached to the character root entity.
 ///

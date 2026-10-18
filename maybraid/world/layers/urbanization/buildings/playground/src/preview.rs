@@ -48,7 +48,7 @@ use buildings::{
 	TrazaloidSlab, Tube, TubeCrossSectionNode, TubeFaces, WellAabb, WellSide,
 	DEFAULT_PANEL_THICKNESS,
 };
-use lod::gen::LodScene;
+use lod::scene::LodScene;
 use lod::{point_bounds, LodNode, LodNodeBounds, LodNodePose, LodRef, LodViewer};
 use procedural_common::{AllowedAngles, NoiseParams, StepLenRange};
 use urbanization_developments::MixedUseLesHallesDevelopment;
@@ -1623,7 +1623,7 @@ impl CachedPreview {
 	}
 
 	fn label_nodes(&self) -> Vec<LabelNode> {
-		use lod::gen::LodSceneLevel;
+		use lod::scene::LodSceneLevel;
 		if let Some(stall) = self.commercial_stall.as_ref() {
 			return stall.label_nodes_for_level(LodSceneLevel::High).flatten();
 		}
@@ -1917,7 +1917,7 @@ impl CachedPreview {
 fn gallery_example_labels<T: BuildingComponents>(
 	cells: &[GalleryExampleCell<T>],
 ) -> Option<Vec<LabelNode>> {
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 	if cells.is_empty() {
 		return None;
 	}
@@ -4525,14 +4525,16 @@ fn spawn_building_preview<T>(
 	T: BuildingComponents + Clone + Send + Sync + 'static,
 {
 	use building_components::{
-		append_flattened_component_scenes, scene_children, spawn_building_components,
+		append_flattened_component_scenes, scene_children, spawn_building_components_for,
 		ComponentsOnly,
 	};
-	use lod::gen::LodScene;
+	use lod::scene::LodScene;
 	if building.structural_lod().is_some() {
-		let host = ComponentsOnly(building.clone());
+		let host = ComponentsOnly::posed(building.clone(), transform);
 		let bounds = host.scene_bounds();
-		for entity in spawn_building_components(commands, building, transform, bounds) {
+		for entity in
+			spawn_building_components_for(commands, building, transform, bounds, Some(lod_ref))
+		{
 			commands.entity(entity).insert(PreviewRoot);
 		}
 	} else {
@@ -4540,7 +4542,7 @@ fn spawn_building_preview<T>(
 		append_flattened_component_scenes(
 			building,
 			lod_ref,
-			lod::gen::LodSceneLevel::High,
+			lod::scene::LodSceneLevel::High,
 			&mut children,
 		);
 		spawn_preview(commands, transform, scene_children(children));

@@ -1,21 +1,18 @@
-use bevy::prelude::{Transform, Vec3};
-use character_rigs::{humanoid::HumanoidRig, Side};
+use bevy::prelude::Vec3;
+use character_rigs::authoring::ArmatureOffset;
+use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use log::info;
 
 use crate::animations::{
-	Fall, JumpSegment, Spring, Squat, Transition, TransitionCurve, TwoFootedJump,
-	FALL_BLEND_FRACTION,
+	smoothstep, Fall, JumpSegment, Spring, Squat, TwoFootedJump, FALL_BLEND_FRACTION,
 };
-use crate::rigs::transition::capture_animation_pose;
+use crate::rigs::mix::blend_clips;
+use crate::rigs::segment_debug::segment_debug_enabled;
 use crate::{Animation, Effects};
 
-fn segment_debug_enabled() -> bool {
-	std::env::var("CROZON_ANIMATION_DEBUG").is_ok()
-}
-
-impl<R: HumanoidRig> Animation<R> for TwoFootedJump<R> {
-	fn apply_for(&self, rig: &mut R, elapsed: f32) {
-		let lengths = rig.segment_lengths();
+impl Animation<HumanoidV0Rig> for TwoFootedJump {
+	fn apply_for(&self, rig: &mut HumanoidV0Rig, elapsed: f32) {
+		let lengths = rig.segment_lengths;
 		let (segment, local) = self.segment(lengths, elapsed);
 		let timings = self.timings(lengths);
 
@@ -26,13 +23,17 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedJump<R> {
 				squat.apply_for(rig, progress);
 			}
 			JumpSegment::Spring => {
-				let from_pose = capture_animation_pose(&Squat::<R>::for_loop(1.0, 1.0), rig, 0.0);
-				let _ = Transition::from_pose(Spring::<R>::default(), from_pose)
-					.with_curve(TransitionCurve::SmoothStep)
-					.apply(rig, local, local);
+				blend_clips(
+					rig,
+					&Squat::for_loop(1.0, 1.0),
+					0.0,
+					&Spring::default(),
+					local,
+					smoothstep(local),
+				);
 			}
 			JumpSegment::Fall => {
-				let fall = Fall::<R>::default();
+				let fall = Fall::default();
 				let blend_end = FALL_BLEND_FRACTION;
 				if segment_debug_enabled() && local > 0.9 {
 					info!(
@@ -41,15 +42,19 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedJump<R> {
 						self.time_in_cycle(lengths, elapsed),
 						timings.air_end(),
 						local,
-						fall.shoulder_flex(Side::Left, local),
+						fall.shoulder_flex(character_rigs::Side::Left, local),
 					);
 				}
 				if local < blend_end {
-					let from_pose = capture_animation_pose(&Spring::<R>::default(), rig, 1.0);
 					let transition_progress = (local / blend_end).clamp(0.0, 1.0);
-					let _ = Transition::from_pose(fall, from_pose)
-						.with_curve(TransitionCurve::SmoothStep)
-						.apply(rig, local, transition_progress);
+					blend_clips(
+						rig,
+						&Spring::default(),
+						1.0,
+						&fall,
+						local,
+						smoothstep(transition_progress),
+					);
 				} else {
 					fall.apply_for(rig, local);
 				}
@@ -78,10 +83,14 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedJump<R> {
 					);
 				}
 				if transition_progress < 1.0 {
-					let from_pose = capture_animation_pose(&Fall::<R>::default(), rig, 1.0);
-					let _ = Transition::from_pose(land, from_pose)
-						.with_curve(TransitionCurve::SmoothStep)
-						.apply(rig, land_progress, transition_progress);
+					blend_clips(
+						rig,
+						&Fall::default(),
+						1.0,
+						&land,
+						land_progress,
+						smoothstep(transition_progress),
+					);
 				} else {
 					land.apply_for(rig, land_progress);
 				}
@@ -89,19 +98,19 @@ impl<R: HumanoidRig> Animation<R> for TwoFootedJump<R> {
 		}
 	}
 
-	fn effects_for(&self, rig: &R, elapsed: f32) -> Effects {
-		let lengths = rig.segment_lengths();
-		let y = self.vertical_offset(lengths, elapsed);
-		Effects {
-			r#move: (y.abs() > f32::EPSILON)
-				.then(|| Transform::from_translation(Vec3::new(0.0, y, 0.0))),
+	fn effects_for(&self, rig: &HumanoidV0Rig, elapsed: f32) -> Effects {
+		let y = self.vertical_offset(rig.segment_lengths, elapsed);
+		if y.abs() > f32::EPSILON {
+			ArmatureOffset::from_translation(Vec3::new(0.0, y, 0.0))
+		} else {
+			ArmatureOffset::IDENTITY
 		}
 	}
 }
 
-impl<R: HumanoidRig> TwoFootedJump<R> {
-	pub fn log_landing_debug(&self, rig: &R, elapsed: f32, label: &str) {
-		let lengths = rig.segment_lengths();
+impl TwoFootedJump {
+	pub fn log_landing_debug(&self, rig: &HumanoidV0Rig, elapsed: f32, label: &str) {
+		let lengths = rig.segment_lengths;
 		let timings = self.timings(lengths);
 		let time_in_cycle = self.time_in_cycle(lengths, elapsed);
 		let (segment, local) = self.segment(lengths, elapsed);
@@ -131,12 +140,10 @@ impl<R: HumanoidRig> TwoFootedJump<R> {
 
 #[cfg(test)]
 mod tests {
-	use character_rigs::{rigs::humanoid_v0::HumanoidV0Rig, Side};
-
 	use super::*;
-	use crate::animations::{Squat, DEFAULT_SPRING_DURATION};
+	use crate::animations::DEFAULT_SPRING_DURATION;
 
-	fn default_jump() -> TwoFootedJump<HumanoidV0Rig> {
+	fn default_jump() -> TwoFootedJump {
 		TwoFootedJump::default()
 	}
 
@@ -144,50 +151,41 @@ mod tests {
 	fn spring_end_legs_straight() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
 		let jump = default_jump();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let elapsed = jump.timings(lengths).squat_end() + DEFAULT_SPRING_DURATION * 0.99;
 		jump.apply(&mut rig, elapsed);
 
-		let femur = rig.pose().get(&rig.leg(Side::Left).femur.name).expect("femur");
-		let shin = rig.pose().get(&rig.leg(Side::Left).shin.name).expect("shin");
-		assert!(femur.swing.abs() < 0.05);
-		assert!(shin.flex.abs() < 0.05);
+		assert!(rig.posed_angle("femur.L") < 0.05, "femur should be straight");
+		assert!(rig.posed_angle("shin.L") < 0.05, "shin should be straight");
 		Ok(())
 	}
 
 	#[test]
 	fn land_starts_compression_after_touchdown() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
-		crate::rigs::mix::seed_bind_pose(&mut rig);
 		let jump = default_jump();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let timings = jump.timings(lengths);
 		jump.apply(&mut rig, timings.air_end() + timings.land_descent_duration * 0.25);
 
-		let femur = rig.pose().get(&rig.leg(Side::Left).femur.name).expect("femur");
-		assert!(femur.swing.abs() > 0.01);
+		assert!(rig.posed_angle("femur.L") > 0.01, "land should start folding");
 		Ok(())
 	}
 
 	#[test]
 	fn land_peak_below_full_squat() -> anyhow::Result<()> {
 		let mut rig_squat = HumanoidV0Rig::imported();
-		Squat::<HumanoidV0Rig>::for_loop(1.0, 1.0).apply(&mut rig_squat, 0.5);
-		let squat_femur = rig_squat
-			.pose()
-			.get(&rig_squat.leg(Side::Left).femur.name)
-			.expect("femur")
-			.swing;
+		Squat::for_loop(1.0, 1.0).apply(&mut rig_squat, 0.5);
+		let squat_femur = rig_squat.posed_angle("femur.L");
 
 		let mut rig_land = HumanoidV0Rig::imported();
 		let jump = default_jump();
-		let lengths = rig_land.segment_lengths();
+		let lengths = rig_land.segment_lengths;
 		let timings = jump.timings(lengths);
 		jump.apply(&mut rig_land, timings.air_end() + timings.land_descent_duration * 0.99);
-		let land_femur =
-			rig_land.pose().get(&rig_land.leg(Side::Left).femur.name).expect("femur").swing;
+		let land_femur = rig_land.posed_angle("femur.L");
 
-		assert!(land_femur.abs() < squat_femur.abs());
+		assert!(land_femur < squat_femur);
 		Ok(())
 	}
 
@@ -195,16 +193,13 @@ mod tests {
 	fn windup_still_drops_the_armature() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
 		let jump = default_jump();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let mid_windup = jump.timings(lengths).squat_descent_duration * 0.99;
 		let effects = jump.apply(&mut rig, mid_windup);
-		let Some(tf) = effects.r#move else {
-			return Err(anyhow::anyhow!("jump windup must keep Effects.move"));
-		};
-		if tf.translation.y >= 0.0 {
+		if effects.0.translation.y >= 0.0 {
 			return Err(anyhow::anyhow!(
 				"windup drop should be negative Y, got {}",
-				tf.translation.y
+				effects.0.translation.y
 			));
 		}
 		Ok(())
@@ -213,17 +208,19 @@ mod tests {
 	#[test]
 	fn land_transition_blends_arms_from_fall() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
-		crate::rigs::mix::seed_bind_pose(&mut rig);
 		let jump = default_jump();
-		let lengths = rig.segment_lengths();
+		let lengths = rig.segment_lengths;
 		let timings = jump.timings(lengths);
 		let blend = timings.land_pose_blend_duration();
 		jump.apply(&mut rig, timings.air_end() + blend * 0.5);
 
-		let shoulder = rig.pose().get(&rig.arm(Side::Left).shoulder.name).expect("shoulder");
-		let fall_shoulder = Fall::<HumanoidV0Rig>::default().shoulder_flex(Side::Left, 1.0);
-		assert!(shoulder.flex.abs() > 0.05);
-		assert!(shoulder.flex.abs() < fall_shoulder.abs());
+		let mut fall_rig = HumanoidV0Rig::imported();
+		Fall::default().apply(&mut fall_rig, 1.0);
+		assert!(rig.posed_angle("shoulder.L") > 0.05, "blended shoulder leaves rest");
+		assert!(
+			rig.posed_angle("shoulder.L") < fall_rig.posed_angle("shoulder.L"),
+			"blend is short of the full fall spread"
+		);
 		Ok(())
 	}
 }

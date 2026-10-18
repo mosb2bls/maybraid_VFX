@@ -1,4 +1,6 @@
-use character_rigs::{quadruped::QuadrupedRig, Side};
+use character_rigs::authoring::QuadrupedPose;
+use character_rigs::rigs::quadruped_v0::QuadrupedV0Rig;
+use character_rigs::Side;
 
 use crate::animations::{QuadrupedRun, QuadrupedRunPose};
 use crate::rigs::quadruped::apply::{apply_neck_axes, apply_spine};
@@ -7,36 +9,42 @@ use crate::rigs::quadruped::gait::{
 };
 use crate::{Animation, Progress};
 
-impl<R: QuadrupedRig> Animation<R> for QuadrupedRun {
-	fn apply_for(&self, rig: &mut R, progress: f32) {
+impl Animation<QuadrupedV0Rig> for QuadrupedRun {
+	fn apply_for(&self, rig: &mut QuadrupedV0Rig, progress: f32) {
 		QuadrupedRunPose::from_run(self).apply_for(rig, progress)
 	}
 }
 
-impl<R: QuadrupedRig> Animation<R> for QuadrupedRunPose<R> {
-	fn apply_for(&self, rig: &mut R, progress: f32) {
-		let cycle = Progress(progress).cycle();
-		let tuning = leg_tuning(self);
-
-		// Diagonal trot: FL, HR, FR, HL.
-		apply_front_leg_at_strike(rig, Side::Left, cycle, 0.0, tuning);
-		apply_hind_leg_at_strike(rig, Side::Right, cycle, 0.25, tuning);
-		apply_front_leg_at_strike(rig, Side::Right, cycle, 0.5, tuning);
-		apply_hind_leg_at_strike(rig, Side::Left, cycle, 0.75, tuning);
-
-		let spine_swing = thigh_swing(cycle) * self.spine_swing;
-		let spine = self.spine_swing.max(1e-4);
-		apply_spine(rig, spine_swing, -spine_swing * 0.5);
-		apply_neck_axes(
-			rig,
-			-spine_swing * self.neck_swing / spine,
-			-spine_swing * self.neck_bow / spine,
-			-spine_swing * self.neck_pitch / spine,
-		);
+impl Animation<QuadrupedV0Rig> for QuadrupedRunPose {
+	fn apply_for(&self, rig: &mut QuadrupedV0Rig, progress: f32) {
+		let mut pose = QuadrupedPose::default();
+		sample_run(self, progress, &mut pose);
+		rig.write_pose(&pose);
 	}
 }
 
-fn leg_tuning<Rig>(run: &QuadrupedRunPose<Rig>) -> LegStrideTuning {
+fn sample_run(run: &QuadrupedRunPose, progress: f32, pose: &mut QuadrupedPose) {
+	let cycle = Progress(progress).cycle();
+	let tuning = leg_tuning(run);
+
+	// Diagonal trot: FL, HR, FR, HL.
+	apply_front_leg_at_strike(pose, Side::Left, cycle, 0.0, tuning);
+	apply_hind_leg_at_strike(pose, Side::Right, cycle, 0.25, tuning);
+	apply_front_leg_at_strike(pose, Side::Right, cycle, 0.5, tuning);
+	apply_hind_leg_at_strike(pose, Side::Left, cycle, 0.75, tuning);
+
+	let spine_swing = thigh_swing(cycle) * run.spine_swing;
+	let spine = run.spine_swing.max(1e-4);
+	apply_spine(pose, spine_swing, -spine_swing * 0.5);
+	apply_neck_axes(
+		pose,
+		-spine_swing * run.neck_swing / spine,
+		-spine_swing * run.neck_bow / spine,
+		-spine_swing * run.neck_pitch / spine,
+	);
+}
+
+fn leg_tuning(run: &QuadrupedRunPose) -> LegStrideTuning {
 	LegStrideTuning {
 		shoulder_swing: run.shoulder_swing,
 		shoulder_lift: run.shoulder_lift,
@@ -53,33 +61,27 @@ fn leg_tuning<Rig>(run: &QuadrupedRunPose<Rig>) -> LegStrideTuning {
 
 #[cfg(test)]
 mod tests {
-	use character_rigs::{rigs::quadruped_v0::QuadrupedV0Rig, Side};
+	use bevy::prelude::*;
 
 	use super::*;
+
+	fn tip(rig: &QuadrupedV0Rig, name: &str) -> Vec3 {
+		rig.rotation(name) * Vec3::Y
+	}
 
 	fn assert_pose_matches_at_phases(phases: &[f32]) {
 		for &phase in phases {
 			let mut from_run = QuadrupedV0Rig::imported();
 			let mut from_pose = QuadrupedV0Rig::imported();
 			QuadrupedRun::default().apply(&mut from_run, phase);
-			QuadrupedRunPose::<QuadrupedV0Rig>::default().apply(&mut from_pose, phase);
+			QuadrupedRunPose::default().apply(&mut from_pose, phase);
 
-			for bone in from_run.animation_bones() {
-				let Some(run_pose) = from_run.pose().get(&bone) else {
-					continue;
-				};
-				let pose = from_pose.pose().get(&bone).expect("pose");
+			for name in from_run.animation_bone_names() {
+				let run_rot = from_run.rotation(name);
+				let pose_rot = from_pose.rotation(name);
 				assert!(
-					(run_pose.swing - pose.swing).abs() < 1e-5,
-					"swing mismatch on {bone} at {phase}"
-				);
-				assert!(
-					(run_pose.flex - pose.flex).abs() < 1e-5,
-					"flex mismatch on {bone} at {phase}"
-				);
-				assert!(
-					(run_pose.twist - pose.twist).abs() < 1e-5,
-					"twist mismatch on {bone} at {phase}"
+					run_rot.dot(pose_rot).abs() > 1.0 - 1e-5,
+					"rotation mismatch on {name} at {phase}"
 				);
 			}
 		}
@@ -91,35 +93,35 @@ mod tests {
 	}
 
 	#[test]
-	fn quadruped_run_writes_swing_flex_for_left_front_thigh() {
+	fn quadruped_run_strides_the_left_front_thigh() {
+		let rest = QuadrupedV0Rig::imported();
 		let mut rig = QuadrupedV0Rig::imported();
-		QuadrupedRunPose::<QuadrupedV0Rig>::default().apply(&mut rig, 0.0);
-
-		let thigh =
-			rig.pose().get(&rig.front_leg(Side::Left).thigh.name).expect("front thigh pose");
-		assert!(thigh.swing.abs() > 0.0);
+		QuadrupedRunPose::default().apply(&mut rig, 0.0);
+		assert!(
+			rig.rotation("anterior_thigh.L").dot(rest.rotation("anterior_thigh.L")).abs() < 0.999,
+			"stride leaves rest"
+		);
 	}
 
 	#[test]
 	fn quadruped_run_bows_and_rotates_the_neck() {
 		let mut rig = QuadrupedV0Rig::imported();
-		QuadrupedRunPose::<QuadrupedV0Rig>::default().apply(&mut rig, 0.0);
+		QuadrupedRunPose::default().apply(&mut rig, 0.0);
 
-		let neck = rig.pose().get(&rig.neck().neck.name).expect("neck");
-		assert!(neck.swing.abs() > 0.02, "roll");
-		assert!(neck.flex.abs() > 0.03, "side-to-side");
-		assert!(neck.twist.abs() > 0.03, "up / down");
+		let nod = tip(&rig, "neck");
+		let yaw = rig.rotation("neck") * Vec3::Z;
+		assert!(yaw.x.abs() > 0.02, "turn is yaw, got {yaw:?}");
+		assert!(nod.x.abs() > 0.03, "tilt is lateral, got {nod:?}");
+		assert!(nod.z.abs() > 0.03, "nod is sagittal, got {nod:?}");
 	}
 
 	#[test]
 	fn quadruped_run_offsets_legs_across_stride() {
 		let mut rig = QuadrupedV0Rig::imported();
-		QuadrupedRunPose::<QuadrupedV0Rig>::default().apply(&mut rig, 0.0);
-
-		let front_left =
-			rig.pose().get(&rig.front_leg(Side::Left).thigh.name).expect("front left thigh");
-		let hind_right =
-			rig.pose().get(&rig.hind_leg(Side::Right).thigh.name).expect("hind right thigh");
-		assert_ne!(front_left.swing, hind_right.swing);
+		QuadrupedRunPose::default().apply(&mut rig, 0.0);
+		assert!(
+			rig.rotation("anterior_thigh.L").dot(rig.rotation("posterior_thigh.R")).abs() < 0.999,
+			"diagonal pair should not share one rotation"
+		);
 	}
 }

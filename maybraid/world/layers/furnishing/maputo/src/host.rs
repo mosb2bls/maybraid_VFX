@@ -6,14 +6,15 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, Scene};
 use building_components::{pose, scene_children, FurnitureNode, FLATTENED_KIT_CHUNK_WEIGHT};
 use furniture_components::{posed_kit_part, FurnitureKitPart};
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_host_scene_pending;
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
 
 use furniture_assemblies::posed_assembly;
 
 use crate::cell::FurnitureCellExtent;
+use crate::colliders::{walk_collider, walk_collider_scene};
 
 /// One 50 m furniture host: flattened painted / wireframe kits, no nested hosts.
 #[derive(Component, Clone, Debug)]
@@ -145,20 +146,30 @@ impl LodScene for FurnitureCell {
 		if !matches!(level, LodSceneLevel::High) {
 			return Box::new(scene_children(Vec::new())) as Box<dyn Scene>;
 		}
-		let children: Vec<Box<dyn Scene>> = self
+		let mut children: Vec<Box<dyn Scene>> = self
 			.slots
 			.iter()
 			.enumerate()
 			.map(|(slot, node)| furniture_kit_scene(node, slot as u32))
 			.collect();
+		if let Some(collider) = walk_collider(&self.slots) {
+			children.push(Box::new(walk_collider_scene(collider)));
+		}
 		Box::new(scene_children(children)) as Box<dyn Scene>
 	}
 
+	/// The walk collider first, so the cell bears weight before its kits land.
 	fn scene_chunks_with_level(&self, _lod_ref: &LodRef, level: LodSceneLevel) -> SceneChunk {
 		if !matches!(level, LodSceneLevel::High) || self.slots.is_empty() {
 			return SceneChunk::primitive(scene_children(Vec::new()));
 		}
-		furniture_cell_chunks(self.slots.clone())
+		let kits = furniture_cell_chunks(self.slots.clone());
+		match walk_collider(&self.slots) {
+			Some(collider) => {
+				SceneChunk::chunks([SceneChunk::primitive(walk_collider_scene(collider)), kits])
+			}
+			None => kits,
+		}
 	}
 
 	fn scene_bounds(&self) -> Aabb3d {

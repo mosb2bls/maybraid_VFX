@@ -8,7 +8,7 @@ use bevy_math::Vec2;
 use building_components::joints::JointNode;
 use building_components::panels::{PanelNode, PanelStyle};
 use building_components::{BuildingComponents, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use material_ref::MaterialRef;
 
 use crate::paneling::{RectangularStrip, RectangularStripNode, DEFAULT_PANEL_THICKNESS};

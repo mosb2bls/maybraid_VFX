@@ -9,7 +9,7 @@
 use bevy_math::Vec3;
 use building_components::panels::{PanelGeometry, PanelNode, PanelStyle, TessellatedTriangle};
 use building_components::{BuildingComponents, Layers, Placement};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::paneling::panel_plane::panel_plane_frame;
 

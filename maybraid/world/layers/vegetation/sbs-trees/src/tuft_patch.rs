@@ -12,7 +12,7 @@
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::{NoiseConfig, NoiseParams};
 use sbs_geometry::BladeTuftShape;
 use vegetation_components::{
@@ -282,7 +282,7 @@ impl VegetationComponents for TuftPatch {
 mod tests {
 	use super::*;
 	use anyhow::Result;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 
 	fn patch(seed: i32) -> TuftPatchParams {
 		TuftPatchParams {

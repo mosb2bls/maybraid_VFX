@@ -10,26 +10,41 @@ use bevy::camera::primitives::Aabb;
 use bevy::mesh::{Mesh, VertexAttributeValues};
 use bevy::prelude::{Assets, Children, Entity, Mesh3d, Transform, Vec3, World};
 
-/// True when an odd number of scale axes are negative (determinant < 0).
-pub fn is_odd_negative_scale(scale: Vec3) -> bool {
-	scale.x * scale.y * scale.z < 0.0
-}
+/// Local glTF node scale; detects odd-negative determinants and bakes into meshes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GltfNodeScale(Vec3);
 
-/// Per-axis sign used to bake an odd scale into mesh space (`±1`, never 0).
-pub fn scale_sign(scale: Vec3) -> Vec3 {
-	Vec3::new(
-		if scale.x < 0.0 { -1.0 } else { 1.0 },
-		if scale.y < 0.0 { -1.0 } else { 1.0 },
-		if scale.z < 0.0 { -1.0 } else { 1.0 },
-	)
-}
+impl GltfNodeScale {
+	pub fn new(scale: Vec3) -> Self {
+		Self(scale)
+	}
 
-/// Flip `mesh` by `sign` and invert winding so Back cull matches a positive node scale.
-pub fn bake_scale_sign(mesh: &Mesh, sign: Vec3) -> Mesh {
-	let mut out = mesh.clone();
-	out.transform_by(Transform::from_scale(sign));
-	let _ = out.invert_winding();
-	out
+	pub fn scale(self) -> Vec3 {
+		self.0
+	}
+
+	/// True when an odd number of scale axes are negative (determinant < 0).
+	pub fn is_odd_negative(self) -> bool {
+		self.0.x * self.0.y * self.0.z < 0.0
+	}
+
+	/// Per-axis sign used to bake an odd scale into mesh space (`±1`, never 0).
+	pub fn sign(self) -> Vec3 {
+		Vec3::new(
+			if self.0.x < 0.0 { -1.0 } else { 1.0 },
+			if self.0.y < 0.0 { -1.0 } else { 1.0 },
+			if self.0.z < 0.0 { -1.0 } else { 1.0 },
+		)
+	}
+
+	/// Flip `mesh` by this scale's sign and invert winding so Back cull matches a positive node scale.
+	pub fn bake_mesh(self, mesh: &Mesh) -> Mesh {
+		let sign = self.sign();
+		let mut out = mesh.clone();
+		out.transform_by(Transform::from_scale(sign));
+		let _ = out.invert_winding();
+		out
+	}
 }
 
 fn mesh_aabb(mesh: &Mesh) -> Option<Aabb> {
@@ -49,7 +64,7 @@ pub fn bake_odd_scales_in_world(world: &mut World, meshes: &mut Assets<Mesh>) ->
 		.iter_entities()
 		.filter_map(|entity| {
 			let scale = entity.get::<Transform>()?.scale;
-			is_odd_negative_scale(scale).then_some((entity.id(), scale))
+			GltfNodeScale::new(scale).is_odd_negative().then_some((entity.id(), scale))
 		})
 		.collect();
 	let mut ready = true;
@@ -60,7 +75,7 @@ pub fn bake_odd_scales_in_world(world: &mut World, meshes: &mut Assets<Mesh>) ->
 }
 
 fn bake_node(world: &mut World, node: Entity, scale: Vec3, meshes: &mut Assets<Mesh>) -> bool {
-	let sign = scale_sign(scale);
+	let node_scale = GltfNodeScale::new(scale);
 	let mut targets = Vec::new();
 	if world.get::<Mesh3d>(node).is_some() {
 		targets.push(node);
@@ -79,7 +94,7 @@ fn bake_node(world: &mut World, node: Entity, scale: Vec3, meshes: &mut Assets<M
 			missing = true;
 			continue;
 		};
-		let baked = bake_scale_sign(source, sign);
+		let baked = node_scale.bake_mesh(source);
 		let aabb = mesh_aabb(&baked);
 		let handle = meshes.add(baked);
 		if let Ok(mut child) = world.get_entity_mut(target) {
@@ -133,6 +148,22 @@ mod tests {
 		let child = world.get::<Children>(node).unwrap()[0];
 		let baked_handle = &world.get::<Mesh3d>(child).unwrap().0;
 		let baked = meshes.get(baked_handle).unwrap();
+		match baked.indices() {
+			Some(Indices::U32(idx)) => assert_eq!(idx.as_slice(), &[0, 2, 1]),
+			other => panic!("unexpected indices: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn odd_negative_scale_detection() {
+		assert!(GltfNodeScale::new(Vec3::new(-1.0, -0.2, -1.0)).is_odd_negative());
+		assert!(!GltfNodeScale::new(Vec3::new(-1.0, -0.2, 1.0)).is_odd_negative());
+		assert!(!GltfNodeScale::new(Vec3::ONE).is_odd_negative());
+	}
+
+	#[test]
+	fn bake_mesh_restores_front_winding() {
+		let baked = GltfNodeScale::new(Vec3::NEG_ONE).bake_mesh(&triangle());
 		match baked.indices() {
 			Some(Indices::U32(idx)) => assert_eq!(idx.as_slice(), &[0, 2, 1]),
 			other => panic!("unexpected indices: {other:?}"),

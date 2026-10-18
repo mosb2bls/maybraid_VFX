@@ -18,7 +18,7 @@ use crate::{
 	nodes::{PartNode, RigNode},
 	species::common::{nodes as humanoid, HairMesh, BODY_FULL, EYE_STANDARD, TAIL_LERODON},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 const SNOUT_Z_SCALE: f32 = 2.5;
 

@@ -5,7 +5,7 @@ use bevy::math::Vec3;
 use building_components::{FurnitureAbutment, FurnitureNode};
 
 use crate::bites_seating::BitesSeatingUsage;
-use crate::region::{floor_height_aabb, stamp_make};
+use crate::region::{clamp_grid, floor_height_aabb, stamp_make};
 
 pub const SHELF_PLAN: f32 = 2.0;
 pub const SHELF_DECK: f32 = 0.75;
@@ -217,16 +217,6 @@ fn count_pitch(span: f32, pitch: f32, max: usize) -> usize {
 		return 0;
 	}
 	((span / pitch).floor() as usize).clamp(1, max)
-}
-
-fn clamp_grid(n_x: usize, n_z: usize, max: usize) -> (usize, usize) {
-	if n_x * n_z <= max {
-		return (n_x, n_z);
-	}
-	let scale = (max as f32 / (n_x * n_z) as f32).sqrt();
-	let nx = ((n_x as f32 * scale).floor() as usize).max(1);
-	let nz = (max / nx).max(1);
-	(nx, nz)
 }
 
 #[cfg(test)]

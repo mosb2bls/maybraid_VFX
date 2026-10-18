@@ -5,7 +5,7 @@
 //! - **Canopy** — cheap balls on remaining foliage-eligible sites.
 
 use bevy::prelude::*;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use sbs_geometry::chain::storybook_tree::{
 	is_graph_terminal, StorybookTreeChain, StorybookTreePhase,
 };

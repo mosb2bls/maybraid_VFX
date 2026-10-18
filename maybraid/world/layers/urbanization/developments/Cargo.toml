@@ -10,10 +10,12 @@ publish = { workspace = true }
 rust-version = { workspace = true }
 
 [dependencies]
+bevy = { workspace = true }
 bevy_math = { workspace = true }
 lod = { workspace = true }
 procedural-common = { workspace = true }
 building-components = { workspace = true }
+building-shaders = { workspace = true }
 buildings = { workspace = true }
 material-ref = { workspace = true }
 

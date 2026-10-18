@@ -169,6 +169,17 @@ pub fn yaw_turns(seed: u64, salt: u64) -> f32 {
 	std::f32::consts::FRAC_PI_2 * ((unit(seed, salt) * 4.0).floor())
 }
 
+/// Scale down a 2D grid so `n_x * n_z <= max`, preserving aspect ratio.
+pub fn clamp_grid(n_x: usize, n_z: usize, max: usize) -> (usize, usize) {
+	if n_x * n_z <= max {
+		return (n_x, n_z);
+	}
+	let scale = (max as f32 / (n_x * n_z) as f32).sqrt();
+	let nx = ((n_x as f32 * scale).floor() as usize).max(1);
+	let nz = (max / nx).max(1);
+	(nx, nz)
+}
+
 /// Unit in `[0, 1)` from a finish seed and salt.
 pub fn unit(seed: u64, salt: u64) -> f32 {
 	let mut x = seed ^ salt.wrapping_mul(0x9e37_79b9_7f4a_7c15);
@@ -178,4 +189,22 @@ pub fn unit(seed: u64, salt: u64) -> f32 {
 	x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
 	x ^= x >> 31;
 	(x as f32) * (1.0 / u64::MAX as f32)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::clamp_grid;
+
+	#[test]
+	fn clamp_grid_within_cap_is_unchanged() {
+		assert_eq!(clamp_grid(3, 4, 24), (3, 4));
+	}
+
+	#[test]
+	fn clamp_grid_scales_down_preserving_product_bound() {
+		let (n_x, n_z) = clamp_grid(8, 8, 24);
+		assert!(n_x * n_z <= 24);
+		assert!(n_x >= 1);
+		assert!(n_z >= 1);
+	}
 }

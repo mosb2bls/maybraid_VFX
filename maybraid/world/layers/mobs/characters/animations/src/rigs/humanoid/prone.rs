@@ -1,63 +1,61 @@
-use character_rigs::{humanoid::HumanoidRig, Side};
+use character_rigs::authoring::{ArmatureOffset, HumanoidPose};
+use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
+use character_rigs::Side;
 
 use crate::animations::Prone;
-use crate::rigs::humanoid::apply::{
-	apply_arm, apply_hip_fold, apply_leg, apply_neck_twisted, apply_spine_pitch,
-};
 use crate::{Animation, Effects};
 
-impl<R: HumanoidRig> Animation<R> for Prone<R> {
-	fn apply_for(&self, rig: &mut R, progress: f32) {
+impl Animation<HumanoidV0Rig> for Prone {
+	fn apply_for(&self, rig: &mut HumanoidV0Rig, progress: f32) {
+		let mut pose = HumanoidPose::default();
 		let femur = self.femur_swing(progress);
 		let shin = self.shin_flex(progress);
-		apply_leg(rig, Side::Left, femur, shin);
-		apply_leg(rig, Side::Right, femur, shin);
-		apply_hip_fold(rig, Side::Left, femur * 0.35);
-		apply_hip_fold(rig, Side::Right, femur * 0.35);
-		let pitch = self.spine_pitch(progress);
-		apply_spine_pitch(rig, pitch);
+		pose.apply_leg(Side::Left, femur, shin);
+		pose.apply_leg(Side::Right, femur, shin);
+		pose.apply_hip_fold(Side::Left, femur * 0.35);
+		pose.apply_hip_fold(Side::Right, femur * 0.35);
+		pose.apply_spine_pitch(self.spine_pitch(progress));
 		let neck = self.neck_swing(progress);
-		apply_neck_twisted(rig, 0.0, 0.0, neck, 0.0, 0.0, neck);
+		pose.apply_neck_twisted(0.0, 0.0, neck, 0.0, 0.0, neck);
 		let hold = self.arm_hold(progress);
-		apply_arm(rig, Side::Left, 0.0, 0.0, 0.0, hold, hold);
-		apply_arm(rig, Side::Right, 0.0, 0.0, 0.0, hold, hold);
+		pose.apply_arm(Side::Left, 0.0, 0.0, 0.0, hold, hold);
+		pose.apply_arm(Side::Right, 0.0, 0.0, 0.0, hold, hold);
+		rig.write_pose(&pose);
 	}
 
-	fn effects_for(&self, _rig: &R, _progress: f32) -> Effects {
-		Effects::default()
+	fn effects_for(&self, _rig: &HumanoidV0Rig, _progress: f32) -> Effects {
+		ArmatureOffset::IDENTITY
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
+	use bevy::prelude::Vec3;
 
 	use super::*;
+
+	fn tip(rig: &HumanoidV0Rig, name: &str) -> Vec3 {
+		rig.rotation(name) * Vec3::Y
+	}
 
 	#[test]
 	fn settled_prone_pitches_the_spine() -> anyhow::Result<()> {
 		let mut rig = HumanoidV0Rig::imported();
-		let prone = Prone::<HumanoidV0Rig>::default();
+		let prone = Prone::default();
 		let effects = prone.apply(&mut rig, 1.0);
-		if effects.r#move.is_some() {
-			return Err(anyhow::anyhow!("held prone must not Effects.move"));
+		if !effects.is_identity() {
+			return Err(anyhow::anyhow!("held prone must not offset the armature"));
 		}
-		let root = rig.pose().get(&rig.spine().root.name).ok_or_else(|| anyhow::anyhow!("root"))?;
-		if root.twist.abs() < 0.3 {
-			return Err(anyhow::anyhow!(
-				"root should pitch toward horizontal, got twist {}",
-				root.twist
-			));
+		let root = tip(&rig, "root");
+		if root.z < 0.3 {
+			return Err(anyhow::anyhow!("root should pitch forward, got {root:?}"));
 		}
-		let lumbar = rig
-			.pose()
-			.get(&rig.spine().lumbar.name)
-			.ok_or_else(|| anyhow::anyhow!("lumbar"))?;
-		if lumbar.twist.abs() < 0.2 {
-			return Err(anyhow::anyhow!(
-				"lumbar should share the fold, got twist {}",
-				lumbar.twist
-			));
+		if root.x.abs() > 1e-3 {
+			return Err(anyhow::anyhow!("root pitch must stay sagittal, got {root:?}"));
+		}
+		let lumbar = tip(&rig, "lumbar");
+		if lumbar.z < 0.2 {
+			return Err(anyhow::anyhow!("lumbar should share the fold, got {lumbar:?}"));
 		}
 		Ok(())
 	}

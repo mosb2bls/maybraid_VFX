@@ -4,27 +4,22 @@
 //! result is then stored behind this enum so adding an archetype does not add a
 //! parallel spatial store, generation pass, and playground scan.
 
-use crate::archetype_generation::PlacedDevelopment;
-use crate::{
-	LesHallesDevelopment, RingFortDevelopment, ShepherdsCommuneDevelopment,
-	ShepherdsVillageDevelopment,
-};
 use urbanization_developments::{
-	OldCityMarket, SingleHighrise, SkybridgeBazaar, SolitaryWizardsTower, SuburbanHomes,
-	TempleComplex,
+	LesHalles, OldCityMarket, RingFort, ShepherdsCommune, ShepherdsVillage, SingleHighrise,
+	SkybridgeBazaar, SuburbanHomes, TempleComplex, WizardsTower,
 };
 
 /// One fitted development generated for an occupied cell.
 #[derive(Debug, Clone)]
 pub enum BuiltDevelopment {
-	LesHalles(Box<LesHallesDevelopment>),
-	ShepherdsVillage(Box<ShepherdsVillageDevelopment>),
-	ShepherdsCommune(Box<ShepherdsCommuneDevelopment>),
-	RingFort(Box<RingFortDevelopment>),
+	LesHalles(Box<LesHalles>),
+	ShepherdsVillage(Box<ShepherdsVillage>),
+	ShepherdsCommune(Box<ShepherdsCommune>),
+	RingFort(Box<RingFort>),
 	TempleComplex(Box<TempleComplex>),
-	SingleHighrise(Box<PlacedDevelopment<SingleHighrise>>),
+	SingleHighrise(Box<SingleHighrise>),
 	SuburbanHomes(Box<SuburbanHomes>),
-	WizardsTower(Box<PlacedDevelopment<SolitaryWizardsTower>>),
+	WizardsTower(Box<WizardsTower>),
 	SkybridgeBazaar(Box<SkybridgeBazaar>),
 	OldCityMarket(Box<OldCityMarket>),
 }

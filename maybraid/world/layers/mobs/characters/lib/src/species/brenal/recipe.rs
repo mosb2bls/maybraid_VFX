@@ -19,7 +19,7 @@ use crate::{
 		common::{nodes as humanoid, EarMesh, EyeMesh, EAR_FLANK, TAIL_CAT},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Brenal data attached to the character root entity.
 ///

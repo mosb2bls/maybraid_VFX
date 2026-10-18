@@ -13,16 +13,9 @@ rust-version = { workspace = true }
 layer-stack = { workspace = true }
 bevy = { workspace = true }
 world-player = { workspace = true }
-chico = { workspace = true }
 durham = { workspace = true }
-barking = { workspace = true }
-mob-layer-model = { workspace = true }
-richmond = { workspace = true }
+lod = { workspace = true }
 terrain-layer-model = { workspace = true }
-urbanization-layer-model = { workspace = true }
-vegetation-layer-model = { workspace = true }
-furnishing-layer-model = { workspace = true }
-maputo = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

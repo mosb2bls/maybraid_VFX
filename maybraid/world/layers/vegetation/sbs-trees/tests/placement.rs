@@ -4,7 +4,7 @@
 //! composition is handled by the LodScene host (not ChildOf mesh roots as in RenderItem).
 
 use anyhow::Result;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use sbs_geometry::DatePalmSbs;
 use sbs_trees::{DatePalmParams, PalmBushParams};
 use vegetation_components::VegetationComponents;

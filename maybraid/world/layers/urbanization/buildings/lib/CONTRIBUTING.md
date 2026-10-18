@@ -1,7 +1,7 @@
 # Contributing to `buildings`
 
-Higher-order building procedures on top of [`building-components`](../building-components/).
-For Richmond-wide IR / LOD rules, see [../CONTRIBUTING.md](../CONTRIBUTING.md).
+Higher-order building procedures on top of [`building-components`](../components/) (`building-components` crate).
+For Richmond-wide IR / LOD rules, see [../../CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 This guide walks the **Les Halles storey** pattern as a template for
 parameterized → plan → full fitting, openings, and usage-area fill.
@@ -331,19 +331,19 @@ BuildingComponents → PanelNode / LabelNode / … (no GLB paths here)
 - **Floor plans / shells** own envelope geometry and opening ids.
 - **Usage areas** pack program into residual confines and may emit further
   `within` rooms (office, restroom stalls).
-- Present with [`ComponentsOnly`](../building-components/src/lib.rs)`<T>` unless
+- Present with [`ComponentsOnly`](../components/src/lib.rs)`<T>` unless
   the type needs a custom `LodScene`.
 
 Richmond-wide IR / LOD / `ParentConfines` rules stay in
-[../CONTRIBUTING.md](../CONTRIBUTING.md). Kit taxonomy and asset aliases stay in
+[../../CONTRIBUTING.md](../../CONTRIBUTING.md). Kit taxonomy and asset aliases stay in
 the [buildings README](README.md) and
-[building-components README](../building-components/README.md).
+[building-components README](../components/README.md).
 
 ---
 
 ## Related
 
-- [Richmond CONTRIBUTING](../CONTRIBUTING.md) — IR nodes, LOD, `ParentConfines`
+- [Richmond CONTRIBUTING](../../CONTRIBUTING.md) — IR nodes, LOD, `ParentConfines`
 - [buildings README](README.md) — kit taxonomy + paneling type table
 - [`fit.rs`](src/fit.rs) — `Confines` / `MultiConfines` / `MultiFit` / `FillableRegions` / `SpaceKind`
 - [`placer`](src/placer.rs) — predicate-based rectangular KindSpec layout trier

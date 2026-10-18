@@ -4,12 +4,11 @@
 //! and convert via [`QuadrupedGallop::from_gallop`].
 
 use std::f32::consts::PI;
-use std::marker::PhantomData;
 
 use super::Gallop;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct QuadrupedGallop<Rig> {
+pub struct QuadrupedGallop {
 	pub shoulder_swing: f32,
 	pub shoulder_lift: f32,
 	pub hip_swing: f32,
@@ -22,16 +21,15 @@ pub struct QuadrupedGallop<Rig> {
 	pub front_bound_pitch: f32,
 	/// Cycle fraction between the hind-pair and front-pair strikes.
 	pub phase_separation: f32,
-	/// Neck roll follow of the bound (swing / Y, around the bone).
+	/// Neck turn follow of the bound (axial +Y).
 	pub neck_follow: f32,
-	/// Neck side-to-side follow of the bound (flex / Z).
+	/// Neck tilt follow of the bound (lateral +Z).
 	pub neck_bow: f32,
-	/// Neck up / down follow of the bound (twist / X). Head tucks on gather.
+	/// Neck nod follow of the bound (flexion +X). Head tucks on gather.
 	pub neck_pitch: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Default for QuadrupedGallop<Rig> {
+impl Default for QuadrupedGallop {
 	fn default() -> Self {
 		Self {
 			shoulder_swing: 0.14,
@@ -48,12 +46,11 @@ impl<Rig> Default for QuadrupedGallop<Rig> {
 			neck_follow: 0.55,
 			neck_bow: 0.9,
 			neck_pitch: 0.75,
-			_rig: PhantomData,
 		}
 	}
 }
 
-impl<Rig> QuadrupedGallop<Rig> {
+impl QuadrupedGallop {
 	/// Scale the tuned quadruped template from rig-agnostic [`Gallop`] knobs.
 	pub fn from_gallop(gallop: &Gallop) -> Self {
 		let template = Self::default();
@@ -80,7 +77,6 @@ impl<Rig> QuadrupedGallop<Rig> {
 			neck_follow: template.neck_follow,
 			neck_bow: template.neck_bow,
 			neck_pitch: template.neck_pitch,
-			_rig: PhantomData,
 		}
 	}
 }

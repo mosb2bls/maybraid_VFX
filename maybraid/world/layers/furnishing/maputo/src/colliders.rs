@@ -1,57 +1,35 @@
 //! Static walk colliders from stamped furniture slots.
 
 use avian3d::prelude::{Collider, RigidBody};
+use bevy::ecs::template::template;
 use bevy::prelude::*;
+use bevy::scene::prelude::{bsn, Scene};
 use building_components::{FurnitureGeometry, FurnitureNode};
 use building_physics::BUILDING_FRICTION;
-use lod::LodSceneHost;
 use lod_avian::PhysicsInteractionLayer;
 
-use crate::host::FurnitureCell;
-
-/// Marks the Fixed compound spawned from a [`FurnitureCell`].
+/// Marks the Fixed compound in a [`crate::FurnitureCell`]'s High scene.
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct FurnitureWalkCollider;
 
-#[derive(Component, Debug, Clone, Copy, Default)]
-struct FurnitureWalkColliderAttached;
-
-/// Registers furniture walk-collider attach.
-pub struct FurnitureWalkColliderPlugin;
-
-impl Plugin for FurnitureWalkColliderPlugin {
-	fn build(&self, app: &mut App) {
-		app.add_systems(Update, attach_furniture_walk_colliders);
-	}
+/// One Fixed compound over the `slots` that block walking; `None` when none do.
+pub(crate) fn walk_collider(slots: &[FurnitureNode]) -> Option<Collider> {
+	let shapes = walk_shapes(slots);
+	(!shapes.is_empty()).then(|| Collider::compound(shapes))
 }
 
-fn attach_furniture_walk_colliders(
-	mut commands: Commands,
-	pending: Query<
-		(Entity, &FurnitureCell),
-		(With<LodSceneHost>, Without<FurnitureWalkColliderAttached>),
-	>,
-) {
-	for (entity, cell) in &pending {
-		let Ok(mut host) = commands.get_entity(entity) else {
-			continue;
-		};
-		host.insert(FurnitureWalkColliderAttached);
-		let shapes = walk_shapes(&cell.slots);
-		if shapes.is_empty() {
-			continue;
-		}
-		commands.spawn((
-			Name::new("furniture-walk-collider"),
-			FurnitureWalkCollider,
-			ChildOf(entity),
-			Transform::IDENTITY,
-			Visibility::Hidden,
-			RigidBody::Static,
-			Collider::compound(shapes),
-			PhysicsInteractionLayer::fixed_layers(),
-			BUILDING_FRICTION,
-		));
+/// `collider` as a hidden static child. Slots are world-space under an
+/// identity host, so the collider is too.
+pub(crate) fn walk_collider_scene(collider: Collider) -> impl Scene + 'static {
+	bsn! {
+		template_value(Name::new("furniture-walk-collider"))
+		FurnitureWalkCollider
+		template_value(Transform::IDENTITY)
+		template_value(Visibility::Hidden)
+		template(|_ctx| Ok(RigidBody::Static))
+		template(move |_ctx| Ok(collider.clone()))
+		template(|_ctx| Ok(PhysicsInteractionLayer::fixed_layers()))
+		template(|_ctx| Ok(BUILDING_FRICTION))
 	}
 }
 

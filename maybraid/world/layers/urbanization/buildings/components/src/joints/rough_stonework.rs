@@ -2,8 +2,8 @@
 
 use bevy::prelude::Transform;
 use bevy::scene::prelude::Scene;
-use lod::gen::LodSceneLevel;
 use lod::lod_ref::LodRef;
+use lod::scene::LodSceneLevel;
 
 use crate::assets::joints::rough_stonework::{JOINT_HIGH, JOINT_MID};
 use crate::assets::AssetPath;

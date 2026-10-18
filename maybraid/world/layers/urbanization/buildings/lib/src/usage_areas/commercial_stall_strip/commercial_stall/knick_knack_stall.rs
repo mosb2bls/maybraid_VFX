@@ -13,7 +13,7 @@ pub use parameterized::{KnickKnackStallParameterized, KnickKnackStallPlan};
 
 use bevy_math::bounding::Aabb3d;
 use building_components::{BuildingComponents, LabelNode, LabelStyle, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::NoiseParams;
 
 use crate::fit::{Confines, FillableRegions, Fit, FitError};

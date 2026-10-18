@@ -2,17 +2,19 @@
 
 use std::collections::HashMap;
 
-use bevy::prelude::{Color, Vec3};
-use bevy::scene::prelude::Scene;
-use lod::gen::{LodSceneCulls, LodSceneLevel, LodSceneStatus};
+use bevy::ecs::template::template;
+use bevy::prelude::{Color, Vec3, Visibility};
+use bevy::scene::prelude::{bsn, template_value, Scene};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::{cull_offset_bands_from_factor, SceneChunk};
 use material_ref::MaterialRef;
 use sbs_trees::RorysHeadTrained;
 use vegetation_components::{
-	flattened_components_only_host, frond_material_ref, leaf_material_ref, stick_material_ref,
-	FoliageGeometry, FoliageNode, Layers, PlacedVegetation, Placement, StickGeometry, StickNode,
-	StructuralLod, VegetationComponents,
+	flattened_component_scene, frond_material_ref, leaf_material_ref, stick_material_ref,
+	FlattenedComponentsOnly, FoliageGeometry, FoliageNode, Layers, PlacedVegetation, Placement,
+	StickGeometry, StickNode, StructuralLod, VegetationComponents, VegetationInstance,
+	FLATTENED_KIT_CHUNK_WEIGHT,
 };
 
 use super::{GroveExtent, PaletteMix};
@@ -486,9 +488,14 @@ pub fn grove_detail_level_keep_low(level: LodSceneLevel) -> Option<LodSceneLevel
 	}
 }
 
-/// Nest one posed plant as [`vegetation_components::FlattenedComponentsOnly`]`<`[`PlacedVegetation`]`<T>>`.
+/// Pose one plant as kit content under the grove level root — no nested [`lod::LodSceneHost`].
 ///
-/// Kit nodes spawn as posed content (no per-stick / per-ball LOD hosts).
+/// Stamps [`FlattenedComponentsOnly`]`<`[`PlacedVegetation`]`<T>>` so stick
+/// colliders still find a typed source. Kit LOD is the grove fulfill `level`
+/// (the grove host is what refreshes). Sampling the plant's own structural
+/// band here baked Medium/Low canopy when the tile first entered High, and
+/// those kits never upgraded. Isolated `/show` trees still use
+/// [`vegetation_components::flattened_components_only_host`].
 pub fn nest_flattened_plant_host<T>(
 	plant: T,
 	placement: Placement,
@@ -496,20 +503,45 @@ pub fn nest_flattened_plant_host<T>(
 	ball_material: &MaterialRef,
 	frond_material: &MaterialRef,
 	lod_ref: &LodRef,
+	level: LodSceneLevel,
 ) -> impl Scene + 'static
 where
 	T: VegetationComponents + Clone + Send + Sync + 'static,
 {
-	flattened_components_only_host(
-		PlacedVegetation::new(
-			plant,
-			placement,
-			stick_material.clone(),
-			ball_material.clone(),
-			frond_material.clone(),
-		),
-		lod_ref,
+	let placed = PlacedVegetation::new(
+		plant,
+		placement,
+		stick_material.clone(),
+		ball_material.clone(),
+		frond_material.clone(),
+	);
+	let host = FlattenedComponentsOnly(placed);
+	let bounds = host.scene_bounds();
+	let anchor = (bounds.min + bounds.max) * 0.5;
+	let radius = ((bounds.max.x - bounds.min.x).max(bounds.max.z - bounds.min.z) * 0.5).max(0.05);
+	let instance = VegetationInstance::new(anchor.into(), radius);
+	let host_for_template = host.clone();
+	(
+		bsn! {
+			template_value(instance)
+			template(move |_ctx| Ok(host_for_template.clone()))
+			Visibility::Inherited
+		},
+		flattened_component_scene(&host, lod_ref, level),
 	)
+}
+
+/// Drain weight for one posed woody plant ([`FLATTENED_KIT_CHUNK_WEIGHT`]).
+pub fn flattened_plant_lazy_weight(plant_count: usize) -> u32 {
+	plant_count as u32 * FLATTENED_KIT_CHUNK_WEIGHT
+}
+
+/// Lazy plant list: one posed kit group per plant, charged as flattened kits.
+pub fn lazy_flattened_plant_chunks(
+	plant_count: usize,
+	next: impl FnMut() -> Option<SceneChunk> + Send + Sync + 'static,
+) -> SceneChunk {
+	SceneChunk::lazy(flattened_plant_lazy_weight(plant_count), plant_count, next)
 }
 
 /// Weighted chunk wrapping [`nest_flattened_plant_host`].
@@ -520,12 +552,13 @@ pub fn nest_flattened_plant_chunk<T>(
 	ball_material: &MaterialRef,
 	frond_material: &MaterialRef,
 	lod_ref: &LodRef,
+	level: LodSceneLevel,
 ) -> SceneChunk
 where
 	T: VegetationComponents + Clone + Send + Sync + 'static,
 {
 	SceneChunk::weighted(
-		1,
+		FLATTENED_KIT_CHUNK_WEIGHT,
 		nest_flattened_plant_host(
 			plant,
 			placement,
@@ -533,6 +566,7 @@ where
 			ball_material,
 			frond_material,
 			lod_ref,
+			level,
 		),
 	)
 }
@@ -551,7 +585,7 @@ pub fn grove_lod_culls(band: StructuralLod, lod_ref: &LodRef) -> LodSceneCulls {
 	cull_offset_bands_from_factor(factor, band.high_factor, band.medium_factor, band.low_factor)
 }
 
-/// High/Medium → nested plant host chunks; Low/UltraLow → canopy-ball vegetation chunks.
+/// High/Medium → posed plant kit chunks (no per-tree hosts); Low/UltraLow → canopy proxies.
 pub fn woody_grove_scene_chunks(
 	level: LodSceneLevel,
 	lod_ref: &LodRef,
@@ -570,7 +604,7 @@ pub fn woody_grove_scene_chunks(
 	}
 }
 
-/// High/Medium/Low → nested plant hosts; UltraLow → canopy-ball vegetation chunks.
+/// High/Medium/Low → posed plant kits; UltraLow → canopy-ball vegetation chunks.
 ///
 /// Palm-only groves use this so tile Low instances the plant Low star instead of a
 /// crown cheap-ball.

@@ -99,8 +99,8 @@ mod render_tests {
 	use crate::tropical_tufts::TropicalTuftsParams;
 	use bevy::math::bounding::Aabb3d;
 	use bevy::prelude::{Entity, Transform};
-	use lod::gen::{LodScene, LodSceneLevel};
 	use lod::lod_ref::LodRef;
+	use lod::scene::{LodScene, LodSceneLevel};
 	use lod::SceneChunk;
 	use vegetation_components::VegetationComponents;
 

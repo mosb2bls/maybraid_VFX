@@ -11,23 +11,36 @@ pub struct CameraController {
 	pub pitch: f32,
 }
 
-pub fn setup_camera(mut commands: Commands) {
-	let camera_pos = Vec3::new(0.0, 1.6, 3.5);
-	let look_at = Vec3::new(0.0, 1.0, 0.0);
-	let transform = Transform::from_translation(camera_pos).looking_at(look_at, Vec3::Y);
+pub fn orient_camera(
+	transform: &mut Transform,
+	controller: &mut CameraController,
+	eye: Vec3,
+	target: Vec3,
+) {
+	*transform = Transform::from_translation(eye).looking_at(target, Vec3::Y);
 	let rotation = transform.rotation;
 	let (x, y, z, w) = (rotation.x, rotation.y, rotation.z, rotation.w);
 	let sin_yaw = 2.0 * (w * y + x * z);
 	let cos_yaw = 1.0 - 2.0 * (y * y + z * z);
-	let yaw = sin_yaw.atan2(cos_yaw);
+	controller.yaw = sin_yaw.atan2(cos_yaw);
 	let sin_pitch = 2.0 * (w * x - y * z);
-	let pitch = sin_pitch.asin();
+	controller.pitch = sin_pitch.asin();
+}
 
+pub fn setup_camera(mut commands: Commands) {
+	let mut transform = Transform::IDENTITY;
+	let mut controller = CameraController { speed: 6.0, sensitivity: 0.005, yaw: 0.0, pitch: 0.0 };
+	orient_camera(
+		&mut transform,
+		&mut controller,
+		Vec3::new(0.0, 1.6, 3.5),
+		Vec3::new(0.0, 1.0, 0.0),
+	);
 	commands.spawn((
 		Camera3d::default(),
 		transform,
 		Projection::Perspective(PerspectiveProjection { near: 0.1, far: 4000.0, ..default() }),
-		CameraController { speed: 6.0, sensitivity: 0.005, yaw, pitch },
+		controller,
 	));
 }
 

@@ -18,7 +18,7 @@ mod crown;
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use sbs_geometry::FrondCrownShape;
 use sbs_geometry::PalmBushSbs;
 use vegetation_components::{FoliageNode, Layers, StickNode, StructuralLod, VegetationComponents};
@@ -163,7 +163,7 @@ impl VegetationComponents for PalmBush {
 mod tests {
 	use super::*;
 	use anyhow::Result;
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 
 	#[test]
 	fn high_emits_small_frond_collections() -> Result<()> {

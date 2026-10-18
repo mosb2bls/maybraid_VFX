@@ -1,7 +1,8 @@
 //! One building-skirt leaf: primitive + ease params.
 
 use bevy::math::Vec2;
-use procedural_common::Bounds2;
+use procedural_common::{Bounds2, Smoothstep01};
+use urbanization_developments::PadForm;
 
 use super::elevation::PadElevation;
 use super::footprint::{PadFootprint, PadReach, PadRect};
@@ -166,7 +167,7 @@ impl PadNode {
 			return 1.0;
 		}
 		let span = (ease - inner).max(1e-3);
-		1.0 - smoothstep01((d - inner) / span)
+		1.0 - Smoothstep01::eval((d - inner) / span)
 	}
 
 	/// Flatten terraces stay exact; overlapping grades / eases occupancy-softmax.
@@ -213,9 +214,17 @@ impl PadNode {
 	}
 }
 
-fn smoothstep01(t: f32) -> f32 {
-	let t = t.clamp(0.0, 1.0);
-	t * t * (3.0 - 2.0 * t)
+impl From<&PadForm> for PadNode {
+	fn from(form: &PadForm) -> Self {
+		match *form {
+			PadForm::Flatten { center, building_half_extents, yaw, height, params } => {
+				Self::rectangular_flatten(center, building_half_extents, yaw, height, params)
+			}
+			PadForm::Grade { a, b, half_width, height_a, height_b, params } => {
+				Self::graded_reach(a, b, half_width, height_a, height_b, params)
+			}
+		}
+	}
 }
 
 /// Hard bands for one pad (terrace vs connecting grade vs ease skirt).

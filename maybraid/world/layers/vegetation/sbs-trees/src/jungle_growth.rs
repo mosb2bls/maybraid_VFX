@@ -5,7 +5,7 @@
 
 use bevy::prelude::*;
 use clap::Args;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use sbs_geometry::JungleGrowthShape;
 use vegetation_components::{FoliageNode, Layers, StickNode, StructuralLod, VegetationComponents};
 

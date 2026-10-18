@@ -7,7 +7,7 @@
 
 use bevy::light::NotShadowCaster;
 use bevy::scene::prelude::{bsn, Scene};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use scene_ref::{MultiSceneMerge, MultiScenePart};
 
 use crate::assets::AssetPath;
@@ -28,8 +28,8 @@ mod tests {
 	use crate::foliage::collection::{FrondCollection, FrondRun};
 	use crate::placed::Placement;
 	use bevy::prelude::{Entity, Transform, Vec3};
-	use lod::gen::LodScene;
 	use lod::lod_ref::LodRef;
+	use lod::scene::LodScene;
 	use lod::SceneChunk;
 
 	fn one_run_collection() -> FrondCollection {

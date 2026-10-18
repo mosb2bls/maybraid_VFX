@@ -5,12 +5,13 @@ use combat_targeting::CombatTargeting;
 use damage::Downed;
 use intelligence_lod::{IntelligenceBand, IntelligenceLod};
 use movement_intelligence::{
-	MovementIntelligence, MovementLocation, MovementObjective, ReplanMovement,
+	MovementIntelligence, MovementLocation, MovementObjective, ReplanMovement, ReplanThreshold,
 };
 
 use crate::combat::FirearmIntelligence;
 
-const REFRESH_DISTANCE: f32 = 0.6;
+const REPLAN_THRESHOLD: ReplanThreshold =
+	ReplanThreshold { refresh_distance: 0.6, check_radius: true, check_vantage_weights: true };
 
 /// How a firearm combatant stands relative to its targets.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -113,28 +114,12 @@ pub(crate) fn write_firearm_movement_objectives(
 		}
 		brain.driving = true;
 		let next = brain.compose_sight(transform.translation, target.position, fresh);
-		if !should_replan(movement.objective, next) {
+		if !movement.objective.needs_replan(next, REPLAN_THRESHOLD) {
 			continue;
 		}
 		movement.objective = next;
 		commands.entity(entity).insert(ReplanMovement);
 	}
-}
-
-fn should_replan(current: MovementObjective, next: MovementObjective) -> bool {
-	if std::mem::discriminant(&current) != std::mem::discriminant(&next) {
-		return true;
-	}
-	if (current.hide_weight() - next.hide_weight()).abs() > 0.05
-		|| (current.sightline_weight() - next.sightline_weight()).abs() > 0.05
-	{
-		return true;
-	}
-	let a = current.location().point;
-	let b = next.location().point;
-	Vec2::new(a.x, a.z).distance(Vec2::new(b.x, b.z)) >= REFRESH_DISTANCE
-		|| (a.y - b.y).abs() >= REFRESH_DISTANCE
-		|| (current.location().radius - next.location().radius).abs() > 0.05
 }
 
 #[cfg(test)]
@@ -172,34 +157,13 @@ mod tests {
 	}
 
 	#[test]
-	fn should_replan_when_the_watch_point_moves() {
-		let a = MovementObjective::VantageOn {
-			location: MovementLocation::new(Vec3::ZERO, 1.4),
-			hide_weight: 10.0,
-			sightline_weight: 14.0,
-		};
-		let near = MovementObjective::VantageOn {
-			location: MovementLocation::new(Vec3::X * 0.2, 1.4),
-			hide_weight: 10.0,
-			sightline_weight: 14.0,
-		};
-		let far = MovementObjective::VantageOn {
-			location: MovementLocation::new(Vec3::X * 2.0, 1.4),
-			hide_weight: 10.0,
-			sightline_weight: 14.0,
-		};
-		assert!(!should_replan(a, near));
-		assert!(should_replan(a, far));
-	}
-
-	#[test]
 	fn lost_sightline_boosts_search_over_cover() {
 		let brain = FirearmMovementIntelligence::new();
 		let seen = brain.compose_sight(Vec3::ZERO, Vec3::X * 6.0, true);
 		let hunt = brain.compose_sight(Vec3::ZERO, Vec3::X * 6.0, false);
 		assert!(hunt.sightline_weight() > seen.sightline_weight());
 		assert!(hunt.hide_weight() < seen.hide_weight());
-		assert!(should_replan(seen, hunt));
+		assert!(seen.needs_replan(hunt, REPLAN_THRESHOLD));
 	}
 
 	fn combat_contact(subject: Entity, spotted_at: f32) -> combat_targeting::CombatContact {

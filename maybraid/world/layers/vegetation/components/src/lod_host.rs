@@ -2,17 +2,18 @@
 
 use bevy::light::NotShadowCaster;
 use bevy::prelude::{
-	Added, ChildOf, Children, Commands, Component, Entity, Mesh3d, Query, Transform, Visibility,
-	With, Without,
+	Added, ChildOf, Children, Commands, Component, Entity, Mesh3d, Query, Res, Transform,
+	Visibility, With, Without,
 };
 use bevy::scene::prelude::{bsn, template_value, Scene};
-use lod::gen::LodSceneLevel;
 use lod::lod_scene_host::{LodLevelRoot, LodLevelRoots, LodSceneHost};
+use lod::scene::LodSceneLevel;
 use lod::LodLazyPending;
 use material_ref::{MaterialRef, MaterialRefRoot, PropagateToDescendants};
 use scene_ref::MultiSceneMerge;
 
 use crate::assets::AssetPath;
+use crate::shadow_proxy::CanopyShadowMode;
 
 /// Optional GLB under a transform (no deferred material).
 pub fn posed_asset_tier(asset: Option<AssetPath>, transform: Transform) -> impl Scene + 'static {
@@ -118,7 +119,11 @@ pub fn inherit_not_shadow_caster_on_meshes(
 	added: Query<Entity, (Added<Mesh3d>, Without<NotShadowCaster>)>,
 	parents: Query<&ChildOf>,
 	marked: Query<(), With<NotShadowCaster>>,
+	mode: Option<Res<CanopyShadowMode>>,
 ) {
+	if mode.is_some_and(|mode| mode.canopy_casts()) {
+		return;
+	}
 	for entity in &added {
 		let mut cursor = entity;
 		loop {

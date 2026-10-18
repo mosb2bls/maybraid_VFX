@@ -488,12 +488,16 @@ fn fragment(
     let facing_w = smoothstep(0.025, 0.10, dot(N, V));
     let pom_w = pom_distance_w * resolution_w * facing_w;
 
-    let visual_width = mix(style.width_m, style.width_m * 2.4, smoothstep(35.0, 120.0, camera_distance));
-    let visual_h = relief_height(uv0, visual_width);
-    let visual_cavity = mix(style.dark, 1.0, visual_h);
-
-    var look = surface_look(P);
-    look = vec4<f32>(look.xyz * mix(1.0, visual_cavity, facing_w), look.w);
+    // Nearby, facing, resolved walls have pom_w == 1. mix(..., 1) then
+    // discards the mesh-space look and visual_height — skip both.
+    var look = vec4<f32>(0.0);
+    if (pom_w < 1.0) {
+        let visual_width = mix(style.width_m, style.width_m * 2.4, smoothstep(35.0, 120.0, camera_distance));
+        let visual_h = relief_height(uv0, visual_width);
+        let visual_cavity = mix(style.dark, 1.0, visual_h);
+        look = surface_look(P);
+        look = vec4<f32>(look.xyz * mix(1.0, visual_cavity, facing_w), look.w);
+    }
     var n = N;
 
     if (pom_w > 1e-4) {

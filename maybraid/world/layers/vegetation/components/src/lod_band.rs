@@ -1,7 +1,7 @@
 //! Shared distance / extent banding for vegetation LOD probes.
 
 use bevy_math::Vec3;
-use lod::gen::{cull_bands_with_adjacent_depth, LodSceneCulls, LodSceneLevel, LodSceneStatus};
+use lod::scene::{cull_bands_with_adjacent_depth, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 
 use crate::placed::Placement;
 

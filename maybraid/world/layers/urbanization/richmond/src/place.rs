@@ -4,6 +4,7 @@
 
 use bevy::prelude::Component;
 use building_components::LabelNode;
+use lod::gen::Id;
 
 /// Richmond-local usage of a presented place. World maps these onto POI kinds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -26,12 +27,19 @@ pub enum DiscoverablePlaceLabel {
 ///
 /// Host pins set [`Self::persistent`]. High rooms and stalls do not, so they
 /// may disappear with High children.
+///
+/// [`Self::host`] plus [`Self::local`] is the durable identity when the
+/// presenter attached a development id. Rounded coordinates, labels, and ECS
+/// entity ids are not durable. Places without `host` stay unnamed-stable:
+/// consumers should treat those assignments as provisional.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct DiscoverablePlace {
 	pub label: DiscoverablePlaceLabel,
 	pub arrival_radius: f32,
 	pub salience: Option<f32>,
 	pub persistent: bool,
+	pub host: Option<Id>,
+	pub local: u32,
 }
 
 /// Compatibility name for the original Les Halles storey marker.
@@ -45,11 +53,31 @@ impl Default for DiscoverablePlace {
 
 impl DiscoverablePlace {
 	pub const fn host(label: DiscoverablePlaceLabel, arrival_radius: f32, salience: f32) -> Self {
-		Self { label, arrival_radius, salience: Some(salience), persistent: true }
+		Self {
+			label,
+			arrival_radius,
+			salience: Some(salience),
+			persistent: true,
+			host: None,
+			local: 0,
+		}
 	}
 
 	pub const fn high(label: DiscoverablePlaceLabel, arrival_radius: f32, salience: f32) -> Self {
-		Self { label, arrival_radius, salience: Some(salience), persistent: false }
+		Self {
+			label,
+			arrival_radius,
+			salience: Some(salience),
+			persistent: false,
+			host: None,
+			local: 0,
+		}
+	}
+
+	pub const fn with_identity(mut self, host: Id, local: u32) -> Self {
+		self.host = Some(host);
+		self.local = local;
+		self
 	}
 
 	pub fn from_label_node(node: &LabelNode) -> Option<Self> {

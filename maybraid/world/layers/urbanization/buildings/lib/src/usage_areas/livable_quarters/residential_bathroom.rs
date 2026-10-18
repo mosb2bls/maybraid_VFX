@@ -6,7 +6,7 @@ mod parameterized;
 pub use parameterized::{ResidentialBathroomParameterized, ResidentialBathroomPlan, SCOPE};
 
 use building_components::{BuildingComponents, LabelNode, LabelStyle, Layers};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use procedural_common::NoiseParams;
 
 use crate::fit::{Confines, FillableRegions, Fit, FitError};

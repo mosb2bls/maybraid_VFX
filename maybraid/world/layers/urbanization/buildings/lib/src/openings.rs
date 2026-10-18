@@ -26,6 +26,7 @@ pub use facade_bays::{
 
 use bevy_math::bounding::Aabb3d;
 use bevy_math::{Vec2, Vec3};
+use building_components::normalize_xz;
 use std::collections::HashMap;
 
 /// Stable identity for an opening within a plan or shell record.
@@ -303,14 +304,5 @@ pub fn sync_connectable_openings_from_mapped(openings: &mut Openings, shell: &im
 	});
 	for (id, opening) in shell.openings().iter() {
 		openings.insert(id.clone(), opening.clone());
-	}
-}
-
-fn normalize_xz(v: Vec2) -> Option<Vec2> {
-	let len = v.length();
-	if len < 1e-5 {
-		None
-	} else {
-		Some(v / len)
 	}
 }

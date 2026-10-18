@@ -53,16 +53,20 @@ pub struct BoneMap {
 	pub by_name: HashMap<String, Entity>,
 }
 
-pub fn bone_map_ready(map: &BoneMap, landmarks: &[&str]) -> bool {
-	landmarks.iter().all(|bone| map.by_name.contains_key(*bone))
-}
+impl BoneMap {
+	/// True when every named landmark bone exists in the map.
+	pub fn landmarks_ready(&self, landmarks: &[&str]) -> bool {
+		landmarks.iter().all(|bone| self.by_name.contains_key(*bone))
+	}
 
-pub fn missing_landmark_bones<'a>(map: &BoneMap, landmarks: &'a [&'a str]) -> Vec<&'a str> {
-	landmarks
-		.iter()
-		.copied()
-		.filter(|bone| !map.by_name.contains_key(*bone))
-		.collect()
+	/// Landmark names still missing from the map.
+	pub fn missing_landmarks<'a>(&self, landmarks: &'a [&'a str]) -> Vec<&'a str> {
+		landmarks
+			.iter()
+			.copied()
+			.filter(|bone| !self.by_name.contains_key(*bone))
+			.collect()
+	}
 }
 
 /// Rebuild a rig's [`BoneMap`] from named descendants, stopping at nested
@@ -183,13 +187,13 @@ mod tests {
 
 	#[test]
 	fn empty_landmarks_are_ready() {
-		assert!(bone_map_ready(&BoneMap::default(), &[]));
+		assert!(BoneMap::default().landmarks_ready(&[]));
 	}
 
 	#[test]
 	fn missing_landmarks_are_listed() {
 		let map = BoneMap::default();
-		assert_eq!(missing_landmark_bones(&map, &["root", "grip"]), vec!["root", "grip"]);
+		assert_eq!(map.missing_landmarks(&["root", "grip"]), vec!["root", "grip"]);
 	}
 
 	#[test]
@@ -198,13 +202,13 @@ mod tests {
 		let rig = spawn_rig(app.world_mut(), LANDMARKS);
 		let scene = spawn_named_child(app.world_mut(), rig, "Scene");
 		app.update();
-		assert!(!bone_map_ready(map_of(app.world(), rig), LANDMARKS));
+		assert!(!map_of(app.world(), rig).landmarks_ready(LANDMARKS));
 		assert!(map_of(app.world(), rig).by_name.contains_key("Scene"));
 
 		spawn_named_child(app.world_mut(), scene, "root");
 		spawn_named_child(app.world_mut(), scene, "pelvis");
 		app.update();
-		assert!(bone_map_ready(map_of(app.world(), rig), LANDMARKS));
+		assert!(map_of(app.world(), rig).landmarks_ready(LANDMARKS));
 	}
 
 	#[test]
@@ -214,7 +218,7 @@ mod tests {
 		spawn_named_child(app.world_mut(), rig, "root");
 		spawn_named_child(app.world_mut(), rig, "pelvis");
 		app.update();
-		assert!(bone_map_ready(map_of(app.world(), rig), LANDMARKS));
+		assert!(map_of(app.world(), rig).landmarks_ready(LANDMARKS));
 
 		insert_sentinel(app.world_mut(), rig);
 		app.update();
@@ -227,7 +231,7 @@ mod tests {
 		let rig = spawn_rig(app.world_mut(), LANDMARKS);
 		spawn_named_child(app.world_mut(), rig, "Scene");
 		app.update();
-		assert!(!bone_map_ready(map_of(app.world(), rig), LANDMARKS));
+		assert!(!map_of(app.world(), rig).landmarks_ready(LANDMARKS));
 
 		insert_sentinel(app.world_mut(), rig);
 		app.update();
@@ -257,7 +261,7 @@ mod tests {
 		spawn_named_child(app.world_mut(), rig, "pelvis");
 		let part = app.world_mut().spawn((AssemblyHost, Name::new("part"), ChildOf(rig))).id();
 		app.update();
-		assert!(bone_map_ready(map_of(app.world(), rig), LANDMARKS));
+		assert!(map_of(app.world(), rig).landmarks_ready(LANDMARKS));
 		assert!(!map_of(app.world(), rig).by_name.contains_key("part"));
 
 		insert_sentinel(app.world_mut(), rig);

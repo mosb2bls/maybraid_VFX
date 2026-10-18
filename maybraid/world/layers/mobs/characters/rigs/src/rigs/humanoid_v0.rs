@@ -1,29 +1,14 @@
 use bevy::prelude::*;
 
 use crate::{
-	humanoid::{
-		HumanoidArm, HumanoidLeg, HumanoidNeck, HumanoidRig, HumanoidSpine, LegSegmentLengths,
+	authoring::{
+		humanoid_v0_definition, resolve_humanoid, resolve_humanoid_masked, HumanoidPose,
+		PoseBuffer, PoseScratch, RigBinding, HUMANOID_FEMUR_AXIS, HUMANOID_RIGHT_FEMUR_AXIS,
+		HUMANOID_RIGHT_FLEX_AXIS, HUMANOID_RIGHT_SHIN_AXIS, HUMANOID_SHIN_AXIS, HUMANOID_V0_BONES,
 	},
-	BoneDefinition, BonePose, BoneTable, Name, RigPose, RiggedAxis, Side,
+	humanoid::LegSegmentLengths,
+	BoneDefinition, BoneTable, Name, RiggedAxis,
 };
-
-/// Left femur: sagittal stride on Y, medial/lateral on X, knee hinge lives on shin.
-const HUMANOID_V0_FEMUR_AXIS: RiggedAxis =
-	RiggedAxis { swing_axis: Vec3::Y, flex_axis: Vec3::X, twist_axis: Vec3::Z };
-
-const HUMANOID_V0_SHIN_AXIS: RiggedAxis =
-	RiggedAxis { swing_axis: Vec3::Y, flex_axis: Vec3::Z, twist_axis: Vec3::X };
-
-/// Mirrored right femur: negate swing and medial/lateral axes together.
-const HUMANOID_V0_RIGHT_FEMUR_AXIS: RiggedAxis =
-	RiggedAxis { swing_axis: Vec3::NEG_Y, flex_axis: Vec3::NEG_X, twist_axis: Vec3::Z };
-
-/// Mirrored right shin: negate flex so knee hinge matches the left leg semantically.
-const HUMANOID_V0_RIGHT_SHIN_AXIS: RiggedAxis =
-	RiggedAxis { swing_axis: Vec3::Y, flex_axis: Vec3::NEG_Z, twist_axis: Vec3::X };
-
-const HUMANOID_V0_RIGHT_FLEX_AXIS: RiggedAxis =
-	RiggedAxis { swing_axis: Vec3::Y, flex_axis: Vec3::NEG_Z, twist_axis: Vec3::X };
 
 /// Store the bones of the first imported humanoid rig in a semantically reasonable hierarchy.
 ///
@@ -33,135 +18,121 @@ const HUMANOID_V0_RIGHT_FLEX_AXIS: RiggedAxis =
 #[derive(Component, Debug, Clone)]
 pub struct HumanoidV0Rig {
 	pub bones: BoneTable,
-	pub pose: RigPose,
+	pub binding: RigBinding,
+	/// Last resolved local pose. Sampling always starts from [`Self::binding`] rest.
+	pub pose: PoseBuffer,
+	pub scratch: PoseScratch,
 	pub segment_lengths: LegSegmentLengths,
 }
 
 impl HumanoidV0Rig {
+	/// Identity rest plus the inspected `humanoid_rig.glb` limb binds.
+	pub fn for_clip_test() -> Self {
+		let mut rig = Self::imported();
+		rig.seed_v0_bind();
+		rig
+	}
+
 	pub fn imported() -> Self {
 		let mut bones = BoneTable::new();
 		for (name, relative_axis) in HUMANOID_V0_BONE_DEFINITIONS {
 			bones.insert(BoneDefinition { name: Name::from(name), relative_axis });
 		}
-
-		Self { bones, pose: RigPose::new(), segment_lengths: LegSegmentLengths::default() }
-	}
-}
-
-impl HumanoidRig for HumanoidV0Rig {
-	fn leg(&self, side: Side) -> HumanoidLeg {
-		let suffix = side.suffix();
-		HumanoidLeg {
-			pelvis: self.bone_pose(format!("pelvis.{suffix}")),
-			femur: self.bone_pose(format!("femur.{suffix}")),
-			shin: self.bone_pose(format!("shin.{suffix}")),
+		let definition = humanoid_v0_definition();
+		let len = definition.len();
+		let binding = RigBinding::from_rest(
+			definition,
+			vec![Entity::PLACEHOLDER; len].into_boxed_slice(),
+			PoseBuffer::identity(len),
+		);
+		Self {
+			bones,
+			pose: PoseBuffer::identity(len),
+			scratch: PoseScratch::identity(len),
+			binding,
+			segment_lengths: LegSegmentLengths::default(),
 		}
 	}
 
-	fn arm(&self, side: Side) -> HumanoidArm {
-		let suffix = side.suffix();
-		HumanoidArm {
-			shoulder: self.bone_pose(format!("shoulder.{suffix}")),
-			humerus: self.bone_pose(format!("humerus.{suffix}")),
-			forearm: self.bone_pose(format!("forearm.{suffix}")),
+	pub fn write_pose(&mut self, pose: &HumanoidPose) {
+		resolve_humanoid(pose, &self.binding, &mut self.pose);
+		self.segment_lengths = self.binding.metrics.humanoid_leg;
+	}
+
+	/// Write `mask` bones from authored channels onto rest. Unmasked bones stay at rest.
+	pub fn apply_masked_pose(&mut self, pose: &HumanoidPose, mask: u32) {
+		resolve_humanoid_masked(pose, mask, &self.binding, &mut self.pose);
+		self.segment_lengths = self.binding.metrics.humanoid_leg;
+	}
+
+	/// Load the inspected `humanoid_rig.glb` local transforms.
+	pub fn seed_v0_bind(&mut self) {
+		let mut rest = self.binding.effective_rest.clone();
+		crate::authoring::apply_humanoid_glb_rest(&self.binding.definition, &mut rest);
+		self.binding.refresh_rest(rest);
+		self.pose.copy_from(&self.binding.effective_rest);
+		self.segment_lengths = self.binding.metrics.humanoid_leg;
+	}
+
+	/// Bone +Y in character space (parents included).
+	pub fn character_length(&self, name: &str) -> Vec3 {
+		self.binding
+			.definition
+			.id(name)
+			.map(|id| self.binding.definition.rotation_in_character(&self.pose, id) * Vec3::Y)
+			.unwrap_or(Vec3::Y)
+	}
+
+	/// Character-space origin of a bone (parents included).
+	pub fn character_point(&self, name: &str) -> Vec3 {
+		self.binding
+			.definition
+			.id(name)
+			.map(|id| self.binding.definition.translation_in_character(&self.pose, id))
+			.unwrap_or(Vec3::ZERO)
+	}
+
+	/// Replace one bone's effective rest. Segment lengths refresh from joint-to-joint distances.
+	pub fn seed_rest(&mut self, name: &str, transform: Transform) {
+		let Some(id) = self.binding.definition.id(name) else {
+			return;
+		};
+		let mut rest = self.binding.effective_rest.clone();
+		if let Some(slot) = rest.local.get_mut(id.index()) {
+			*slot = transform;
 		}
+		self.binding.refresh_rest(rest);
+		self.segment_lengths = self.binding.metrics.humanoid_leg;
 	}
 
-	fn spine(&self) -> HumanoidSpine {
-		HumanoidSpine {
-			root: self.bone_pose("root"),
-			lumbar: self.bone_pose("lumbar"),
-			midback: self.bone_pose("midback"),
-			upper_back: self.bone_pose("upper_back"),
-		}
+	/// Angle between the posed local rotation and effective rest.
+	pub fn posed_angle(&self, name: &str) -> f32 {
+		let Some(id) = self.binding.definition.id(name) else {
+			return 0.0;
+		};
+		self.pose.rotation(id).angle_between(self.binding.effective_rest.rotation(id))
 	}
 
-	fn neck(&self) -> HumanoidNeck {
-		HumanoidNeck {
-			lower_neck: self.bone_pose("lower_neck"),
-			upper_neck: self.bone_pose("upper_neck"),
-		}
+	pub fn rotation(&self, name: &str) -> Quat {
+		self.binding
+			.definition
+			.id(name)
+			.map(|id| self.pose.rotation(id))
+			.unwrap_or(Quat::IDENTITY)
 	}
 
-	fn pose(&self) -> &RigPose {
-		&self.pose
-	}
-
-	fn pose_mut(&mut self) -> &mut RigPose {
-		&mut self.pose
-	}
-
-	fn rigged_axis(&self, bone: &Name) -> Option<RiggedAxis> {
-		self.bones.get(bone).map(|bone| bone.relative_axis)
-	}
-
-	fn animation_bones(&self) -> Vec<Name> {
-		HumanoidV0Rig::animation_bones(self)
-	}
-
-	fn segment_lengths(&self) -> LegSegmentLengths {
-		self.segment_lengths
-	}
-
-	fn parent_world_rotation(&self, bone: &Name) -> Quat {
-		self.parent_world_rotation_for(bone)
+	pub fn animation_bone_names(&self) -> impl Iterator<Item = &'static str> {
+		HUMANOID_V0_BONES.iter().copied()
 	}
 }
 
 impl HumanoidV0Rig {
-	fn bone_pose(&self, name: impl Into<Name>) -> BonePose {
-		let name = name.into();
-		self.pose
-			.get(&name)
-			.cloned()
-			.unwrap_or_else(|| BonePose::new(name, Transform::IDENTITY))
-	}
-
-	fn local_rotation(&self, bone: &Name) -> Quat {
-		self.pose
-			.get(bone)
-			.map(|pose| pose.transform.rotation)
-			.unwrap_or(Quat::IDENTITY)
-	}
-
-	fn world_rotation_for(&self, bone: &Name) -> Quat {
-		self.parent_world_rotation_for(bone) * self.local_rotation(bone)
-	}
-
-	fn parent_world_rotation_for(&self, bone: &Name) -> Quat {
-		humanoid_v0_parent(bone.as_str())
-			.map(|parent| self.world_rotation_for(&Name::from(parent)))
-			.unwrap_or(Quat::IDENTITY)
+	pub fn rigged_axis(&self, bone: &Name) -> Option<RiggedAxis> {
+		self.bones.get(bone).map(|bone| bone.relative_axis)
 	}
 
 	pub fn animation_bones(&self) -> Vec<Name> {
-		let left_arm = self.arm(Side::Left);
-		let right_arm = self.arm(Side::Right);
-		let left_leg = self.leg(Side::Left);
-		let right_leg = self.leg(Side::Right);
-		let spine = self.spine();
-		let neck = self.neck();
-
-		vec![
-			spine.root.name,
-			spine.lumbar.name,
-			spine.midback.name,
-			spine.upper_back.name,
-			neck.lower_neck.name,
-			neck.upper_neck.name,
-			left_arm.shoulder.name,
-			right_arm.shoulder.name,
-			left_arm.humerus.name,
-			left_arm.forearm.name,
-			right_arm.humerus.name,
-			right_arm.forearm.name,
-			left_leg.pelvis.name,
-			right_leg.pelvis.name,
-			left_leg.femur.name,
-			left_leg.shin.name,
-			right_leg.femur.name,
-			right_leg.shin.name,
-		]
+		self.animation_bone_names().map(Name::from).collect()
 	}
 }
 
@@ -185,7 +156,7 @@ pub const HUMANOID_V0_BONE_DEFINITIONS: [(&str, RiggedAxis); 37] = [
 	("upper_neck", RiggedAxis::DEFAULT),
 	("shoulder.R", RiggedAxis::DEFAULT),
 	("humerus.R", RiggedAxis::DEFAULT),
-	("forearm.R", HUMANOID_V0_RIGHT_FLEX_AXIS),
+	("forearm.R", HUMANOID_RIGHT_FLEX_AXIS),
 	("lower_arm_thickness.R", RiggedAxis::DEFAULT),
 	("upper_arm_thickness.R", RiggedAxis::DEFAULT),
 	("chest.L", RiggedAxis::DEFAULT),
@@ -199,13 +170,13 @@ pub const HUMANOID_V0_BONE_DEFINITIONS: [(&str, RiggedAxis); 37] = [
 	("waist.R", RiggedAxis::DEFAULT),
 	("lower_belly", RiggedAxis::DEFAULT),
 	("pelvis.L", RiggedAxis::DEFAULT),
-	("femur.L", HUMANOID_V0_FEMUR_AXIS),
-	("shin.L", HUMANOID_V0_SHIN_AXIS),
+	("femur.L", HUMANOID_FEMUR_AXIS),
+	("shin.L", HUMANOID_SHIN_AXIS),
 	("calf_thickness.L", RiggedAxis::DEFAULT),
 	("thigh_thickness.L", RiggedAxis::DEFAULT),
 	("pelvis.R", RiggedAxis::DEFAULT),
-	("femur.R", HUMANOID_V0_RIGHT_FEMUR_AXIS),
-	("shin.R", HUMANOID_V0_RIGHT_SHIN_AXIS),
+	("femur.R", HUMANOID_RIGHT_FEMUR_AXIS),
+	("shin.R", HUMANOID_RIGHT_SHIN_AXIS),
 	("calf_thickness.R", RiggedAxis::DEFAULT),
 	("thigh_thickness.R", RiggedAxis::DEFAULT),
 	("buttocks", RiggedAxis::DEFAULT),
@@ -215,39 +186,11 @@ pub fn humanoid_v0_bone_names() -> impl Iterator<Item = &'static str> {
 	HUMANOID_V0_BONE_DEFINITIONS.into_iter().map(|(name, _axis)| name)
 }
 
-/// Parent links for world-space displacement (includes non-animated spine ancestors).
-const HUMANOID_V0_PARENT: &[(&str, &str)] = &[
-	("root", ""),
-	("lumbar", "root"),
-	("midback", "lumbar"),
-	("upper_back", "midback"),
-	("shoulder.L", "upper_back"),
-	("shoulder.R", "upper_back"),
-	("lower_neck", "upper_back"),
-	("upper_neck", "lower_neck"),
-	("humerus.L", "shoulder.L"),
-	("humerus.R", "shoulder.R"),
-	("forearm.L", "humerus.L"),
-	("forearm.R", "humerus.R"),
-	("pelvis.L", ""),
-	("pelvis.R", ""),
-	("femur.L", "pelvis.L"),
-	("femur.R", "pelvis.R"),
-	("shin.L", "femur.L"),
-	("shin.R", "femur.R"),
-];
-
-fn humanoid_v0_parent(name: &str) -> Option<&'static str> {
-	HUMANOID_V0_PARENT
-		.iter()
-		.find(|(child, _)| *child == name)
-		.map(|(_, parent)| *parent)
-		.filter(|parent| !parent.is_empty())
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::authoring::HumanoidPose;
+	use crate::Side;
 
 	#[test]
 	fn humanoid_v0_default_segment_lengths() {
@@ -256,105 +199,42 @@ mod tests {
 	}
 
 	#[test]
-	fn humanoid_v0_move_all_lowers_root_without_shortening_segments() {
+	fn proportion_edit_refreshes_cached_leg_length() {
 		let mut rig = HumanoidV0Rig::imported();
-		rig.pose
-			.insert(BonePose::new(Name::from("root"), Transform::from_translation(Vec3::ZERO)));
-		rig.pose.insert(BonePose::new(
-			Name::from("femur.L"),
-			Transform::from_translation(Vec3::new(0.0, 0.25, 0.0)),
-		));
-		rig.pose.insert(BonePose::new(
-			Name::from("shoulder.L"),
-			Transform::from_translation(Vec3::new(0.0, 0.1, 0.0)),
-		));
-
-		rig.move_all(Vec3::new(0.0, -0.15, 0.0));
-
-		let root = rig.pose().get(&Name::from("root")).expect("root pose");
-		assert_eq!(root.transform.translation, Vec3::new(0.0, -0.15, 0.0));
-
-		let femur = rig.pose().get(&Name::from("femur.L")).expect("femur pose");
-		assert_eq!(femur.transform.translation, Vec3::new(0.0, 0.25, 0.0));
-
-		let shoulder = rig.pose().get(&Name::from("shoulder.L")).expect("shoulder pose");
-		assert_eq!(shoulder.transform.translation, Vec3::new(0.0, 0.1, 0.0));
+		rig.seed_rest("femur.L", Transform::from_translation(Vec3::Y * 0.8));
+		rig.seed_rest("shin.L", Transform::from_translation(Vec3::Y * 0.6));
+		assert!((rig.segment_lengths.femur - 0.6).abs() < 1e-5, "femur is shin-origin distance");
+		assert!((rig.segment_lengths.shin - 0.5).abs() < 1e-5, "no foot joint keeps the default");
+		let mut pose = HumanoidPose::default();
+		pose.leg_mut(Side::Left).hip_flexion = 0.2;
+		rig.write_pose(&pose);
+		assert!((rig.segment_lengths.femur - 0.6).abs() < 1e-5);
 	}
 
 	#[test]
-	fn humanoid_v0_accessors_map_to_imported_names() {
-		let rig = HumanoidV0Rig::imported();
-
-		assert_eq!(rig.leg(Side::Left).femur.name, Name::from("femur.L"));
-		assert_eq!(rig.leg(Side::Right).shin.name, Name::from("shin.R"));
-		assert_eq!(rig.arm(Side::Left).humerus.name, Name::from("humerus.L"));
-		assert_eq!(rig.arm(Side::Right).forearm.name, Name::from("forearm.R"));
-		assert_eq!(rig.neck().upper_neck.name, Name::from("upper_neck"));
+	fn glb_fixture_does_not_use_femur_origin_as_length() {
+		let rig = HumanoidV0Rig::for_clip_test();
+		assert!((rig.segment_lengths.femur - 0.5).abs() < 1e-4);
+		assert!((rig.segment_lengths.shin - 0.5).abs() < 1e-4);
+		let femur = rig.binding.definition.id("femur.L").expect("femur");
+		assert!(
+			(rig.binding.effective_rest.get(femur).expect("t").translation.length() - 0.25).abs()
+				< 1e-4
+		);
 	}
 
 	#[test]
 	fn humanoid_v0_animation_bones_exist_in_definition_table() {
 		let rig = HumanoidV0Rig::imported();
-
 		for name in rig.animation_bones() {
 			assert!(rig.bones.get(&name).is_some(), "missing animation bone {name}");
+			assert!(rig.binding.definition.id(name.as_str()).is_some(), "missing id {name}");
 		}
-	}
-
-	#[test]
-	fn humanoid_v0_mirrors_right_limb_axes_in_metadata() {
-		let rig = HumanoidV0Rig::imported();
-		let left_femur = rig.bones.get(&Name::from("femur.L")).expect("left femur");
-		let right_femur = rig.bones.get(&Name::from("femur.R")).expect("right femur");
-		let left_shin = rig.bones.get(&Name::from("shin.L")).expect("left shin");
-		let right_shin = rig.bones.get(&Name::from("shin.R")).expect("right shin");
-		let right_forearm = rig.bones.get(&Name::from("forearm.R")).expect("right forearm");
-
-		assert_eq!(left_femur.relative_axis.swing_axis, Vec3::Y);
-		assert_eq!(left_femur.relative_axis.flex_axis, Vec3::X);
-		assert_eq!(right_femur.relative_axis.swing_axis, Vec3::NEG_Y);
-		assert_eq!(right_femur.relative_axis.flex_axis, Vec3::NEG_X);
-		assert_eq!(left_shin.relative_axis.flex_axis, Vec3::Z);
-		assert_eq!(right_shin.relative_axis.flex_axis, Vec3::NEG_Z);
-		assert_eq!(right_forearm.relative_axis.flex_axis, Vec3::NEG_Z);
-	}
-
-	#[test]
-	fn humanoid_v0_uses_default_semantic_pose_writers() {
-		let mut rig = HumanoidV0Rig::imported();
-		let mut leg = rig.leg(Side::Left);
-		let mut arm = rig.arm(Side::Right);
-		let femur = Transform::from_translation(Vec3::X);
-		let forearm = Transform::from_translation(Vec3::Y);
-
-		leg.femur.transform = femur;
-		arm.forearm.transform = forearm;
-		rig.pose_leg(leg);
-		rig.pose_arm(arm);
-
-		assert_eq!(rig.pose().get(&Name::from("femur.L")).map(|pose| pose.transform), Some(femur));
-		assert_eq!(
-			rig.pose().get(&Name::from("forearm.R")).map(|pose| pose.transform),
-			Some(forearm)
-		);
-	}
-
-	#[test]
-	fn humanoid_v0_leg_pose_round_trips_through_rig_pose() {
-		let mut rig = HumanoidV0Rig::imported();
-		let mut leg = rig.leg(Side::Left);
-		leg.shin.transform = Transform::from_translation(Vec3::Z);
-
-		rig.pose_leg(leg);
-		let hydrated = rig.leg_pose(Side::Left);
-
-		assert_eq!(hydrated.shin.transform, Transform::from_translation(Vec3::Z));
 	}
 
 	#[test]
 	fn humanoid_v0_definition_covers_imported_dump() {
 		let rig = HumanoidV0Rig::imported();
-
 		for name in humanoid_v0_bone_names() {
 			assert!(rig.bones.get(&Name::from(name)).is_some(), "missing bone {name}");
 		}

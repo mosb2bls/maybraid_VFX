@@ -1,10 +1,10 @@
 # Richmond Buildings
 
-Higher-order building authorship on top of [`building-components`](../building-components/). This crate emits domain IR (`PartitionNode`, `FloorNode`, `StairNode`, …) via [`BuildingComponents`](../building-components/src/lib.rs); it does **not** tessellate kits or own GLB path strings. Present component-only buildings as [`ComponentsOnly`](../building-components/src/lib.rs)`<T>` unless the type needs a custom `LodScene` (hosts, silhouettes, lights).
+Higher-order building authorship on top of [`building-components`](../components/) (`building-components` crate). This crate emits domain IR (`PartitionNode`, `FloorNode`, `StairNode`, …) via [`BuildingComponents`](../components/src/lib.rs); it does **not** tessellate kits or own GLB path strings. Present component-only buildings as [`ComponentsOnly`](../components/src/lib.rs)`<T>` unless the type needs a custom `LodScene` (hosts, silhouettes, lights).
 
 ## Urban kit model
 
-Art sources live under [`maybraid/art/urban/`](../../art/urban/README.md). Buildings helpers should treat that layout as the kit taxonomy:
+Art sources live under [`maybraid/art/urban/`](../../../../../art/urban/README.md). Buildings helpers should treat that layout as the kit taxonomy:
 
 **Shared within a style** — geometry reused across many primitive types:
 
@@ -16,7 +16,7 @@ Art sources live under [`maybraid/art/urban/`](../../art/urban/README.md). Build
 
 **Domain folders** — `floors/`, `partitions/`, `stairs/`, and similar remain for **function-specific** components and **fast authorship paths**. Prefer these when a kit is tied to one use (floor slab, tread, bespoke partition) rather than promoting everything into the shared layer.
 
-Runtime paths are registered in building-components [`assets.rs`](../building-components/src/assets.rs). Shared kits are often **aliased** into domain consumers (e.g. partition `LINEAR_*` → panel rectangle; `ARC_*` / `SLICE_*` → `arcs/`; `JOINT_*` → `joints/`).
+Runtime paths are registered in building-components [`assets.rs`](../components/src/assets.rs). Shared kits are often **aliased** into domain consumers (e.g. partition `LINEAR_*` → panel rectangle; `ARC_*` / `SLICE_*` → `arcs/`; `JOINT_*` → `joints/`).
 
 ## What this crate owns
 
@@ -57,6 +57,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the Les Halles parameterized → plan
 | [`TessellatedTrianglePanel`](src/paneling/tessellated_triangle_panel.rs) | World-space triangle → panels |
 | [`panel_plane`](src/paneling/panel_plane.rs) | Shared panel \(XZ\) frame for a world triangle |
 
-Crate-root re-exports keep older `richmond_buildings::RuledStrip` paths working.
-
-Authoring guidance for Richmond (LOD, `ParentConfines`, wall vs partition) lives in [`../CONTRIBUTING.md`](../CONTRIBUTING.md). Kit normalization and leaf styles live in the [building-components README](../building-components/README.md).
+Authoring guidance for Richmond (LOD, `ParentConfines`, wall vs partition) lives in [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md). Kit normalization and leaf styles live in the [building-components README](../components/README.md).

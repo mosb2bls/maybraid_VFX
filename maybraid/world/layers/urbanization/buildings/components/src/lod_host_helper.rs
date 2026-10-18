@@ -5,7 +5,7 @@
 //! Nested [`lod::LodScene::host`] is for playgrounds and leftover fine-phase hosts.
 //!
 //! Contrast with [`crate::partitions::host`], which maps **resolution GLB sets**
-//! (high / mid / low — ultra-low when authored) onto a [`lod::gen::LodSceneLevel`].
+//! (high / mid / low — ultra-low when authored) onto a [`lod::scene::LodSceneLevel`].
 
 use bevy::prelude::{Children, Transform, Visibility};
 use bevy::scene::prelude::{bsn, template_value, Scene};

@@ -8,6 +8,19 @@ use crate::cell::{DEFAULT_LIKELIHOOD, DEFAULT_SPATIAL_CORRELATION, DEVELOPMENT_C
 /// Urbanization Hopscotch frequency (forest parallel).
 pub const URBANIZATION_NOISE_FREQUENCY: f32 = 0.0005;
 
+/// Where procedural development sites come from. Authored developments
+/// are placed under every choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DevelopmentSites {
+	/// None: only authored developments.
+	Authored,
+	/// The legacy dense 300 m occupancy lattice.
+	Lattice,
+	/// Urbanization guillotine leaves.
+	#[default]
+	Urbanization,
+}
+
 /// World-level development selection config (materialized as a Bevy resource).
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct DevelopmentConfig {
@@ -17,9 +30,7 @@ pub struct DevelopmentConfig {
 	/// Occupancy correlation length (world units).
 	pub spatial_correlation: f32,
 	pub cell_size: f32,
-	/// When true, discover cells from urbanization guillotine leaves.
-	/// When false, keep the legacy dense 300 m occupancy lattice.
-	pub use_urbanization: bool,
+	pub sites: DevelopmentSites,
 	/// Relative kind weight after a cell passes occupancy.
 	pub les_halles_weight: f32,
 	/// Relative kind weight after a cell passes occupancy.
@@ -49,7 +60,7 @@ impl Default for DevelopmentConfig {
 			likelihood: DEFAULT_LIKELIHOOD,
 			spatial_correlation: DEFAULT_SPATIAL_CORRELATION,
 			cell_size: DEVELOPMENT_CELL_SIZE,
-			use_urbanization: true,
+			sites: DevelopmentSites::default(),
 			les_halles_weight: 1.0,
 			shepherds_village_weight: 1.0,
 			shepherds_commune_weight: 1.0,

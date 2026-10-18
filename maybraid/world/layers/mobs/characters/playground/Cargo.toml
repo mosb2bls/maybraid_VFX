@@ -14,8 +14,8 @@ bevy = { workspace = true }
 camera-controls = { workspace = true }
 clap = { workspace = true }
 character-rigs = { workspace = true }
+characters = { workspace = true }
 game-commands = { workspace = true }
-log = { workspace = true }
 character-animations = { workspace = true }
 
 [lints]

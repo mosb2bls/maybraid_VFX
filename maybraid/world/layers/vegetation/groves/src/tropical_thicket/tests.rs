@@ -3,7 +3,7 @@ use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome
 use anyhow::Result;
 use bevy_math::Vec3;
 use gimme_gen::Cell;
-use lod::gen::LodScene;
+use lod::scene::LodScene;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -176,7 +176,7 @@ fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
 #[cfg(feature = "render")]
 #[test]
 fn low_and_ultra_low_emit_canopy_ball_proxies() -> Result<()> {
-	use lod::gen::LodSceneLevel;
+	use lod::scene::LodSceneLevel;
 	use vegetation_components::{FoliageGeometry, VegetationComponents};
 
 	let mut params = TropicalThicketParams::default();
@@ -207,8 +207,8 @@ fn low_and_ultra_low_emit_canopy_ball_proxies() -> Result<()> {
 #[test]
 fn high_nests_one_plant_host_chunk_per_plant() -> Result<()> {
 	use bevy::prelude::Transform;
-	use lod::gen::LodSceneLevel;
 	use lod::lod_ref::LodRef;
+	use lod::scene::LodSceneLevel;
 	use vegetation_components::VegetationComponents;
 
 	let mut params = TropicalThicketParams::default();

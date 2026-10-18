@@ -77,52 +77,52 @@ fn is_laser(weapon: &Weapon) -> bool {
 	matches!(weapon.load, ProjectileLoad::Laser(_))
 }
 
+fn fire_delay(dt: f32, age: f32) -> Duration {
+	Duration::from_secs_f32((dt - age).max(0.0))
+}
+
 pub(crate) fn pulse_combat_rumble(
+	time: Res<Time>,
 	mut fired: MessageReader<WeaponFired>,
 	mut hits: MessageReader<DamageApplied>,
 	followed: Query<(Entity, &FirearmUser), With<CameraFollow>>,
 	guns: Query<(&Weapon, Option<&HitPayload>)>,
 	mut rumble: MessageWriter<PadRumble>,
 ) {
-	let Ok((player, user)) = followed.single() else {
-		return;
-	};
-	let gun = guns.get(user.held).ok();
-	let laser = gun.is_some_and(|(weapon, _)| is_laser(weapon));
-	let speed = gun.map(|(weapon, _)| projectile_speed(weapon)).unwrap_or(SPEED_SLOW);
-	let payload = gun
-		.and_then(|(_, payload)| payload.map(|payload| payload.amount))
-		.unwrap_or(DEFAULT_HIT);
-
-	let mut fire = false;
-	for event in fired.read() {
-		if event.shooter == player {
-			fire = true;
-		}
-	}
-	let mut hit_damage = 0.0_f32;
-	let mut hit = false;
-	for applied in hits.read() {
-		if applied.source == Some(player) {
-			hit = true;
-			hit_damage = hit_damage.max(applied.amount);
-		}
-	}
-
-	if laser {
-		if fire {
-			debug!("pad_rumble: laser pulse");
-			rumble.write(laser_rumble());
-		}
+	let dt = time.delta_secs();
+	let shots: Vec<WeaponFired> = fired.read().copied().collect();
+	let applied: Vec<DamageApplied> = hits.read().copied().collect();
+	if shots.is_empty() && applied.is_empty() {
 		return;
 	}
-	if fire {
-		debug!("pad_rumble: fire speed={speed:.0} damage={payload:.1}");
-		rumble.write(fire_rumble(speed, payload));
-	}
-	if hit {
-		debug!("pad_rumble: hit speed={speed:.0} damage={hit_damage:.1}");
-		rumble.write(hit_rumble(speed, hit_damage));
+	for (player, user) in &followed {
+		let gun = guns.get(user.held).ok();
+		let laser = gun.is_some_and(|(weapon, _)| is_laser(weapon));
+		let speed = gun.map(|(weapon, _)| projectile_speed(weapon)).unwrap_or(SPEED_SLOW);
+		let payload = gun
+			.and_then(|(_, payload)| payload.map(|payload| payload.amount))
+			.unwrap_or(DEFAULT_HIT);
+		for event in &shots {
+			if event.shooter != player {
+				continue;
+			}
+			let pulse = if laser { laser_rumble() } else { fire_rumble(speed, payload) };
+			debug!(
+				"pad_rumble: fire laser={laser} speed={speed:.0} damage={payload:.1} age={:.4}",
+				event.age
+			);
+			rumble.write(pulse.after(fire_delay(dt, event.age)));
+		}
+		if laser {
+			continue;
+		}
+		for hit in &applied {
+			if hit.source != Some(player) {
+				continue;
+			}
+			debug!("pad_rumble: hit speed={speed:.0} damage={:.1}", hit.amount);
+			rumble.write(hit_rumble(speed, hit.amount));
+		}
 	}
 }
 
@@ -184,18 +184,20 @@ mod tests {
 	fn followed_player_fire_and_hit_rumble() {
 		let (mut app, player) = combat_app(Weapon::bolt(), 25.0);
 		let target = app.world_mut().spawn_empty().id();
-		app.world_mut().write_message(WeaponFired { shooter: player, recoil: 0.04 });
+		app.world_mut().write_message(WeaponFired::new(player, 0.04));
 		app.world_mut().write_message(DamageApplied {
 			target,
 			source: Some(player),
 			amount: 25.0,
+			applied: 25.0,
 			remaining: 75.0,
 			point: Vec3::ZERO,
 		});
 		app.update();
 		let pulses = collect_pad_rumble(&mut app);
 		assert_eq!(pulses.len(), 2);
-		assert_eq!(pulses[0], fire_rumble(180.0, 25.0));
+		assert_eq!(pulses[0].duration, fire_rumble(180.0, 25.0).duration);
+		assert_eq!(pulses[0].intensity, fire_rumble(180.0, 25.0).intensity);
 		assert_eq!(pulses[1], hit_rumble(180.0, 25.0));
 	}
 
@@ -203,11 +205,12 @@ mod tests {
 	fn laser_stays_one_low_pulse_even_on_hit() {
 		let (mut app, player) = combat_app(Weapon::laser(), 40.0);
 		let target = app.world_mut().spawn_empty().id();
-		app.world_mut().write_message(WeaponFired { shooter: player, recoil: 0.0 });
+		app.world_mut().write_message(WeaponFired::new(player, 0.0));
 		app.world_mut().write_message(DamageApplied {
 			target,
 			source: Some(player),
 			amount: 40.0,
+			applied: 40.0,
 			remaining: 60.0,
 			point: Vec3::ZERO,
 		});
@@ -220,15 +223,55 @@ mod tests {
 	fn npc_shots_do_not_rumble() {
 		let (mut app, player) = combat_app(Weapon::bolt(), 25.0);
 		let npc = app.world_mut().spawn_empty().id();
-		app.world_mut().write_message(WeaponFired { shooter: npc, recoil: 0.08 });
+		app.world_mut().write_message(WeaponFired::new(npc, 0.08));
 		app.world_mut().write_message(DamageApplied {
 			target: player,
 			source: Some(npc),
 			amount: 25.0,
+			applied: 25.0,
 			remaining: 75.0,
 			point: Vec3::ZERO,
 		});
 		app.update();
 		assert!(collect_pad_rumble(&mut app).is_empty());
+	}
+
+	#[test]
+	fn each_shot_gets_its_own_delayed_pulse() {
+		let (mut app, player) = combat_app(Weapon::bolt(), 25.0);
+		app.world_mut()
+			.write_message(WeaponFired { shooter: player, recoil: 0.04, age: 0.012 });
+		app.world_mut()
+			.write_message(WeaponFired { shooter: player, recoil: 0.04, age: 0.006 });
+		app.world_mut()
+			.write_message(WeaponFired { shooter: player, recoil: 0.04, age: 0.0 });
+		app.update();
+		let pulses = collect_pad_rumble(&mut app);
+		assert_eq!(pulses.len(), 3);
+		for pulse in &pulses {
+			assert_eq!(pulse.duration, fire_rumble(180.0, 25.0).duration);
+			assert_eq!(pulse.intensity, fire_rumble(180.0, 25.0).intensity);
+		}
+		assert!(pulses[0].delay <= pulses[1].delay);
+		assert!(pulses[1].delay <= pulses[2].delay);
+	}
+
+	#[test]
+	fn a_second_followed_user_does_not_silence_rumble() {
+		let (mut app, player) = combat_app(Weapon::bolt(), 25.0);
+		let extra_gun = app.world_mut().spawn(Weapon::bolt()).id();
+		app.world_mut().spawn((CameraFollow, FirearmUser::holding(extra_gun)));
+		app.world_mut().write_message(WeaponFired::new(player, 0.04));
+		app.update();
+		let pulses = collect_pad_rumble(&mut app);
+		assert_eq!(pulses.len(), 1);
+		assert_eq!(pulses[0].duration, fire_rumble(180.0, 25.0).duration);
+	}
+
+	#[test]
+	fn fire_delay_is_the_rest_of_the_frame() {
+		assert_eq!(fire_delay(0.016, 0.016), Duration::ZERO);
+		assert_eq!(fire_delay(0.016, 0.0), Duration::from_secs_f32(0.016));
+		assert_eq!(fire_delay(0.016, 0.1), Duration::ZERO);
 	}
 }

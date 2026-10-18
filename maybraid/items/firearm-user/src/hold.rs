@@ -2,10 +2,12 @@
 
 use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
-use character_rigs::articulation::{TwoBoneAim, BONE_LENGTH_AXIS};
-use character_rigs::humanoid::HumanoidRig;
+use character_rigs::articulation::{
+	compose_parent_rotation, rotation_along_with_roll, TwoBoneAim, BONE_LENGTH_AXIS,
+};
+use character_rigs::authoring::humanoid_bone_axis;
 use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
-use character_rigs::{Name, Side};
+use character_rigs::Side;
 use characters::{
 	AnimBone, AnimMailbox, AnimateBones, BoneMap, CharacterMembers, CharacterRoot, SuspendAnimation,
 };
@@ -54,7 +56,7 @@ pub fn sync_hands_to_firearm(
 			let Ok((mut rig, map, mailbox)) = rigs.get_mut(member) else {
 				continue;
 			};
-			if mailbox.output.is_empty() {
+			if !mailbox.posed {
 				continue;
 			}
 			let current = transforms.p0();
@@ -66,7 +68,7 @@ pub fn sync_hands_to_firearm(
 			});
 			drop(current);
 			let mut bones = transforms.p1();
-			rig.pose.clone_from(&mailbox.output);
+			rig.pose.copy_from(&mailbox.output);
 			pose_firing_torso(&mut rig, settings.firing_torso_yaw);
 			let right = arm_reach(&rig, Side::Right, right_target, settings.right_pole, 1.0);
 			let left = arm_reach(
@@ -149,8 +151,12 @@ fn arm_reach(
 	pole: Vec3,
 	stretch: f32,
 ) -> Option<TwoBoneAim> {
-	let arm = rig.arm_pose(side);
-	let upper_length = arm.forearm.transform.translation.length() * stretch;
+	let name = match side {
+		Side::Left => "forearm.L",
+		Side::Right => "forearm.R",
+	};
+	let id = rig.binding.definition.id(name)?;
+	let upper_length = rig.binding.effective_rest.get(id)?.translation.length() * stretch;
 	let target = target?;
 	TwoBoneAim::reach(target, pole, upper_length, upper_length).or_else(|| {
 		TwoBoneAim::reach(target, Vec3::X * side.sign() + Vec3::Z, upper_length, upper_length)
@@ -164,24 +170,62 @@ fn pose_arm(
 	stretch: f32,
 	humerus_roll: f32,
 ) {
+	let (humerus_name, forearm_name) = match side {
+		Side::Left => ("humerus.L", "forearm.L"),
+		Side::Right => ("humerus.R", "forearm.R"),
+	};
+	let Some(humerus) = rig.binding.definition.id(humerus_name) else {
+		return;
+	};
+	let Some(forearm) = rig.binding.definition.id(forearm_name) else {
+		return;
+	};
 	let roll = humerus_roll_for_reach(rig, side, reach, humerus_roll * side.sign());
-	let mut arm = rig.arm_pose(side);
-	arm.humerus = rig.humerus_along_with_roll(side, reach.upper_along, roll);
-	arm.humerus.transform.translation *= stretch;
-	rig.pose_arm(arm);
-	let mut arm = rig.arm_pose(side);
-	arm.forearm = rig.articulate_on_rig(arm.forearm, 0.0, reach.flex);
-	arm.forearm.transform.translation *= stretch;
-	rig.pose_arm(arm);
+	let rest_humerus = rig.binding.effective_rest.rotation(humerus);
+	let parent = rig.binding.definition.parent_rotation(&rig.pose, humerus);
+	let aimed = rotation_along_with_roll(
+		rest_humerus,
+		parent.inverse() * reach.upper_along,
+		roll,
+		BONE_LENGTH_AXIS,
+	);
+	rig.pose.set_rotation(humerus, aimed);
+	scale_translation(rig, humerus, stretch);
+	let flexed = compose_parent_rotation(
+		rig.binding.effective_rest.rotation(forearm),
+		humanoid_bone_axis(forearm_name),
+		0.0,
+		reach.flex,
+		0.0,
+	);
+	rig.pose.set_rotation(forearm, flexed);
+	scale_translation(rig, forearm, stretch);
+}
+
+fn scale_translation(
+	rig: &mut HumanoidV0Rig,
+	bone: character_rigs::authoring::BoneId,
+	stretch: f32,
+) {
+	let rest = rig
+		.binding
+		.effective_rest
+		.get(bone)
+		.map(|t| t.translation)
+		.unwrap_or(Vec3::ZERO);
+	if let Some(slot) = rig.pose.local.get_mut(bone.index()) {
+		slot.translation = rest * stretch;
+	}
 }
 
 fn pose_firing_torso(rig: &mut HumanoidV0Rig, firing_torso_yaw: f32) {
-	let mut spine = rig.spine_pose();
-	// Keep the hips nearly square and blade the shoulder girdle from the chest.
-	spine.lumbar = rig.articulate_on_rig(spine.lumbar, firing_torso_yaw * 0.05, 0.0);
-	spine.midback = rig.articulate_on_rig(spine.midback, firing_torso_yaw * 0.20, 0.0);
-	spine.upper_back = rig.articulate_on_rig(spine.upper_back, firing_torso_yaw * 0.75, 0.0);
-	rig.pose_spine(spine);
+	for (name, weight) in [("lumbar", 0.05), ("midback", 0.20), ("upper_back", 0.75)] {
+		let Some(bone) = rig.binding.definition.id(name) else {
+			continue;
+		};
+		let turned = Quat::from_rotation_y(firing_torso_yaw * weight) * rig.pose.rotation(bone);
+		rig.pose.set_rotation(bone, turned);
+	}
 }
 
 /// Solve the long-axis roll that rotates the authored forearm hinge into the
@@ -192,22 +236,66 @@ fn humerus_roll_for_reach(
 	reach: TwoBoneAim,
 	fallback: f32,
 ) -> f32 {
-	let arm = rig.arm_pose(side);
-	let humerus = rig.humerus_along_with_roll(side, reach.upper_along, 0.0);
-	let forearm = rig.articulate_on_rig(arm.forearm, 0.0, reach.flex);
-	let humerus_world = rig.parent_world_rotation(&humerus.name) * humerus.transform.rotation;
-	let zero_roll_lower = forearm.transform.rotation * BONE_LENGTH_AXIS;
+	let Some((humerus, forearm)) = arm_ids(rig, side) else {
+		return fallback;
+	};
+	let parent = rig.binding.definition.parent_rotation(&rig.pose, humerus);
+	let aimed = rotation_along_with_roll(
+		rig.binding.effective_rest.rotation(humerus),
+		parent.inverse() * reach.upper_along,
+		0.0,
+		BONE_LENGTH_AXIS,
+	);
+	let humerus_world = parent * aimed;
+	let forearm_rotation = compose_parent_rotation(
+		rig.binding.effective_rest.rotation(forearm),
+		humanoid_bone_axis(match side {
+			Side::Left => "forearm.L",
+			Side::Right => "forearm.R",
+		}),
+		0.0,
+		reach.flex,
+		0.0,
+	);
+	let zero_roll_lower = forearm_rotation * BONE_LENGTH_AXIS;
 	let desired_lower = humerus_world.inverse() * reach.lower_along;
 	signed_angle_about_axis(zero_roll_lower, desired_lower, BONE_LENGTH_AXIS).unwrap_or(fallback)
 }
 
+fn arm_ids(
+	rig: &HumanoidV0Rig,
+	side: Side,
+) -> Option<(character_rigs::authoring::BoneId, character_rigs::authoring::BoneId)> {
+	let (humerus_name, forearm_name) = match side {
+		Side::Left => ("humerus.L", "forearm.L"),
+		Side::Right => ("humerus.R", "forearm.R"),
+	};
+	Some((rig.binding.definition.id(humerus_name)?, rig.binding.definition.id(forearm_name)?))
+}
+
 #[cfg(test)]
 fn lower_arm_direction(rig: &HumanoidV0Rig, side: Side, reach: TwoBoneAim, roll: f32) -> Vec3 {
-	let arm = rig.arm_pose(side);
-	let humerus = rig.humerus_along_with_roll(side, reach.upper_along, roll);
-	let forearm = rig.articulate_on_rig(arm.forearm, 0.0, reach.flex);
-	let forearm_parent = rig.parent_world_rotation(&humerus.name) * humerus.transform.rotation;
-	(forearm_parent * forearm.transform.rotation * BONE_LENGTH_AXIS).normalize_or(Vec3::Z)
+	let Some((humerus, forearm)) = arm_ids(rig, side) else {
+		return Vec3::Z;
+	};
+	let parent = rig.binding.definition.parent_rotation(&rig.pose, humerus);
+	let aimed = rotation_along_with_roll(
+		rig.binding.effective_rest.rotation(humerus),
+		parent.inverse() * reach.upper_along,
+		roll,
+		BONE_LENGTH_AXIS,
+	);
+	let forearm_rotation = compose_parent_rotation(
+		rig.binding.effective_rest.rotation(forearm),
+		humanoid_bone_axis(match side {
+			Side::Left => "forearm.L",
+			Side::Right => "forearm.R",
+		}),
+		0.0,
+		reach.flex,
+		0.0,
+	);
+	(parent * aimed * forearm_rotation * BONE_LENGTH_AXIS).normalize_or(Vec3::Z)
 }
 
 fn signed_angle_about_axis(from: Vec3, to: Vec3, axis: Vec3) -> Option<f32> {
@@ -223,20 +311,23 @@ fn reset_arm_to_rest(
 	bones: &Query<(&AnimBone, &mut Transform), (Without<AnimMailbox>, Without<CharacterRoot>)>,
 	side: Side,
 ) {
-	let mut arm = rig.arm(side);
-	for pose in [&mut arm.shoulder, &mut arm.humerus, &mut arm.forearm] {
-		let Some(&entity) = map.by_name.get(pose.name.as_str()) else {
+	let suffix = side.suffix();
+	for name in
+		[format!("shoulder.{suffix}"), format!("humerus.{suffix}"), format!("forearm.{suffix}")]
+	{
+		let Some(&entity) = map.by_name.get(name.as_str()) else {
 			continue;
 		};
 		let Ok((bone, _)) = bones.get(entity) else {
 			continue;
 		};
-		pose.transform = bone.rest;
-		pose.swing = 0.0;
-		pose.flex = 0.0;
-		pose.twist = 0.0;
+		let Some(id) = rig.binding.definition.id(&name) else {
+			continue;
+		};
+		if let Some(slot) = rig.pose.local.get_mut(id.index()) {
+			*slot = bone.rest;
+		}
 	}
-	rig.pose_arm(arm);
 }
 
 fn write_hold_bones(
@@ -244,19 +335,18 @@ fn write_hold_bones(
 	map: &BoneMap,
 	bones: &mut Query<(&AnimBone, &mut Transform), (Without<AnimMailbox>, Without<CharacterRoot>)>,
 ) {
-	let spine = rig.spine();
-	for name in
-		[spine.lumbar.name.as_str(), spine.midback.name.as_str(), spine.upper_back.name.as_str()]
-	{
+	for name in [
+		"lumbar",
+		"midback",
+		"upper_back",
+		"shoulder.L",
+		"humerus.L",
+		"forearm.L",
+		"shoulder.R",
+		"humerus.R",
+		"forearm.R",
+	] {
 		write_bone(rig, map, bones, name);
-	}
-	for side in [Side::Left, Side::Right] {
-		let arm = rig.arm(side);
-		for name in
-			[arm.shoulder.name.as_str(), arm.humerus.name.as_str(), arm.forearm.name.as_str()]
-		{
-			write_bone(rig, map, bones, name);
-		}
 	}
 }
 
@@ -269,13 +359,18 @@ fn write_bone(
 	let Some(&entity) = map.by_name.get(name) else {
 		return;
 	};
-	let Some(pose) = rig.pose().get(&Name::from(name)) else {
+	let Some(id) = rig.binding.definition.id(name) else {
+		return;
+	};
+	let Some(pose) = rig.pose.get(id) else {
 		return;
 	};
 	let Ok((_, mut transform)) = bones.get_mut(entity) else {
 		return;
 	};
-	*transform = pose.transform;
+	if *transform != pose {
+		*transform = pose;
+	}
 }
 
 #[cfg(test)]
@@ -387,14 +482,26 @@ mod tests {
 	}
 
 	#[test]
+	fn pose_arm_flexes_the_t_pose_forearm_off_length_roll() -> Result<(), &'static str> {
+		let s = settings();
+		let mut rig = HumanoidV0Rig::for_clip_test();
+		let reach = TwoBoneAim::reach(Vec3::new(0.2, -0.15, 0.55), s.left_pole, 0.5, 0.5)
+			.ok_or("missing reach")?;
+		pose_arm(&mut rig, Side::Left, reach, 1.0, s.humerus_roll);
+		let along = rig.character_length("forearm.L");
+		assert!(rig.posed_angle("forearm.L") > 0.1, "hold writes an elbow flex");
+		assert!(along.y.abs() > 0.1, "flex changes the hinge, not only a length roll, {along:?}");
+		Ok(())
+	}
+
+	#[test]
 	fn pose_arm_aims_humerus_length_along_reach() -> Result<(), &'static str> {
 		let s = settings();
 		let mut rig = HumanoidV0Rig::imported();
 		let reach = TwoBoneAim::reach(Vec3::new(0.2, -0.15, 0.55), s.left_pole, 0.5, 0.5)
 			.ok_or("missing reach")?;
 		pose_arm(&mut rig, Side::Left, reach, 1.0, s.humerus_roll);
-		let humerus = rig.arm_pose(Side::Left).humerus;
-		let along = (humerus.transform.rotation * BONE_LENGTH_AXIS).normalize_or(Vec3::Y);
+		let along = (rig.rotation("humerus.L") * BONE_LENGTH_AXIS).normalize_or(Vec3::Y);
 		assert!(
 			along.dot(reach.upper_along) > 0.97,
 			"expected aim along {:?}, got {along:?}",
@@ -420,10 +527,13 @@ mod tests {
 	fn firing_torso_turns_right_shoulder_back() -> Result<(), &'static str> {
 		let mut rig = HumanoidV0Rig::imported();
 		pose_firing_torso(&mut rig, settings().firing_torso_yaw);
-		let spine = rig.spine_pose();
-		assert!(spine.lumbar.swing < 0.0);
-		assert!(spine.midback.swing.abs() > spine.lumbar.swing.abs());
-		assert!(spine.upper_back.swing.abs() > spine.midback.swing.abs());
+		let yaw = |name: &str| {
+			let forward = rig.rotation(name) * Vec3::Z;
+			forward.x.abs()
+		};
+		assert!(yaw("lumbar") > 0.0);
+		assert!(yaw("midback") > yaw("lumbar"));
+		assert!(yaw("upper_back") > yaw("midback"));
 		Ok(())
 	}
 
@@ -501,14 +611,13 @@ mod tests {
 		Transform::from_translation(translation)
 	}
 
-	fn insert_arm_pose(rig: &mut HumanoidV0Rig, name: &str, transform: Transform, flex: f32) {
-		rig.pose.insert(character_rigs::BonePose {
-			name: character_rigs::Name::from(name),
-			transform,
-			swing: 0.0,
-			flex,
-			twist: 0.0,
-		});
+	fn insert_arm_pose(rig: &mut HumanoidV0Rig, name: &str, transform: Transform, _flex: f32) {
+		let Some(id) = rig.binding.definition.id(name) else {
+			return;
+		};
+		if let Some(slot) = rig.pose.local.get_mut(id.index()) {
+			*slot = transform;
+		}
 	}
 
 	fn hold_world() -> anyhow::Result<World> {
@@ -550,6 +659,7 @@ mod tests {
 		}
 		let mut mailbox = AnimMailbox::new(Transform::IDENTITY);
 		mailbox.output = rig.pose.clone();
+		mailbox.posed = true;
 
 		let gun = world
 			.spawn((

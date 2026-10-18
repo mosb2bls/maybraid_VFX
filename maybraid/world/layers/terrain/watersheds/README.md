@@ -7,8 +7,7 @@ Pure Marazion watershed stamps ([RFC-127](https://github.com/ramate-io/maybraid/
 - **[State of the API](STATE_OF_THE_API.md)** — what HydroNodes buy us now, wet basin vs drainage basin, and where basin-scale grading goes next
 - [Watershed correction extents](src/WATERSHED_CORRECTION.md) — `max_correction_extent` and cellular discoverability
 - [Node blend notes](src/NODE_BLEND.md)
-- [Pocket complex autopsy](POCKET_COMPLEX_AUTOPSY.md) — failed earlier composition iteration
-- Durham cellular / water / shore rules: [`../models/CONTRIBUTING.md`](../models/CONTRIBUTING.md)
+- Durham cellular / water / shore rules: [`../durham/CONTRIBUTING.md`](../durham/CONTRIBUTING.md)
 
 ## Layout
 

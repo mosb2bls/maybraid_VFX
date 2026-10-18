@@ -1,6 +1,6 @@
 //! Stick continuous forms.
 
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::assets::{sticks as stick_assets, AssetPath};
 

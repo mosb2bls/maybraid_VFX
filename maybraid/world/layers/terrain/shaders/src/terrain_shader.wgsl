@@ -7,6 +7,14 @@
 //          underlying height field, with distance-broadened
 //          visual cracks for stable terrain continuity.
 //
+// Optional world-space grass turf:
+//   - Persistent underlayer, two compact blade fields,
+//     anchored roots, and time-driven bend.
+//   - Authored coverage scales moisture noise so barren
+//     ground cannot become meadow on its own.
+//   - Grass POM uses its own 35–50 m range; cracks keep
+//     the 60–150 m fade plus the far pattern.
+//
 // Preserves original material bindings, palette, fog,
 // and prepass outlines.
 //
@@ -16,7 +24,7 @@
 
 #import bevy_pbr::{
     forward_io::VertexOutput,
-    mesh_view_bindings::{view, lights},
+    mesh_view_bindings::{view, lights, globals},
     prepass_utils::prepass_depth,
     pbr_types::{PbrInput, pbr_input_new, STANDARD_MATERIAL_FLAGS_DOUBLE_SIDED_BIT},
     pbr_functions as fns,
@@ -77,6 +85,19 @@ var<uniform> style_params: vec4<f32>;
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(2)
 var<uniform> base_color: vec4<f32>;
+
+struct DurhamTerrainGrass {
+    params: vec4<f32>,
+    lush_root: vec4<f32>,
+    lush_mid: vec4<f32>,
+    lush_tip: vec4<f32>,
+    dry_root: vec4<f32>,
+    dry_mid: vec4<f32>,
+    dry_tip: vec4<f32>,
+}
+
+@group(#{MATERIAL_BIND_GROUP}) @binding(3)
+var<uniform> grass: DurhamTerrainGrass;
 
 
 fn saturate(x: f32) -> f32 {
@@ -464,12 +485,9 @@ fn relief_edge_distance(
 // Near physical height field
 //---------------------------------------------------------
 
-fn relief_height(
-    p: vec2<f32>
+fn relief_height_from_edge(
+    edge: f32
 ) -> f32 {
-    let edge =
-        relief_edge_distance(p);
-
     return smoothstep(
         0.0,
         CRACK_WIDTH_M,
@@ -478,17 +496,23 @@ fn relief_height(
 }
 
 
+fn relief_height(
+    p: vec2<f32>
+) -> f32 {
+    return relief_height_from_edge(
+        relief_edge_distance(p)
+    );
+}
+
+
 //---------------------------------------------------------
 // Far visual-only height field
 //---------------------------------------------------------
 
-fn relief_visual_height(
-    p: vec2<f32>,
+fn relief_visual_height_from_edge(
+    edge: f32,
     distance_m: f32
 ) -> f32 {
-    let edge =
-        relief_edge_distance(p);
-
     let width_t = smoothstep(
         CRACK_FAR_WIDTH_START_M,
         CRACK_FAR_WIDTH_END_M,
@@ -532,8 +556,18 @@ struct ReliefHit {
 fn trace_relief(
     p: vec2<f32>,
     N: vec3<f32>,
-    V: vec3<f32>
+    V: vec3<f32>,
+    h0: f32
 ) -> ReliefHit {
+    // Far visual cracks already evaluated the Voronoi at p.
+    // Plateau pixels skip ray setup as well as the march.
+    if (h0 >= 1.0) {
+        return ReliefHit(
+            vec3<f32>(0.0),
+            h0
+        );
+    }
+
     // Limit ray travel at extreme grazing angles.
     let ray =
         -V * (
@@ -558,16 +592,6 @@ fn trace_relief(
             f32(CRACK_MAX_STEPS)
         )
     );
-
-    let h0 =
-        relief_height(p);
-
-    if (h0 >= 1.0) {
-        return ReliefHit(
-            vec3<f32>(0.0),
-            h0
-        );
-    }
 
     var lo = 0.0;
     var hi = 1.0;
@@ -686,6 +710,447 @@ fn relief_gradient(
         dx,
         dz
     ) / (2.0 * e);
+}
+
+
+//---------------------------------------------------------
+// Dense stylized turf
+//---------------------------------------------------------
+
+// Two blades per 0.12 m square (~139 / m^2). Width, length, and
+// sway must stay inside one cell; do not raise GRASS_SWAY_M
+// above 9 mm without neighbor-cell evaluation.
+const GRASS_PATCH_SCALE_M: f32 = 7.0;
+const GRASS_PATCH_LOW: f32 = 0.12;
+const GRASS_PATCH_HIGH: f32 = 0.30;
+const GRASS_REGION_SCALE_M: f32 = 80.0;
+const GRASS_REGION_DRY: f32 = 0.28;
+const GRASS_REGION_LUSH: f32 = 0.72;
+const GRASS_DRY_THRESHOLD: f32 = 0.95;
+const GRASS_CELL_M: f32 = 0.12;
+const GRASS_HEIGHT_M: f32 = 0.095;
+const GRASS_TURF_HEIGHT_M: f32 = 0.010;
+const GRASS_HALF_WIDTH_M: f32 = 0.022;
+const GRASS_POM_START_M: f32 = 35.0;
+const GRASS_POM_END_M: f32 = 50.0;
+const GRASS_MIN_STEPS: i32 = 8;
+const GRASS_MAX_STEPS: i32 = 32;
+const GRASS_REFINE_STEPS: i32 = 3;
+const GRASS_SURFACE_REACH_M: f32 = 0.06;
+const GRASS_RAY_DENOM_MIN: f32 = 0.10;
+const GRASS_NORMAL_EPS_M: f32 = 0.002;
+const GRASS_FAR_COVERAGE: f32 = 0.96;
+const GRASS_NORMAL_STRENGTH: f32 = 0.22;
+const GRASS_MAX_TILT: f32 = 0.28;
+const GRASS_WIND_SPEED: f32 = 1.6;
+const GRASS_SWAY_M: f32 = 0.009;
+const GRASS_TURF_TIP_MIX: f32 = 0.22;
+const GRASS_CRACK_SKIP: f32 = 1e-3;
+
+
+struct GrassBladeCache {
+    cell: vec2<i32>,
+    r0: f32,
+    r1: f32,
+    r2: f32,
+    wind: f32,
+    primed: u32,
+}
+
+
+struct GrassPalette {
+    root: vec3<f32>,
+    mid: vec3<f32>,
+    tip: vec3<f32>,
+    turf: vec3<f32>,
+}
+
+
+struct GrassHit {
+    offset: vec3<f32>,
+    height: f32,
+    found: bool,
+}
+
+
+var<private> grass_cache_a: GrassBladeCache;
+var<private> grass_cache_b: GrassBladeCache;
+var<private> grass_wind_time: f32;
+
+
+fn grass_authored_coverage() -> f32 {
+    return saturate(grass.params.x);
+}
+
+
+fn grass_tint() -> vec3<f32> {
+    return mix(
+        vec3<f32>(1.0),
+        base_color.rgb,
+        saturate(grass.params.y)
+    );
+}
+
+
+fn grass_wind_color_amount() -> f32 {
+    return grass.params.z;
+}
+
+
+fn grass_prepare_eval() {
+    grass_wind_time = globals.time * GRASS_WIND_SPEED;
+    grass_cache_a.primed = 0u;
+    grass_cache_b.primed = 0u;
+}
+
+
+fn grass_value_noise(
+    q: vec2<f32>,
+    seed: u32
+) -> f32 {
+    let cell = vec2<i32>(floor(q));
+    let f = fract(q);
+    let u = f * f * (3.0 - 2.0 * f);
+
+    let a = relief_random(cell, seed);
+    let b = relief_random(cell + vec2<i32>(1, 0), seed);
+    let c = relief_random(cell + vec2<i32>(0, 1), seed);
+    let d = relief_random(cell + vec2<i32>(1, 1), seed);
+
+    return mix(
+        mix(a, b, u.x),
+        mix(c, d, u.x),
+        u.y
+    );
+}
+
+
+fn grass_patch_noise(p: vec2<f32>) -> f32 {
+    return grass_value_noise(
+        p / GRASS_PATCH_SCALE_M,
+        701u
+    );
+}
+
+
+fn grass_region(p: vec2<f32>) -> f32 {
+    let moisture = grass_value_noise(
+        p / GRASS_REGION_SCALE_M,
+        2719u
+    );
+
+    return smoothstep(
+        GRASS_REGION_DRY,
+        GRASS_REGION_LUSH,
+        moisture
+    );
+}
+
+
+fn grass_threshold(lushness: f32) -> f32 {
+    return mix(
+        GRASS_DRY_THRESHOLD,
+        GRASS_PATCH_LOW,
+        lushness
+    );
+}
+
+
+// Traveling waves in world space. Mask and root positions never
+// move. Time is cached per fragment in grass_prepare_eval.
+fn grass_wind_at(root: vec2<f32>) -> f32 {
+    let phase = dot(root, vec2<f32>(0.58, 0.34));
+
+    return 0.72 * sin(phase - grass_wind_time)
+        + 0.28 * sin(phase * 2.3 - grass_wind_time * 1.7);
+}
+
+
+fn grass_load_cache(field: i32) -> GrassBladeCache {
+    if (field == 0) {
+        return grass_cache_a;
+    }
+
+    return grass_cache_b;
+}
+
+
+fn grass_store_cache(field: i32, sample: GrassBladeCache) {
+    if (field == 0) {
+        grass_cache_a = sample;
+    } else {
+        grass_cache_b = sample;
+    }
+}
+
+
+fn grass_cached_blade(
+    cell: vec2<i32>,
+    shift: vec2<f32>,
+    seed: u32,
+    field: i32
+) -> GrassBladeCache {
+    let cached = grass_load_cache(field);
+
+    if (
+        cached.primed == 1u
+        && cached.cell.x == cell.x
+        && cached.cell.y == cell.y
+    ) {
+        return cached;
+    }
+
+    let r0 = relief_random(cell, seed);
+    let r1 = relief_random(cell, seed + 12u);
+    let r2 = relief_random(cell, seed + 28u);
+    let angle = r0 * 6.28318530718;
+    let axis = vec2<f32>(cos(angle), sin(angle));
+    let half_length = mix(0.040, 0.047, r1);
+    let center = (vec2<f32>(r1, r2) - vec2<f32>(0.5)) * 0.004;
+
+    // World-space root: cell is in the shifted lattice.
+    let root = (vec2<f32>(cell) + vec2<f32>(0.5)) * GRASS_CELL_M
+        - shift
+        + center
+        - axis * half_length;
+
+    let sample = GrassBladeCache(
+        cell,
+        r0,
+        r1,
+        r2,
+        grass_wind_at(root),
+        1u
+    );
+
+    grass_store_cache(field, sample);
+    return sample;
+}
+
+
+// One compact curved blade. Neighbor-cell search is unnecessary:
+// max support radius sqrt(.047^2 + (.022+.009)^2) + .0029 < .060.
+fn grass_blade_height(
+    p: vec2<f32>,
+    shift: vec2<f32>,
+    seed: u32,
+    field: i32
+) -> f32 {
+    let q = (p + shift) / GRASS_CELL_M;
+    let cell = vec2<i32>(floor(q));
+    let sample = grass_cached_blade(cell, shift, seed, field);
+    let center = (vec2<f32>(sample.r1, sample.r2) - vec2<f32>(0.5)) * 0.004;
+    let local = (fract(q) - vec2<f32>(0.5)) * GRASS_CELL_M - center;
+    let angle = sample.r0 * 6.28318530718;
+    let axis = vec2<f32>(cos(angle), sin(angle));
+    let across = vec2<f32>(-axis.y, axis.x);
+    let half_length = mix(0.040, 0.047, sample.r1);
+    let along = (dot(local, axis) + half_length) / (2.0 * half_length);
+
+    if (along <= 0.0 || along >= 1.0) {
+        return 0.0;
+    }
+
+    let bend = GRASS_SWAY_M * sample.wind * along * along;
+    let width = GRASS_HALF_WIDTH_M * mix(1.0, 0.16, along);
+    let lateral = 1.0 - smoothstep(
+        0.0,
+        width,
+        abs(dot(local, across) - bend)
+    );
+    let rise = smoothstep(0.0, 0.36, along);
+    let tip = 1.0 - smoothstep(0.70, 1.0, along);
+
+    return GRASS_HEIGHT_M
+        * mix(0.70, 1.0, sample.r2)
+        * rise
+        * tip
+        * lateral;
+}
+
+
+// Two-lattice speckle for the cheap mat. This is what remains
+// when blades are subpixel; it must not depend on the march.
+fn grass_cell_speckle(p: vec2<f32>) -> f32 {
+    let a = relief_random(
+        vec2<i32>(floor(p / GRASS_CELL_M)),
+        449u
+    );
+    let b = relief_random(
+        vec2<i32>(floor(
+            (p + vec2<f32>(0.061, 0.053)) / GRASS_CELL_M
+        )),
+        450u
+    );
+
+    return mix(a, b, 0.5);
+}
+
+
+// Blades only. The 1 cm turf is a color underlayer, not a
+// height floor — marching to it made every meadow ray pay
+// the full step budget.
+fn grass_blades(p: vec2<f32>) -> f32 {
+    let a = grass_blade_height(
+        p,
+        vec2<f32>(0.0),
+        811u,
+        0
+    );
+
+    let b = grass_blade_height(
+        p,
+        vec2<f32>(0.061, 0.053),
+        1201u,
+        1
+    );
+
+    return max(a, b);
+}
+
+
+fn grass_height(p: vec2<f32>, meadow: f32) -> f32 {
+    if (meadow <= 0.0) {
+        return 0.0;
+    }
+
+    return meadow * grass_blades(p);
+}
+
+
+// March from above the terrain toward the original surface so
+// blades rise out of the ground. Height zero is empty ground.
+fn trace_grass(
+    p: vec2<f32>,
+    N: vec3<f32>,
+    V: vec3<f32>,
+    meadow: f32
+) -> GrassHit {
+    let denom = max(dot(N, V), GRASS_RAY_DENOM_MIN);
+    let top = V * (GRASS_HEIGHT_M / denom);
+    let requested = ceil(length(top.xz) / (GRASS_HALF_WIDTH_M * 0.5));
+    let steps = i32(clamp(
+        requested,
+        f32(GRASS_MIN_STEPS),
+        f32(GRASS_MAX_STEPS)
+    ));
+
+    var lo = 0.0;
+    var hi = 1.0;
+    var crossed = false;
+
+    for (var i = 1; i <= GRASS_MAX_STEPS; i = i + 1) {
+        if (i > steps) {
+            break;
+        }
+
+        let t = f32(i) / f32(steps);
+        let offset = top * (1.0 - t);
+        let height = grass_height(p + offset.xz, meadow);
+        let f = height - GRASS_HEIGHT_M * (1.0 - t);
+
+        if (f >= 0.0 && height > 1e-6) {
+            hi = t;
+            crossed = true;
+            break;
+        }
+
+        lo = t;
+    }
+
+    if (!crossed) {
+        return GrassHit(vec3<f32>(0.0), 0.0, false);
+    }
+
+    for (var i = 0; i < GRASS_REFINE_STEPS; i = i + 1) {
+        let t = 0.5 * (lo + hi);
+        let offset = top * (1.0 - t);
+        let f = grass_height(p + offset.xz, meadow)
+            - GRASS_HEIGHT_M * (1.0 - t);
+
+        if (f >= 0.0) {
+            hi = t;
+        } else {
+            lo = t;
+        }
+    }
+
+    let offset = top * (1.0 - hi);
+
+    return GrassHit(
+        offset,
+        grass_height(p + offset.xz, meadow),
+        true
+    );
+}
+
+
+fn grass_gradient(p: vec2<f32>, meadow: f32) -> vec2<f32> {
+    let e = GRASS_NORMAL_EPS_M;
+
+    return vec2<f32>(
+        grass_height(p + vec2<f32>(e, 0.0), meadow)
+            - grass_height(p - vec2<f32>(e, 0.0), meadow),
+        grass_height(p + vec2<f32>(0.0, e), meadow)
+            - grass_height(p - vec2<f32>(0.0, e), meadow)
+    ) / (2.0 * e);
+}
+
+
+fn grass_capped_normal(
+    soft_n: vec3<f32>,
+    gradient: vec2<f32>,
+    compression: f32
+) -> vec3<f32> {
+    let raw = gradient * (GRASS_NORMAL_STRENGTH * compression);
+    let tilt = length(raw);
+    let capped = raw * (
+        min(tilt, GRASS_MAX_TILT) / max(tilt, 1e-6)
+    );
+
+    let detailed = normalize(
+        soft_n - vec3<f32>(capped.x, 0.0, capped.y)
+    );
+
+    return normalize(mix(soft_n, detailed, 0.65));
+}
+
+
+fn grass_palette_at(
+    lushness: f32,
+    tint: vec3<f32>,
+    wind_term: f32
+) -> GrassPalette {
+    let root = mix(
+        grass.dry_root.xyz,
+        grass.lush_root.xyz,
+        lushness
+    );
+
+    let mid = mix(
+        grass.dry_mid.xyz,
+        grass.lush_mid.xyz,
+        lushness
+    );
+
+    let tip = mix(
+        grass.dry_tip.xyz,
+        grass.lush_tip.xyz,
+        lushness
+    );
+
+    let turf = mix(
+        mid,
+        tip,
+        GRASS_TURF_TIP_MIX + wind_term
+    ) * tint;
+
+    return GrassPalette(
+        root * tint,
+        mid * tint,
+        tip * tint,
+        turf
+    );
 }
 
 
@@ -927,9 +1392,14 @@ fn fragment(
     // This stays active after POM disappears.
     //-----------------------------------------------------
 
+    // One 9-cell Voronoi at the surface sample. Far coloration
+    // and the POM h0 test share it; only the march walks new p.
+    let surface_edge =
+        relief_edge_distance(relief_p);
+
     let visual_height =
-        relief_visual_height(
-            relief_p,
+        relief_visual_height_from_edge(
+            surface_edge,
             camera_distance
         );
 
@@ -956,17 +1426,82 @@ fn fragment(
     var n =
         soft_n;
 
+    var grass_roughness =
+        1.0;
+
 
     //-----------------------------------------------------
-    // Near-field POM
+    // Grass coverage
+    //
+    // Moisture noise stays local variation. Authored
+    // coverage scales it so barren ground stays barren.
+    // Cracks remain on dirt; grass covers them later.
     //-----------------------------------------------------
 
-    if (pom_w > 1e-4) {
+    let authored_coverage =
+        grass_authored_coverage();
+
+    let grass_slope =
+        smoothstep(
+            0.40,
+            0.70,
+            macro_n.y
+        );
+
+    var regional_lushness = 0.0;
+    var local_threshold = 0.0;
+    var local_meadow_noise = 0.0;
+    var surface_meadow = 0.0;
+    var grass_patch_w = 0.0;
+
+    if (authored_coverage > 1e-4) {
+        grass_prepare_eval();
+
+        regional_lushness =
+            grass_region(relief_p);
+
+        local_threshold =
+            grass_threshold(regional_lushness);
+
+        local_meadow_noise =
+            grass_patch_noise(relief_p);
+
+        surface_meadow =
+            smoothstep(
+                local_threshold,
+                local_threshold
+                    + GRASS_PATCH_HIGH
+                    - GRASS_PATCH_LOW,
+                local_meadow_noise
+            )
+            * authored_coverage;
+
+        grass_patch_w =
+            surface_meadow * grass_slope;
+    }
+
+    let grass_cover =
+        grass_patch_w * GRASS_FAR_COVERAGE;
+
+    let uncovered =
+        1.0 - grass_cover;
+
+
+    //-----------------------------------------------------
+    // Near-field crack POM
+    //
+    // Skip the march only when remaining uncovered
+    // contribution is negligible. Cheap far cracks stay
+    // on the dirt underneath.
+    //-----------------------------------------------------
+
+    if (pom_w > 1e-4 && uncovered > GRASS_CRACK_SKIP) {
         let hit =
             trace_relief(
                 relief_p,
                 macro_n,
-                V
+                V,
+                relief_height_from_edge(surface_edge)
             );
 
         let q =
@@ -1013,14 +1548,15 @@ fn fragment(
 
 
         //-------------------------------------------------
-        // POM displaced color lookup
+        // POM cavity
+        //
+        // March for cavity and relief normal only — do
+        // not resample the world-space palette at q.
+        // Default band wavelengths are 10 m–100 km, while
+        // a hit moves at most CRACK_DEPTH_M / 0.06 ≈ 3 m.
+        // On plateaus the offset is zero, so a second
+        // ground_color_at would be an exact duplicate.
         //-------------------------------------------------
-
-        let hit_palette =
-            ground_color_at(
-                q
-                + WORLD_COLOR_SHIFT
-            );
 
         let cavity =
             mix(
@@ -1030,7 +1566,7 @@ fn fragment(
             );
 
         let hit_ground =
-            hit_palette
+            base_palette
             * base_color.rgb
             * cavity;
 
@@ -1049,6 +1585,208 @@ fn fragment(
 
 
     //-----------------------------------------------------
+    // Persistent turf underlayer
+    //
+    // Far and near share the same mid/tip floor so
+    // approaching a patch does not suddenly darken.
+    // Wind color is a small term; bending is the motion.
+    //-----------------------------------------------------
+
+    if (grass_cover > 1e-4) {
+        let tint = grass_tint();
+        let gust = grass_wind_at(relief_p);
+        let gust_resolved =
+            1.0 - smoothstep(0.8, 2.0, footprint);
+        let wind_term =
+            grass_wind_color_amount()
+            * gust
+            * gust_resolved;
+        let far_palette = grass_palette_at(
+            regional_lushness,
+            tint,
+            wind_term
+        );
+
+        // Cell speckle keeps the mat readable after POM
+        // drops for subpixel blades. Do not fade this with
+        // the footprint gate.
+        let speckle = grass_cell_speckle(relief_p);
+        let far_ground =
+            mix(
+                far_palette.mid,
+                far_palette.tip,
+                saturate(
+                    GRASS_TURF_TIP_MIX
+                    + 0.22 * speckle
+                    + wind_term
+                )
+            )
+            * (0.90 + 0.16 * speckle);
+
+        ground = mix(
+            ground,
+            far_ground,
+            grass_cover
+        );
+
+        n = normalize(mix(n, soft_n, grass_cover));
+        grass_roughness = mix(1.0, 0.90, grass_patch_w);
+    }
+
+
+    //-----------------------------------------------------
+    // Near-field grass POM
+    //
+    // 35–50 m range. Footprint only skips the march;
+    // the speckled underlayer stays. Steep views use a
+    // single surface sample instead of a ray.
+    //-----------------------------------------------------
+
+    if (authored_coverage > 1e-4) {
+        let grass_resolution =
+            1.0
+            - smoothstep(
+                GRASS_HALF_WIDTH_M * 0.6,
+                GRASS_HALF_WIDTH_M * 1.8,
+                footprint
+            );
+
+        let grass_distance =
+            1.0
+            - smoothstep(
+                GRASS_POM_START_M,
+                GRASS_POM_END_M,
+                camera_distance
+            );
+
+        let grass_facing = smoothstep(
+            0.025,
+            0.10,
+            dot(macro_n, V)
+        );
+
+        let grass_pom_w =
+            grass_resolution
+            * grass_distance
+            * grass_facing
+            * grass_slope;
+
+        let grass_reach =
+            GRASS_HEIGHT_M
+            * length(V.xz)
+            / max(dot(macro_n, V), GRASS_RAY_DENOM_MIN);
+
+        // Cubic value-noise gradient <= 1.5*sqrt(2);
+        // smoothstep slope <= 1.5.
+        let threshold_gradient_bound =
+            (GRASS_DRY_THRESHOLD - GRASS_PATCH_LOW)
+            * 1.5
+            / (GRASS_REGION_LUSH - GRASS_REGION_DRY)
+            * 2.122
+            / GRASS_REGION_SCALE_M;
+
+        let meadow_upper_bound =
+            local_meadow_noise
+            - local_threshold
+            + grass_reach * (
+                2.122 / GRASS_PATCH_SCALE_M
+                + threshold_gradient_bound
+            );
+
+        if (grass_pom_w > 1e-4 && meadow_upper_bound > 0.0) {
+            var hit = GrassHit(vec3<f32>(0.0), 0.0, false);
+
+            if (grass_reach <= GRASS_SURFACE_REACH_M) {
+                let height = grass_height(
+                    relief_p,
+                    surface_meadow
+                );
+
+                if (height > 1e-6) {
+                    hit = GrassHit(vec3<f32>(0.0), height, true);
+                }
+            } else {
+                hit = trace_grass(
+                    relief_p,
+                    macro_n,
+                    V,
+                    surface_meadow
+                );
+            }
+
+            if (hit.found) {
+                let q = relief_p + hit.offset.xz;
+                let height_ratio =
+                    saturate(hit.height / GRASS_HEIGHT_M);
+                let tint = grass_tint();
+                let hit_palette = grass_palette_at(
+                    regional_lushness,
+                    tint,
+                    0.0
+                );
+
+                let along_blade = mix(
+                    hit_palette.turf,
+                    hit_palette.tip,
+                    smoothstep(
+                        GRASS_TURF_HEIGHT_M / GRASS_HEIGHT_M,
+                        0.90,
+                        height_ratio
+                    )
+                );
+
+                let root_floor = mix(
+                    hit_palette.root,
+                    hit_palette.mid,
+                    0.55
+                );
+
+                let cell_color = grass_cell_speckle(q);
+
+                let detailed_ground =
+                    mix(
+                        root_floor,
+                        along_blade,
+                        smoothstep(0.0, 0.18, height_ratio)
+                    )
+                    * (0.92 + 0.12 * cell_color);
+
+                let gradient = grass_gradient(
+                    q,
+                    surface_meadow
+                );
+                let compression =
+                    max(dot(macro_n, V), 0.0)
+                    / max(dot(macro_n, V), GRASS_RAY_DENOM_MIN);
+                let detailed_n = grass_capped_normal(
+                    soft_n,
+                    gradient,
+                    compression
+                );
+
+                ground = mix(
+                    ground,
+                    detailed_ground,
+                    grass_pom_w
+                );
+
+                n = normalize(mix(
+                    n,
+                    detailed_n,
+                    grass_pom_w
+                ));
+
+                grass_roughness = mix(
+                    grass_roughness,
+                    0.90,
+                    grass_pom_w
+                );
+            }
+        }
+    }
+
+
+    //-----------------------------------------------------
     // PBR
     //-----------------------------------------------------
 
@@ -1062,7 +1800,7 @@ fn fragment(
         0.0;
 
     pbr_input.material.perceptual_roughness =
-        1.0;
+        grass_roughness;
 
     pbr_input.frag_coord =
         mesh.position;

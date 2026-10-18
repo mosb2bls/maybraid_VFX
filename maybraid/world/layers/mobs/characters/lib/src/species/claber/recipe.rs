@@ -24,7 +24,7 @@ use crate::{
 		common::{nodes as humanoid, EarMesh, EyeMesh, EAR_FLANK, TAIL_LERODON_QUADRUPED},
 	},
 };
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 /// Semantic Claber data attached to the character root entity.
 ///

@@ -17,6 +17,8 @@ pub struct ModePlayerPolicy {
 	/// A respawn that finishes while this mode is still active replaces the body
 	/// where it fell and signals [`PlayerLifeEnded`]. The next loadout dresses it.
 	pub respawn_ends_life: bool,
+	/// After world load, withhold the startup body and open the POI picker.
+	pub pick_first_spawn: bool,
 }
 
 /// Policies registered by generation modes, keyed by the mode's [`TypeId`].
@@ -44,6 +46,10 @@ impl ModePlayerPolicies {
 
 	pub fn respawn_ends_life(&self, mode: Option<TypeId>) -> bool {
 		mode.and_then(|id| self.get(id)).is_some_and(|policy| policy.respawn_ends_life)
+	}
+
+	pub fn pick_first_spawn(&self, mode: Option<TypeId>) -> bool {
+		mode.and_then(|id| self.get(id)).is_some_and(|policy| policy.pick_first_spawn)
 	}
 }
 
@@ -123,13 +129,20 @@ mod tests {
 		let mut policies = ModePlayerPolicies::default();
 		policies.register(
 			TypeId::of::<Home>(),
-			ModePlayerPolicy { home: Vec2::ZERO, keep_waypoints: true, respawn_ends_life: false },
+			ModePlayerPolicy {
+				home: Vec2::ZERO,
+				keep_waypoints: true,
+				respawn_ends_life: false,
+				pick_first_spawn: true,
+			},
 		);
 		let home = Some(TypeId::of::<Home>());
 		assert!(policies.keeps_waypoints(home));
 		assert_eq!(policies.home(home), Some(Vec2::ZERO));
 		assert!(!policies.respawn_ends_life(home));
+		assert!(policies.pick_first_spawn(home));
 		assert!(policies.keeps_waypoints(None));
 		assert!(policies.home(Some(TypeId::of::<Away>())).is_none());
+		assert!(!policies.pick_first_spawn(Some(TypeId::of::<Away>())));
 	}
 }

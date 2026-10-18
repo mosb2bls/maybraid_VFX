@@ -126,10 +126,11 @@ fill should stay ~0.65 ms. Stairs should remain visible at Medium.
 
 **Status: implemented in this crate pass.** Recapture `visibility_propagate`.
 
-Woody plants are already flattened posed kits under one plant host
+Woody plants are posed kits under the **grove tile** host
 ([`nest_flattened_plant_chunk`](world/layers/vegetation/groves/src/grove/vc_compose.rs)) — not a
-host per frond / stick. Binning those hosts into quadrants is a different lever
-and is **not** this step.
+host per tree, and not a host per frond / stick. Isolated `/show` still uses one
+plant host. Binning tiles into quadrants is a different lever and is **not**
+this step.
 
 The last-window vis cost is the **cardinality of plant/grove trees still in
 Bevy’s visibility walk**, including Hidden warm roots. Rewriting `Hidden` every

@@ -8,8 +8,8 @@ use bevy::math::bounding::Aabb3d;
 use bevy::prelude::{Component, Transform};
 use bevy::scene::prelude::Scene;
 use bevy_math::Vec3;
-use lod::gen::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::lod_ref::LodRef;
+use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
 use lod::SceneChunk;
 use material_ref::MaterialRef;
 
@@ -166,11 +166,11 @@ impl LodScene for PartitionNode {
 
 macro_rules! impl_partition_mesh_lod_scene {
 	($ty:ty, $meshes:expr) => {
-		impl ::lod::gen::LodScene for $ty {
+		impl ::lod::scene::LodScene for $ty {
 			fn scene_lod_level(
 				&self,
 				lod_ref: &::lod::lod_ref::LodRef,
-			) -> ::lod::gen::LodSceneLevel {
+			) -> ::lod::scene::LodSceneLevel {
 				$crate::partitions::probe::PartitionLodProbe::from_aabb(lod_ref.bounds)
 					.level_for(lod_ref.current_transform)
 			}
@@ -178,7 +178,7 @@ macro_rules! impl_partition_mesh_lod_scene {
 			fn scene_lod_status(
 				&self,
 				lod_ref: &::lod::lod_ref::LodRef,
-			) -> ::lod::gen::LodSceneStatus {
+			) -> ::lod::scene::LodSceneStatus {
 				$crate::partitions::probe::PartitionLodProbe::from_aabb(lod_ref.bounds)
 					.status_for_lod_ref(lod_ref)
 			}
@@ -186,15 +186,15 @@ macro_rules! impl_partition_mesh_lod_scene {
 			fn scene_lod_culls(
 				&self,
 				_lod_ref: &::lod::lod_ref::LodRef,
-				current: ::lod::gen::LodSceneLevel,
-			) -> ::lod::gen::LodSceneCulls {
+				current: ::lod::scene::LodSceneLevel,
+			) -> ::lod::scene::LodSceneCulls {
 				$crate::lod_band::warm_mesh_lod_culls(current)
 			}
 
 			fn scene_with_level(
 				&self,
 				_lod_ref: &::lod::lod_ref::LodRef,
-				level: ::lod::gen::LodSceneLevel,
+				level: ::lod::scene::LodSceneLevel,
 			) -> impl ::bevy::scene::Scene + 'static {
 				$crate::partitions::geometry::LinearLod::posed_tier(
 					$meshes,
@@ -206,7 +206,7 @@ macro_rules! impl_partition_mesh_lod_scene {
 			fn scene_chunks_with_level(
 				&self,
 				lod_ref: &::lod::lod_ref::LodRef,
-				level: ::lod::gen::LodSceneLevel,
+				level: ::lod::scene::LodSceneLevel,
 			) -> ::lod::SceneChunk {
 				::lod::SceneChunk::primitive(self.scene_with_level(lod_ref, level))
 			}

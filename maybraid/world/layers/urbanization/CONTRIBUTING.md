@@ -8,9 +8,9 @@ and present geometry on top of [`building-components`](buildings/components/).
 
 | Crate | Role |
 |-------|------|
-| [`building-components`](buildings/components/) | Domain IR + kit assets. Authoring types are `*Node` values (`FloorNode`, `PartitionNode`, `StairNode`, `DoorNode`, `RoofNode`, `PanelNode`, `FurnitureNode`, `LabelNode`): **style + geometry + placement** (+ optional [`ParentConfines`](buildings/components/src/parent_confines.rs); labels also carry a debug string). Each node implements [`LodScene`](../../../lod/lib/src/gen/presentation.rs). Tessellation into kit pieces is private to the domain. Partition IR is primitive (no portals). Labels render as colored wireframes; face text is a playground gizmo pass (scaled/wrapped to each face). |
+| [`building-components`](buildings/components/) | Domain IR + kit assets. Authoring types are `*Node` values (`FloorNode`, `PartitionNode`, `StairNode`, `DoorNode`, `RoofNode`, `PanelNode`, `FurnitureNode`, `LabelNode`): **style + geometry + placement** (+ optional [`ParentConfines`](buildings/components/src/parent_confines.rs); labels also carry a debug string). Each node implements [`LodScene`](../../../lod/lib/src/scene/lod_scene.rs). Tessellation into kit pieces is private to the domain. Partition IR is primitive (no portals). Labels render as colored wireframes; face text is a playground gizmo pass (scaled/wrapped to each face). |
 | [`buildings`](buildings/) | Building procedures. Compose constraints, layouts, and helpers (`paneling` / `arcs` / `portals`, `ArcSpire`, …) into domain nodes via [`BuildingComponents`](buildings/components/src/lib.rs). Present component-only buildings as [`ComponentsOnly`](buildings/components/src/lib.rs)`<T>` for `LodScene`; keep a custom `LodScene` when hosts, silhouettes, or non-node extras are required. Playground joinery demos live under `wall_demo`. |
-| [`buildings-playground`](buildings/playground/) | Preview / CLI. Spawns hosts once; LOD flips update [`LodSceneLevel`](../../../lod/lib/src/lod_level.rs) in place (no whole-tree despawn). |
+| [`buildings-playground`](buildings/playground/) | Preview / CLI. Spawns hosts once; LOD flips update [`LodSceneLevel`](../../../lod/lib/src/scene/level.rs) in place (no whole-tree despawn). |
 
 Shared pose helpers (`pose`, `posed_glb`, `with_pose`, `scene_children`, `append_component_scenes`, `ComponentsOnly`) live in building-components and should not be reimplemented per building.
 
@@ -32,7 +32,7 @@ constraints / layout helpers
 Preferred shape for a storey or room:
 
 ```rust
-use richmond_building_components::{BuildingComponents, Layers};
+use building_components::{BuildingComponents, Layers};
 
 pub struct ExampleFloor {
     pub floors: Vec<FloorNode>,
@@ -59,18 +59,18 @@ Parents **merge** children’s layered node maps via [`Layers::extend`](building
 
 [`Layer`](buildings/components/src/layer.rs) is a **provenance** record (e.g. `"closet"`, `"envelope"`), not a stand-in for node type. Domain type stays on the trait method (`panel_nodes_for_level` vs `partition_nodes_for_level`). Higher-order types use layer names to decide what to do with that geometry; use [`Layers::free`](buildings/components/src/layer.rs) until a provenance label is useful.
 
-Helpers such as [`portal_ring_wall`](buildings/src/arcs/portal_ring.rs) / paneling strips / `ArcSpire` are fine when they **produce** `PartitionNode` / `PanelNode` / `StairNode` via `BuildingComponents`. Use **partition** for arc/linear kit IR, **panel** for rectangle/triangle kits, and **portals** for opening assignment along a path. Door leaves stay empty until portal → `DoorNode` authorship exists.
+Helpers such as [`portal_ring_wall`](buildings/lib/src/arcs/portal_ring.rs) / paneling strips / `ArcSpire` are fine when they **produce** `PartitionNode` / `PanelNode` / `StairNode` via `BuildingComponents`. Use **partition** for arc/linear kit IR, **panel** for rectangle/triangle kits, and **portals** for opening assignment along a path. Door leaves stay empty until portal → `DoorNode` authorship exists.
 
 ## Allocate cells, fill in children
 
-Higher-order room types own **layout**: they `subset` child AABBs from [`CellConstraints`](buildings/src/constraints.rs) and construct lower-order types. Lower-order types own **fill**.
+Higher-order room types own **layout**: they `subset` child AABBs from [`CellConstraints`](buildings/lib/src/constraints.rs) and construct lower-order types. Lower-order types own **fill**.
 
-Constructors take the child's [`CellConstraints`](buildings/src/constraints.rs). Do not pass a parent `&CellConstraints` “for context”.
+Constructors take the child's [`CellConstraints`](buildings/lib/src/constraints.rs). Do not pass a parent `&CellConstraints` “for context”.
 
 Residential program fill now lives under
-[`usage_areas`](buildings/src/usage_areas.rs) (`CommonBedroom`, livable quarters)
+[`usage_areas`](buildings/lib/src/usage_areas.rs) (`CommonBedroom`, livable quarters)
 via the Fit / parameterized → plan path and the shared
-[`placer`](buildings/src/placer.rs) KindSpec trier — not hierarchical
+[`placer`](buildings/lib/src/placer.rs) KindSpec trier — not hierarchical
 `CellConstraints` bedroom trees.
 
 ## `LodScene` on buildings
@@ -83,11 +83,11 @@ Types with silhouettes, lights, or late-bound [`ParentConfines`](buildings/compo
 
 `LodScene` methods:
 
-- `scene_lod_level` — desired [`LodSceneLevel`](../../../lod/lib/src/lod_level.rs) (cheap).
+- `scene_lod_level` — desired [`LodSceneLevel`](../../../lod/lib/src/scene/level.rs) (cheap).
 - `scene_lod_status` — `Unchanged` or `Changed(level)`.
-- `scene_lod_culls` — inactive [`LodLevelRoot`](../../../lod/lib/src/lod_scene_host.rs)s this type is willing to **despawn** ([`LodSceneCulls`](../../../lod/lib/src/lod_cull.rs); default `None` keeps roots warm). Prefer helpers ([`cull_non_adjacent_bands`](../../../lod/lib/src/lod_cull.rs), [`cull_offset_bands`](../../../lod/lib/src/lod_cull.rs) / [`cull_bands_with_adjacent_depth`](../../../lod/lib/src/lod_cull.rs), [`cull_named_from_factor`](../../../lod/lib/src/lod_cull.rs)) over ad-hoc lists; “not current” alone is not a cull reason. Host GC never despawns the current level. After despawn, Sync + Fulfill bring the desired level back via `scene_with_level` (same as first spawn). **Do not casually cull the immediately adjacent band** — re-entering it forces an expensive respawn; prefer non-adjacent GC, or offset bands (halfway in) only when the adjacent root is heavy.
+- `scene_lod_culls` — inactive [`LodLevelRoot`](../../../lod/lib/src/scene/host.rs)s this type is willing to **despawn** ([`LodSceneCulls`](../../../lod/lib/src/scene/cull.rs); default `None` keeps roots warm). Prefer helpers ([`cull_non_adjacent_bands`](../../../lod/lib/src/scene/cull.rs), [`cull_offset_bands`](../../../lod/lib/src/scene/cull.rs) / [`cull_bands_with_adjacent_depth`](../../../lod/lib/src/scene/cull.rs), [`cull_named_from_factor`](../../../lod/lib/src/scene/cull.rs)) over ad-hoc lists; “not current” alone is not a cull reason. Host GC never despawns the current level. After despawn, Sync + Fulfill bring the desired level back via `scene_with_level` (same as first spawn). **Do not casually cull the immediately adjacent band** — re-entering it forces an expensive respawn; prefer non-adjacent GC, or offset bands (halfway in) only when the adjacent root is heavy.
 - `scene_with_level` — primary builder for one level root.
-- `scene_with_lod` — first present via [`lod_host_scene`](../../../lod/lib/src/lod_scene_host.rs).
+- `scene_with_lod` — first present via [`lod_host_scene`](../../../lod/lib/src/scene/host.rs).
 
 Hosts flip level-root visibility / lazily spawn missing roots. Nested hosts are independent. World buildings should not nest a host per kit — structural `ComponentsOnly` / flattened append is the urban path.
 
@@ -111,7 +111,7 @@ LOD uses **capsule surface distance** (meters outside a vertical footprint capsu
 | Level | Content | Distance |
 |-------|---------|----------|
 | High | Exterior + per-storey internals + spire capsule | ≤ 5 × footprint radius |
-| Medium | Exterior walls only | ≤ [`LOW_RES_CUTOFF_METERS`](buildings/src/wizards_tower/tower_lod.rs) (raw world meters) |
+| Medium | Exterior walls only | ≤ [`LOW_RES_CUTOFF_METERS`](buildings/lib/src/wizards_tower/tower_lod.rs) (raw world meters) |
 | Low | Cylinder silhouette | beyond |
 
 Scale-dependent [`ParentConfines`](buildings/components/src/parent_confines.rs) may still reveal internals inside High even when that radius reaches farther than a short capsule-based feel — that clash is acceptable.
@@ -182,9 +182,9 @@ fn emit_internal_features(
 ## Related reading
 
 - [building-components README](buildings/components/README.md)
-- [buildings README](buildings/README.md) (urban kit taxonomy for higher-order authorship)
-- [buildings CONTRIBUTING](buildings/CONTRIBUTING.md) (Les Halles parameterized → plan → full / openings / usage areas)
+- [buildings README](buildings/lib/README.md) (urban kit taxonomy for higher-order authorship)
+- [buildings CONTRIBUTING](buildings/lib/CONTRIBUTING.md) (Les Halles parameterized → plan → full / openings / usage areas)
 - [Urban art README](../../../art/urban/README.md)
-- [`LodScene`](../../../lod/lib/src/gen/presentation.rs)
+- [`LodScene`](../../../lod/lib/src/scene/lod_scene.rs)
 - [Structural LOD collectors](../../../lod/docs/structural-lod-collectors.md)
 - [Maybraid contributing: `-models` crates](../../../CONTRIBUTING.md#-models-crates)

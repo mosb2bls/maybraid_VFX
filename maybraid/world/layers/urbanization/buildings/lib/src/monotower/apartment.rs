@@ -16,7 +16,7 @@ use building_components::partitions::{PartitionNode, PartitionStyle};
 use building_components::roofs::RoofNode;
 use building_components::stairs::StairNode;
 use building_components::{BuildingComponents, BuildingStructuralLodProbe, Layers, MassingVolume};
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 use material_ref::MaterialRef;
 use procedural_common::NoiseParams;
 

@@ -13,15 +13,12 @@ members = [
   "maybraid/world/layers/urbanization/developments",
   "maybraid/world/layers/urbanization/richmond",
   "maybraid/world/layers/urbanization/cells",
-  "maybraid/world/layers/urbanization/richmond-playground",
-
   "maybraid/world/layers/furnishing/components",
   "maybraid/world/layers/furnishing/assemblies",
   "maybraid/world/layers/furnishing/usage-areas",
   "maybraid/world/layers/furnishing/shaders",
   "maybraid/world/layers/furnishing/playground",
   "maybraid/world/layers/furnishing/model",
-  "maybraid/world/layers/furnishing/presentation",
   "maybraid/world/layers/furnishing/maputo",
 
   "maybraid/menu/components",
@@ -35,6 +32,11 @@ members = [
   "maybraid/weather",
   "maybraid/scene-ref",
   "maybraid/material-ref",
+  "maybraid/screen-capture",
+  "maybraid/world/materials/lib",
+  "maybraid/world/materials/playground",
+  "maybraid/vfx/lib",
+  "maybraid/vfx/playground",
   "maybraid/terrain-chunk-ref",
   "maybraid/visual-geometry-core",
 
@@ -46,13 +48,11 @@ members = [
 
   "maybraid/world/layers/stack",
   "maybraid/world/layers/terrain/model",
-  "maybraid/world/layers/terrain/presentation",
   "maybraid/world/layers/urbanization/model",
-  "maybraid/world/layers/urbanization/presentation",
   "maybraid/world/layers/vegetation/model",
-  "maybraid/world/layers/vegetation/presentation",
   "maybraid/world/layers/mobs/model",
-  "maybraid/world/layers/mobs/presentation",
+  "maybraid/world/layers/language/model",
+  "maybraid/world/layers/language/geneva",
 
   "maybraid/lod/lib",
   "maybraid/lod/avian",
@@ -73,7 +73,6 @@ members = [
   "maybraid/world/layers/mobs/characters/ragdoll",
   "maybraid/menu/bevy-character-ui-menu-renderer",
   "maybraid/menu/character-concepts-playground",
-  "maybraid/world/layers/mobs/characters/world-movements-playground",
   "maybraid/world/layers/mobs/characters/items",
   "maybraid/world/layers/mobs/characters/persist",
   "maybraid/world/layers/mobs/characters/inventory-user",
@@ -84,6 +83,8 @@ members = [
   "maybraid/world/layers/mobs/characters/lib",
   "maybraid/world/layers/mobs/characters/rigs",
   "maybraid/world/layers/mobs/characters/playground",
+  "maybraid/world/layers/mobs/architectural/doric-column",
+  "maybraid/world/layers/mobs/architectural/doric-column/playground",
 
   "maybraid/procedural/common",
   "maybraid/procedural/comproc",
@@ -100,21 +101,26 @@ members = [
   "maybraid/game",
   "maybraid/world/modes/discover",
   "maybraid/world/modes/reliquary",
-  "maybraid/world/modes/training-ground",
   "maybraid/input",
+  "maybraid/agent",
   "maybraid/combat-hud",
+  "maybraid/combat-hud/playground",
+  "maybraid/lubikans",
+  "maybraid/lubikans/damage",
   "maybraid/player",
   "maybraid/player-camera",
   "maybraid/world/layers/mobs/characters/generated",
   "maybraid/world/layers/mobs/scenes",
   "maybraid/world/layers/mobs/barking",
-  "maybraid/world/layers/mobs/barking-playground",
   "maybraid/movement-realization",
   "maybraid/projectiles",
   "maybraid/damage",
   "maybraid/items/firearms-components",
+  "maybraid/items/icons",
   "maybraid/items/firearms",
   "maybraid/items/firearm-user",
+  "maybraid/items/grenades",
+  "maybraid/items/grenade-user",
   "maybraid/items/playground",
   "maybraid/items/firing-range-playground",
   "maybraid/items/les-halles-arena",
@@ -143,7 +149,6 @@ members = [
   "maybraid/intelligence/personalities",
   "maybraid/intelligence/mob-brain",
   "maybraid/intelligence/poi-playground",
-  "maybraid/intelligence/routing-playground",
   "maybraid/world/layers/vegetation/components",
   "maybraid/world/layers/vegetation/sbs-geometry",
   "maybraid/world/layers/vegetation/groves",
@@ -167,7 +172,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.5"
 edition = "2021"
 license = "LICENSE.md" 
 authors = ["Ramate LLC"]
@@ -278,15 +283,12 @@ buildings-playground = { path = "maybraid/world/layers/urbanization/buildings/pl
 urbanization-developments = { path = "maybraid/world/layers/urbanization/developments" }
 richmond = { path = "maybraid/world/layers/urbanization/richmond" }
 urbanization-cells = { path = "maybraid/world/layers/urbanization/cells" }
-richmond-playground = { path = "maybraid/world/layers/urbanization/richmond-playground" }
-
 furniture-components = { path = "maybraid/world/layers/furnishing/components" }
 furniture-assemblies = { path = "maybraid/world/layers/furnishing/assemblies" }
 furniture-usage-areas = { path = "maybraid/world/layers/furnishing/usage-areas" }
 furniture-shaders = { path = "maybraid/world/layers/furnishing/shaders" }
 furniture-playground = { path = "maybraid/world/layers/furnishing/playground" }
 furnishing-layer-model = { path = "maybraid/world/layers/furnishing/model" }
-furnishing-layer-presentation = { path = "maybraid/world/layers/furnishing/presentation" }
 maputo = { path = "maybraid/world/layers/furnishing/maputo" }
 
 menu-components = { path = "maybraid/menu/components" }
@@ -301,18 +303,17 @@ maybraid-weather = { path = "maybraid/weather" }
 scene-ref = { path = "maybraid/scene-ref" }
 visual-geometry-core = { path = "maybraid/visual-geometry-core" }
 material-ref = { path = "maybraid/material-ref" }
+screen-capture = { path = "maybraid/screen-capture" }
 terrain-chunk-ref = { path = "maybraid/terrain-chunk-ref" }
 avian3d = "0.7"
 
 layer-stack = { path = "maybraid/world/layers/stack" }
 terrain-layer-model = { path = "maybraid/world/layers/terrain/model" }
-terrain-layer-presentation = { path = "maybraid/world/layers/terrain/presentation" }
 urbanization-layer-model = { path = "maybraid/world/layers/urbanization/model" }
-urbanization-layer-presentation = { path = "maybraid/world/layers/urbanization/presentation" }
 vegetation-layer-model = { path = "maybraid/world/layers/vegetation/model" }
-vegetation-layer-presentation = { path = "maybraid/world/layers/vegetation/presentation" }
 mob-layer-model = { path = "maybraid/world/layers/mobs/model" }
-mob-layer-presentation = { path = "maybraid/world/layers/mobs/presentation" }
+language-layer-model = { path = "maybraid/world/layers/language/model" }
+geneva = { path = "maybraid/world/layers/language/geneva" }
 
 lod = { path = "maybraid/lod/lib" }
 lod-avian = { path = "maybraid/lod/avian" }
@@ -327,8 +328,9 @@ ground-avian = { path = "maybraid/ground/avian" }
 sdf-common = { path = "maybraid/sdf/common" }
 sdf-common-playground = { path = "maybraid/sdf/common-playground" }
 character-concepts-playground = { path = "maybraid/menu/character-concepts-playground" }
-character-world-movements-playground = { path = "maybraid/world/layers/mobs/characters/world-movements-playground" }
 characters-playground = { path = "maybraid/world/layers/mobs/characters/playground" }
+doric-column = { path = "maybraid/world/layers/mobs/architectural/doric-column" }
+doric-column-playground = { path = "maybraid/world/layers/mobs/architectural/doric-column/playground" }
 character-items = { path = "maybraid/world/layers/mobs/characters/items" }
 character-persist = { path = "maybraid/world/layers/mobs/characters/persist" }
 character-inventory-user = { path = "maybraid/world/layers/mobs/characters/inventory-user" }
@@ -353,18 +355,29 @@ vegetation-shaders = { path = "maybraid/world/layers/vegetation/shaders" }
 world-player = { path = "maybraid/world/player" }
 maybraid-sky = { path = "maybraid/sky/lib" }
 maybraid-world = { path = "maybraid/world/lib" }
+world-materials = { path = "maybraid/world/materials/lib" }
+world-materials-playground = { path = "maybraid/world/materials/playground" }
+maybraid-vfx = { path = "maybraid/vfx/lib" }
+vfx-playground = { path = "maybraid/vfx/playground" }
 maybraid-skill-map = { path = "maybraid/skill-map" }
 maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
+maybraid-agent = { path = "maybraid/agent" }
 combat-hud = { path = "maybraid/combat-hud" }
+combat-hud-playground = { path = "maybraid/combat-hud/playground" }
+lubikans = { path = "maybraid/lubikans" }
+lubikans-damage = { path = "maybraid/lubikans/damage" }
 player = { path = "maybraid/player" }
 player-camera = { path = "maybraid/player-camera" }
 movement-realization = { path = "maybraid/movement-realization" }
 projectiles = { path = "maybraid/projectiles" }
 damage = { path = "maybraid/damage" }
 firearms-components = { path = "maybraid/items/firearms-components" }
+item-icons = { path = "maybraid/items/icons" }
 firearms = { path = "maybraid/items/firearms" }
 firearm-user = { path = "maybraid/items/firearm-user" }
+grenades = { path = "maybraid/items/grenades" }
+grenade-user = { path = "maybraid/items/grenade-user" }
 intelligence-lod = { path = "maybraid/intelligence/lod" }
 movement-intelligence = { path = "maybraid/intelligence/movement/lib" }
 movement-intelligence-avian = { path = "maybraid/intelligence/movement/avian" }
@@ -389,16 +402,13 @@ mob-intelligence = { path = "maybraid/intelligence/mob" }
 mob-characters = { path = "maybraid/world/layers/mobs/characters/generated" }
 mob-scenes = { path = "maybraid/world/layers/mobs/scenes" }
 barking = { path = "maybraid/world/layers/mobs/barking" }
-barking-playground = { path = "maybraid/world/layers/mobs/barking-playground" }
 personalities-playground = { path = "maybraid/intelligence/personalities" }
 mob-brain-playground = { path = "maybraid/intelligence/mob-brain" }
 poi-playground = { path = "maybraid/intelligence/poi-playground" }
-routing-playground = { path = "maybraid/intelligence/routing-playground" }
 items-playground = { path = "maybraid/items/playground" }
 firing-range-playground = { path = "maybraid/items/firing-range-playground" }
 maybraid-game-mode-discover = { path = "maybraid/world/modes/discover" }
 maybraid-game-mode-reliquary = { path = "maybraid/world/modes/reliquary" }
-maybraid-game-mode-training-ground = { path = "maybraid/world/modes/training-ground" }
 les-halles-arena = { path = "maybraid/items/les-halles-arena" }
 
 gimme-core = { path = "maybraid/gimme/core" }

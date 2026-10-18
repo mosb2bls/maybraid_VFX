@@ -5,7 +5,7 @@
 //! kits is [`crate::CollectionPresent`] on the node.
 
 use bevy_math::Vec3;
-use lod::gen::LodSceneLevel;
+use lod::scene::LodSceneLevel;
 
 use crate::lod_band::characteristic_extent_abs;
 use crate::placed::Placement;

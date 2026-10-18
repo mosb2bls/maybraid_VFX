@@ -2,9 +2,9 @@ use super::*;
 use anyhow::Result;
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::{Entity, Transform};
-use lod::gen::{LodScene, LodSceneLevel};
 use lod::lod_ref::LodRef;
-use vegetation_components::VegetationComponents;
+use lod::scene::{LodScene, LodSceneLevel};
+use vegetation_components::{FlattenedComponentsOnly, PlacedVegetation, VegetationComponents};
 
 fn small_grove() -> Orchard {
 	OrchardParams::default()
@@ -41,6 +41,23 @@ fn high_medium_nest_one_flattened_host_per_tree() -> Result<()> {
 	};
 	assert_eq!(weight, vegetation_components::FLATTENED_KIT_CHUNK_WEIGHT);
 	Ok(())
+}
+
+#[test]
+fn high_tile_fulfill_keeps_full_canopy_when_plants_are_still_medium() -> Result<()> {
+	let grove = OrchardParams::default()
+		.with_extent(GroveExtent::new(Vec3::ZERO, Vec3::new(100.0, 1.0, 100.0)))
+		.build();
+	let hosts = grove.plants.iter().map(|plant| {
+		FlattenedComponentsOnly(PlacedVegetation::new(
+			std::sync::Arc::clone(&plant.tree),
+			plant.placement,
+			plant.stick_material.clone(),
+			plant.ball_material.clone(),
+			plant.frond_material.clone(),
+		))
+	});
+	crate::grove::woody_checks::assert_high_fulfill_uses_full_canopy(&grove, hosts, "orchard trees")
 }
 
 #[test]

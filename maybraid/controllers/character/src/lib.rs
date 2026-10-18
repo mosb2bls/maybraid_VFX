@@ -3,7 +3,7 @@
 pub mod intent;
 pub mod produce;
 
-pub use intent::CharacterIntent;
+pub use intent::{CharacterIntent, InventoryCyclingCategory};
 
 use bevy::prelude::*;
 use maybraid_input::VirtualPadPlugin;

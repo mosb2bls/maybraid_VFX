@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use character_rigs::humanoid::LegSegmentLengths;
 
 use crate::animations::{vertical_drop, Squat};
@@ -8,22 +6,21 @@ use crate::animations::{vertical_drop, Squat};
 const DEFAULT_LAND_SCALE: f32 = 0.35;
 
 #[derive(Debug, Clone)]
-pub struct Land<Rig> {
+pub struct Land {
 	/// Timed squat envelope for landing compression and recovery.
-	pub squat: Squat<Rig>,
+	pub squat: Squat,
 	/// Scales peak landing joint flex relative to a full squat.
 	pub scale: f32,
-	_rig: PhantomData<Rig>,
 }
 
-impl<Rig> Land<Rig> {
+impl Land {
 	/// Landing squat with explicit compression and recovery half-cycle speeds.
-	pub fn with_speeds(descent_speed: f32, ascent_speed: f32, squat: Squat<Rig>) -> Self {
+	pub fn with_speeds(descent_speed: f32, ascent_speed: f32, squat: Squat) -> Self {
 		let mut timed = Squat::with_speeds(descent_speed, ascent_speed);
 		timed.femur_peak = squat.femur_peak;
 		timed.shin_peak = squat.shin_peak;
 		timed.root_peak = squat.root_peak;
-		Self { squat: timed, scale: DEFAULT_LAND_SCALE, _rig: PhantomData }
+		Self { squat: timed, scale: DEFAULT_LAND_SCALE }
 	}
 
 	/// Normalized landing depth before scale: 0 at touch-down extension, 1 at peak compression.
@@ -71,7 +68,7 @@ impl<Rig> Land<Rig> {
 	}
 }
 
-impl<Rig> Default for Land<Rig> {
+impl Default for Land {
 	fn default() -> Self {
 		Self::with_speeds(1.0, 1.0, Squat::default())
 	}
@@ -84,8 +81,8 @@ mod tests {
 
 	#[test]
 	fn land_peak_flex_below_full_squat() -> anyhow::Result<()> {
-		let squat = Squat::<()>::for_loop(1.0, 1.0);
-		let land = Land::<()>::default();
+		let squat = Squat::for_loop(1.0, 1.0);
+		let land = Land::default();
 		let peak = land.descent_duration() / land.cycle_duration();
 		assert!(land.femur_swing(peak).abs() < squat.femur_swing(0.5).abs());
 		assert!(land.shin_flex(peak).abs() < squat.shin_flex(0.5).abs());
@@ -94,7 +91,7 @@ mod tests {
 
 	#[test]
 	fn land_starts_at_stand() -> anyhow::Result<()> {
-		let land = Land::<()>::default();
+		let land = Land::default();
 		assert!(land.depth(0.0).abs() < 1e-5);
 		assert!(land.femur_swing(0.0).abs() < 1e-5);
 		Ok(())
@@ -102,7 +99,7 @@ mod tests {
 
 	#[test]
 	fn land_compresses_gradually_after_touchdown() -> anyhow::Result<()> {
-		let land = Land::<()>::with_speeds(10.0, 1.0, Squat::default());
+		let land = Land::with_speeds(10.0, 1.0, Squat::default());
 		let early = land.descent_duration() * 0.5 / land.cycle_duration();
 		assert!(land.depth(early) > 0.0);
 		Ok(())

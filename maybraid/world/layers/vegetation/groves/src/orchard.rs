@@ -3,8 +3,8 @@
 //!
 //! Compact fruiting and pale-bloom storybook forms on low-slope terrain with tight cell offset.
 //!
-//! Under `render`, High/Medium nest one flattened Storybook tree host per plant
-//! (posed kit content, no per-stick / per-ball LOD hosts). Plants unitize through
+//! Under `render`, High/Medium pose one Storybook kit group per plant under the
+//! grove host (no per-tree [`lod::LodSceneHost`]). Plants unitize through
 //! [`StorybookTree::unit_from_num`](sbs_trees::StorybookTree::unit_from_num)
 //! (`tree_variants`, default `100`) so merged stick/ball collections share archetypal
 //! meshes. Low ≈ one canopy ball per tree; UltraLow bins those sites at

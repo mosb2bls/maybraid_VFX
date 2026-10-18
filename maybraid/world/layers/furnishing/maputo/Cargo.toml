@@ -19,9 +19,9 @@ furniture-components = { workspace = true }
 furniture-shaders = { workspace = true }
 furniture-usage-areas = { workspace = true }
 furnishing-layer-model = { workspace = true }
-furnishing-layer-presentation = { workspace = true }
 layer-stack = { workspace = true }
 lod = { workspace = true }
+procedural-common = { workspace = true }
 lod-avian = { workspace = true }
 lod-gimme = { workspace = true }
 richmond = { workspace = true }
@@ -31,7 +31,9 @@ urbanization-layer-model = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 buildings = { workspace = true }
+durham = { workspace = true }
 procedural-common = { workspace = true }
+urbanization-cells = { workspace = true }
 urbanization-developments = { workspace = true }
 
 [lints]
