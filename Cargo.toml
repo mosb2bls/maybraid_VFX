@@ -152,6 +152,7 @@ members = [
   "maybraid/world/layers/vegetation/groves",
   "maybraid/world/layers/vegetation/chico",
   "maybraid/gimme/core",
+  "maybraid/gimme/bench-support",
   "maybraid/gimme/gen",
 
   "maybraid/language/core",
@@ -409,6 +410,7 @@ maybraid-game-mode-reliquary = { path = "maybraid/world/modes/reliquary" }
 les-halles-arena = { path = "maybraid/items/les-halles-arena" }
 
 gimme-core = { path = "maybraid/gimme/core" }
+gimme-bench-support = { path = "maybraid/gimme/bench-support" }
 gimme-gen = { path = "maybraid/gimme/gen" }
 
 maybraid-language-core = { path = "maybraid/language/core" }

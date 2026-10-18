@@ -1,13 +1,22 @@
-//! Production-path A/B for cull / produce fill against main's query-and-insert.
+//! Production-path A/B for cull / produce fill adapters.
+//!
+//! Both sides run the **current** `fill_lod_cull_produce_cache` /
+//! `fill_lod_produce_cache` systems. Only the [`LodSceneHostIndex`] adapter
+//! differs (historical pair-walk + default `out.extend` vs
+//! `extend_intersecting`). This does **not** measure the whole PR against its
+//! base.
 
 use std::hint::black_box;
-use std::time::{Duration, Instant};
+use std::marker::PhantomData;
 
 use anyhow::Result;
-use bevy::ecs::system::{RunSystemOnce, SystemParam};
+use bevy::ecs::system::{StaticSystemParam, SystemParam};
 use bevy::math::bounding::Aabb3d;
-use bevy::math::Vec3;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
+use gimme_bench_support::{
+	AbReport, HostGrid, MessageBuffers, Microbench, PairWalkFill, PassLifetime, PersistentSystem,
+};
 use lod::{
 	fill_lod_cull_produce_cache, fill_lod_produce_cache, LodCullProduceCache, LodHostBounds,
 	LodNode, LodProduceCache, LodRefreshDomain, LodRefreshMembership, LodSceneCullAabb,
@@ -16,8 +25,12 @@ use lod::{
 
 use super::{GimmeLodHostIndex, GimmeLodHostPlugin, GimmeLodSceneHostIndex};
 
-/// Main's Gimme adapter: `hosts_in_region` is the sorted pair walk; fill uses the
-/// default `out.extend(hosts_in_region(region))`.
+const INPUT_MESSAGES: usize = 4;
+const FILL_PASSES: u32 = 80;
+
+/// Historical Gimme adapter: pair-walk `hosts_in_region`; fill uses the default
+/// `out.extend(hosts_in_region(region))`. Same **new** fill systems as
+/// [`GimmeLodSceneHostIndex`].
 #[derive(SystemParam)]
 struct OriginalGimmeLodSceneHostIndex<'w> {
 	index: Res<'w, GimmeLodHostIndex>,
@@ -25,56 +38,62 @@ struct OriginalGimmeLodSceneHostIndex<'w> {
 
 impl LodSceneHostIndex for OriginalGimmeLodSceneHostIndex<'_> {
 	fn hosts_in_region<'a>(&'a mut self, region: Aabb3d) -> impl Iterator<Item = Entity> + 'a {
-		self.index.0.query_ids_from_sorted_pairs(region).into_iter()
+		PairWalkFill::new(&self.index.0).query_ids(region).into_iter()
 	}
 }
 
-struct HostGrid {
-	hosts: usize,
-	spacing: f32,
+fn counted_cull_fill<I>(
+	regions: MessageReader<LodSceneCullAabb>,
+	index: StaticSystemParam<I>,
+	nodes: Query<(Entity, &lod::LodNodePose, Option<&lod::LodNodeBounds>), With<LodNode>>,
+	cache: ResMut<LodCullProduceCache>,
+) -> usize
+where
+	I: SystemParam + 'static,
+	for<'w, 's> I::Item<'w, 's>: LodSceneHostIndex,
+{
+	let consumed = regions.len();
+	fill_lod_cull_produce_cache::<I>(regions, index, nodes, cache);
+	consumed
 }
 
-impl HostGrid {
-	fn side(&self) -> usize {
-		(self.hosts as f64).sqrt().ceil().max(1.0) as usize
-	}
-
-	fn extent(&self) -> f32 {
-		self.side() as f32 * self.spacing
-	}
-
-	fn host_translation(&self, i: usize) -> Vec3 {
-		let side = self.side();
-		Vec3::new((i % side) as f32 * self.spacing, 0.0, (i / side) as f32 * self.spacing)
-	}
-
-	fn host_bounds() -> LodHostBounds {
-		LodHostBounds(Aabb3d::from_min_max(Vec3::new(-8.0, -2.0, -8.0), Vec3::new(8.0, 8.0, 8.0)))
-	}
-
-	fn overlapping_regions(&self) -> [Aabb3d; 4] {
-		let extent = self.extent();
-		let mid = extent * 0.55;
-		[
-			Aabb3d::from_min_max(Vec3::new(0.0, -16.0, 0.0), Vec3::new(mid, 32.0, mid)),
-			Aabb3d::from_min_max(Vec3::new(extent - mid, -16.0, 0.0), Vec3::new(extent, 32.0, mid)),
-			Aabb3d::from_min_max(Vec3::new(0.0, -16.0, extent - mid), Vec3::new(mid, 32.0, extent)),
-			Aabb3d::from_min_max(
-				Vec3::new(extent - mid, -16.0, extent - mid),
-				Vec3::new(extent, 32.0, extent),
-			),
-		]
-	}
+fn counted_produce_fill<I>(
+	regions: MessageReader<LodSceneRefreshAabb>,
+	index: StaticSystemParam<I>,
+	nodes: Query<(Entity, &lod::LodNodePose, Option<&lod::LodNodeBounds>), With<LodNode>>,
+	membership: Query<&LodRefreshMembership>,
+	cache: ResMut<LodProduceCache>,
+) -> usize
+where
+	I: SystemParam + 'static,
+	for<'w, 's> I::Item<'w, 's>: LodSceneHostIndex,
+{
+	let consumed = regions.len();
+	fill_lod_produce_cache::<I>(regions, index, nodes, membership, cache);
+	consumed
 }
 
-struct FillScene {
+/// One world + persistent fill systems. Destination lifetimes are those of the
+/// production fills (`PassLifetime`), not of this helper.
+struct FillScene<I>
+where
+	I: SystemParam + 'static,
+{
 	app: App,
 	regions: [Aabb3d; 4],
 	domain: LodRefreshDomain,
+	expected_hits: HashSet<Entity>,
+	cull: PersistentSystem<usize>,
+	produce: PersistentSystem<usize>,
+	_index: PhantomData<I>,
 }
 
-impl FillScene {
-	fn spawn(grid: &HostGrid) -> Self {
+impl<I> FillScene<I>
+where
+	I: SystemParam + 'static,
+	for<'w, 's> I::Item<'w, 's>: LodSceneHostIndex,
+{
+	fn spawn(grid: &HostGrid) -> Result<Self> {
 		let mut app = App::new();
 		app.add_plugins((MinimalPlugins, TransformPlugin, GimmeLodHostPlugin))
 			.init_resource::<LodCullProduceCache>()
@@ -87,21 +106,62 @@ impl FillScene {
 			app.world_mut().spawn((
 				LodSceneHost,
 				Transform::from_translation(grid.host_translation(i)),
-				HostGrid::host_bounds(),
+				LodHostBounds(HostGrid::local_host_bounds()),
 				LodRefreshMembership(domain),
 			));
 		}
 		app.update();
-		Self { app, regions: grid.overlapping_regions(), domain }
+
+		let expected_hits = {
+			let index = app.world().resource::<GimmeLodHostIndex>();
+			let mut hits = HashSet::new();
+			for region in grid.overlapping_regions() {
+				hits.extend(index.hosts_in_region(region));
+			}
+			hits
+		};
+		assert!(!expected_hits.is_empty());
+
+		let cull = PersistentSystem::initialize(app.world_mut(), counted_cull_fill::<I>);
+		let produce = PersistentSystem::initialize(app.world_mut(), counted_produce_fill::<I>);
+		Ok(Self {
+			app,
+			regions: grid.overlapping_regions(),
+			domain,
+			expected_hits,
+			cull,
+			produce,
+			_index: PhantomData,
+		})
 	}
 
-	fn write_cull_regions(&mut self) {
+	fn prepare_cull(&mut self) {
 		for region in self.regions {
 			self.app.world_mut().write_message(LodSceneCullAabb { region });
 		}
 	}
 
-	fn write_produce_regions(&mut self) {
+	fn execute_cull(&mut self) -> Result<usize> {
+		self.cull.run(self.app.world_mut())
+	}
+
+	fn maintain_cull(&mut self) {
+		MessageBuffers::age::<LodSceneCullAabb>(self.app.world_mut());
+	}
+
+	fn validate_cull(&self) -> Result<()> {
+		let hits = &self.app.world().resource::<LodCullProduceCache>().hit_entities;
+		if hits != &self.expected_hits {
+			return Err(anyhow::anyhow!(
+				"cull hit membership {} != expected {}",
+				hits.len(),
+				self.expected_hits.len()
+			));
+		}
+		Ok(())
+	}
+
+	fn prepare_produce(&mut self) {
 		for region in self.regions {
 			self.app
 				.world_mut()
@@ -109,154 +169,187 @@ impl FillScene {
 		}
 	}
 
-	fn run_cull<I>(&mut self) -> Result<()>
-	where
-		I: SystemParam + 'static,
-		for<'w, 's> I::Item<'w, 's>: LodSceneHostIndex,
-	{
-		self.app
-			.world_mut()
-			.run_system_once(fill_lod_cull_produce_cache::<I>)
-			.map_err(|error| anyhow::anyhow!("{error}"))?;
+	fn execute_produce(&mut self) -> Result<usize> {
+		self.produce.run(self.app.world_mut())
+	}
+
+	fn maintain_produce(&mut self) {
+		MessageBuffers::age::<LodSceneRefreshAabb>(self.app.world_mut());
+	}
+
+	fn validate_produce(&self) -> Result<()> {
+		let cache = self.app.world().resource::<LodProduceCache>();
+		let Some(hits) = cache.hits_for(self.domain) else {
+			return Err(anyhow::anyhow!("produce cache missing domain hits"));
+		};
+		if hits != &self.expected_hits {
+			return Err(anyhow::anyhow!(
+				"produce hit membership {} != expected {}",
+				hits.len(),
+				self.expected_hits.len()
+			));
+		}
 		Ok(())
 	}
 
-	fn run_produce<I>(&mut self) -> Result<()>
-	where
-		I: SystemParam + 'static,
-		for<'w, 's> I::Item<'w, 's>: LodSceneHostIndex,
-	{
-		self.app
-			.world_mut()
-			.run_system_once(fill_lod_produce_cache::<I>)
-			.map_err(|error| anyhow::anyhow!("{error}"))?;
+	/// One timed sample: `passes` simulated frames. Validation stays outside.
+	fn run_cull_window(&mut self, passes: u32) -> Result<()> {
+		for _ in 0..passes {
+			self.prepare_cull();
+			let consumed = self.execute_cull()?;
+			self.maintain_cull();
+			if consumed != INPUT_MESSAGES {
+				return Err(anyhow::anyhow!(
+					"cull fill consumed {consumed} messages, expected {INPUT_MESSAGES}"
+				));
+			}
+			black_box(self.app.world().resource::<LodCullProduceCache>().hit_entities.len());
+		}
 		Ok(())
 	}
 
-	fn cull_hits(&self) -> usize {
-		self.app.world().resource::<LodCullProduceCache>().hit_entities.len()
+	fn run_produce_window(&mut self, passes: u32) -> Result<()> {
+		for _ in 0..passes {
+			self.prepare_produce();
+			let consumed = self.execute_produce()?;
+			self.maintain_produce();
+			if consumed != INPUT_MESSAGES {
+				return Err(anyhow::anyhow!(
+					"produce fill consumed {consumed} messages, expected {INPUT_MESSAGES}"
+				));
+			}
+			black_box(
+				self.app
+					.world()
+					.resource::<LodProduceCache>()
+					.hits_for(self.domain)
+					.map(|hits| hits.len()),
+			);
+		}
+		Ok(())
+	}
+
+	fn dest_cap(&self) -> usize {
+		self.app.world().resource::<LodCullProduceCache>().hit_entities.capacity()
 	}
 }
 
 #[derive(Clone, Copy)]
 struct ProduceDomain;
 
-fn timed<F: FnMut() -> Result<()>>(repeats: usize, mut run: F) -> Result<Vec<Duration>> {
-	run()?;
-	let mut samples = Vec::with_capacity(repeats);
-	for _ in 0..repeats {
-		let started = Instant::now();
-		run()?;
-		samples.push(started.elapsed());
-	}
-	Ok(samples)
-}
-
-fn summarize(samples: &[Duration]) -> Result<(Duration, Duration, Duration, Duration)> {
-	if samples.is_empty() {
-		return Err(anyhow::anyhow!("microbench produced no samples"));
-	}
-	let mut sorted = samples.to_vec();
-	sorted.sort();
-	Ok((
-		sorted[0],
-		sorted[sorted.len() / 2],
-		samples.iter().copied().sum::<Duration>() / u32::try_from(samples.len())?,
-		sorted[sorted.len() - 1],
-	))
-}
-
-fn report(
+fn report_fill(
 	label: &str,
 	grid: &HostGrid,
 	hits: usize,
-	original: &[Duration],
-	revised: &[Duration],
+	lifetime: PassLifetime,
+	original: &[std::time::Duration],
+	revised: &[std::time::Duration],
 	dest_cap: usize,
 ) -> Result<()> {
-	let (o_min, o_med, o_mean, o_max) = summarize(original)?;
-	let (r_min, r_med, r_mean, r_max) = summarize(revised)?;
-	eprintln!(
-		"{label}: 80 passes × {} overlapping regions × {} hosts, {hits} unique hits; original query-and-insert fill min/med/mean/max {:?} / {:?} / {:?} / {:?}; GimmeLodSceneHostIndex fill {:?} / {:?} / {:?} / {:?}; dest cap {dest_cap}",
-		grid.overlapping_regions().len(),
-		grid.hosts,
-		o_min,
-		o_med,
-		o_mean,
-		o_max,
-		r_min,
-		r_med,
-		r_mean,
-		r_max,
-	);
+	AbReport {
+		label,
+		original_name: "pair-walk adapter, new fill systems",
+		revised_name: "extend_intersecting adapter, new fill systems",
+		original,
+		revised,
+		operations: FILL_PASSES,
+		operation_name: "fill",
+		lifetime,
+		notes: &format!(
+			"{FILL_PASSES} fills × {} overlapping regions × {} hosts, {hits} unique hits; dest cap {dest_cap}; adapter-only (not whole-PR vs base)",
+			grid.overlapping_regions().len(),
+			grid.hosts,
+		),
+	}
+	.write_to_stderr()
+}
+
+#[test]
+fn fill_pass_consumes_exactly_four_messages() -> Result<()> {
+	let grid = HostGrid { hosts: 16, spacing: 96.0 };
+	let mut original = FillScene::<OriginalGimmeLodSceneHostIndex>::spawn(&grid)?;
+	let mut revised = FillScene::<GimmeLodSceneHostIndex>::spawn(&grid)?;
+	exercise_two_fills(&mut original)?;
+	exercise_two_fills(&mut revised)?;
+	assert_eq!(original.expected_hits, revised.expected_hits);
+	Ok(())
+}
+
+fn exercise_two_fills<I>(scene: &mut FillScene<I>) -> Result<()>
+where
+	I: SystemParam + 'static,
+	for<'w, 's> I::Item<'w, 's>: LodSceneHostIndex,
+{
+	scene.prepare_cull();
+	assert_eq!(scene.execute_cull()?, INPUT_MESSAGES);
+	scene.maintain_cull();
+	scene.validate_cull()?;
+
+	scene.prepare_cull();
+	assert_eq!(scene.execute_cull()?, INPUT_MESSAGES);
+	scene.maintain_cull();
+	scene.validate_cull()?;
+
+	scene.prepare_produce();
+	assert_eq!(scene.execute_produce()?, INPUT_MESSAGES);
+	scene.maintain_produce();
+	scene.validate_produce()?;
+
+	scene.prepare_produce();
+	assert_eq!(scene.execute_produce()?, INPUT_MESSAGES);
+	scene.maintain_produce();
+	scene.validate_produce()?;
 	Ok(())
 }
 
 #[test]
 #[ignore]
 fn lod_fill_systems_microbench() -> Result<()> {
-	const REPEATS: usize = 7;
-	const PASSES: usize = 80;
-	let scenarios =
-		[HostGrid { hosts: 64, spacing: 96.0 }, HostGrid { hosts: 4_096, spacing: 16.0 }];
+	let bench = Microbench::default();
 
-	for grid in scenarios {
-		let mut original = FillScene::spawn(&grid);
-		let mut revised = FillScene::spawn(&grid);
+	for grid in HostGrid::lattice_scenarios() {
+		let mut original = FillScene::<OriginalGimmeLodSceneHostIndex>::spawn(&grid)?;
+		let mut revised = FillScene::<GimmeLodSceneHostIndex>::spawn(&grid)?;
+		assert_eq!(original.expected_hits.len(), revised.expected_hits.len());
+		let hits = revised.expected_hits.len();
 
-		original.write_cull_regions();
-		original.run_cull::<OriginalGimmeLodSceneHostIndex>()?;
-		revised.write_cull_regions();
-		revised.run_cull::<GimmeLodSceneHostIndex>()?;
-		let hits = revised.cull_hits();
-		assert_eq!(original.cull_hits(), hits);
-		assert!(hits > 0);
+		original.run_cull_window(1)?;
+		original.validate_cull()?;
+		revised.run_cull_window(1)?;
+		revised.validate_cull()?;
 
-		let original_cull = timed(REPEATS, || {
-			for _ in 0..PASSES {
-				original.write_cull_regions();
-				original.run_cull::<OriginalGimmeLodSceneHostIndex>()?;
-				black_box(original.cull_hits());
-			}
-			Ok(())
-		})?;
-		let revised_cull = timed(REPEATS, || {
-			for _ in 0..PASSES {
-				revised.write_cull_regions();
-				revised.run_cull::<GimmeLodSceneHostIndex>()?;
-				black_box(revised.cull_hits());
-			}
-			Ok(())
-		})?;
-		report(
+		let (original_cull, revised_cull) = bench.collect_ab_alternating(
+			|| original.run_cull_window(FILL_PASSES),
+			|| revised.run_cull_window(FILL_PASSES),
+		)?;
+		original.validate_cull()?;
+		revised.validate_cull()?;
+		report_fill(
 			&format!("lod_fill_cull[{}-hosts]", grid.hosts),
 			&grid,
 			hits,
+			PassLifetime::ClearedPerPass,
 			&original_cull,
 			&revised_cull,
-			revised.app.world().resource::<LodCullProduceCache>().hit_entities.capacity(),
+			revised.dest_cap(),
 		)?;
 
-		let original_produce = timed(REPEATS, || {
-			for _ in 0..PASSES {
-				original.write_produce_regions();
-				original.run_produce::<OriginalGimmeLodSceneHostIndex>()?;
-				black_box(original.app.world().resource::<LodProduceCache>().snapshots.len());
-			}
-			Ok(())
-		})?;
-		let revised_produce = timed(REPEATS, || {
-			for _ in 0..PASSES {
-				revised.write_produce_regions();
-				revised.run_produce::<GimmeLodSceneHostIndex>()?;
-				black_box(revised.app.world().resource::<LodProduceCache>().snapshots.len());
-			}
-			Ok(())
-		})?;
-		report(
+		original.run_produce_window(1)?;
+		original.validate_produce()?;
+		revised.run_produce_window(1)?;
+		revised.validate_produce()?;
+
+		let (original_produce, revised_produce) = bench.collect_ab_alternating(
+			|| original.run_produce_window(FILL_PASSES),
+			|| revised.run_produce_window(FILL_PASSES),
+		)?;
+		original.validate_produce()?;
+		revised.validate_produce()?;
+		report_fill(
 			&format!("lod_fill_produce[{}-hosts]", grid.hosts),
 			&grid,
 			hits,
+			PassLifetime::FreshPerPass,
 			&original_produce,
 			&revised_produce,
 			0,

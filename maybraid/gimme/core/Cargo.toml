@@ -16,6 +16,9 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+bevy_math = { workspace = true }
+bevy_platform = { workspace = true }
+gimme-bench-support = { workspace = true }
 
 [lints]
 workspace = true
