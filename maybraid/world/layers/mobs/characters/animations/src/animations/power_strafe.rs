@@ -14,8 +14,8 @@
 use bevy::prelude::Vec3;
 use character_rigs::Side;
 
-use crate::animations::{smoothstep, LinearBlend};
 use crate::Progress;
+use crate::animations::{LinearBlend, smoothstep};
 
 /// Compress / load the pushing leg. Matches Tanz startup ~0.105.
 pub const LOAD_END: f32 = 0.10;
@@ -75,7 +75,7 @@ pub struct StrafeKey {
 	pub back_roll: f32,
 	pub back_elbow: f32,
 	pub back_lift: f32,
-	/// Positive = whole-armature slide toward travel.
+	/// Positive = whole-armature visual slide toward travel (follow-through, not capsule travel).
 	pub offset_x: f32,
 	/// Positive = downward armature drop.
 	pub drop: f32,
@@ -121,7 +121,7 @@ const LOAD: StrafeKey = StrafeKey {
 	hip_fold_support: 0.04,
 	hip_fold_push: 0.08,
 	spine_pitch: 0.22,
-	spine_side: 0.06,
+	spine_side: 0.10,
 	chest_turn: -0.05,
 	neck_nod: 0.06,
 	neck_tilt: 0.02,
@@ -133,7 +133,7 @@ const LOAD: StrafeKey = StrafeKey {
 	back_roll: 0.42,
 	back_elbow: 0.70,
 	back_lift: 0.0,
-	offset_x: 0.02,
+	offset_x: 0.06,
 	drop: 0.14,
 };
 
@@ -149,7 +149,7 @@ const PUSH: StrafeKey = StrafeKey {
 	hip_fold_support: 0.06,
 	hip_fold_push: 0.05,
 	spine_pitch: 0.34,
-	spine_side: 0.14,
+	spine_side: 0.20,
 	chest_turn: -0.09,
 	neck_nod: 0.07,
 	neck_tilt: 0.03,
@@ -161,7 +161,7 @@ const PUSH: StrafeKey = StrafeKey {
 	back_roll: 0.55,
 	back_elbow: 0.62,
 	back_lift: 0.0,
-	offset_x: 0.06,
+	offset_x: 0.16,
 	drop: 0.18,
 };
 
@@ -177,7 +177,7 @@ const PUSHOFF: StrafeKey = StrafeKey {
 	hip_fold_support: 0.08,
 	hip_fold_push: 0.04,
 	spine_pitch: 0.40,
-	spine_side: 0.18,
+	spine_side: 0.26,
 	chest_turn: -0.11,
 	neck_nod: 0.08,
 	neck_tilt: 0.04,
@@ -189,7 +189,7 @@ const PUSHOFF: StrafeKey = StrafeKey {
 	back_roll: 0.65,
 	back_elbow: 0.58,
 	back_lift: 0.0,
-	offset_x: 0.08,
+	offset_x: 0.20,
 	drop: 0.20,
 };
 
@@ -205,7 +205,7 @@ const GLIDE: StrafeKey = StrafeKey {
 	hip_fold_support: 0.08,
 	hip_fold_push: 0.04,
 	spine_pitch: 0.42,
-	spine_side: 0.20,
+	spine_side: 0.30,
 	chest_turn: -0.12,
 	neck_nod: 0.08,
 	neck_tilt: 0.04,
@@ -217,7 +217,7 @@ const GLIDE: StrafeKey = StrafeKey {
 	back_roll: 0.70,
 	back_elbow: 0.52,
 	back_lift: 0.0,
-	offset_x: 0.08,
+	offset_x: 0.22,
 	drop: 0.21,
 };
 
@@ -233,7 +233,7 @@ const TUCK: StrafeKey = StrafeKey {
 	hip_fold_support: 0.04,
 	hip_fold_push: 0.04,
 	spine_pitch: 0.18,
-	spine_side: 0.06,
+	spine_side: 0.10,
 	chest_turn: -0.04,
 	neck_nod: 0.05,
 	neck_tilt: 0.02,
@@ -245,7 +245,7 @@ const TUCK: StrafeKey = StrafeKey {
 	back_roll: 0.48,
 	back_elbow: 0.72,
 	back_lift: 0.0,
-	offset_x: 0.03,
+	offset_x: 0.08,
 	drop: 0.08,
 };
 
@@ -285,11 +285,7 @@ impl StrafeKey {
 fn lerp_along(a: Vec3, b: Vec3, t: f32) -> Vec3 {
 	let mixed = a + (b - a) * t;
 	let len = mixed.length();
-	if len < 1e-5 {
-		Vec3::NEG_Y
-	} else {
-		mixed / len
-	}
+	if len < 1e-5 { Vec3::NEG_Y } else { mixed / len }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -410,8 +406,8 @@ mod tests {
 		assert!(glide.push_knee < 0.55);
 		assert!(glide.spine_pitch > 0.35);
 		assert!(glide.spine_pitch < 0.53);
-		assert!(glide.spine_side > 0.17);
-		assert!(glide.spine_side < 0.27);
+		assert!(glide.spine_side > 0.26);
+		assert!(glide.spine_side < 0.36);
 	}
 
 	#[test]

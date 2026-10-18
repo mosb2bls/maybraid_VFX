@@ -5,18 +5,19 @@
 //! is authored first; other keys blend toward and away from it.
 
 use bevy::prelude::Vec3;
+use character_rigs::Side;
 use character_rigs::authoring::{ArmAim, ArmatureOffset, HumanoidPose};
 use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
-use character_rigs::Side;
 
 use crate::animations::{
-	smoothstep, UprightPowerDash, BRAKE_END, COMPRESS_END, HOLD_END, PUSH_END,
+	BRAKE_END, COMPRESS_END, HOLD_END, PUSH_END, UprightPowerDash, smoothstep,
 };
 use crate::rigs::mix::blend_clips;
 use crate::{Animation, Effects, Progress};
 
 const HELD_DROP: f32 = 0.28;
-const HELD_FORWARD: f32 = 0.08;
+/// Visual follow-through only. Capsule travel is Tanz `Move` / `MoveSpeedCap`.
+const HELD_FORWARD: f32 = 0.22;
 /// Compact guard / ready starts at identity so locomotion entry does not pop.
 const READY_DROP: f32 = 0.0;
 /// Mid-push key so the rear arm sweeps back instead of slerping out to the side.
@@ -105,8 +106,8 @@ impl UprightPowerDash {
 		pose.apply_leg(trail, self.trail_femur * drive, self.trail_knee);
 		pose.leg_mut(lead).hip_abduction += self.hip_abduct * 0.55 * lead.sign();
 		pose.leg_mut(trail).hip_abduction += self.hip_abduct * trail.sign();
-		pose.apply_hip_fold(lead, 0.18 * drive);
-		pose.apply_hip_fold(trail, 0.08);
+		pose.apply_hip_fold(lead, 0.26 * drive);
+		pose.apply_hip_fold(trail, 0.12);
 		pose.apply_root(self.lean * drive);
 		self.apply_torso_yaw(&mut pose, self.yaw);
 
@@ -299,19 +300,19 @@ impl UprightPowerDash {
 	}
 
 	fn compress_offset(&self) -> Vec3 {
-		Vec3::new(0.0, -0.14 * self.drive, 0.02 * self.slide)
+		Vec3::new(0.0, -0.14 * self.drive, 0.08 * self.slide)
 	}
 
 	fn sweep_offset(&self) -> Vec3 {
-		Vec3::new(0.0, -0.14 * self.drive, 0.05 * self.slide)
+		Vec3::new(0.0, -0.22 * self.drive, 0.16 * self.slide)
 	}
 
 	fn brake_offset(&self) -> Vec3 {
-		Vec3::new(0.0, -0.12 * self.drive, 0.04 * self.slide)
+		Vec3::new(0.0, -0.12 * self.drive, 0.12 * self.slide)
 	}
 
 	fn recover_offset(&self) -> Vec3 {
-		Vec3::new(0.0, -0.06 * self.drive, 0.02 * self.slide)
+		Vec3::new(0.0, -0.06 * self.drive, 0.05 * self.slide)
 	}
 }
 
@@ -687,7 +688,12 @@ mod tests {
 			head.y,
 			pelvis.y
 		);
-		assert!(head.z > pelvis.z + 0.08, "torso pitches forward from the hips");
+		assert!(
+			off.z > 0.18 && off.z < 0.28,
+			"held visual slide stays a follow-through, not capsule travel, z={}",
+			off.z
+		);
+		assert!(head.z > pelvis.z + 0.12, "torso pitches forward from the hips");
 		assert!(
 			rig.posed_angle("forearm.R") > 0.8,
 			"guard elbow stays bent, angle={}",
@@ -702,7 +708,9 @@ mod tests {
 
 	#[test]
 	fn choreography_world_joint_table() {
-		eprintln!("progress | sh.R | el.R | wr.R | sh.L | el.L | wr.L | knee.R | foot.R | knee.L | foot.L | pelvis | head | offset");
+		eprintln!(
+			"progress | sh.R | el.R | wr.R | sh.L | el.L | wr.L | knee.R | foot.R | knee.L | foot.L | pelvis | head | offset"
+		);
 		for progress in [0.00, 0.10, 0.25, 0.50, 0.68, 0.85, 0.95, 1.00] {
 			let (rig, effects) = apply(progress);
 			let off = effects.0.translation;
@@ -795,7 +803,39 @@ mod tests {
 		let neck = world_of(joint(rig, "upper_neck"), off);
 		eprintln!(
 			"{label:10} sh.R=({:.2},{:.2},{:.2}) el.R=({:.2},{:.2},{:.2}) wr.R=({:.2},{:.2},{:.2}) neck=({:.2},{:.2},{:.2}) head=({:.2},{:.2},{:.2}) sh.L=({:.2},{:.2},{:.2}) el.L=({:.2},{:.2},{:.2}) wr.L=({:.2},{:.2},{:.2}) foot.R=({:.2},{:.2},{:.2}) foot.L=({:.2},{:.2},{:.2}) pelvis=({:.2},{:.2},{:.2}) off={off:?}",
-			sh_r.x, sh_r.y, sh_r.z, el_r.x, el_r.y, el_r.z, wr_r.x, wr_r.y, wr_r.z, neck.x, neck.y, neck.z, head.x, head.y, head.z, sh_l.x, sh_l.y, sh_l.z, el_l.x, el_l.y, el_l.z, wr_l.x, wr_l.y, wr_l.z, foot_r.x, foot_r.y, foot_r.z, foot_l.x, foot_l.y, foot_l.z, pelvis.x, pelvis.y, pelvis.z
+			sh_r.x,
+			sh_r.y,
+			sh_r.z,
+			el_r.x,
+			el_r.y,
+			el_r.z,
+			wr_r.x,
+			wr_r.y,
+			wr_r.z,
+			neck.x,
+			neck.y,
+			neck.z,
+			head.x,
+			head.y,
+			head.z,
+			sh_l.x,
+			sh_l.y,
+			sh_l.z,
+			el_l.x,
+			el_l.y,
+			el_l.z,
+			wr_l.x,
+			wr_l.y,
+			wr_l.z,
+			foot_r.x,
+			foot_r.y,
+			foot_r.z,
+			foot_l.x,
+			foot_l.y,
+			foot_l.z,
+			pelvis.x,
+			pelvis.y,
+			pelvis.z
 		);
 	}
 
