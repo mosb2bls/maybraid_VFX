@@ -235,7 +235,7 @@ pub fn fill_lod_produce_cache<I>(
 		remove_contained_regions(&mut regions);
 		let mut hits = HashSet::new();
 		for region in &regions {
-			index.collect_hosts_in_region(*region, &mut hits);
+			index.extend_hosts_in_region(*region, &mut hits);
 		}
 		hits.retain(|entity| membership_allows(membership.get(*entity).ok(), domain));
 		cache.domains.insert(domain, DomainHits { hits });

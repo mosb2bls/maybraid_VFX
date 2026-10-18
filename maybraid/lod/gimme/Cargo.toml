@@ -14,5 +14,8 @@ bevy = { workspace = true }
 gimme-core = { workspace = true }
 lod = { workspace = true }
 
+[dev-dependencies]
+anyhow = { workspace = true }
+
 [lints]
 workspace = true

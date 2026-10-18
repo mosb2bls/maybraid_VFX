@@ -20,8 +20,8 @@ pub trait LodSceneHostIndex {
 	/// Union hosts overlapping `region` into `out` (order is not significant).
 	///
 	/// The default walks [`Self::hosts_in_region`]. Spatial indexes override this
-	/// to skip the sorted `Vec` that [`Self::hosts_in_region`] often materializes.
-	fn collect_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Entity>) {
+	/// so the destination set is both the uniqueness filter and the result.
+	fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Entity>) {
 		out.extend(self.hosts_in_region(region));
 	}
 }

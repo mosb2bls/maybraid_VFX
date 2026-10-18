@@ -4,10 +4,11 @@
 //! cells it intersects at the coarsest level that can bound it, so a large
 //! AABB does not fan out across a fine grid.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet as CellSet};
 
 use bevy_math::bounding::{Aabb3d, IntersectsVolume};
 use bevy_math::{DVec3, IVec3};
+use bevy_platform::collections::HashSet;
 
 use crate::error::SpatialIndexError;
 
@@ -19,7 +20,7 @@ type GridKey = (Level, IVec3);
 #[derive(Debug, Clone)]
 pub struct SpatialIndex<Id> {
 	base_scale: BaseScale,
-	cells: HashMap<GridKey, HashSet<Id>>,
+	cells: HashMap<GridKey, CellSet<Id>>,
 	bounds: HashMap<Id, Aabb3d>,
 	id_cells: HashMap<Id, Vec<GridKey>>,
 	max_level: Level,
@@ -106,18 +107,6 @@ where
 			.filter_map(|id| self.bounds.get(&id).copied().map(|bounds| (id, bounds)))
 	}
 
-	/// Visit each object whose AABB intersects `region` (unique, unsorted).
-	///
-	/// Same membership as [`Self::query`], but skips the sorted `Vec` that
-	/// refresh/cull fills immediately dump into a `HashSet`.
-	pub fn for_each_intersecting(&self, region: Aabb3d, mut visit: impl FnMut(Id)) {
-		let mut seen = HashSet::new();
-		self.extend_intersecting(region, &mut seen);
-		for id in seen {
-			visit(id);
-		}
-	}
-
 	/// Union intersecting ids into `out` without sorting or an extra hit `Vec`.
 	///
 	/// `out` is also the uniqueness filter, so refresh/cull fills can reuse
@@ -130,7 +119,7 @@ where
 	/// stored at coarser levels than the query itself.
 	///
 	/// Results are sorted by `Id` for deterministic replay. Prefer
-	/// [`Self::for_each_intersecting`] when the caller only needs the set.
+	/// [`Self::extend_intersecting`] when the caller only needs the set.
 	pub fn query(&self, region: Aabb3d) -> Vec<Id> {
 		let mut ids = HashSet::new();
 		self.extend_intersecting(region, &mut ids);
@@ -185,12 +174,30 @@ where
 		}
 	}
 
+	/// Main's production `query`: sorted `(Id, Aabb3d)` walk, then ids only.
+	///
+	/// Kept so tests can compare destination accumulation against the
+	/// query-and-insert path the live adapter used before this change.
+	#[cfg(test)]
+	fn query_ids_from_sorted_pairs(&self, region: Aabb3d) -> Vec<Id> {
+		self.query_pairs(region, BaseScale::levels_through(self.max_level))
+			.into_iter()
+			.map(|(id, _)| id)
+			.collect()
+	}
+
+	/// Main's Gimme fill: `out.extend(query(region))` for each AABB.
+	#[cfg(test)]
+	fn extend_from_sorted_query(&self, region: Aabb3d, out: &mut HashSet<Id>) {
+		out.extend(self.query_ids_from_sorted_pairs(region));
+	}
+
 	fn query_pairs(
 		&self,
 		region: Aabb3d,
 		levels: impl IntoIterator<Item = Level>,
 	) -> Vec<(Id, Aabb3d)> {
-		let mut seen = HashSet::new();
+		let mut seen = CellSet::new();
 		let mut result = Vec::new();
 
 		for level in levels {
@@ -335,6 +342,20 @@ mod tests {
 		Ok(())
 	}
 
+	fn sorted(out: &HashSet<u32>) -> Vec<u32> {
+		let mut got: Vec<_> = out.iter().copied().collect();
+		got.sort();
+		got
+	}
+
+	fn query_union(idx: &SpatialIndex<u32>, regions: &[Aabb3d]) -> Vec<u32> {
+		let mut expected = HashSet::new();
+		for region in regions {
+			expected.extend(idx.query(*region));
+		}
+		sorted(&expected)
+	}
+
 	#[test]
 	fn extend_intersecting_unions_without_duplicates() -> Result<()> {
 		let mut idx = index()?;
@@ -343,67 +364,212 @@ mod tests {
 		let mut out = HashSet::new();
 		idx.extend_intersecting(aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), &mut out);
 		idx.extend_intersecting(aabb([0.0, 0.0, 0.0], [3.0, 1.0, 1.0]), &mut out);
-		let mut got: Vec<_> = out.into_iter().collect();
-		got.sort();
-		assert_eq!(got, vec![1, 2]);
+		assert_eq!(
+			sorted(&out),
+			query_union(
+				&idx,
+				&[aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), aabb([0.0, 0.0, 0.0], [3.0, 1.0, 1.0])]
+			)
+		);
 		Ok(())
 	}
 
 	#[test]
-	fn for_each_intersecting_matches_query_set() -> Result<()> {
+	fn extend_intersecting_preserves_existing_ids() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([1.5, 0.0, 0.0], [2.5, 1.0, 1.0]))?;
+		let mut out = HashSet::from_iter([1, 99]);
+		idx.extend_intersecting(aabb([1.4, 0.0, 0.0], [2.6, 1.0, 1.0]), &mut out);
+		assert_eq!(sorted(&out), vec![1, 2, 99]);
+		Ok(())
+	}
+
+	#[test]
+	fn extend_intersecting_overlapping_regions_match_query_union() -> Result<()> {
 		let mut idx = index()?;
 		idx.insert(3, aabb([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]))?;
 		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
 		idx.insert(2, aabb([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]))?;
 		idx.insert(9, aabb([8.0, 0.0, 0.0], [9.0, 1.0, 1.0]))?;
+		let regions =
+			[aabb([0.0, 0.0, 0.0], [1.2, 2.0, 2.0]), aabb([0.8, 0.0, 0.0], [2.0, 2.0, 2.0])];
+		let mut out = HashSet::new();
+		for region in regions {
+			idx.extend_intersecting(region, &mut out);
+		}
+		assert_eq!(sorted(&out), query_union(&idx, &regions));
+		assert_eq!(query_union(&idx, &regions), vec![1, 2, 3]);
+		Ok(())
+	}
+
+	#[test]
+	fn extend_intersecting_dedups_span_and_coarse_hosts() -> Result<()> {
+		let mut idx = index()?;
+		// Spans two level-1 cells (extent 2 on X).
+		idx.insert(7, aabb([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]))?;
+		// Coarse host stored above the query's own cells.
+		idx.insert(8, aabb([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]))?;
+		let regions =
+			[aabb([0.1, 0.1, 0.1], [0.2, 0.2, 0.2]), aabb([1.1, 0.1, 0.1], [1.9, 0.2, 0.2])];
+		let mut out = HashSet::from_iter([99]);
+		for region in regions {
+			idx.extend_intersecting(region, &mut out);
+		}
+		let mut expected = HashSet::from_iter([99]);
+		expected.extend(query_union(&idx, &regions));
+		assert_eq!(sorted(&out), sorted(&expected));
+		assert_eq!(query_union(&idx, &regions), vec![7, 8]);
+		Ok(())
+	}
+
+	#[test]
+	fn query_is_sorted_and_matches_pair_walk() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(3, aabb([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]))?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]))?;
 		let region = aabb([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
-		let mut visited = Vec::new();
-		idx.for_each_intersecting(region, |id| visited.push(id));
-		visited.sort();
-		assert_eq!(visited, idx.query(region));
-		assert_eq!(visited, vec![1, 2, 3]);
+		let a = idx.query(region);
+		let b = idx.query(region);
+		assert_eq!(a, b);
+		assert_eq!(a, vec![1, 2, 3]);
+		assert_eq!(a, idx.query_ids_from_sorted_pairs(region));
 		Ok(())
 	}
 
 	#[test]
 	#[ignore]
-	fn for_each_intersecting_microbench() {
+	fn host_index_accumulation_microbench() -> Result<()> {
 		use std::hint::black_box;
-		use std::time::Instant;
+		use std::time::{Duration, Instant};
 
-		const HOSTS: usize = 4_096;
-		const QUERIES: usize = 4_000;
-		// Match Gimme host cells (64 m XZ) and a vegetation OpenLattice tile.
-		let mut idx = SpatialIndex::new(DVec3::new(64.0, 4_096.0, 64.0)).expect("scale");
-		for i in 0..HOSTS {
-			let x = (i as f32 % 64.0) * 16.0;
-			let z = (i as f32 / 64.0).floor() * 16.0;
-			let _ = idx.insert(i as u32, aabb([x - 8.0, -2.0, z - 8.0], [x + 8.0, 8.0, z + 8.0]));
+		/// Revised Gimme adapter: destination-set accumulation.
+		struct TraitAdapter<'a>(&'a SpatialIndex<u32>);
+		impl TraitAdapter<'_> {
+			fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<u32>) {
+				self.0.extend_intersecting(region, out);
+			}
 		}
-		let region = aabb([0.0, -16.0, 0.0], [500.0, 32.0, 500.0]);
 
-		let started = Instant::now();
-		let mut hits = 0usize;
-		for _ in 0..QUERIES {
-			hits += black_box(idx.query(region)).len();
+		/// Main's live fill: `out.extend(query(region))` via the sorted pair walk.
+		struct OriginalQueryAdapter<'a>(&'a SpatialIndex<u32>);
+		impl OriginalQueryAdapter<'_> {
+			fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<u32>) {
+				self.0.extend_from_sorted_query(region, out);
+			}
 		}
-		let query_elapsed = started.elapsed();
 
-		let started = Instant::now();
-		let mut set = HashSet::new();
-		for _ in 0..QUERIES {
-			set.clear();
-			idx.extend_intersecting(region, &mut set);
-			hits += black_box(set.len());
+		struct Scenario {
+			label: &'static str,
+			hosts: usize,
+			spacing: f32,
 		}
-		let each_elapsed = started.elapsed();
-		assert!(hits > 0);
-		eprintln!(
-			"for_each_intersecting_microbench: {QUERIES} queries × {HOSTS} hosts, tile 500 m → query {:?} ({:.2?} /q) extend_intersecting {:?} ({:.2?} /q)",
-			query_elapsed,
-			query_elapsed / QUERIES as u32,
-			each_elapsed,
-			each_elapsed / QUERIES as u32,
-		);
+
+		fn host_aabb(i: usize, spacing: f32) -> Aabb3d {
+			let side = (i as f32).sqrt().ceil().max(1.0);
+			let x = (i as f32 % side) * spacing;
+			let z = (i as f32 / side).floor() * spacing;
+			aabb([x - 8.0, -2.0, z - 8.0], [x + 8.0, 8.0, z + 8.0])
+		}
+
+		fn overlapping_regions(extent: f32) -> [Aabb3d; 4] {
+			let mid = extent * 0.55;
+			[
+				aabb([0.0, -16.0, 0.0], [mid, 32.0, mid]),
+				aabb([extent - mid, -16.0, 0.0], [extent, 32.0, mid]),
+				aabb([0.0, -16.0, extent - mid], [mid, 32.0, extent]),
+				aabb([extent - mid, -16.0, extent - mid], [extent, 32.0, extent]),
+			]
+		}
+
+		fn timed<F: FnMut()>(repeats: usize, mut run: F) -> Vec<Duration> {
+			run();
+			(0..repeats)
+				.map(|_| {
+					let started = Instant::now();
+					run();
+					started.elapsed()
+				})
+				.collect()
+		}
+
+		fn summarize(samples: &[Duration]) -> Result<(Duration, Duration, Duration, Duration)> {
+			if samples.is_empty() {
+				return Err(anyhow::anyhow!("microbench produced no samples"));
+			}
+			let mut sorted = samples.to_vec();
+			sorted.sort();
+			let min = sorted[0];
+			let max = sorted[sorted.len() - 1];
+			let median = sorted[sorted.len() / 2];
+			let mean = samples.iter().copied().sum::<Duration>() / u32::try_from(samples.len())?;
+			Ok((min, median, mean, max))
+		}
+
+		const REPEATS: usize = 7;
+		const PASSES: usize = 200;
+		let scenarios = [
+			Scenario { label: "sparse-64", hosts: 64, spacing: 96.0 },
+			Scenario { label: "dense-4096", hosts: 4_096, spacing: 16.0 },
+		];
+
+		for scenario in scenarios {
+			let mut idx = SpatialIndex::new(DVec3::new(64.0, 4_096.0, 64.0))?;
+			for i in 0..scenario.hosts {
+				idx.insert(i as u32, host_aabb(i, scenario.spacing))?;
+			}
+			let extent = (scenario.hosts as f32).sqrt().ceil() * scenario.spacing;
+			let regions = overlapping_regions(extent);
+			let expected = query_union(&idx, &regions);
+			assert!(!expected.is_empty());
+
+			let mut original = OriginalQueryAdapter(&idx);
+			let mut revised = TraitAdapter(&idx);
+			let mut out = HashSet::new();
+			let mut hits = 0usize;
+
+			let original_samples = timed(REPEATS, || {
+				out.clear();
+				for _ in 0..PASSES {
+					for region in regions {
+						original.extend_hosts_in_region(region, &mut out);
+					}
+				}
+				hits += black_box(out.len());
+			});
+			assert_eq!(sorted(&out), expected);
+
+			let revised_samples = timed(REPEATS, || {
+				out.clear();
+				for _ in 0..PASSES {
+					for region in regions {
+						revised.extend_hosts_in_region(region, &mut out);
+					}
+				}
+				hits += black_box(out.len());
+			});
+			assert_eq!(sorted(&out), expected);
+			assert!(hits > 0);
+
+			let (o_min, o_med, o_mean, o_max) = summarize(&original_samples)?;
+			let (r_min, r_med, r_mean, r_max) = summarize(&revised_samples)?;
+			eprintln!(
+				"host_index_accumulation_microbench[{}]: {PASSES} passes × {} overlapping regions × {} hosts; original query-and-insert min/med/mean/max {:?} / {:?} / {:?} / {:?}; trait adapter {:?} / {:?} / {:?} / {:?}; dest cap {}",
+				scenario.label,
+				regions.len(),
+				scenario.hosts,
+				o_min,
+				o_med,
+				o_mean,
+				o_max,
+				r_min,
+				r_med,
+				r_mean,
+				r_max,
+				out.capacity(),
+			);
+		}
+		Ok(())
 	}
 }

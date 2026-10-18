@@ -78,7 +78,7 @@ pub fn fill_lod_cull_produce_cache<I>(
 			continue;
 		}
 		cache.seen_regions.push(msg.region);
-		index.collect_hosts_in_region(msg.region, &mut cache.hit_entities);
+		index.extend_hosts_in_region(msg.region, &mut cache.hit_entities);
 	}
 }
 

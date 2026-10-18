@@ -73,10 +73,8 @@ impl LodSceneHostIndex for GimmeLodSceneHostIndex<'_> {
 		self.index.hosts_in_region(region).into_iter()
 	}
 
-	fn collect_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Entity>) {
-		self.index.0.for_each_intersecting(region, |entity| {
-			out.insert(entity);
-		});
+	fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Entity>) {
+		self.index.0.extend_intersecting(region, out);
 	}
 }
 
@@ -185,28 +183,62 @@ mod tests {
 	}
 
 	#[test]
-	fn for_each_intersecting_matches_hosts_in_region_set() {
+	fn extend_hosts_in_region_unions_overlaps_and_preserves_existing() -> anyhow::Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
+
+		#[derive(Resource)]
+		struct Collected(HashSet<Entity>);
+
 		let mut app = App::new();
 		app.add_plugins((TransformPlugin, GimmeLodHostPlugin));
 		let near = app.world_mut().spawn((LodSceneHost, Transform::IDENTITY, unit_bounds())).id();
+		let mid = app
+			.world_mut()
+			.spawn((LodSceneHost, Transform::from_xyz(20.0, 0.0, 0.0), unit_bounds()))
+			.id();
 		let far = app
 			.world_mut()
 			.spawn((LodSceneHost, Transform::from_xyz(400.0, 0.0, 0.0), unit_bounds()))
 			.id();
+		let already = app
+			.world_mut()
+			.spawn((LodSceneHost, Transform::from_xyz(800.0, 0.0, 0.0), unit_bounds()))
+			.id();
+		let coarse = app
+			.world_mut()
+			.spawn((
+				LodSceneHost,
+				Transform::IDENTITY,
+				LodHostBounds(Aabb3d::from_min_max(Vec3::splat(-200.0), Vec3::splat(200.0))),
+			))
+			.id();
 		app.update();
-		let index = app.world().resource::<GimmeLodHostIndex>();
-		let region = around(Vec3::ZERO, 2.0);
-		let mut collected = HashSet::new();
-		index.0.for_each_intersecting(region, |entity| {
-			collected.insert(entity);
-		});
-		let queried = index.hosts_in_region(region);
-		assert_eq!(collected.len(), queried.len());
-		assert!(collected.contains(&near));
-		assert!(!collected.contains(&far));
-		for entity in queried {
-			assert!(collected.contains(&entity));
+
+		let regions = [around(Vec3::ZERO, 2.0), around(Vec3::X * 20.0, 8.0)];
+		let mut expected = HashSet::from_iter([already]);
+		{
+			let index = app.world().resource::<GimmeLodHostIndex>();
+			for region in regions {
+				expected.extend(index.hosts_in_region(region));
+			}
 		}
+		assert!(expected.contains(&near));
+		assert!(expected.contains(&mid));
+		assert!(expected.contains(&coarse));
+		assert!(!expected.contains(&far));
+
+		app.insert_resource(Collected(HashSet::from_iter([already])));
+		app.world_mut()
+			.run_system_once(
+				move |mut index: GimmeLodSceneHostIndex, mut collected: ResMut<Collected>| {
+					for region in regions {
+						index.extend_hosts_in_region(region, &mut collected.0);
+					}
+				},
+			)
+			.map_err(|error| anyhow::anyhow!("{error}"))?;
+		assert_eq!(app.world().resource::<Collected>().0, expected);
+		Ok(())
 	}
 
 	#[test]
