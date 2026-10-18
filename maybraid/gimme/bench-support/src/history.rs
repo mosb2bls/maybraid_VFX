@@ -6,7 +6,7 @@
 
 use bevy_math::bounding::Aabb3d;
 use bevy_platform::collections::HashSet;
-use gimme_core::{BaseScale, SpatialIndex};
+use gimme_core::{BaseScale, SpatialIndex, SpatialIndexQuery};
 
 /// Main's sorted pair-walk fill (`out.extend(query_pairs → Vec<Id>)`).
 pub struct PairWalkFill<'a, Id> {
@@ -34,6 +34,9 @@ where
 }
 
 /// Destination-union fill used by the Gimme `LodSceneHostIndex` override.
+///
+/// Calls [`SpatialIndexQuery::extend_intersecting`] so the bench path matches
+/// the adapter (static dispatch; no `dyn`).
 pub struct ExtendIntersectingFill<'a, Id> {
 	index: &'a SpatialIndex<Id>,
 }
@@ -47,7 +50,7 @@ where
 	}
 
 	pub fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<Id>) {
-		self.index.extend_intersecting(region, out);
+		SpatialIndexQuery::extend_intersecting(self.index, region, out);
 	}
 }
 
