@@ -31,11 +31,11 @@ pub(super) struct Registry {
 	pub nested_rebuilds: AtomicU64,
 }
 
-pub(super) struct TypedStore<T> {
+pub(in crate::hcsg) struct TypedStore<T> {
 	pub nodes: RwLock<NodeStore<Arc<T>>>,
 }
 
-pub(super) trait ErasedStore: Send + Sync {
+pub(in crate::hcsg) trait ErasedStore: Send + Sync {
 	fn into_any(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 	fn reset(&self, revision: u64);
 	fn evict_outside(&self, regions: &[Aabb3d], revision: u64) -> Vec<Id>;
@@ -74,7 +74,7 @@ impl<T: HcsgValue> ErasedStore for TypedStore<T> {
 
 /// Values are immutable and published whole, so a poisoned lock still guards
 /// a consistent store.
-pub(super) fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+pub(in crate::hcsg) fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
 	lock.read().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -124,7 +124,7 @@ impl HcsgStorage {
 		store.into_any().downcast().ok()
 	}
 
-	pub(super) fn store<T: HcsgValue>(&self) -> Option<Arc<TypedStore<T>>> {
+	pub(in crate::hcsg) fn store<T: HcsgValue>(&self) -> Option<Arc<TypedStore<T>>> {
 		let store = read(&self.0.stores).get(&TypeId::of::<T>()).cloned()?;
 		Self::downcast(store)
 	}
