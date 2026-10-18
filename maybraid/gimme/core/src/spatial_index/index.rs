@@ -174,12 +174,11 @@ where
 		}
 	}
 
-	/// Main's production `query`: sorted `(Id, Aabb3d)` walk, then ids only.
+	/// Sorted ids from the `(Id, Aabb3d)` walk `query` used on main.
 	///
-	/// Kept so tests can compare destination accumulation against the
-	/// query-and-insert path the live adapter used before this change.
-	#[cfg(test)]
-	fn query_ids_from_sorted_pairs(&self, region: Aabb3d) -> Vec<Id> {
+	/// Production fills should use [`Self::extend_intersecting`]. This walk is
+	/// the old query-and-insert path, kept so A/B benches can compare it.
+	pub fn query_ids_from_sorted_pairs(&self, region: Aabb3d) -> Vec<Id> {
 		self.query_pairs(region, BaseScale::levels_through(self.max_level))
 			.into_iter()
 			.map(|(id, _)| id)
@@ -438,42 +437,30 @@ mod tests {
 		Ok(())
 	}
 
-	#[test]
-	#[ignore]
-	fn host_index_accumulation_microbench() -> Result<()> {
-		use std::hint::black_box;
-		use std::time::{Duration, Instant};
+	/// Regular XZ host lattice used by the production-path microbench.
+	struct HostGrid {
+		hosts: usize,
+		spacing: f32,
+	}
 
-		/// Revised Gimme adapter: destination-set accumulation.
-		struct TraitAdapter<'a>(&'a SpatialIndex<u32>);
-		impl TraitAdapter<'_> {
-			fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<u32>) {
-				self.0.extend_intersecting(region, out);
-			}
+	impl HostGrid {
+		fn side(&self) -> usize {
+			(self.hosts as f64).sqrt().ceil().max(1.0) as usize
 		}
 
-		/// Main's live fill: `out.extend(query(region))` via the sorted pair walk.
-		struct OriginalQueryAdapter<'a>(&'a SpatialIndex<u32>);
-		impl OriginalQueryAdapter<'_> {
-			fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<u32>) {
-				self.0.extend_from_sorted_query(region, out);
-			}
+		fn extent(&self) -> f32 {
+			self.side() as f32 * self.spacing
 		}
 
-		struct Scenario {
-			label: &'static str,
-			hosts: usize,
-			spacing: f32,
-		}
-
-		fn host_aabb(i: usize, spacing: f32) -> Aabb3d {
-			let side = (i as f32).sqrt().ceil().max(1.0);
-			let x = (i as f32 % side) * spacing;
-			let z = (i as f32 / side).floor() * spacing;
+		fn host_aabb(&self, i: usize) -> Aabb3d {
+			let side = self.side();
+			let x = (i % side) as f32 * self.spacing;
+			let z = (i / side) as f32 * self.spacing;
 			aabb([x - 8.0, -2.0, z - 8.0], [x + 8.0, 8.0, z + 8.0])
 		}
 
-		fn overlapping_regions(extent: f32) -> [Aabb3d; 4] {
+		fn overlapping_regions(&self) -> [Aabb3d; 4] {
+			let extent = self.extent();
 			let mid = extent * 0.55;
 			[
 				aabb([0.0, -16.0, 0.0], [mid, 32.0, mid]),
@@ -482,93 +469,179 @@ mod tests {
 				aabb([extent - mid, -16.0, extent - mid], [extent, 32.0, extent]),
 			]
 		}
+	}
 
-		fn timed<F: FnMut()>(repeats: usize, mut run: F) -> Vec<Duration> {
-			run();
-			(0..repeats)
-				.map(|_| {
-					let started = Instant::now();
-					run();
-					started.elapsed()
-				})
-				.collect()
-		}
+	/// Main's query-and-insert fill (`out.extend(query_pairs → Vec<Id>)`).
+	struct OriginalQueryFill<'a>(&'a SpatialIndex<u32>);
 
-		fn summarize(samples: &[Duration]) -> Result<(Duration, Duration, Duration, Duration)> {
-			if samples.is_empty() {
-				return Err(anyhow::anyhow!("microbench produced no samples"));
-			}
-			let mut sorted = samples.to_vec();
-			sorted.sort();
-			let min = sorted[0];
-			let max = sorted[sorted.len() - 1];
-			let median = sorted[sorted.len() / 2];
-			let mean = samples.iter().copied().sum::<Duration>() / u32::try_from(samples.len())?;
-			Ok((min, median, mean, max))
+	impl OriginalQueryFill<'_> {
+		fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<u32>) {
+			self.0.extend_from_sorted_query(region, out);
 		}
+	}
+
+	/// Destination accumulation used by the Gimme `LodSceneHostIndex` override.
+	struct ExtendIntersectingFill<'a>(&'a SpatialIndex<u32>);
+
+	impl ExtendIntersectingFill<'_> {
+		fn extend_hosts_in_region(&mut self, region: Aabb3d, out: &mut HashSet<u32>) {
+			self.0.extend_intersecting(region, out);
+		}
+	}
+
+	fn timed<F: FnMut()>(repeats: usize, mut run: F) -> Vec<std::time::Duration> {
+		run();
+		(0..repeats)
+			.map(|_| {
+				let started = std::time::Instant::now();
+				run();
+				started.elapsed()
+			})
+			.collect()
+	}
+
+	fn summarize(
+		samples: &[std::time::Duration],
+	) -> Result<(std::time::Duration, std::time::Duration, std::time::Duration, std::time::Duration)>
+	{
+		if samples.is_empty() {
+			return Err(anyhow::anyhow!("microbench produced no samples"));
+		}
+		let mut sorted = samples.to_vec();
+		sorted.sort();
+		let min = sorted[0];
+		let max = sorted[sorted.len() - 1];
+		let median = sorted[sorted.len() / 2];
+		let mean =
+			samples.iter().copied().sum::<std::time::Duration>() / u32::try_from(samples.len())?;
+		Ok((min, median, mean, max))
+	}
+
+	fn report(
+		label: &str,
+		grid: &HostGrid,
+		regions: usize,
+		hits: usize,
+		per_region: &[usize],
+		cells: usize,
+		original: &[std::time::Duration],
+		revised: &[std::time::Duration],
+		dest_cap: usize,
+	) -> Result<()> {
+		let (o_min, o_med, o_mean, o_max) = summarize(original)?;
+		let (r_min, r_med, r_mean, r_max) = summarize(revised)?;
+		eprintln!(
+			"{label}: 200 passes × {regions} overlapping regions × {} hosts, {} unique hits {:?}/region, {} cells; original query-and-insert min/med/mean/max {:?} / {:?} / {:?} / {:?}; extend_intersecting {:?} / {:?} / {:?} / {:?}; dest cap {}",
+			grid.hosts,
+			hits,
+			per_region,
+			cells,
+			o_min,
+			o_med,
+			o_mean,
+			o_max,
+			r_min,
+			r_med,
+			r_mean,
+			r_max,
+			dest_cap,
+		);
+		Ok(())
+	}
+
+	#[test]
+	#[ignore]
+	fn host_index_accumulation_microbench() -> Result<()> {
+		use std::hint::black_box;
 
 		const REPEATS: usize = 7;
 		const PASSES: usize = 200;
-		let scenarios = [
-			Scenario { label: "sparse-64", hosts: 64, spacing: 96.0 },
-			Scenario { label: "dense-4096", hosts: 4_096, spacing: 16.0 },
-		];
+		let scenarios =
+			[HostGrid { hosts: 64, spacing: 96.0 }, HostGrid { hosts: 4_096, spacing: 16.0 }];
 
-		for scenario in scenarios {
+		for grid in scenarios {
 			let mut idx = SpatialIndex::new(DVec3::new(64.0, 4_096.0, 64.0))?;
-			for i in 0..scenario.hosts {
-				idx.insert(i as u32, host_aabb(i, scenario.spacing))?;
+			for i in 0..grid.hosts {
+				idx.insert(i as u32, grid.host_aabb(i))?;
 			}
-			let extent = (scenario.hosts as f32).sqrt().ceil() * scenario.spacing;
-			let regions = overlapping_regions(extent);
+			let regions = grid.overlapping_regions();
 			let expected = query_union(&idx, &regions);
+			let per_region: Vec<usize> =
+				regions.iter().map(|region| idx.query(*region).len()).collect();
 			assert!(!expected.is_empty());
 
-			let mut original = OriginalQueryAdapter(&idx);
-			let mut revised = TraitAdapter(&idx);
-			let mut out = HashSet::new();
-			let mut hits = 0usize;
+			let mut original = OriginalQueryFill(&idx);
+			let mut revised = ExtendIntersectingFill(&idx);
 
-			let original_samples = timed(REPEATS, || {
-				out.clear();
+			// Cull fill: clear the destination every pass, keep capacity.
+			let mut cull_out = HashSet::new();
+			let original_cull = timed(REPEATS, || {
 				for _ in 0..PASSES {
+					cull_out.clear();
+					for region in regions {
+						original.extend_hosts_in_region(region, &mut cull_out);
+					}
+					black_box(&cull_out);
+				}
+			});
+			assert_eq!(sorted(&cull_out), expected);
+			let revised_cull = timed(REPEATS, || {
+				for _ in 0..PASSES {
+					cull_out.clear();
+					for region in regions {
+						revised.extend_hosts_in_region(region, &mut cull_out);
+					}
+					black_box(&cull_out);
+				}
+			});
+			assert_eq!(sorted(&cull_out), expected);
+			report(
+				&format!("host_index_cull[{}-hosts]", grid.hosts),
+				&grid,
+				regions.len(),
+				expected.len(),
+				&per_region,
+				idx.cell_count(),
+				&original_cull,
+				&revised_cull,
+				cull_out.capacity(),
+			)?;
+
+			// Produce fill: a fresh destination per pass (per domain).
+			let original_produce = timed(REPEATS, || {
+				for _ in 0..PASSES {
+					let mut out = HashSet::new();
 					for region in regions {
 						original.extend_hosts_in_region(region, &mut out);
 					}
+					black_box(&out);
 				}
-				hits += black_box(out.len());
 			});
-			assert_eq!(sorted(&out), expected);
-
-			let revised_samples = timed(REPEATS, || {
-				out.clear();
+			let revised_produce = timed(REPEATS, || {
 				for _ in 0..PASSES {
+					let mut out = HashSet::new();
 					for region in regions {
 						revised.extend_hosts_in_region(region, &mut out);
 					}
+					black_box(&out);
 				}
-				hits += black_box(out.len());
 			});
-			assert_eq!(sorted(&out), expected);
-			assert!(hits > 0);
-
-			let (o_min, o_med, o_mean, o_max) = summarize(&original_samples)?;
-			let (r_min, r_med, r_mean, r_max) = summarize(&revised_samples)?;
-			eprintln!(
-				"host_index_accumulation_microbench[{}]: {PASSES} passes × {} overlapping regions × {} hosts; original query-and-insert min/med/mean/max {:?} / {:?} / {:?} / {:?}; trait adapter {:?} / {:?} / {:?} / {:?}; dest cap {}",
-				scenario.label,
+			let mut produce_probe = HashSet::new();
+			for region in regions {
+				revised.extend_hosts_in_region(region, &mut produce_probe);
+			}
+			assert_eq!(sorted(&produce_probe), expected);
+			report(
+				&format!("host_index_produce[{}-hosts]", grid.hosts),
+				&grid,
 				regions.len(),
-				scenario.hosts,
-				o_min,
-				o_med,
-				o_mean,
-				o_max,
-				r_min,
-				r_med,
-				r_mean,
-				r_max,
-				out.capacity(),
-			);
+				expected.len(),
+				&per_region,
+				idx.cell_count(),
+				&original_produce,
+				&revised_produce,
+				produce_probe.capacity(),
+			)?;
 		}
 		Ok(())
 	}

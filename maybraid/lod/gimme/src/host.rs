@@ -130,6 +130,9 @@ fn world_aabb(transform: &GlobalTransform, local: Aabb3d) -> Aabb3d {
 }
 
 #[cfg(test)]
+mod fill_bench;
+
+#[cfg(test)]
 mod tests {
 	use super::*;
 	use bevy::math::Vec3;
