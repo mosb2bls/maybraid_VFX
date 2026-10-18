@@ -182,21 +182,12 @@ fn text_row_label(
 	children: &Query<&Children>,
 	labels: &Query<&Text, With<TextMenuItemLabel>>,
 ) -> Option<String> {
-	for (entity, item) in items {
+	items.iter().find_map(|(entity, item)| {
 		if item.index != selected {
-			continue;
+			return None;
 		}
-		if let Ok(childs) = children.get(entity) {
-			for child in childs {
-				if let Ok(text) = labels.get(*child) {
-					if !text.0.is_empty() {
-						return Some(text.0.clone());
-					}
-				}
-			}
-		}
-	}
-	None
+		TextMenuItem::label_under(entity, children, labels)
+	})
 }
 
 fn hud_row_label(

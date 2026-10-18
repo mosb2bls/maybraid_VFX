@@ -11,6 +11,7 @@ rust-version = { workspace = true }
 
 [dependencies]
 bevy = { workspace = true }
+procedural-common = { workspace = true }
 bevy_math = { workspace = true }
 character-ui-menu = { workspace = true }
 clap = { workspace = true }

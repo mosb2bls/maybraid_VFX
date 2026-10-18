@@ -48,6 +48,33 @@ impl ConceptId {
 	}
 }
 
+/// Low 24 bits of FNV-1a over UTF-8 bytes, used to mint [`ConceptId::overlay`] tags.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct OverlayTag(u32);
+
+impl OverlayTag {
+	const FNV_OFFSET: u32 = 2_166_136_261;
+	const FNV_PRIME: u32 = 16_777_619;
+	pub const MASK: u32 = 0x00FF_FFFF;
+
+	pub fn from_key(key: &str) -> Self {
+		let mut hash = Self::FNV_OFFSET;
+		for byte in key.as_bytes() {
+			hash ^= u32::from(*byte);
+			hash = hash.wrapping_mul(Self::FNV_PRIME);
+		}
+		Self(hash & Self::MASK)
+	}
+
+	pub const fn as_u32(self) -> u32 {
+		self.0
+	}
+
+	pub const fn concept_id(self) -> ConceptId {
+		ConceptId::overlay(self.0)
+	}
+}
+
 impl fmt::Display for ConceptId {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self.namespace() {
@@ -225,4 +252,22 @@ pub trait EnglishSenseLookup {
 	) -> Result<ConceptId, crate::error::LanguageError>;
 
 	fn proper_name(&self, name: &str) -> Option<ConceptId>;
+}
+
+#[cfg(test)]
+mod overlay_tag_tests {
+	use super::OverlayTag;
+
+	#[test]
+	fn from_key_is_stable_and_masked() {
+		let first = OverlayTag::from_key("Mary");
+		let second = OverlayTag::from_key("Mary");
+		assert_eq!(first, second);
+		assert_eq!(first.as_u32() & OverlayTag::MASK, first.as_u32());
+	}
+
+	#[test]
+	fn from_key_differs_across_keys() {
+		assert_ne!(OverlayTag::from_key("Mary"), OverlayTag::from_key("John"));
+	}
 }

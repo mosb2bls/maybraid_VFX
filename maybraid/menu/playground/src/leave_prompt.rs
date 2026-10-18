@@ -63,6 +63,12 @@ impl CharacterLeavePrompt {
 		stack.open(MenuModalLayer::CHARACTER_LEAVE);
 		stack.mark_consumed();
 	}
+
+	pub fn close(&mut self, stack: &mut MenuModalStack) {
+		self.kind = None;
+		self.opened_this_frame = false;
+		stack.close(MenuModalId::CHARACTER_LEAVE);
+	}
 }
 
 #[derive(Component, Debug, Default, Clone, Copy)]
@@ -502,9 +508,7 @@ fn close_leave_prompt(
 	roots: &Query<Entity, With<CharacterLeavePromptRoot>>,
 	commands: &mut Commands,
 ) {
-	prompt.kind = None;
-	prompt.opened_this_frame = false;
-	stack.close(MenuModalId::CHARACTER_LEAVE);
+	prompt.close(stack);
 	for entity in roots.iter() {
 		commands.entity(entity).try_despawn();
 	}
@@ -561,6 +565,17 @@ mod tests {
 			character_leave_edge(true, false, false, false, true),
 			Some(CharacterLeaveKind::Discard)
 		);
+	}
+
+	#[test]
+	fn close_drops_the_leave_layer() {
+		let mut prompt = CharacterLeavePrompt::default();
+		let mut stack = MenuModalStack::default();
+		prompt.open(CharacterLeaveKind::Discard, &mut stack);
+		assert!(stack.contains(MenuModalId::CHARACTER_LEAVE));
+		prompt.close(&mut stack);
+		assert!(!prompt.is_open());
+		assert!(!stack.contains(MenuModalId::CHARACTER_LEAVE));
 	}
 
 	#[test]

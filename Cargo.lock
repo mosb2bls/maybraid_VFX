@@ -2799,6 +2799,7 @@ dependencies = [
  "bevy_math",
  "character-ui-menu",
  "clap",
+ "procedural-common",
  "serde",
 ]
 
@@ -4034,6 +4035,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95249b50c6c185bee49034bcb378a49dc2b5dff0be90ff6616d31d64febab05d"
 dependencies = [
  "litrs",
+]
+
+[[package]]
+name = "doric-column"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "avian3d",
+ "bevy",
+ "building-components",
+ "building-physics",
+ "ground",
+ "lod",
+ "lod-avian",
+ "material-ref",
+ "rigs",
+ "scene-ref",
+]
+
+[[package]]
+name = "doric-column-playground"
+version = "0.1.5"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "doric-column",
+ "material-ref",
 ]
 
 [[package]]
@@ -10355,6 +10383,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "png 0.17.16",
+ "procedural-common",
  "scene-ref",
  "tempfile",
  "thiserror 1.0.69",

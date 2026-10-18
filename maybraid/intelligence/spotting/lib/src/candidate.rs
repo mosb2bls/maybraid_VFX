@@ -39,8 +39,26 @@ impl SpotCandidate {
 		candidate_budget: usize,
 		vision_samples: usize,
 	) -> Vec<usize> {
+		let mut grants = Vec::new();
+		Self::allocate_sample_budget_into(
+			candidates,
+			candidate_budget,
+			vision_samples,
+			&mut grants,
+		);
+		grants
+	}
+
+	/// Like [`Self::allocate_sample_budget`], but reuses `grants` storage.
+	pub fn allocate_sample_budget_into(
+		candidates: &[Self],
+		candidate_budget: usize,
+		vision_samples: usize,
+		grants: &mut Vec<usize>,
+	) {
+		grants.clear();
 		let candidate_count = candidates.len().min(candidate_budget);
-		let mut grants = vec![0; candidate_count];
+		grants.resize(candidate_count, 0);
 		let mut remaining = vision_samples;
 		while remaining > 0 {
 			let mut progressed = false;
@@ -59,7 +77,6 @@ impl SpotCandidate {
 				break;
 			}
 		}
-		grants
 	}
 }
 

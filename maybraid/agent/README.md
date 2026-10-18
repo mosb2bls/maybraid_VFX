@@ -78,6 +78,26 @@ events. Run them with [`bin/menu-playtest.sh`](../../bin/menu-playtest.sh)
 so saves and logs stay in a temp dir. See
 [CONTRIBUTING.md → Menu playtest scripts](../../CONTRIBUTING.md#menu-playtest-scripts).
 
+Short CI e2e smokes (`scripts/smoke-*.jsonl`) drive the **full** game on
+Xvfb + lavapipe. Locally:
+
+```bash
+Xvfb :99 -screen 0 1280x720x24 -ac +extension GLX +render -noreset &
+export DISPLAY=:99
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+export MAYBRAID_VSYNC=off
+export MAYBRAID_VISUAL_STYLE=sharp
+export MAYBRAID_RENDER_SCALE=0.5
+cargo build -p maybraid --release
+bin/script-smoke.sh smoke-menu-home
+bin/script-smoke.sh smoke-origin-walk
+```
+
+The GitHub [Script Smoke](../../.github/workflows/script-smoke.yml) workflow
+builds the release binary once and runs the four smokes in parallel. It
+asserts events (`waypoint.reached`, picker/died, menu opened, actor bodies),
+never frame time. Logs upload only on failure. Do not commit captures.
+
 See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
 [`scripts/origin-idle.jsonl`](scripts/origin-idle.jsonl),
 [`scripts/biome-traverse.jsonl`](scripts/biome-traverse.jsonl),
