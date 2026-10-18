@@ -151,9 +151,34 @@ impl TextMenuItem {
 			Children [ {children} ]
 		}
 	}
+
+	/// Row title, including the focus-tag grandchild used by cursor columns.
+	pub fn label_under(
+		row: Entity,
+		children: &Query<&Children>,
+		labels: &Query<&Text, With<TextMenuItemLabel>>,
+	) -> Option<String> {
+		Self::first_label_under(row, children, labels)
+	}
+
+	fn first_label_under(
+		entity: Entity,
+		children: &Query<&Children>,
+		labels: &Query<&Text, With<TextMenuItemLabel>>,
+	) -> Option<String> {
+		if let Ok(text) = labels.get(entity) {
+			if !text.0.is_empty() {
+				return Some(text.0.clone());
+			}
+		}
+		let Ok(childs) = children.get(entity) else {
+			return None;
+		};
+		childs.iter().find_map(|child| Self::first_label_under(child, children, labels))
+	}
 }
 
-/// Marker on the label [`Text`] child of a [`TextMenuItem`].
+/// Marker on the label [`Text`] of a [`TextMenuItem`] (often a focus-tag grandchild).
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct TextMenuItemLabel;
 
@@ -761,6 +786,46 @@ mod tests {
 		app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Enter);
 		app.update();
 		assert_eq!(app.world().resource::<ActivateHits>().0, 1);
+	}
+
+	#[derive(Resource)]
+	struct LabelRow {
+		entity: Entity,
+		want: &'static str,
+	}
+
+	fn assert_label_under(
+		row: Res<LabelRow>,
+		children: Query<&Children>,
+		labels: Query<&Text, With<super::TextMenuItemLabel>>,
+	) {
+		assert_eq!(
+			super::TextMenuItem::label_under(row.entity, &children, &labels).as_deref(),
+			Some(row.want)
+		);
+	}
+
+	#[test]
+	fn label_under_walks_the_focus_tag() {
+		let mut app = App::new();
+		app.add_systems(Update, assert_label_under);
+		let row = app.world_mut().spawn(super::TextMenuItem::yellow(2)).id();
+		let tag = app.world_mut().spawn(ChildOf(row)).id();
+		app.world_mut()
+			.spawn((Text::new("Characters"), super::TextMenuItemLabel, ChildOf(tag)));
+		app.insert_resource(LabelRow { entity: row, want: "Characters" });
+		app.update();
+	}
+
+	#[test]
+	fn label_under_still_reads_a_direct_child() {
+		let mut app = App::new();
+		app.add_systems(Update, assert_label_under);
+		let row = app.world_mut().spawn(super::TextMenuItem::yellow(0)).id();
+		app.world_mut()
+			.spawn((Text::new("Discovery"), super::TextMenuItemLabel, ChildOf(row)));
+		app.insert_resource(LabelRow { entity: row, want: "Discovery" });
+		app.update();
 	}
 
 	#[test]
