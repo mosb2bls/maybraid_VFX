@@ -5,12 +5,26 @@ mod flow;
 mod load;
 mod panic_log;
 mod paths;
+mod recovery;
 mod shell;
+mod supervisor;
 
 pub use flow::{GameFlow, HomeRoute, PauseMenuRoute, PlaySession, WorldPause};
-pub use panic_log::{install_panic_log_hook, log_dir, panic_log_path, ENV_LOGS};
+pub use panic_log::{
+	append_error_log, error_log_path, install_panic_log_hook, log_dir, panic_log_path, ENV_LOGS,
+};
 pub use paths::assets_root;
+pub use recovery::{
+	can_resume_world, clear_recovery_inbox, recovery_destination, strict_errors_from_env,
+	take_recovery_requests, LastRecovery, RecoverBoot, RecoveryDestination, RecoveryMode,
+	RecoveryPlugin, RecoverySystems, RecoveryToast, ENV_STRICT_ERRORS,
+};
+pub use supervisor::{
+	already_supervised, can_relaunch, child_command_args, child_is_abnormal, maybe_supervise,
+	should_run_supervisor, ENV_SUPERVISE, ENV_SUPERVISED, RELAUNCH_MAX, RELAUNCH_WINDOW,
+};
 
+use crate::recovery::remember_world_session;
 use crate::shell::{
 	apply_pause_character_look, apply_shell_look, attach_preview_camera, despawn_loading_backdrop,
 	detach_preview_camera, enter_characters, enter_home, enter_loading_world, enter_world,
@@ -63,7 +77,12 @@ impl Plugin for GamePlugin {
 			.insert_resource(ClearColor(MENU_CLEAR))
 			.init_resource::<PlaySession>()
 			.init_state::<GameFlow>()
-			.add_sub_state::<WorldPause>()
+			.add_sub_state::<WorldPause>();
+		if !app.world().contains_resource::<RecoveryMode>() {
+			app.insert_resource(RecoveryMode::from_runtime(false));
+		}
+		let recovery_mode = *app.world().resource::<RecoveryMode>();
+		app.add_plugins(RecoveryPlugin { mode: recovery_mode })
 			.add_plugins((
 				maybraid_game_mode_reliquary::ReliquaryPlugin,
 				HomeScreenPlugin,
@@ -94,6 +113,7 @@ impl Plugin for GamePlugin {
 					detach_preview_camera,
 					crate::load::arm_first_load,
 					load_active_player_loadout,
+					remember_world_session,
 					reset_first_spawn_offer,
 					resume_discovery_from_saved_waypoints,
 				)
@@ -191,6 +211,9 @@ fn starting_discovery_at_override(spawn: Res<PlayerSpawnXz>) -> bool {
 
 fn boot_shell(
 	spawn: Res<PlayerSpawnXz>,
+	recover: Option<Res<crate::recovery::RecoverBoot>>,
+	active: Option<Res<ActiveCharacter>>,
+	save_root: Res<character_persist::SaveRoot>,
 	mut route: ShellRoute,
 	mut mode: ResMut<GameMode>,
 	mut commands: Commands,
@@ -203,6 +226,18 @@ fn boot_shell(
 		route.enter(GameFlow::LoadingWorld);
 		return;
 	}
+	if recover.is_some() && crate::recovery::can_resume_world(save_root.as_ref(), active.is_some())
+	{
+		mode.label = String::from("Discovery");
+		commands.insert_resource(PlaySession::Discovery);
+		commands.insert_resource(crate::recovery::RecoveryToast::restarted_to_world());
+		enter_loading_world(commands, screens);
+		route.enter(GameFlow::LoadingWorld);
+		return;
+	}
+	if recover.is_some() {
+		commands.insert_resource(crate::recovery::RecoveryToast::restarted_to_home());
+	}
 	enter_home(commands);
 }
 
@@ -213,10 +248,16 @@ fn reset_surface_ready(mut ready: ResMut<WorldSurfaceReady>) {
 /// Leave / Home: drop the session.
 fn clear_play_session(
 	mut session: ResMut<PlaySession>,
+	save_root: Option<Res<character_persist::SaveRoot>>,
 	mut mode: ResMut<GameMode>,
 	mut ready: ResMut<WorldSurfaceReady>,
 	mut ended: MessageWriter<WorldPlaySessionEnded>,
 ) {
+	if *session == PlaySession::Discovery {
+		if let Some(save_root) = save_root {
+			crate::recovery::clear_last_session(&save_root);
+		}
+	}
 	ready.0 = false;
 	*session = PlaySession::None;
 	mode.label = String::from(PlaySession::Discovery.label());
@@ -623,6 +664,51 @@ mod tests {
 	}
 
 	#[test]
+	fn recover_boot_resumes_discovery_when_the_session_is_valid() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		crate::recovery::write_last_session(&root, PlaySession::Discovery);
+		let mut world = World::new();
+		world.insert_resource(root);
+		world.insert_resource(crate::recovery::RecoverBoot);
+		world.insert_resource(ActiveCharacter { id: CharacterId(1) });
+		world.insert_resource(maybraid_world::PlayerSpawnXz(None));
+		world.insert_resource(NextState::<GameFlow>::Unchanged);
+		world.insert_resource(NextState::<layer_stack::ActiveGenerationMode>::Unchanged);
+		world.insert_resource(GameMode::default());
+		world.insert_resource(PlaySession::None);
+		world
+			.run_system_once(crate::boot_shell)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(matches!(
+			world.resource::<NextState<GameFlow>>(),
+			NextState::Pending(GameFlow::LoadingWorld)
+		));
+		assert_eq!(*world.resource::<PlaySession>(), PlaySession::Discovery);
+		anyhow::ensure!(world.get_resource::<crate::recovery::RecoveryToast>().is_some());
+		Ok(())
+	}
+
+	#[test]
+	fn recover_boot_stays_home_without_a_last_session() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let mut world = World::new();
+		world.insert_resource(SaveRoot::at(dir.path()));
+		world.insert_resource(crate::recovery::RecoverBoot);
+		world.insert_resource(maybraid_world::PlayerSpawnXz(None));
+		world.insert_resource(NextState::<GameFlow>::Unchanged);
+		world.insert_resource(NextState::<layer_stack::ActiveGenerationMode>::Unchanged);
+		world.insert_resource(GameMode::default());
+		world.insert_resource(PlaySession::None);
+		world
+			.run_system_once(crate::boot_shell)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(matches!(world.resource::<NextState<GameFlow>>(), NextState::Unchanged));
+		anyhow::ensure!(world.get_resource::<crate::recovery::RecoveryToast>().is_some());
+		Ok(())
+	}
+
+	#[test]
 	fn world_loadout_uses_the_active_character() -> anyhow::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let root = SaveRoot::at(dir.path());
@@ -660,6 +746,24 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(*world.resource::<PlaySession>(), PlaySession::None);
 		assert!(matches!(world.resource::<NextState<GameFlow>>(), NextState::Unchanged));
+		Ok(())
+	}
+
+	#[test]
+	fn leave_from_discovery_clears_the_last_session_file() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		crate::recovery::write_last_session(&root, PlaySession::Discovery);
+		let mut world = World::new();
+		world.init_resource::<Messages<WorldPlaySessionEnded>>();
+		world.insert_resource(root.clone());
+		world.insert_resource(PlaySession::Discovery);
+		world.insert_resource(GameMode::new("Elsewhere"));
+		world.insert_resource(WorldSurfaceReady(true));
+		world
+			.run_system_once(clear_play_session)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		anyhow::ensure!(crate::recovery::read_last_session(&root).is_none());
 		Ok(())
 	}
 

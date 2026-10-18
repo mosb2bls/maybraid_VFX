@@ -2,7 +2,8 @@ use std::collections::HashSet;
 
 use bevy::prelude::*;
 use intelligence_lod::{
-	due_by_rank, staggered_interval, IntelligenceBand, IntelligenceLod, IntelligencePriority,
+	staggered_interval, IntelligenceBand, IntelligenceDueEntities, IntelligenceLod,
+	IntelligencePriority,
 };
 use spotting_intelligence::{SpottingHintSource, SpottingUser};
 
@@ -136,6 +137,7 @@ pub fn discover_threats(
 	limits: Res<ThreatDiscoverLimits>,
 	mut recipients: ThreatRecipients,
 	mut local_candidates: Local<Vec<ThreatId>>,
+	mut due_entities: Local<IntelligenceDueEntities>,
 ) {
 	let now = time.elapsed_secs();
 	for (entity, _, _, affiliations, mut user, mut knowledge, _) in &mut recipients {
@@ -147,11 +149,13 @@ pub fn discover_threats(
 		}
 	}
 
-	let mut due: Vec<Entity> = recipients
-		.iter_mut()
-		.filter_map(|(entity, _, _, _, user, _, _)| (now >= user.next_scan_at).then_some(entity))
-		.collect();
-	due_by_rank(&mut due, &priority);
+	due_entities.clear();
+	for (entity, _, _, _, user, _, _) in recipients.iter_mut() {
+		if now >= user.next_scan_at {
+			due_entities.push(entity);
+		}
+	}
+	let due = due_entities.finish(&priority);
 	let fair = due.iter().copied().find(|entity| {
 		recipients.get_mut(*entity).is_ok_and(|(_, _, _, _, _, _, lod)| {
 			lod.as_deref().is_some_and(|lod| {
@@ -161,7 +165,7 @@ pub fn discover_threats(
 	});
 
 	let mut remaining = limits.max_scans_per_tick;
-	for entity in due {
+	for &entity in due {
 		if remaining == 0 {
 			break;
 		}

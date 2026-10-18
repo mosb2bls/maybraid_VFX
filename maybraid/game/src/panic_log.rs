@@ -16,6 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const ENV_LOGS: &str = "MAYBRAID_LOGS";
 
 const PANIC_LOG: &str = "panic.log";
+const ERROR_LOG: &str = "errors.log";
 
 /// Install a panic hook that appends to [`panic_log_path`] then delegates.
 pub fn install_panic_log_hook() {
@@ -39,6 +40,15 @@ pub fn log_dir() -> PathBuf {
 
 pub fn panic_log_path() -> PathBuf {
 	log_dir().join(PANIC_LOG)
+}
+
+pub fn error_log_path() -> PathBuf {
+	log_dir().join(ERROR_LOG)
+}
+
+/// Append a recoverable ECS error (sibling of [`panic_log_path`]).
+pub fn append_error_log(message: &str) -> std::io::Result<()> {
+	append_log(ERROR_LOG, "error", message)
 }
 
 fn platform_log_dir() -> PathBuf {
@@ -76,16 +86,22 @@ fn write_panic_log(info: &PanicHookInfo<'_>) -> std::io::Result<()> {
 }
 
 fn append_panic_log(message: &str) -> std::io::Result<()> {
+	append_log(PANIC_LOG, "panic", message)
+}
+
+fn append_log(file_name: &str, kind: &str, message: &str) -> std::io::Result<()> {
 	let dir = log_dir();
 	fs::create_dir_all(&dir)?;
-	let mut file = OpenOptions::new().create(true).append(true).open(dir.join(PANIC_LOG))?;
+	let mut file = OpenOptions::new().create(true).append(true).open(dir.join(file_name))?;
 	let now = SystemTime::now()
 		.duration_since(UNIX_EPOCH)
 		.map(|elapsed| elapsed.as_secs())
 		.unwrap_or(0);
-	writeln!(file, "--- panic at unix={now} ---")?;
+	writeln!(file, "--- {kind} at unix={now} ---")?;
 	writeln!(file, "{message}")?;
-	writeln!(file, "backtrace:\n{}", std::backtrace::Backtrace::force_capture())?;
+	if kind == "panic" {
+		writeln!(file, "backtrace:\n{}", std::backtrace::Backtrace::force_capture())?;
+	}
 	file.flush()
 }
 
@@ -104,6 +120,7 @@ mod tests {
 		env::set_var(ENV_LOGS, dir.path());
 		assert_eq!(log_dir(), dir.path());
 		assert_eq!(panic_log_path(), dir.path().join(PANIC_LOG));
+		assert_eq!(error_log_path(), dir.path().join(ERROR_LOG));
 		assert_eq!(ENV_LOGS, "MAYBRAID_LOGS");
 		env::remove_var(ENV_LOGS);
 	}
@@ -133,6 +150,18 @@ mod tests {
 		append_panic_log("guard-kill probe").expect("write");
 		let text = fs::read_to_string(dir.path().join(PANIC_LOG)).expect("panic.log");
 		assert!(text.contains("guard-kill probe"), "{text}");
+		env::remove_var(ENV_LOGS);
+	}
+
+	#[test]
+	fn append_error_log_creates_the_file() {
+		let _guard = ENV_LOCK.lock().expect("env lock");
+		let dir = tempfile::tempdir().expect("tempdir");
+		env::set_var(ENV_LOGS, dir.path());
+		append_error_log("despawned insert").expect("write");
+		let text = fs::read_to_string(dir.path().join(ERROR_LOG)).expect("errors.log");
+		assert!(text.contains("despawned insert"), "{text}");
+		assert!(!text.contains("backtrace:"), "{text}");
 		env::remove_var(ENV_LOGS);
 	}
 }

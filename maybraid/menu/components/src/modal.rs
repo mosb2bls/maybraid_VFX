@@ -170,6 +170,15 @@ impl MenuModalStack {
 		self.layers.retain(|layer| layer.id != id);
 	}
 
+	/// Drop every layer and the consume/hold latches. Recovery and other
+	/// shell teardowns use this so a leftover modal cannot block the next screen.
+	pub fn clear(&mut self) {
+		self.layers.clear();
+		self.consumed = false;
+		self.back_held = false;
+		self.start_held = false;
+	}
+
 	/// Remember that this frame's Back/Start belongs to a modal.
 	pub fn mark_consumed(&mut self) {
 		self.consumed = true;
@@ -443,6 +452,20 @@ mod tests {
 		stack.tick_buttons(false, true);
 		assert!(stack.blocks_screen_select());
 		stack.tick_buttons(false, false);
+		assert!(!stack.blocks_screen_select());
+	}
+
+	#[test]
+	fn clear_drops_layers_and_latches() {
+		let mut stack = MenuModalStack::default();
+		stack.open(MenuModalLayer::SHORT_TEXT);
+		stack.open(MenuModalLayer::CHARACTER_LEAVE);
+		stack.mark_consumed();
+		stack.tick_buttons(true, true);
+		stack.clear();
+		assert!(!stack.is_open());
+		assert!(!stack.consumed());
+		assert!(!stack.blocks_screen_back());
 		assert!(!stack.blocks_screen_select());
 	}
 
