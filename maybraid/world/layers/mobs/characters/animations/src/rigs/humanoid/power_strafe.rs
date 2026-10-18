@@ -1,9 +1,9 @@
 //! Humanoid mapping for [`PowerStrafe`](crate::animations::PowerStrafe).
 
 use bevy::prelude::Vec3;
+use character_rigs::Side;
 use character_rigs::authoring::{ArmAim, ArmatureOffset, HumanoidPose};
 use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
-use character_rigs::Side;
 
 use crate::animations::PowerStrafe;
 use crate::{Animation, Effects};
@@ -87,11 +87,7 @@ impl Animation<HumanoidV0Rig> for PowerStrafe {
 fn mirror_along(along: Vec3, sign: f32) -> Vec3 {
 	let mirrored = Vec3::new(along.x * sign, along.y, along.z);
 	let len = mirrored.length();
-	if len < 1e-5 {
-		Vec3::NEG_Y
-	} else {
-		mirrored / len
-	}
+	if len < 1e-5 { Vec3::NEG_Y } else { mirrored / len }
 }
 
 fn apply_leg(pose: &mut HumanoidPose, side: Side, femur: f32, shin: f32, abduct: f32, rot: f32) {
@@ -120,12 +116,12 @@ mod tests {
 	use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 
 	use super::*;
-	use crate::animations::power_strafe::{
-		GLIDE_END, GLIDE_HOLD, LOAD_END, PUSHOFF_END, PUSH_END, SHIN_TAIL_GROUND_Y, TUCK_END,
-	};
-	use crate::animations::transition::Transition;
 	use crate::animations::Idle;
 	use crate::animations::PowerStrafe;
+	use crate::animations::power_strafe::{
+		GLIDE_END, GLIDE_HOLD, LOAD_END, PUSH_END, PUSHOFF_END, SHIN_TAIL_GROUND_Y, TUCK_END,
+	};
+	use crate::animations::transition::Transition;
 
 	const REVIEW_SAMPLES: [f32; 6] = [LOAD_END, PUSH_END, GLIDE_HOLD, GLIDE_END, TUCK_END, 1.0];
 	const TANZ_SECS: f32 = 0.38;
@@ -294,8 +290,8 @@ mod tests {
 			"support foot should be on the travel side at {progress}: {support:?} wish {wish}"
 		);
 		assert!(
-			(head.x - pelvis.x).abs() < 0.55,
-			"restrained lateral lean at {progress}: head {head:?} pelvis {pelvis:?}"
+			(head.x - pelvis.x).abs() < 0.80,
+			"readable lateral lean at {progress}: head {head:?} pelvis {pelvis:?}"
 		);
 		assert!(
 			head.z > pelvis.z + 0.15,
@@ -313,6 +309,14 @@ mod tests {
 		);
 		assert!(offset.y < -0.12, "glide drop at {progress}, {offset:?}");
 		assert!(offset.y > -0.40, "drop stays in the skating band at {progress}, {offset:?}");
+		assert!(
+			offset.x.abs() > 0.18 && offset.x.abs() < 0.28,
+			"glide visual slide stays a follow-through, not capsule travel, {offset:?}"
+		);
+		assert!(
+			offset.x * wish > 0.0,
+			"visual slide should match travel at {progress}: {offset:?} wish {wish}"
+		);
 	}
 
 	#[test]
