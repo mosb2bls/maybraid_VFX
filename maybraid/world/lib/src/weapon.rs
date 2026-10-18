@@ -89,7 +89,7 @@ type WorldPlayerVisual<'a> = (Entity, &'a ChildOf, Has<MaybraidPlayerVisual>);
 /// [`firearm_user`] fire/pose query [`MaybraidPlayer`] / [`PlayerLook`]. The
 /// player-crate locomotion controller is stamped in [`crate::control`] so
 /// column buoyancy runs; this only arms kit / identity once the visual exists.
-fn arm_world_player(
+pub(crate) fn arm_world_player(
 	mut commands: Commands,
 	mode: Res<PlaygroundMode>,
 	gameplay: Res<WorldGameplayEnabled>,
@@ -194,7 +194,7 @@ fn skill_map_equip_from(inventory: &Inventory) -> SkillMapEquip {
 	SkillMapEquip::from_spec(inventory.primary_skill_map().and_then(InventoryItem::skill_map_spec))
 }
 
-fn hold_primary_weapon(commands: &mut Commands, player: Entity, inventory: &Inventory) {
+pub(crate) fn hold_primary_weapon(commands: &mut Commands, player: Entity, inventory: &Inventory) {
 	match inventory.primary_weapon() {
 		Some(InventoryItem::Firearm { spec, stats }) => {
 			let sheet = inventory.character_sheet();
@@ -214,7 +214,7 @@ fn hold_primary_weapon(commands: &mut Commands, player: Entity, inventory: &Inve
 	}
 }
 
-fn teardown_held_weapon(
+pub(crate) fn teardown_held_weapon(
 	commands: &mut Commands,
 	player: Entity,
 	firearm: Option<&FirearmUser>,

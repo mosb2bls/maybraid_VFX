@@ -198,6 +198,7 @@ fn perf_overlapping_queries() {
 
 /// Worker quantum fill when every id is already in storage (catch-up / overlap).
 #[derive(Clone)]
+#[allow(unused)]
 struct PerfCell(u32);
 
 impl GenerationScheme for PerfCell {

@@ -83,6 +83,8 @@ members = [
   "maybraid/world/layers/mobs/characters/lib",
   "maybraid/world/layers/mobs/characters/rigs",
   "maybraid/world/layers/mobs/characters/playground",
+  "maybraid/world/layers/mobs/architectural/doric-column",
+  "maybraid/world/layers/mobs/architectural/doric-column/playground",
 
   "maybraid/procedural/common",
   "maybraid/procedural/comproc",
@@ -171,7 +173,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.5"
 edition = "2021"
 license = "LICENSE.md" 
 authors = ["Ramate LLC"]
@@ -328,6 +330,8 @@ sdf-common = { path = "maybraid/sdf/common" }
 sdf-common-playground = { path = "maybraid/sdf/common-playground" }
 character-concepts-playground = { path = "maybraid/menu/character-concepts-playground" }
 characters-playground = { path = "maybraid/world/layers/mobs/characters/playground" }
+doric-column = { path = "maybraid/world/layers/mobs/architectural/doric-column" }
+doric-column-playground = { path = "maybraid/world/layers/mobs/architectural/doric-column/playground" }
 character-items = { path = "maybraid/world/layers/mobs/characters/items" }
 character-persist = { path = "maybraid/world/layers/mobs/characters/persist" }
 character-inventory-user = { path = "maybraid/world/layers/mobs/characters/inventory-user" }

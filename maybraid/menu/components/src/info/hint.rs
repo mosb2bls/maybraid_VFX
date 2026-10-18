@@ -1,16 +1,16 @@
-//! Hint strip: animated mark plus faint copy.
+//! Hint strip: static mark plus faint copy.
 
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use bevy::text::{FontSourceTemplate, LineBreak};
 
-use crate::icons::maybraid::AnimatedIcon;
+use crate::icons::maybraid::Icon;
 use crate::theme::{
 	BARLOW_REGULAR, COLUMN_INSET, HINT_BOTTOM, HINT_FONT_SIZE, HINT_ICON_GAP, HINT_ICON_SIZE,
 	TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 
-/// Row that holds the blinking mark and the hint [`Text`].
+/// Row that holds the hint mark and the hint [`Text`].
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct TextMenuHint;
 
@@ -22,7 +22,7 @@ impl TextMenuHint {
 	pub fn scene(initial: impl Into<String>) -> impl Scene + 'static {
 		let initial = initial.into();
 		let children: Vec<Box<dyn Scene>> = vec![
-			Box::new(AnimatedIcon::maybraid_scene(HINT_ICON_SIZE, TEXT_YELLOW)),
+			Box::new(Icon::maybraid(HINT_ICON_SIZE, TEXT_YELLOW).scene()),
 			Box::new(hint_label_scene(initial)),
 		];
 		bsn! {

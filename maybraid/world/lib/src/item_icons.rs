@@ -2,8 +2,8 @@
 
 use bevy::prelude::*;
 use item_icons::{
-	request_inventory_icons, request_pose_icon, CaptureClient, ItemCaptureSubjects,
-	ItemIconDiscovery, ItemIconSystems, PoseCaptureSubjects,
+	request_inventory_icons, request_pose_icon, request_self_lubikan_icon, CaptureClient,
+	ItemCaptureSubjects, ItemIconDiscovery, ItemIconSystems, PoseCaptureSubjects,
 };
 use tanz_user::{TanzId, TanzStack};
 
@@ -41,6 +41,7 @@ fn discover_loadout_items(
 	if !loadout.is_changed() && discovery.requested_len() > 0 {
 		return;
 	}
+	request_self_lubikan_icon(&mut discovery, &mut client);
 	request_inventory_icons(&loadout.inventory, &mut discovery, &mut subjects, &mut client);
 }
 

@@ -212,8 +212,8 @@ fn look_coord(mesh: ClothingVertexOutput) -> vec2<f32> {
 #endif
 }
 
-/// Fine basket weave plus a coarser vertical rib.
-fn cloth_threads(uv: vec2<f32>) -> vec3<f32> {
+/// Weave / rib height. POM only needs this; skip fiber and slub noise.
+fn cloth_ridge(uv: vec2<f32>) -> f32 {
     let count = 96.0;
     let warp_id = floor(uv.x * count);
     let weft_id = floor(uv.y * count);
@@ -224,7 +224,16 @@ fn cloth_threads(uv: vec2<f32>) -> vec3<f32> {
     let warp_on_top = step(0.5, fract((warp_id + weft_id) * 0.5));
     let thread = mix(weft_ridge, warp_ridge, warp_on_top);
     let rib = pow(1.0 - abs(fract(uv.x * 22.0) * 2.0 - 1.0), 0.62);
-    let ridge = mix(thread, rib, 0.42);
+    return mix(thread, rib, 0.42);
+}
+
+/// Fine basket weave plus a coarser vertical rib.
+fn cloth_threads(uv: vec2<f32>) -> vec3<f32> {
+    let count = 96.0;
+    let warp_id = floor(uv.x * count);
+    let weft_id = floor(uv.y * count);
+    let warp_on_top = step(0.5, fract((warp_id + weft_id) * 0.5));
+    let ridge = cloth_ridge(uv);
     let along = mix(uv.x, uv.y, warp_on_top);
     let fiber = value_noise_3d(vec3<f32>(along * 220.0, ridge * 12.0, warp_id * 0.13 + weft_id * 0.07));
     let slub = 0.90 + 0.14 * value_noise_3d(vec3<f32>(uv * 36.0, 3.1));
@@ -339,6 +348,7 @@ fn scales_look(base: vec3<f32>, uv: vec2<f32>, _n: vec3<f32>) -> vec4<f32> {
 //---------------------------------------------------------
 // Short-range UV POM. Height is 1 at the cloth face, 0 in grooves.
 // March for cavity and relief normal only — do not resample look.
+// Cloth height is ridge-only; fiber / slub stay on the look path.
 //---------------------------------------------------------
 
 struct ReliefStyle {
@@ -375,7 +385,7 @@ fn relief_style() -> ReliefStyle {
 }
 
 fn cloth_height(uv: vec2<f32>) -> f32 {
-    return cloth_threads(uv).x;
+    return cloth_ridge(uv);
 }
 
 fn suit_height(uv: vec2<f32>) -> f32 {

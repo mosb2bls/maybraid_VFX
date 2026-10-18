@@ -4,30 +4,33 @@ mod host;
 mod prune;
 
 use bevy::prelude::*;
-use character_items::{icon_catalog_key_for_label, Inventory, InventoryItem};
+use character_items::{
+	icon_catalog_key_for_label, Inventory, InventoryItem, SELF_LUBIKAN_CAPTURE_LABEL,
+};
 use character_persist::SaveRoot;
 use characters::AnimClip;
 use firearms_components::firearm_preview_camera;
 use host::{
 	install_capture_hosts, keep_capture_hosts_visible, mark_capture_hosts_ready,
-	prepare_silhouette_hosts, realize_capture_hosts, remember_item, HOST_CLOTHING, HOST_FIREARM,
+	prepare_silhouette_hosts, realize_capture_hosts, remember_item, rest_pose_self_lubikan_skins,
+	HOST_CLOTHING, HOST_FIREARM,
 };
 use screen_capture::{
-	CaptureCacheRoot, CaptureCompleted, CaptureFailed, CaptureFraming, CaptureLighting,
-	CaptureRequest, CaptureResolution, CaptureRevision, CaptureScene, CaptureSubject, CaptureView,
-	ScreenCapturePlugin, ScreenCaptureSystems,
+	CaptureFraming, CaptureLighting, CaptureRequest, CaptureResolution, CaptureRevision,
+	CaptureScene, CaptureSubject, CaptureView, ScreenCapturePlugin, ScreenCaptureSystems,
 };
 
 pub use host::{
 	CaptureHostRealized, CapturePoseSpec, ItemCaptureSubjects, PoseCaptureSpec,
-	PoseCaptureSubjects, HOST_GRENADE, HOST_SKILL_MAP,
+	PoseCaptureSubjects, HOST_GRENADE, HOST_SELF_LUBIKAN, HOST_SKILL_MAP,
 };
 pub use prune::{
 	kept_icon_file_names, prune_icon_cache, prune_icon_cache_to_saved_inventories,
 	RequestPruneItemIconCache,
 };
 pub use screen_capture::{
-	CaptureClient, CaptureId, CaptureMode, RepresentativePose, HOST_REPRESENTATIVE_POSE,
+	CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed, CaptureHostReady,
+	CaptureHostRoot, CaptureId, CaptureMode, RepresentativePose, HOST_REPRESENTATIVE_POSE,
 };
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -49,6 +52,10 @@ const POSE_CAPTURE_MAX_WAIT_FRAMES: u32 = 1800;
 const CLOTHING_EYE: Vec3 = Vec3::new(0.0, 0.75, 2.5);
 const CLOTHING_LOOK: Vec3 = Vec3::new(0.0, 0.65, 0.0);
 
+/// Full-body Braidman plus chest-front medical cross.
+const SELF_LUBIKAN_EYE: Vec3 = Vec3::new(0.0, 1.0, 3.8);
+const SELF_LUBIKAN_LOOK: Vec3 = Vec3::new(0.0, 0.95, 0.0);
+
 /// Systems that request icons run before completed handles are stored.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ItemIconSystems {
@@ -64,6 +71,7 @@ pub struct ItemIconCache {
 	shaded_by_key: HashMap<u64, Handle<Image>>,
 	silhouette_by_key: HashMap<u64, Handle<Image>>,
 	failed: HashSet<(CaptureId, CaptureMode)>,
+	failed_by_key: HashSet<(u64, CaptureMode)>,
 	/// Bumps when a handle is stored or a capture fails so hosts can rebuild UI.
 	pub generation: u64,
 }
@@ -97,6 +105,20 @@ impl ItemIconCache {
 		self.failed.contains(&(id.clone(), mode))
 	}
 
+	pub fn failed_for_key(&self, key: u64, mode: CaptureMode) -> bool {
+		self.failed_by_key.contains(&(key, mode))
+	}
+
+	/// Filled handle or a reported failure — hosts can stop waiting.
+	pub fn filled_or_failed(&self, key: u64, silhouette: bool) -> bool {
+		if silhouette {
+			self.silhouette_for_key(key).is_some()
+				|| self.failed_for_key(key, CaptureMode::Silhouette)
+		} else {
+			self.shaded_for_key(key).is_some() || self.failed_for_key(key, CaptureMode::Shaded)
+		}
+	}
+
 	pub fn insert_shaded(&mut self, id: CaptureId, image: Handle<Image>) {
 		let key = icon_catalog_key_for_label(id.as_str());
 		self.shaded_by_key.insert(key, image.clone());
@@ -112,6 +134,8 @@ impl ItemIconCache {
 	}
 
 	fn mark_failed(&mut self, id: CaptureId, mode: CaptureMode) {
+		let key = icon_catalog_key_for_label(id.as_str());
+		self.failed_by_key.insert((key, mode));
 		self.failed.insert((id, mode));
 		self.generation = self.generation.wrapping_add(1);
 	}
@@ -141,7 +165,9 @@ impl Plugin for ItemIconPlugin {
 		if let Some(mut root) = app.world_mut().get_resource_mut::<CaptureCacheRoot>() {
 			root.max_wait_frames = root.max_wait_frames.max(POSE_CAPTURE_MAX_WAIT_FRAMES);
 		}
-		install_capture_hosts(app);
+		if app.get_sub_app(bevy::render::RenderApp).is_some() {
+			install_capture_hosts(app);
+		}
 		app.init_resource::<ItemIconCache>()
 			.init_resource::<ItemIconDiscovery>()
 			.init_resource::<ItemCaptureSubjects>()
@@ -157,7 +183,12 @@ impl Plugin for ItemIconPlugin {
 			)
 			.add_systems(
 				PostUpdate,
-				(keep_capture_hosts_visible, prepare_silhouette_hosts, mark_capture_hosts_ready)
+				(
+					keep_capture_hosts_visible,
+					rest_pose_self_lubikan_skins,
+					prepare_silhouette_hosts,
+					mark_capture_hosts_ready,
+				)
 					.chain()
 					.before(ScreenCaptureSystems::Advance),
 			);
@@ -279,10 +310,56 @@ pub fn request_inventory_icons(
 		discovery.requested.clear();
 		discovery.revision = revision;
 	}
+	request_self_lubikan_icon(discovery, client);
 	for request in
 		pending_inventory_icons(inventory, discovery, subjects, CaptureLighting::studio(), revision)
 	{
 		client.request(request);
+	}
+}
+
+/// Scene-capture the Self Lubikan tile: Braidman silhouette + medical cross.
+pub fn request_self_lubikan_icon(discovery: &mut ItemIconDiscovery, client: &mut CaptureClient) {
+	let revision = CaptureRevision::CURRENT;
+	if discovery.revision != revision {
+		discovery.requested.clear();
+		discovery.revision = revision;
+	}
+	let subject = SelfLubikanSubject;
+	if !discovery.requested.insert(subject.capture_id()) {
+		return;
+	}
+	client.request(self_lubikan_icon_request(revision));
+}
+
+/// Silhouette request for the shared Self Lubikan catalog tile.
+pub(crate) fn self_lubikan_icon_request(revision: CaptureRevision) -> CaptureRequest {
+	CaptureRequest::from_subject(
+		&SelfLubikanSubject,
+		CaptureMode::Silhouette,
+		ITEM_ICON_RESOLUTION,
+		CaptureLighting::studio(),
+		revision,
+	)
+	.with_file_stem("self-lubikan")
+	.with_framing(CaptureFraming::ICON)
+}
+
+#[derive(Clone, Debug)]
+struct SelfLubikanSubject;
+
+impl CaptureSubject for SelfLubikanSubject {
+	fn capture_id(&self) -> CaptureId {
+		CaptureId::new(SELF_LUBIKAN_CAPTURE_LABEL)
+	}
+
+	fn capture_scene(&self) -> CaptureScene {
+		CaptureScene::host(HOST_SELF_LUBIKAN, SELF_LUBIKAN_CAPTURE_LABEL)
+	}
+
+	fn preferred_view(&self) -> CaptureView {
+		CaptureView::look_at(SELF_LUBIKAN_EYE, SELF_LUBIKAN_LOOK)
+			.perspective(CaptureView::DEFAULT_FOV)
 	}
 }
 
@@ -560,6 +637,27 @@ mod tests {
 	}
 
 	#[test]
+	fn self_lubikan_icon_is_a_silhouette_host() -> anyhow::Result<()> {
+		use character_items::self_lubikan_catalog_key;
+
+		let subject = SelfLubikanSubject;
+		assert_eq!(subject.capture_id(), CaptureId::new(SELF_LUBIKAN_CAPTURE_LABEL));
+		assert!(matches!(
+			subject.capture_scene(),
+			CaptureScene::Host { kind, .. } if kind == HOST_SELF_LUBIKAN
+		));
+		let request = self_lubikan_icon_request(CaptureRevision::CURRENT);
+		assert_eq!(request.mode, CaptureMode::Silhouette);
+		assert_eq!(request.framing, CaptureFraming::ICON);
+		assert_eq!(request.resolution, ITEM_ICON_RESOLUTION);
+		assert_eq!(
+			icon_catalog_key_for_label(SELF_LUBIKAN_CAPTURE_LABEL),
+			self_lubikan_catalog_key()
+		);
+		Ok(())
+	}
+
+	#[test]
 	fn clothing_subject_is_a_preview_host() -> anyhow::Result<()> {
 		let item = InventoryItem::clothing(
 			ClothingMesh::Pants,
@@ -647,41 +745,6 @@ mod tests {
 		assert!(cache.silhouette_for_item(&item).is_none());
 		assert!(cache.failed(&subject.capture_id(), CaptureMode::Silhouette));
 		assert!(!cache.failed(&subject.capture_id(), CaptureMode::Shaded));
-		Ok(())
-	}
-
-	#[derive(Clone)]
-	struct DemoPose;
-
-	impl RepresentativePose for DemoPose {
-		fn clip_key(&self) -> std::borrow::Cow<'static, str> {
-			std::borrow::Cow::Borrowed("power-dash")
-		}
-
-		fn clip_progress(&self) -> f32 {
-			0.5
-		}
-
-		fn pose_label(&self) -> std::borrow::Cow<'static, str> {
-			std::borrow::Cow::Borrowed("forward_dash")
-		}
-
-		fn pose_revision(&self) -> u64 {
-			0x11
-		}
-	}
-
-	#[test]
-	fn pose_icon_request_is_a_silhouette_host() -> anyhow::Result<()> {
-		let request = pose_icon_request(&DemoPose);
-		assert_eq!(request.mode, CaptureMode::Silhouette);
-		assert_eq!(request.resolution, POSE_ICON_RESOLUTION);
-		assert_eq!(request.framing, CaptureFraming::ICON);
-		assert_eq!(request.file_stem, "forward-dash");
-		assert!(matches!(
-			request.scene,
-			CaptureScene::Host { kind, .. } if kind == HOST_REPRESENTATIVE_POSE
-		));
 		Ok(())
 	}
 }

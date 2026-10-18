@@ -3,6 +3,8 @@
 use bevy_math::{Vec2, Vec3};
 use procedural_common::NoiseParams;
 
+pub use procedural_common::{parse_vec2_csv, parse_vec3_csv};
+
 #[cfg(feature = "render")]
 use crate::grove::distribution::parse_variant_weights;
 use crate::grove::distribution::VariantWeightOverrides;
@@ -116,30 +118,6 @@ impl GroveFrontend {
 			self.perturbation_origin,
 		)
 	}
-}
-
-/// Two comma-separated floats (optional ASCII whitespace around commas).
-pub fn parse_vec2_csv(s: &str) -> Result<Vec2, String> {
-	match parse_f32_csv(s)?.as_slice() {
-		&[x, y] => Ok(Vec2::new(x, y)),
-		parts => Err(format!("expected two comma-separated numbers, got {}: {s:?}", parts.len())),
-	}
-}
-
-/// Three comma-separated floats (optional ASCII whitespace around commas).
-pub fn parse_vec3_csv(s: &str) -> Result<Vec3, String> {
-	match parse_f32_csv(s)?.as_slice() {
-		&[x, y, z] => Ok(Vec3::new(x, y, z)),
-		parts => Err(format!("expected three comma-separated numbers, got {}: {s:?}", parts.len())),
-	}
-}
-
-fn parse_f32_csv(s: &str) -> Result<Vec<f32>, String> {
-	s.split(',')
-		.map(str::trim)
-		.filter(|p| !p.is_empty())
-		.map(|p| p.parse::<f32>().map_err(|e| format!("invalid float {p:?}: {e}")))
-		.collect()
 }
 
 #[cfg(test)]

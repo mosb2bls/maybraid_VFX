@@ -1,25 +1,24 @@
-//! Text menu whose active row shows an animated mark in a reserved gutter.
+//! Text menu whose active row inverts to a navy-on-yellow tag.
 
 use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use bevy::text::{FontSourceTemplate, Justify};
 
-use crate::icons::maybraid::AnimatedIcon;
-
 use super::text_menu::{
 	MenuItemLocked, MenuStepper, TextColumnAlign, TextColumnAnchor, TextMenu, TextMenuHeader,
 	TextMenuItem, TextMenuItemLabel,
 };
+use crate::controls::focus::FocusTag;
 use crate::controls::scroll::{entity_is_under, reveal_item_in_viewport};
 use crate::controls::section::CursorRow;
 use crate::info::description::TextMenuDescription;
 use crate::theme::{
-	BARLOW_SEMIBOLD, COLUMN_BOTTOM, CORNER_BOTTOM, CORNER_INSET, CURSOR_ICON_GAP, CURSOR_ICON_SIZE,
-	DESCRIPTION_FONT_SIZE, DESCRIPTION_PANE_LEFT_PERCENT, ITEM_FONT_SIZE, ITEM_ROW_GAP,
-	OBJECTIVE_MARKER_BORDER, OBJECTIVE_MARKER_FONT_SIZE, OBJECTIVE_MARKER_OFFSET_Y,
-	OBJECTIVE_MARKER_PAD_X, OBJECTIVE_MARKER_PAD_Y, OBJECTIVE_MARKER_RADIUS, TEXT_LIME,
-	TEXT_PURPLE, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS,
-	TILE_FOCUS_PAD,
+	BARLOW_SEMIBOLD, COLUMN_BOTTOM, CORNER_BOTTOM, CORNER_INSET, DESCRIPTION_FONT_SIZE,
+	DESCRIPTION_PANE_LEFT_PERCENT, FOCUS_TAG_GAP, FOCUS_TAG_PAD_X, FOCUS_TAG_PAD_Y,
+	FOCUS_TAG_RADIUS, ITEM_FONT_SIZE, ITEM_ROW_GAP, OBJECTIVE_MARKER_BORDER,
+	OBJECTIVE_MARKER_FONT_SIZE, OBJECTIVE_MARKER_OFFSET_Y, OBJECTIVE_MARKER_PAD_X,
+	OBJECTIVE_MARKER_PAD_Y, OBJECTIVE_MARKER_RADIUS, TEXT_LIME, TEXT_PURPLE, TEXT_SALMON,
+	TEXT_YELLOW, TEXT_YELLOW_FAINT, TILE_FOCUS_PAD,
 };
 
 /// Marker on a text-cursor column. Shares [`TextMenu`] selection with the plain column.
@@ -29,10 +28,6 @@ pub struct TextCursorMenu;
 /// Scroll viewport under a sticky [`TextCursorColumn`] header.
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct TextCursorScroll;
-
-/// Reserved gutter on a row; the animated mark is a child.
-#[derive(Component, Debug, Default, Clone, Copy)]
-pub struct TextCursorSlot;
 
 /// Onboarding / availability badge copy and color. Screens set a kind rather
 /// than free-stringing the strings.
@@ -60,9 +55,8 @@ impl MenuObjectiveKind {
 	pub fn color(self) -> Color {
 		match self {
 			Self::ComingSoon | Self::TemporarilyRemoved => TEXT_PURPLE,
-			Self::StartHere => TEXT_LIME,
+			Self::StartHere | Self::Selected => TEXT_LIME,
 			Self::NeedsCharacter => TEXT_SALMON,
-			Self::Selected => TEXT_LIME,
 		}
 	}
 
@@ -134,7 +128,7 @@ impl<E> TextCursorRow<E> {
 	}
 }
 
-/// Header plus labeled actions, with an animated mark beside the active row.
+/// Header plus labeled actions, with an inverted tag on the active row.
 pub struct TextCursorColumn<E> {
 	pub header: Option<String>,
 	pub items: Vec<TextCursorRow<E>>,
@@ -284,9 +278,9 @@ impl<E: Component + Copy + Default + Unpin + Send + Sync + 'static> TextCursorCo
 	}
 }
 
-/// Cursor-marked action plus a separate caption under it (e.g. Next + progress).
+/// Tagged action plus a separate caption under it (e.g. Next + progress).
 ///
-/// The mark lives on the label row only, same as [`TextCursorColumn`]. Subtext is
+/// The tag lives on the label row only, same as [`TextCursorColumn`]. Subtext is
 /// its own node, indented to line up with the title.
 pub struct ButtonWithSubtext<E> {
 	pub label: String,
@@ -346,10 +340,12 @@ pub struct ScreenBackPressed;
 /// Bottom-left Back control. Not part of the screen's [`TextMenu`] so Enter
 /// on the main list cannot fire it.
 pub fn screen_back_scene() -> impl Scene + 'static {
-	let children: Vec<Box<dyn Scene>> = vec![
-		Box::new(cursor_slot_scene(Visibility::Hidden, TextColumnAlign::Start, TEXT_YELLOW)),
-		Box::new(cursor_label_scene(String::from("Back"), TextColumnAlign::Start, TEXT_YELLOW)),
-	];
+	let children: Vec<Box<dyn Scene>> = vec![Box::new(focus_tag_scene(
+		cursor_label_scene(String::from("Back"), TextColumnAlign::Start, TEXT_YELLOW),
+		TEXT_YELLOW,
+		false,
+		false,
+	))];
 	bsn! {
 		Button
 		ScreenBack
@@ -360,7 +356,6 @@ pub fn screen_back_scene() -> impl Scene + 'static {
 			bottom: px(CORNER_BOTTOM),
 			flex_direction: FlexDirection::Row,
 			align_items: AlignItems::Center,
-			column_gap: px(CURSOR_ICON_GAP),
 			padding: UiRect::axes(px(0.0), px(2.0)),
 		}
 		BackgroundColor(Color::NONE)
@@ -386,10 +381,12 @@ pub struct ScreenEdit;
 pub struct ScreenEditPressed;
 
 pub fn screen_edit_scene() -> impl Scene + 'static {
-	let children: Vec<Box<dyn Scene>> = vec![
-		Box::new(cursor_slot_scene(Visibility::Hidden, TextColumnAlign::Start, TEXT_YELLOW)),
-		Box::new(cursor_label_scene(String::from("Edit"), TextColumnAlign::Start, TEXT_YELLOW)),
-	];
+	let children: Vec<Box<dyn Scene>> = vec![Box::new(focus_tag_scene(
+		cursor_label_scene(String::from("Edit"), TextColumnAlign::Start, TEXT_YELLOW),
+		TEXT_YELLOW,
+		false,
+		false,
+	))];
 	bsn! {
 		Button
 		ScreenEdit
@@ -400,7 +397,6 @@ pub fn screen_edit_scene() -> impl Scene + 'static {
 			bottom: px(CORNER_BOTTOM),
 			flex_direction: FlexDirection::Row,
 			align_items: AlignItems::Center,
-			column_gap: px(CURSOR_ICON_GAP),
 			padding: UiRect::axes(px(0.0), px(2.0)),
 		}
 		BackgroundColor(Color::NONE)
@@ -452,13 +448,11 @@ where
 	}
 }
 
-/// Under a Start title the caption skips the cursor gutter; a centered title
-/// hangs its gutter outside the row, so the caption centers with no indent.
+/// Under a Start title the caption lines up with the tag's inner text; a
+/// centered title keeps the caption centered with no indent.
 fn subtext_caption_scene(subtext: String, align: TextColumnAlign) -> impl Scene + 'static {
 	let margin = match align {
-		TextColumnAlign::Start => {
-			UiRect { left: Val::Px(CURSOR_ICON_SIZE + CURSOR_ICON_GAP), ..default() }
-		}
+		TextColumnAlign::Start => UiRect { left: Val::Px(FOCUS_TAG_PAD_X), ..default() },
 		TextColumnAlign::Center => UiRect::default(),
 	};
 	let justify = align.text_justify();
@@ -494,22 +488,20 @@ fn cursor_item_scene<E>(
 where
 	E: Component + Copy + Default + Unpin + Send + Sync + 'static,
 {
-	let visibility =
-		if item.index == selected { Visibility::Inherited } else { Visibility::Hidden };
-	let icon_color = if locked { TEXT_YELLOW_FAINT_FOCUS } else { TEXT_YELLOW };
-	let mut children: Vec<Box<dyn Scene>> = vec![
-		Box::new(cursor_slot_scene(visibility, align, icon_color)),
-		Box::new(cursor_label_scene(label, align, item.idle)),
-	];
+	let focused = item.index == selected;
+	let face = FocusTag::text(focused, locked, item.idle);
+	let mut children: Vec<Box<dyn Scene>> = vec![Box::new(focus_tag_scene(
+		cursor_label_scene(label, align, face),
+		item.idle,
+		focused,
+		locked,
+	))];
 	if let Some(kind) = objective {
 		let marker_visibility =
 			if objective_visible { Visibility::Inherited } else { Visibility::Hidden };
 		children.push(Box::new(objective_marker_scene(kind, marker_visibility)));
 	}
-	let column_gap = match align {
-		TextColumnAlign::Start => Val::Px(CURSOR_ICON_GAP),
-		TextColumnAlign::Center => Val::Px(0.0),
-	};
+	let column_gap = Val::Px(FOCUS_TAG_GAP);
 	let justify_content = align.justify_content();
 	if locked {
 		Box::new(bsn! {
@@ -596,36 +588,25 @@ fn objective_marker_scene(kind: MenuObjectiveKind, visibility: Visibility) -> im
 	}
 }
 
-fn cursor_slot_scene(
-	visibility: Visibility,
-	align: TextColumnAlign,
-	icon_color: Color,
-) -> impl Scene {
-	let children: Vec<Box<dyn Scene>> = vec![Box::new(
-		AnimatedIcon::maybraid_scene_with_visibility(CURSOR_ICON_SIZE, icon_color, visibility),
-	)];
-	let node = match align {
-		TextColumnAlign::Start => Node {
-			width: Val::Px(CURSOR_ICON_SIZE),
-			height: Val::Px(CURSOR_ICON_SIZE),
-			flex_shrink: 0.0,
-			..default()
-		},
-		TextColumnAlign::Center => Node {
-			position_type: PositionType::Absolute,
-			left: Val::Px(-(CURSOR_ICON_SIZE + CURSOR_ICON_GAP)),
-			top: Val::Px(0.0),
-			bottom: Val::Px(0.0),
-			width: Val::Px(CURSOR_ICON_SIZE),
+fn focus_tag_scene(
+	label: impl Scene + 'static,
+	idle: Color,
+	focused: bool,
+	locked: bool,
+) -> impl Scene + 'static {
+	let children: Vec<Box<dyn Scene>> = vec![Box::new(label)];
+	let tag = FocusTag::new(idle);
+	let fill = FocusTag::fill(focused, locked);
+	bsn! {
+		template_value(tag)
+		Node {
+			padding: UiRect::axes(px(FOCUS_TAG_PAD_X), px(FOCUS_TAG_PAD_Y)),
+			border_radius: BorderRadius::all(px(FOCUS_TAG_RADIUS)),
 			justify_content: JustifyContent::Center,
 			align_items: AlignItems::Center,
 			flex_shrink: 0.0,
-			..default()
-		},
-	};
-	bsn! {
-		TextCursorSlot
-		template_value(node)
+		}
+		BackgroundColor(fill)
 		Pickable::IGNORE
 		Children [ {children} ]
 	}
@@ -643,66 +624,6 @@ fn cursor_label_scene(label: String, align: TextColumnAlign, color: Color) -> im
 		TextLayout::new(text_justify, bevy::text::LineBreak::NoWrap)
 		TextMenuItemLabel
 		Pickable::IGNORE
-	}
-}
-
-/// Show the animated mark only in the selected row’s gutter.
-///
-/// A visible [`MenuObjectiveKind::Selected`] chip moves the mark to [`ScreenEdit`].
-pub fn sync_text_cursor_icons(
-	menus: Query<&TextMenu, With<TextCursorMenu>>,
-	items: Query<(Entity, &TextMenuItem)>,
-	child_of: Query<&ChildOf>,
-	children: Query<&Children>,
-	kinds: Query<&MenuObjectiveKind>,
-	markers: Query<&Visibility, (With<MenuObjectiveMarker>, Without<AnimatedIcon>)>,
-	slots: Query<(), With<TextCursorSlot>>,
-	mut icons: Query<&mut Visibility, (With<AnimatedIcon>, Without<MenuObjectiveMarker>)>,
-) {
-	for (item_entity, item) in &items {
-		let Some(menu) = text_cursor_menu(item_entity, &child_of, &menus) else {
-			continue;
-		};
-		let edit_cue = descendant_shows_kind(
-			item_entity,
-			MenuObjectiveKind::Selected,
-			&kinds,
-			&markers,
-			&children,
-		);
-		let show = item.index == menu.selected && !edit_cue;
-		let Ok(item_children) = children.get(item_entity) else {
-			continue;
-		};
-		set_slot_icon_visibility(item_children, show, &slots, &children, &mut icons);
-	}
-}
-
-/// Point the Maybraid mark at Edit when the active character row is live.
-pub fn sync_screen_edit_cursor(
-	menus: Query<&TextMenu, With<TextCursorMenu>>,
-	items: Query<(Entity, &TextMenuItem, Option<&Interaction>)>,
-	edits: Query<&Children, With<ScreenEdit>>,
-	kinds: Query<&MenuObjectiveKind>,
-	markers: Query<&Visibility, (With<MenuObjectiveMarker>, Without<AnimatedIcon>)>,
-	slots: Query<(), With<TextCursorSlot>>,
-	children: Query<&Children>,
-	mut icons: Query<&mut Visibility, (With<AnimatedIcon>, Without<MenuObjectiveMarker>)>,
-) {
-	let cue = items.iter().any(|(entity, item, interaction)| {
-		if !descendant_shows_kind(entity, MenuObjectiveKind::Selected, &kinds, &markers, &children)
-		{
-			return false;
-		}
-		let focused = menus.iter().any(|menu| menu.selected == item.index);
-		let hovered = matches!(interaction, Some(Interaction::Hovered | Interaction::Pressed));
-		focused || hovered
-	});
-	if !cue {
-		return;
-	}
-	for row_children in &edits {
-		set_slot_icon_visibility(row_children, true, &slots, &children, &mut icons);
 	}
 }
 
@@ -734,61 +655,6 @@ pub fn scroll_text_cursor_selection_into_view(
 			continue;
 		};
 		reveal_item_in_viewport(viewport, view_tf, item_node, item_tf, TILE_FOCUS_PAD, &mut scroll);
-	}
-}
-
-fn set_slot_icon_visibility(
-	row_children: &Children,
-	show: bool,
-	slots: &Query<(), With<TextCursorSlot>>,
-	children: &Query<&Children>,
-	icons: &mut Query<&mut Visibility, (With<AnimatedIcon>, Without<MenuObjectiveMarker>)>,
-) {
-	for child in row_children {
-		if slots.get(*child).is_err() {
-			continue;
-		}
-		let Ok(slot_children) = children.get(*child) else {
-			continue;
-		};
-		for icon_entity in slot_children {
-			if let Ok(mut visibility) = icons.get_mut(*icon_entity) {
-				*visibility = if show { Visibility::Inherited } else { Visibility::Hidden };
-			}
-		}
-	}
-}
-
-/// Visible badge of `kind` under `root`. Hidden Selected chips do not count, so
-/// the Edit mark stays on the active character only.
-fn descendant_shows_kind(
-	root: Entity,
-	kind: MenuObjectiveKind,
-	kinds: &Query<&MenuObjectiveKind>,
-	markers: &Query<&Visibility, (With<MenuObjectiveMarker>, Without<AnimatedIcon>)>,
-	children: &Query<&Children>,
-) -> bool {
-	if kinds.get(root).is_ok_and(|found| *found == kind) {
-		return !matches!(markers.get(root), Ok(Visibility::Hidden));
-	}
-	let Ok(kids) = children.get(root) else {
-		return false;
-	};
-	kids.iter()
-		.any(|child| descendant_shows_kind(child, kind, kinds, markers, children))
-}
-
-fn text_cursor_menu<'a>(
-	start: Entity,
-	child_of: &Query<&ChildOf>,
-	menus: &'a Query<&TextMenu, With<TextCursorMenu>>,
-) -> Option<&'a TextMenu> {
-	let mut entity = start;
-	loop {
-		if let Ok(menu) = menus.get(entity) {
-			return Some(menu);
-		}
-		entity = child_of.get(entity).ok()?.parent();
 	}
 }
 
@@ -852,6 +718,15 @@ mod tests {
 	fn stepper_marks_the_row() {
 		let row = TextCursorRow::new("Render Scale", RowAction::Go).stepper();
 		assert!(row.stepper);
+	}
+
+	#[test]
+	fn live_tag_hugs_the_label_not_the_row() {
+		use crate::controls::focus::FocusTag;
+		use crate::theme::{FOCUS_TAG_PAD_X, TEXT_DEEP_BLUE, TEXT_YELLOW};
+		assert!(FOCUS_TAG_PAD_X > 0.0);
+		assert_eq!(FocusTag::fill(true, false), TEXT_YELLOW);
+		assert_eq!(FocusTag::text(true, false, TEXT_YELLOW), TEXT_DEEP_BLUE);
 	}
 
 	#[test]
