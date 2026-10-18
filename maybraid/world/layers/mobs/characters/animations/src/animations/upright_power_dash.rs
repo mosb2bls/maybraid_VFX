@@ -30,7 +30,7 @@ impl Default for UprightPowerDash {
 			trail_knee: 0.38,
 			support_femur: -1.08,
 			trail_femur: 0.82,
-			lean: 0.52,
+			lean: 0.68,
 			yaw: 0.22,
 			hip_abduct: 0.22,
 		}
