@@ -9,7 +9,8 @@ use character_rigs::authoring::humanoid_bone_axis;
 use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use character_rigs::Side;
 use characters::{
-	AnimBone, AnimMailbox, AnimateBones, BoneMap, CharacterMembers, CharacterRoot, SuspendAnimation,
+	AnimBone, AnimMailbox, AnimateBones, BoneMap, CharacterMembers, CharacterRoot, MailboxApplySet,
+	SuspendAnimation, mailbox_apply_allows,
 };
 use firearms::{FirearmMembers, FirearmRoot};
 
@@ -22,12 +23,13 @@ pub struct HoldingArms;
 
 /// Point the trigger hand at `trigger_point` and the support hand at the grip socket.
 pub fn sync_hands_to_firearm(
+	set: Option<Res<MailboxApplySet>>,
 	users: Query<&FirearmUser>,
 	visuals: Query<(Entity, &CharacterMembers, &ChildOf), (With<CharacterRoot>, Without<AnimBone>)>,
 	guns: Query<&FirearmMembers, (With<HeldFirearm>, With<FirearmRoot>, Without<AnimBone>)>,
 	gun_maps: Query<&BoneMap, Without<HoldingArms>>,
 	mut rigs: Query<
-		(&mut HumanoidV0Rig, &BoneMap, &AnimMailbox),
+		(Entity, &mut HumanoidV0Rig, &BoneMap, &AnimMailbox),
 		(With<HoldingArms>, With<AnimateBones>, Without<SuspendAnimation>),
 	>,
 	mut transforms: ParamSet<(
@@ -53,7 +55,10 @@ pub fn sync_hands_to_firearm(
 		}
 
 		for member in members.iter() {
-			let Ok((mut rig, map, mailbox)) = rigs.get_mut(member) else {
+			if !mailbox_apply_allows(set.as_deref(), member) {
+				continue;
+			}
+			let Ok((_entity, mut rig, map, mailbox)) = rigs.get_mut(member) else {
 				continue;
 			};
 			if !mailbox.posed {
@@ -68,7 +73,7 @@ pub fn sync_hands_to_firearm(
 			});
 			drop(current);
 			let mut bones = transforms.p1();
-			rig.pose.copy_from(&mailbox.output);
+			rig.pose.copy_from(mailbox.base_pose());
 			pose_firing_torso(&mut rig, settings.firing_torso_yaw);
 			let right = arm_reach(&rig, Side::Right, right_target, settings.right_pole, 1.0);
 			let left = arm_reach(
