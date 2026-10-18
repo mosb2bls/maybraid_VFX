@@ -14,9 +14,9 @@ mod camera;
 pub mod commands;
 pub mod control;
 mod crate_loot;
+mod cycle_target;
 mod first_wave;
 mod intelligence;
-mod cycle_target;
 mod inventory_cycling;
 mod item_icons;
 mod map_view;
@@ -53,13 +53,13 @@ pub use control::{
 	InventoryEditCameraFollow, WorldGameplayEnabled, WorldMenuShell, WorldPlaySessionEnded,
 	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
 };
+pub use cycle_target::InventoryCycleTarget;
 pub use durham::Durham;
 #[cfg(any(test, feature = "test-support"))]
 pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
-pub use cycle_target::InventoryCycleTarget;
 pub use inventory_cycling::ActiveInventoryCyclingCategory;
 pub use item_icons::{
 	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
@@ -126,6 +126,7 @@ use maybraid_skill_map::{SkillMapPlugin, SkillMapSystems};
 use maybraid_sky::SkyDomePlugin;
 use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
+use maybraid_world_controller::WorldControllerPlugin;
 use player::{
 	register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin, PlayerSystems,
 };
@@ -211,6 +212,7 @@ impl Plugin for WorldPlugin {
 				..default()
 			}))
 			.add_plugins(CharacterControllerPlugin)
+			.add_plugins(WorldControllerPlugin)
 			.add_plugins(PlayerPresentationPlugin)
 			.add_plugins(PlayerCameraPlugin)
 			.add_plugins(WORLD_COMBAT_HUD)
@@ -236,7 +238,6 @@ impl Plugin for WorldPlugin {
 			.insert_resource(VegetationPlayerMotor(false))
 			.insert_resource(CharacterCameraFollowEnabled(false))
 			.add_message::<control::WorldPlaySessionEnded>()
-			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
 			.init_resource::<crate::WorldMenuShell>()

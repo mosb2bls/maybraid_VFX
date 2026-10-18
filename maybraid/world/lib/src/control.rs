@@ -22,10 +22,7 @@ use world_player::{
 
 use crate::map_view::WorldMapView;
 
-/// When `false`, world movement / POV intents are ignored (menus, pause overlay).
-/// Pause must not be treated as a play-session teardown.
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct WorldGameplayEnabled(pub bool);
+pub use maybraid_world_controller::WorldGameplayEnabled;
 
 /// Explicit play-session teardown. The game shell writes this when leaving
 /// to Home. Pause must not write it.
@@ -35,28 +32,6 @@ pub struct WorldPlaySessionEnded;
 /// Keep third-person follow while the in-game inventory editor is open.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InventoryEditCameraFollow(pub bool);
-
-impl Default for WorldGameplayEnabled {
-	fn default() -> Self {
-		Self(true)
-	}
-}
-
-impl WorldGameplayEnabled {
-	/// Live play with no modal that steals character intents (console, world map).
-	pub(crate) fn accepts_character_input(
-		&self,
-		text_focus: &TextEntryFocus,
-		map: Option<&WorldMapView>,
-	) -> bool {
-		self.0 && !text_focus.0 && !map.is_some_and(|map| map.open)
-	}
-
-	/// Combat vitals stay visible during live play when the map sheet is closed.
-	pub(crate) fn combat_hud_visible(&self, map: Option<&WorldMapView>) -> bool {
-		self.0 && !map.is_some_and(|map| map.open)
-	}
-}
 
 /// Sky, world player, and fog. Off on menu shells so navy clear is the preview backdrop.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -159,7 +134,7 @@ pub(crate) fn sync_combat_hud_visible(
 	let Some(mut hud) = hud else {
 		return;
 	};
-	let next = gameplay.combat_hud_visible(map.as_deref());
+	let next = gameplay.combat_hud_visible(map.is_some_and(|map| map.open));
 	if hud.0 != next {
 		hud.0 = next;
 	}
@@ -171,7 +146,7 @@ pub(crate) fn sync_skill_map_enabled(
 	map: Option<Res<WorldMapView>>,
 	mut enabled: ResMut<SkillMapEnabled>,
 ) {
-	let next = gameplay.accepts_character_input(&text_focus, map.as_deref());
+	let next = gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open));
 	if enabled.0 != next {
 		enabled.0 = next;
 	}
@@ -190,7 +165,7 @@ pub(crate) fn apply_intents_to_movement(
 	mut movement: MessageWriter<MovementAction>,
 ) {
 	if *mode != PlaygroundMode::Character
-		|| !gameplay.accepts_character_input(&text_focus, map.as_deref())
+		|| !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open))
 	{
 		for _ in intents.read() {}
 		for mut wish in &mut wishes {
@@ -399,10 +374,9 @@ mod tests {
 
 	#[test]
 	fn skill_map_follows_gameplay_and_text_focus() {
-		let focus = TextEntryFocus(false);
-		assert!(WorldGameplayEnabled(true).accepts_character_input(&focus, None));
-		assert!(!WorldGameplayEnabled(false).accepts_character_input(&focus, None));
-		assert!(!WorldGameplayEnabled(true).accepts_character_input(&TextEntryFocus(true), None));
+		assert!(WorldGameplayEnabled(true).accepts_character_input(false, false));
+		assert!(!WorldGameplayEnabled(false).accepts_character_input(false, false));
+		assert!(!WorldGameplayEnabled(true).accepts_character_input(true, false));
 	}
 
 	#[test]

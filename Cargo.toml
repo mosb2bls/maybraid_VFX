@@ -27,6 +27,7 @@ members = [
   "maybraid/menu/playground",
   "maybraid/controllers/menu",
   "maybraid/controllers/character",
+  "maybraid/controllers/world",
 
   "maybraid/audio",
   "maybraid/weather",
@@ -295,6 +296,7 @@ menu-screens = { path = "maybraid/menu/screens" }
 menu-playground = { path = "maybraid/menu/playground" }
 maybraid-menu-controller = { path = "maybraid/controllers/menu" }
 maybraid-character-controller = { path = "maybraid/controllers/character" }
+maybraid-world-controller = { path = "maybraid/controllers/world" }
 
 maybraid-audio = { path = "maybraid/audio" }
 maybraid-weather = { path = "maybraid/weather" }

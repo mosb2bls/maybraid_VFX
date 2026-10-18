@@ -166,7 +166,7 @@ fn request_lubikan_activation(
 	mut requests: MessageWriter<LubikanActivationRequest>,
 	owners: Query<Entity, (With<Player>, With<LubikanOwner>)>,
 ) {
-	if !gameplay.accepts_character_input(&text_focus, map.as_deref()) {
+	if !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open)) {
 		for _ in intents.read() {}
 		return;
 	}
