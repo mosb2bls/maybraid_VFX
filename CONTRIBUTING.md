@@ -331,12 +331,15 @@ Check that a script parses before publishing it: run `profiling/tracy-flight.sh 
 
 Menu scripts are regression tests, not Traces captures. They live in-repo as
 [`maybraid/agent/scripts/menu-*.jsonl`](maybraid/agent/scripts/) (script API 6+)
-and each file's header comment says what it covers.
+and [`inventory-cycle-*.jsonl`](maybraid/agent/scripts/) (script API 7+).
+Each file's header comment says what it covers.
 
 They need menu control and observation that world gameplay scripts do not:
 `confirm` / `back` / `start` aliases, same-frame `press.buttons` chords,
 `wait_for` / `expect` / `mash`, and `screen` / `modal` / `focus` / `flow` /
-`invariant` events. A script with no leading `start` and no `--start-at` boots
+`invariant` events. Inventory-cycle scripts also match `cycle_category` /
+`weapon` / `skill_map` / `lubikan` and emit `cycle` / `equipped`. A script
+with no leading `start` and no `--start-at` boots
 to Home and becomes ready when the first menu screen is up (`ready` detail
 `menu`). See the [agent README](maybraid/agent/README.md#script-api-version).
 

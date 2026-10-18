@@ -120,6 +120,8 @@ mod tests {
 		"menu-home-characters.jsonl",
 		"menu-home-settings.jsonl",
 		"menu-pause-back.jsonl",
+		"inventory-cycle-categories.jsonl",
+		"inventory-cycle-mash-42.jsonl",
 	];
 
 	#[test]

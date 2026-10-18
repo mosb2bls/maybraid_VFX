@@ -7,6 +7,7 @@
 pub mod cli;
 pub mod command;
 pub mod event;
+pub mod inventory;
 pub mod io;
 pub mod menu;
 pub mod pad;
@@ -19,6 +20,7 @@ pub use cli::{
 };
 pub use command::{AgentButton, AgentCommand, ScenarioMark, SCRIPT_API_VERSION};
 pub use event::{AgentEvent, AgentEventBody, CommandStatus};
+pub use inventory::{AgentMatcher, InventoryMatcher, InventoryObservation};
 pub use io::LineInbox;
 pub use menu::{MenuMatcher, MenuObservation};
 pub use pad::PadIntent;

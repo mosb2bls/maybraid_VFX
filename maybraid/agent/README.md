@@ -52,7 +52,7 @@ with `"cmd"`.
 | `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
 | `press` | `button` and/or `buttons` | one frame; `buttons` is a same-frame chord |
 | `wait` | `secs` | idle |
-| `wait_for` | `screen`, `modal`, `flow`, `pause`, `focus_row`, `focus_label`, `timeout` (default 10) | idle until the snapshot matches; fails with `detail` on timeout |
+| `wait_for` | `screen`, `modal`, `flow`, `pause`, `focus_row`, `focus_label`, `cycle_category`, `weapon`, `skill_map`, `lubikan`, `timeout` (default 10) | idle until the snapshot matches; fails with `detail` on timeout |
 | `expect` | same matcher as `wait_for` | instant; `failed` on mismatch |
 | `mash` | `buttons`, `rate_hz` (default 15), `secs`, `seed` | seeded random presses and chords |
 | `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
@@ -71,9 +71,12 @@ emits `detail: "menu"` once the first menu screen is up. World scripts still
 wait for surface + gameplay (`detail: "surface"`).
 
 Menu playtest scripts live in [`scripts/menu-*.jsonl`](scripts/) and are
-regression tests, not Traces assets. Run them with
-[`bin/menu-playtest.sh`](../../bin/menu-playtest.sh) so saves and logs stay
-in a temp dir. See [CONTRIBUTING.md → Menu playtest scripts](../../CONTRIBUTING.md#menu-playtest-scripts).
+regression tests, not Traces assets. Inventory-cycle scripts
+([`scripts/inventory-cycle-*.jsonl`](scripts/)) use the same runner and the
+same `wait_for` / `expect` / `invariant` path, plus `cycle` / `equipped`
+events. Run them with [`bin/menu-playtest.sh`](../../bin/menu-playtest.sh)
+so saves and logs stay in a temp dir. See
+[CONTRIBUTING.md → Menu playtest scripts](../../CONTRIBUTING.md#menu-playtest-scripts).
 
 See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
 [`scripts/origin-idle.jsonl`](scripts/origin-idle.jsonl),
@@ -127,6 +130,7 @@ published outside the repo (Traces releases) state the version they target.
 | 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
 | 5 | `visual_style` adds `native` (direct window). `sharp` is now untreated 1080p offscreen (height-fit); v4 `sharp` was today's Native |
 | 6 | Menu playtests: Home boot ready (`detail: "menu"`), `confirm` / `back` / `start` aliases, `press.buttons` chords, `wait_for` / `expect` / `mash` (including `focus_row` / `focus_label`), and `screen` / `modal` / `focus` / `flow` / `invariant` events |
+| 7 | Inventory cycling: `wait_for` / `expect` also match `cycle_category` / `weapon` / `skill_map` / `lubikan`; `cycle` and `equipped` events; per-frame cycling invariants (Y vs category, D-pad vs item, queue membership) |
 
 ## Events
 
@@ -148,7 +152,9 @@ and `frame`.
 | `modal` | leave prompt (`save` / `save_failed` / `discard`), `name`, catalog overlay key, or `null` when closed |
 | `focus` | focused row (`screen`, `row`, optional `label`) |
 | `flow` | `GameFlow` / `WorldPause` (`flow`, `pause`) |
-| `invariant` | a menu invariant broke — always a playtest failure |
+| `invariant` | a menu or cycling invariant broke — always a playtest failure |
+| `cycle` | D-pad-selected inventory category (`weapons`, `skill_maps`, `lubikans`) |
+| `equipped` | active item in a cycle category changed (`category`, optional `item`) |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the

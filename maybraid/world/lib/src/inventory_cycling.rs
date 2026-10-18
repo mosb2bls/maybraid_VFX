@@ -56,7 +56,7 @@ pub(crate) fn configure(app: &mut App) {
 		);
 }
 
-fn gameplay_cycling_allowed(
+pub(crate) fn gameplay_cycling_allowed(
 	gameplay: &WorldGameplayEnabled,
 	text_focus: &TextEntryFocus,
 	map: Option<&WorldMapView>,

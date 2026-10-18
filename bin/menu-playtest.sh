@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Run checked-in menu-*.jsonl scripts against throwaway saves/logs.
+# Run checked-in menu-*.jsonl and inventory-*.jsonl scripts against throwaway saves/logs.
 # Usage: bin/menu-playtest.sh [--seeds N] [--roster empty|one|several|auto] [script.jsonl ...]
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 scripts_dir="$root/maybraid/agent/scripts"
 fixture_one="$scripts_dir/fixtures/character-playtest-one.json"
+fixture_inventory="$scripts_dir/fixtures/inventory-cycle-playtest.json"
 bin="${MAYBRAID_BIN:-}"
 seeds=""
 roster="auto"
@@ -37,7 +38,7 @@ done
 if [[ ${#scripts[@]} -eq 0 ]]; then
 	while IFS= read -r path; do
 		scripts+=("$path")
-	done < <(ls -1 "$scripts_dir"/menu-*.jsonl)
+	done < <(ls -1 "$scripts_dir"/menu-*.jsonl "$scripts_dir"/inventory-*.jsonl 2>/dev/null)
 fi
 
 if [[ -z "$bin" ]]; then
@@ -59,6 +60,7 @@ fi
 seed_roster() {
 	local dest="$1"
 	local kind="$2"
+	local with_inventory="${3:-}"
 	rm -rf "$dest"
 	mkdir -p "$dest/characters"
 	case "$kind" in
@@ -89,6 +91,10 @@ PY
 			return 2
 			;;
 	esac
+	if [[ "$with_inventory" == "inventory" ]]; then
+		mkdir -p "$dest/inventories"
+		cp "$fixture_inventory" "$dest/inventories/00000000000000000000000000000001.json"
+	fi
 }
 
 roster_for_script() {
@@ -100,6 +106,14 @@ roster_for_script() {
 	case "$name" in
 		menu-create-back-mid-spin | menu-mash-home-* | menu-home-*) echo empty ;;
 		*) echo one ;;
+	esac
+}
+
+uses_cycle_inventory() {
+	local name="$1"
+	case "$name" in
+		inventory-cycle-*) return 0 ;;
+		*) return 1 ;;
 	esac
 }
 
@@ -182,8 +196,8 @@ PY
 timeout_for() {
 	local name="$1"
 	case "$name" in
-		menu-mash-*) echo "${MAYBRAID_PLAYTEST_TIMEOUT:-120}" ;;
-		menu-leave-and-return) echo "${MAYBRAID_PLAYTEST_TIMEOUT:-180}" ;;
+		menu-mash-* | inventory-cycle-mash-*) echo "${MAYBRAID_PLAYTEST_TIMEOUT:-180}" ;;
+		menu-leave-and-return | inventory-cycle-*) echo "${MAYBRAID_PLAYTEST_TIMEOUT:-180}" ;;
 		*) echo "${MAYBRAID_PLAYTEST_TIMEOUT:-90}" ;;
 	esac
 }
@@ -212,7 +226,11 @@ run_one() {
 	roster_kind="$(roster_for_script "$name")"
 	local run_dir="$work/${label//\//_}"
 	mkdir -p "$run_dir/saves" "$run_dir/logs" "$run_dir/shots"
-	seed_roster "$run_dir/saves" "$roster_kind"
+	local inventory_kind=""
+	if uses_cycle_inventory "$name"; then
+		inventory_kind="inventory"
+	fi
+	seed_roster "$run_dir/saves" "$roster_kind" "$inventory_kind"
 	local play_script="$script"
 	if [[ -n "$seed_label" ]]; then
 		play_script="$run_dir/script.jsonl"
@@ -285,7 +303,7 @@ for script in "${scripts[@]}"; do
 		fi
 	fi
 	name="$(basename "$script" .jsonl)"
-	if [[ -n "$seeds" && "$name" == menu-mash-* ]]; then
+	if [[ -n "$seeds" && ( "$name" == menu-mash-* || "$name" == inventory-cycle-mash-* ) ]]; then
 		local_i=0
 		while [[ $local_i -lt $seeds ]]; do
 			run_one "$script" "$((42 + local_i))"

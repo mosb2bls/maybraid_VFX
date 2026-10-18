@@ -110,9 +110,19 @@ pub enum AgentEventBody {
 		flow: String,
 		pause: String,
 	},
-	/// A menu invariant broke. Always a playtest failure.
+	/// A menu or cycling invariant broke. Always a playtest failure.
 	Invariant {
 		detail: String,
+	},
+	/// D-pad-selected inventory cycle category changed.
+	Cycle {
+		category: String,
+	},
+	/// Equipped / active item in a cycle category changed.
+	Equipped {
+		category: String,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		item: Option<String>,
 	},
 	Quit,
 }
@@ -171,6 +181,10 @@ impl AgentEvent {
 				Some(format!("agent.flow {flow} pause={pause}"))
 			}
 			AgentEventBody::Invariant { detail } => Some(format!("agent.invariant {detail}")),
+			AgentEventBody::Cycle { category } => Some(format!("agent.cycle {category}")),
+			AgentEventBody::Equipped { category, item } => {
+				Some(format!("agent.equipped {category} {}", item.as_deref().unwrap_or("none")))
+			}
 			_ => None,
 		}
 	}
@@ -288,6 +302,8 @@ mod tests {
 			},
 			AgentEventBody::Flow { flow: "world".into(), pause: "menu".into() },
 			AgentEventBody::Invariant { detail: "multiple MenuScreen (2)".into() },
+			AgentEventBody::Cycle { category: "skill_maps".into() },
+			AgentEventBody::Equipped { category: "weapons".into(), item: Some("reltor".into()) },
 		] {
 			let event = AgentEvent { t: 1.0, frame: 12, body };
 			let line = event.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
