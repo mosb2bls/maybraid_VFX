@@ -444,8 +444,7 @@ mod tests {
 						None => select_cell(extent, selection.noise),
 					};
 					selected.leaves.into_iter().filter(|leaf| {
-						leaf.kind != UrbanDevelopmentKind::Empty
-							&& overlaps_xz(region, leaf.bounds)
+						leaf.kind != UrbanDevelopmentKind::Empty && overlaps_xz(region, leaf.bounds)
 					})
 				})
 				.map(|leaf| OriginalId(leaf.id()))
@@ -494,7 +493,9 @@ mod tests {
 					return Ok(());
 				}
 			}
-			anyhow::bail!("expected at least one SelectedUrbanization in storage after HCSG discovery");
+			anyhow::bail!(
+				"expected at least one SelectedUrbanization in storage after HCSG discovery"
+			);
 		}
 
 		/// Warm the storage by pre-generating all selections in the region.
@@ -567,19 +568,34 @@ mod tests {
 			let warm_local_ms = warm_local.as_secs_f64() * 1000.0 / runs as f64;
 			let warm_hcsg_ms = warm_hcsg.as_secs_f64() * 1000.0 / runs as f64;
 
-			eprintln!("\nSite Discovery Performance ({} m radius, {} runs):", DEVELOPMENT_GENERATE_RADIUS_M, runs);
+			eprintln!(
+				"\nSite Discovery Performance ({} m radius, {} runs):",
+				DEVELOPMENT_GENERATE_RADIUS_M, runs
+			);
 			eprintln!("  Cold storage:");
 			eprintln!("    Local (bypass HCSG):  {:.3} ms/discover", cold_local_ms);
-			eprintln!("    HCSG (materialize):   {:.3} ms/discover ({:.2}x vs local)", cold_hcsg_ms, cold_hcsg_ms / cold_local_ms.max(1e-9));
+			eprintln!(
+				"    HCSG (materialize):   {:.3} ms/discover ({:.2}x vs local)",
+				cold_hcsg_ms,
+				cold_hcsg_ms / cold_local_ms.max(1e-9)
+			);
 			eprintln!("  Warm storage (pre-materialized):");
 			eprintln!("    Local (bypass HCSG):  {:.3} ms/discover", warm_local_ms);
-			eprintln!("    HCSG (read stored):   {:.3} ms/discover ({:.2}x vs local)", warm_hcsg_ms, warm_hcsg_ms / warm_local_ms.max(1e-9));
+			eprintln!(
+				"    HCSG (read stored):   {:.3} ms/discover ({:.2}x vs local)",
+				warm_hcsg_ms,
+				warm_hcsg_ms / warm_local_ms.max(1e-9)
+			);
 			eprintln!("\nAnalysis:");
-			eprintln!("  HCSG generation overhead: {:.3} ms ({:.2}x select_cell cost)",
+			eprintln!(
+				"  HCSG generation overhead: {:.3} ms ({:.2}x select_cell cost)",
 				cold_hcsg_ms - cold_local_ms,
-				(cold_hcsg_ms - cold_local_ms) / cold_local_ms.max(1e-9));
-			eprintln!("  HCSG reuse benefit (warm): {:.3} ms saved by reusing stored selections",
-				cold_hcsg_ms - warm_hcsg_ms);
+				(cold_hcsg_ms - cold_local_ms) / cold_local_ms.max(1e-9)
+			);
+			eprintln!(
+				"  HCSG reuse benefit (warm): {:.3} ms saved by reusing stored selections",
+				cold_hcsg_ms - warm_hcsg_ms
+			);
 		}
 	}
 }

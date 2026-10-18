@@ -85,13 +85,19 @@ pub fn collect(
 	}
 	// D-Pad selects the equipped queue **Y** cycles. Arrow keys mirror D-Pad for menus/walk only.
 	if pad.just_pressed(PadButton::DpadLeft) && !pad.keys.just_pressed(KeyCode::ArrowLeft) {
-		out.push(CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Lubikans));
+		out.push(CharacterIntent::SelectInventoryCyclingCategory(
+			InventoryCyclingCategory::Lubikans,
+		));
 	}
 	if pad.just_pressed(PadButton::DpadRight) && !pad.keys.just_pressed(KeyCode::ArrowRight) {
-		out.push(CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Weapons));
+		out.push(CharacterIntent::SelectInventoryCyclingCategory(
+			InventoryCyclingCategory::Weapons,
+		));
 	}
 	if pad.just_pressed(PadButton::DpadDown) && !pad.keys.just_pressed(KeyCode::ArrowDown) {
-		out.push(CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps));
+		out.push(CharacterIntent::SelectInventoryCyclingCategory(
+			InventoryCyclingCategory::SkillMaps,
+		));
 	}
 	if pad.keys.just_pressed(KeyCode::BracketLeft) {
 		out.push(CharacterIntent::CycleEquippedQueue(-1));
@@ -369,7 +375,9 @@ mod tests {
 		finish(&mut pad);
 		assert_eq!(
 			intents(&pad),
-			vec![CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Weapons)]
+			vec![CharacterIntent::SelectInventoryCyclingCategory(
+				InventoryCyclingCategory::Weapons
+			)]
 		);
 
 		pad.begin_frame();
@@ -377,7 +385,9 @@ mod tests {
 		finish(&mut pad);
 		assert_eq!(
 			intents(&pad),
-			vec![CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::Lubikans)]
+			vec![CharacterIntent::SelectInventoryCyclingCategory(
+				InventoryCyclingCategory::Lubikans
+			)]
 		);
 
 		pad.begin_frame();
@@ -385,7 +395,9 @@ mod tests {
 		finish(&mut pad);
 		assert_eq!(
 			intents(&pad),
-			vec![CharacterIntent::SelectInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps)]
+			vec![CharacterIntent::SelectInventoryCyclingCategory(
+				InventoryCyclingCategory::SkillMaps
+			)]
 		);
 		Ok(())
 	}

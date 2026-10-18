@@ -851,7 +851,9 @@ mod tests {
 		use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
 		use maybraid_skill_map::SkillMapEquip;
 
-		use crate::inventory_cycling::{cycle_equipped_inventory_queues, ActiveInventoryCyclingCategory};
+		use crate::inventory_cycling::{
+			cycle_equipped_inventory_queues, ActiveInventoryCyclingCategory,
+		};
 		use crate::weapon::sync_skill_map_equip;
 
 		let inventory = two_map_bag();

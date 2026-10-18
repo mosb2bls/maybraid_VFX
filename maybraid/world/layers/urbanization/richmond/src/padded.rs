@@ -331,14 +331,20 @@ mod tests {
 			let cell = cx.get_or_generate::<Terrain>(id)?;
 			let bounds = GroundCell::bounds(cell.as_ref());
 			let developments = cx.get_or_generate_in::<RichmondDevelopment<Ground>>(bounds);
-			let pads = RichmondDevelopment::merge_pads(bounds, developments.iter().map(Arc::as_ref));
+			let pads =
+				RichmondDevelopment::merge_pads(bounds, developments.iter().map(Arc::as_ref));
 			Some(cell.as_ref().compose_pads(&pads))
 		}
 
 		fn padded_snapshot(padded: &TerrainWithPads) -> (usize, f32, f32, f32) {
 			let center = (Vec3::from(padded.cell.min) + Vec3::from(padded.cell.max)) * 0.5;
 			let height = |x, z| padded.sdf.terrain().height_at_with_all_modulations(x, z);
-			(padded.pad_count, height(center.x, center.z), height(center.x + 4.0, center.z), height(center.x, center.z + 4.0))
+			(
+				padded.pad_count,
+				height(center.x, center.z),
+				height(center.x + 4.0, center.z),
+				height(center.x, center.z + 4.0),
+			)
 		}
 
 		fn assert_patch_matches(
@@ -369,9 +375,9 @@ mod tests {
 					&mut optimized_cx,
 					id,
 				)
-					.ok_or_else(|| anyhow::anyhow!("optimized padded missing for {id:?}"))?
-					.0
-					.surface;
+				.ok_or_else(|| anyhow::anyhow!("optimized padded missing for {id:?}"))?
+				.0
+				.surface;
 				assert_eq!(
 					padded_snapshot(&legacy),
 					padded_snapshot(&optimized),
@@ -397,10 +403,30 @@ mod tests {
 				..UrbanizationSelection::default()
 			};
 			for seed in [11u32, 42, 99, 7_001] {
-				assert_patch_matches(seed, bevy::math::IVec2::new(-1, -1), lattice.clone(), selection.clone())?;
-				assert_patch_matches(seed, bevy::math::IVec2::new(0, 1), lattice.clone(), selection.clone())?;
-				assert_patch_matches(seed, bevy::math::IVec2::new(-1, -1), urban.clone(), selection.clone())?;
-				assert_patch_matches(seed, bevy::math::IVec2::new(0, 1), urban.clone(), selection.clone())?;
+				assert_patch_matches(
+					seed,
+					bevy::math::IVec2::new(-1, -1),
+					lattice.clone(),
+					selection.clone(),
+				)?;
+				assert_patch_matches(
+					seed,
+					bevy::math::IVec2::new(0, 1),
+					lattice.clone(),
+					selection.clone(),
+				)?;
+				assert_patch_matches(
+					seed,
+					bevy::math::IVec2::new(-1, -1),
+					urban.clone(),
+					selection.clone(),
+				)?;
+				assert_patch_matches(
+					seed,
+					bevy::math::IVec2::new(0, 1),
+					urban.clone(),
+					selection.clone(),
+				)?;
 			}
 			Ok(())
 		}

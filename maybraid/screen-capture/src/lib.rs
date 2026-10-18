@@ -13,6 +13,7 @@ mod lighting;
 mod mode;
 mod plugin;
 mod png;
+mod pose;
 mod queue;
 mod request;
 mod session;
@@ -29,6 +30,9 @@ pub use key::CaptureCacheKey;
 pub use lighting::{CaptureDirectionalLight, CaptureLighting, CaptureLightingPreset};
 pub use mode::CaptureMode;
 pub use plugin::{CaptureCacheRoot, CaptureClient, ScreenCapturePlugin, ScreenCaptureSystems};
+pub use pose::{
+	pose_capture_label, representative_pose_view, RepresentativePose, HOST_REPRESENTATIVE_POSE,
+};
 pub use queue::CaptureTicket;
 pub use request::{CaptureRequest, CaptureResolution, CaptureRevision};
 pub use session::{

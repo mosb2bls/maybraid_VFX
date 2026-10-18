@@ -332,6 +332,12 @@ impl PowerStrafe {
 		Progress(progress).clamp()
 	}
 
+	/// Held glide still used for Tanz icons. Tracks [`GLIDE_HOLD`] so
+	/// choreography edits move the icon beat automatically.
+	pub fn representative_progress() -> f32 {
+		GLIDE_HOLD
+	}
+
 	/// Continuously blended key at `progress`. Aims are always present.
 	pub fn key(&self, progress: f32) -> StrafeKey {
 		let t = Self::clamped(progress);
@@ -406,6 +412,17 @@ mod tests {
 		assert!(glide.spine_pitch < 0.53);
 		assert!(glide.spine_side > 0.17);
 		assert!(glide.spine_side < 0.27);
+	}
+
+	#[test]
+	fn representative_progress_is_the_glide() {
+		let progress = PowerStrafe::representative_progress();
+		assert!((progress - GLIDE_HOLD).abs() < 1e-6);
+		assert!(progress > PUSHOFF_END);
+		assert!(progress < GLIDE_END);
+		let glide = PowerStrafe::new(Side::Left).key(progress);
+		assert!(glide.support_knee > 1.0);
+		assert!(glide.drop > 0.2);
 	}
 
 	#[test]

@@ -154,7 +154,9 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		let snapshot = bag.clone();
 		if let Some(loadout) = loadout.as_deref_mut() {
 			loadout.retarget_inventory(snapshot.clone());
-			commands.entity(player).insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
+			commands
+				.entity(player)
+				.insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
 		}
 	}
 }
@@ -188,34 +190,35 @@ fn select_owned_account(ledger: &mut LubikanLedger, account: LubikanAccountId) -
 }
 
 fn spawn_inventory_cycling_cue(mut commands: Commands, assets: Res<AssetServer>) {
-	commands.spawn((
-		Name::new("inventory-cycling-cue"),
-		InventoryCyclingCueRoot,
-		Node {
-			position_type: PositionType::Absolute,
-			left: Val::Px(16.0),
-			bottom: Val::Px(88.0),
-			padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
-			border_radius: BorderRadius::all(Val::Px(4.0)),
-			..default()
-		},
-		BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
-		GlobalZIndex(i32::MAX - 9),
-		Pickable::IGNORE,
-		Visibility::Hidden,
-	))
-	.with_children(|root| {
-		root.spawn((
-			InventoryCyclingCueText,
-			Text::new("Cycle: Weapons"),
-			TextFont {
-				font: assets.load("fonts/barlow/BarlowSemiCondensed-SemiBold.ttf").into(),
-				font_size: FontSize::Px(15.0),
+	commands
+		.spawn((
+			Name::new("inventory-cycling-cue"),
+			InventoryCyclingCueRoot,
+			Node {
+				position_type: PositionType::Absolute,
+				left: Val::Px(16.0),
+				bottom: Val::Px(88.0),
+				padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+				border_radius: BorderRadius::all(Val::Px(4.0)),
 				..default()
 			},
-			TextColor(Color::srgb(0.92, 0.96, 1.0)),
-		));
-	});
+			BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
+			GlobalZIndex(i32::MAX - 9),
+			Pickable::IGNORE,
+			Visibility::Hidden,
+		))
+		.with_children(|root| {
+			root.spawn((
+				InventoryCyclingCueText,
+				Text::new("Cycle: Weapons"),
+				TextFont {
+					font: assets.load("fonts/barlow/BarlowSemiCondensed-SemiBold.ttf").into(),
+					font_size: FontSize::Px(15.0),
+					..default()
+				},
+				TextColor(Color::srgb(0.92, 0.96, 1.0)),
+			));
+		});
 }
 
 fn sync_inventory_cycling_cue(
@@ -377,11 +380,18 @@ mod tests {
 		let extra_id = ledger.ensure_owned(extra);
 		let _ = ledger.apply_to_equipped(5.0);
 		assert!(ledger.select(Some(extra_id)));
-		let extra_charge = ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_charge = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert!(cycle_ledger_selection(&mut ledger, 1));
 		assert_eq!(ledger.selection(), LubikanSelection::default());
-		let extra_after =
-			ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_after = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert_eq!(extra_charge, extra_after);
 		Ok(())
 	}

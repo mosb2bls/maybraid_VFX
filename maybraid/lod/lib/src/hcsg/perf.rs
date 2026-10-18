@@ -220,8 +220,7 @@ fn perf_worker_generate_cache_hits() {
 	const ENTRIES: usize = 8_000;
 	const ROUNDS: usize = 400;
 	let storage = HcsgStorage::default();
-	let ids: Vec<Id> =
-		(0..ENTRIES).map(|i| Id::from_cell(cell(i as f32 * 64.0))).collect();
+	let ids: Vec<Id> = (0..ENTRIES).map(|i| Id::from_cell(cell(i as f32 * 64.0))).collect();
 	for &id in &ids {
 		let bounds = id.origin_cell_bounds().unwrap_or(cell(0.0));
 		storage.publish(id, Arc::new(PerfCell(0)), bounds);
@@ -281,8 +280,7 @@ fn perf_presentation_try_entries() {
 	let per_entry_calls = ROUNDS * BATCH;
 	eprintln!(
 		"perf_presentation_try_entries: {} rounds × {} ids ({per_entry_calls} lookups)",
-		ROUNDS,
-		BATCH,
+		ROUNDS, BATCH,
 	);
 	eprintln!(
 		"  try_entry loop: {:?} ({:.1?} per lookup)",

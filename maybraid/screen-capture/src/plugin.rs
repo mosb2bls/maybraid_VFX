@@ -83,9 +83,7 @@ impl Plugin for ScreenCapturePlugin {
 			app.init_resource::<bevy::ecs::reflect::AppTypeRegistry>();
 			app.add_plugins(SceneRefPlugin);
 		}
-		if app.get_sub_app(bevy::render::RenderApp).is_some()
-			&& !app.is_plugin_added::<GpuReadbackPlugin>()
-		{
+		if !app.is_plugin_added::<GpuReadbackPlugin>() {
 			app.add_plugins(GpuReadbackPlugin::default());
 		}
 		app.insert_resource(
