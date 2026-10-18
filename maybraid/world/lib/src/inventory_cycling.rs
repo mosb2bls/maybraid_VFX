@@ -1,7 +1,6 @@
 //! D-pad category selection and **Y** / bracket equipped-queue cycling.
 
 use bevy::prelude::*;
-use bevy::text::FontSize;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventorySlot};
 use game_commands::command::TextEntryFocus;
@@ -23,12 +22,6 @@ impl Default for ActiveInventoryCyclingCategory {
 	}
 }
 
-#[derive(Component)]
-struct InventoryCyclingCueRoot;
-
-#[derive(Component)]
-struct InventoryCyclingCueText;
-
 /// D-pad category pick runs before weapon swap and queue cycling on the same frame.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct InventoryCyclingCategorySystems;
@@ -45,7 +38,6 @@ pub(crate) fn configure(app: &mut App) {
 				InventoryCyclingSystems.after(InventoryCyclingCategorySystems),
 			),
 		)
-		.add_systems(Startup, spawn_inventory_cycling_cue)
 		.add_systems(
 			Update,
 			apply_inventory_category_selection
@@ -56,8 +48,7 @@ pub(crate) fn configure(app: &mut App) {
 		)
 		.add_systems(
 			Update,
-			(cycle_equipped_inventory_queues, sync_inventory_cycling_cue)
-				.chain()
+			cycle_equipped_inventory_queues
 				.in_set(InventoryCyclingSystems)
 				.after(maybraid_character_controller::CharacterControlSystems)
 				.after(LubikanSystems::Owner)
@@ -154,7 +145,9 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		let snapshot = bag.clone();
 		if let Some(loadout) = loadout.as_deref_mut() {
 			loadout.retarget_inventory(snapshot.clone());
-			commands.entity(player).insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
+			commands
+				.entity(player)
+				.insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
 		}
 	}
 }
@@ -184,68 +177,6 @@ fn select_owned_account(ledger: &mut LubikanLedger, account: LubikanAccountId) -
 		ledger.select(None)
 	} else {
 		ledger.select(Some(account))
-	}
-}
-
-fn spawn_inventory_cycling_cue(mut commands: Commands, assets: Res<AssetServer>) {
-	commands.spawn((
-		Name::new("inventory-cycling-cue"),
-		InventoryCyclingCueRoot,
-		Node {
-			position_type: PositionType::Absolute,
-			left: Val::Px(16.0),
-			bottom: Val::Px(88.0),
-			padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
-			border_radius: BorderRadius::all(Val::Px(4.0)),
-			..default()
-		},
-		BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
-		GlobalZIndex(i32::MAX - 9),
-		Pickable::IGNORE,
-		Visibility::Hidden,
-	))
-	.with_children(|root| {
-		root.spawn((
-			InventoryCyclingCueText,
-			Text::new("Cycle: Weapons"),
-			TextFont {
-				font: assets.load("fonts/barlow/BarlowSemiCondensed-SemiBold.ttf").into(),
-				font_size: FontSize::Px(15.0),
-				..default()
-			},
-			TextColor(Color::srgb(0.92, 0.96, 1.0)),
-		));
-	});
-}
-
-fn sync_inventory_cycling_cue(
-	gameplay: Res<WorldGameplayEnabled>,
-	category: Res<ActiveInventoryCyclingCategory>,
-	players: Query<&LubikanLedger, With<VegetationPlayer>>,
-	mut roots: Query<(&mut Visibility, &Children), With<InventoryCyclingCueRoot>>,
-	mut labels: Query<&mut Text, With<InventoryCyclingCueText>>,
-) {
-	let visible = if gameplay.0 { Visibility::Visible } else { Visibility::Hidden };
-	let lubikan_detail = players.iter().next().map(|ledger| {
-		ledger
-			.selection()
-			.resolved()
-			.definition()
-			.well_known_label()
-			.unwrap_or("Lubikan")
-	});
-	for (mut visibility, children) in &mut roots {
-		*visibility = visible;
-		for child in children.iter() {
-			if let Ok(mut text) = labels.get_mut(child) {
-				text.0 = match category.0 {
-					InventoryCyclingCategory::Lubikans => {
-						format!("Cycle: Lubikans ({})", lubikan_detail.unwrap_or("Self"))
-					}
-					_ => format!("Cycle: {}", category.0.label()),
-				};
-			}
-		}
 	}
 }
 
@@ -377,11 +308,18 @@ mod tests {
 		let extra_id = ledger.ensure_owned(extra);
 		let _ = ledger.apply_to_equipped(5.0);
 		assert!(ledger.select(Some(extra_id)));
-		let extra_charge = ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_charge = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert!(cycle_ledger_selection(&mut ledger, 1));
 		assert_eq!(ledger.selection(), LubikanSelection::default());
-		let extra_after =
-			ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_after = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert_eq!(extra_charge, extra_after);
 		Ok(())
 	}

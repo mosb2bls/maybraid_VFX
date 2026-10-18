@@ -108,7 +108,7 @@ mod tests {
 			CaptureMode::Silhouette,
 			CaptureResolution::ICON,
 			CaptureLighting::studio(),
-			CaptureRevision::new(12),
+			CaptureRevision::new(CaptureRevision::CURRENT.0.wrapping_add(1)),
 		);
 		assert_ne!(CaptureCacheKey::from_request(&a), CaptureCacheKey::from_request(&b));
 		Ok(())

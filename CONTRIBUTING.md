@@ -181,6 +181,10 @@ Do **not** use [`.unwrap()`](https://doc.rust-lang.org/std/option/enum.Option.ht
 
 Prefer **`Result`** propagation instead: write helpers that return something like **`anyhow::Result`** (or your crate’s error type), use **`?`**, and declare **`#[test] fn case() -> anyhow::Result<()>`**, so harness failures surface structured errors. [`assert!`](https://doc.rust-lang.org/std/macro.assert.html) / [`assert_eq!`](https://doc.rust-lang.org/std/macro.assert_eq.html) remain appropriate for expectations.
 
+### Menu and shell systems
+
+New menu, shell, and editor systems should return [`Result`](https://docs.rs/bevy/0.19.1/bevy/ecs/error/type.Result.html) (or take `Option` / `Single`) instead of `unwrap` / `expect` when a missing entity or resource can happen during a screen swap. Commands that target a screen that may already be gone should use `try_insert` / `try_despawn`. Recoverable ECS errors go through the game error boundary ([game README](maybraid/game/README.md#error-recovery)); do not add a second handler.
+
 ## Packaging and CI
 
 When working on game packaging or scripts in `packaging/`, include the **`ci-action::package`** marker in your commit message to trigger the [Package workflow](../.github/workflows/package.yml) on your PR branch. Without it, Package only runs on `main`, published releases, and manual `workflow_dispatch`.

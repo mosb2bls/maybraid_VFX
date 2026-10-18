@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
 use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
-use intelligence_lod::{due_by_rank, IntelligenceBand, IntelligenceLod, IntelligencePriority};
+use intelligence_lod::{
+	IntelligenceBand, IntelligenceDueEntities, IntelligenceLod, IntelligencePriority,
+};
 use lod_avian::PhysicsInteractionLayer;
 use spotting_intelligence::{SpotCandidate, SpotSubject, SpottingObserveLimits, SpottingUser};
 
@@ -22,18 +24,19 @@ fn forget_invalid_contacts(
 	}
 }
 
-fn due_spotters(
+fn collect_due_spotters(
 	now: f32,
 	spotters: &mut Query<(Entity, &mut SpottingUser, Option<&mut IntelligenceLod>)>,
-) -> Vec<Entity> {
-	spotters
-		.iter_mut()
-		.filter_map(|(entity, user, _)| {
-			let due = now >= user.next_discovery_at
-				|| user.contacts.values().any(|contact| contact.is_due(now));
-			due.then_some(entity)
-		})
-		.collect()
+	due_entities: &mut IntelligenceDueEntities,
+) {
+	due_entities.clear();
+	for (entity, user, _) in spotters.iter_mut() {
+		let due = now >= user.next_discovery_at
+			|| user.contacts.values().any(|contact| contact.is_due(now));
+		if due {
+			due_entities.push(entity);
+		}
+	}
 }
 
 fn fair_far_spotter(
@@ -94,6 +97,9 @@ pub fn observe_spotting(
 	subjects: Query<(Entity, &SpotSubject, Option<&avian3d::prelude::LinearVelocity>)>,
 	parents: Query<&ChildOf>,
 	transforms: TransformHelper,
+	mut due_entities: Local<IntelligenceDueEntities>,
+	mut ranked_candidates: Local<Vec<SpotCandidate>>,
+	mut sample_grants: Local<Vec<usize>>,
 ) {
 	let now = time.elapsed_secs();
 	let animated_filter = SpatialQueryFilter::from_mask(PhysicsInteractionLayer::Animated);
@@ -101,12 +107,12 @@ pub fn observe_spotting(
 
 	forget_invalid_contacts(now, &mut spotters, &subjects);
 
-	let mut due = due_spotters(now, &mut spotters);
-	due_by_rank(&mut due, &priority);
-	let fair = fair_far_spotter(&due, &mut spotters);
+	collect_due_spotters(now, &mut spotters, &mut due_entities);
+	let due = due_entities.finish(&priority);
+	let fair = fair_far_spotter(due, &mut spotters);
 
 	let mut remaining = limits.max_observers_per_tick;
-	for spotter_entity in due {
+	for &spotter_entity in due {
 		if remaining == 0 {
 			break;
 		}
@@ -143,14 +149,18 @@ pub fn observe_spotting(
 
 		merge_due_contacts(&user, now, observer, &subjects, &transforms, &mut candidates);
 
-		let mut ranked: Vec<SpotCandidate> =
-			candidates.values().map(|candidate| candidate.rank).collect();
-		SpotCandidate::rank(&mut ranked);
+		ranked_candidates.clear();
+		ranked_candidates.extend(candidates.values().map(|candidate| candidate.rank));
+		SpotCandidate::rank(&mut ranked_candidates);
 		let candidate_budget = band.scale_count(user.settings.candidate_budget);
 		let vision_samples = band.scale_count(user.settings.vision_samples);
-		SpotCandidate::apply_budget(&mut ranked, candidate_budget);
-		let grants =
-			SpotCandidate::allocate_sample_budget(&ranked, candidate_budget, vision_samples);
+		SpotCandidate::apply_budget(&mut ranked_candidates, candidate_budget);
+		SpotCandidate::allocate_sample_budget_into(
+			&ranked_candidates,
+			candidate_budget,
+			vision_samples,
+			&mut sample_grants,
+		);
 
 		probe_candidate_visibility(
 			&mut user,
@@ -158,8 +168,8 @@ pub fn observe_spotting(
 			observer,
 			discovery_sample_cursor,
 			&candidates,
-			ranked,
-			grants,
+			&ranked_candidates,
+			&sample_grants,
 			&spatial,
 			&fixed_filter,
 			&subjects,

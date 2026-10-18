@@ -2,6 +2,7 @@
 
 use crate::request::CaptureRequest;
 use crate::{CaptureId, CaptureMode, CaptureResolution, CaptureRevision};
+use procedural_common::Fnv1a64;
 
 /// All inputs that must invalidate a cached PNG.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -48,7 +49,7 @@ impl CaptureCacheKey {
 	}
 
 	pub fn hash_hex(&self) -> String {
-		format!("{:016x}", fnv1a64(self.canonical().as_bytes()))
+		format!("{:016x}", Fnv1a64::digest(self.canonical().as_bytes()))
 	}
 
 	pub fn file_name(&self) -> String {
@@ -65,15 +66,6 @@ impl CaptureCacheKey {
 			self.hash_hex(),
 		)
 	}
-}
-
-fn fnv1a64(bytes: &[u8]) -> u64 {
-	let mut hash = 0xcbf29ce484222325;
-	for byte in bytes {
-		hash ^= u64::from(*byte);
-		hash = hash.wrapping_mul(0x100000001b3);
-	}
-	hash
 }
 
 #[cfg(test)]
@@ -111,8 +103,10 @@ mod tests {
 			CaptureMode::Silhouette,
 			CaptureRevision::CURRENT,
 		));
-		let bumped =
-			CaptureCacheKey::from_request(&request(CaptureMode::Shaded, CaptureRevision::new(12)));
+		let bumped = CaptureCacheKey::from_request(&request(
+			CaptureMode::Shaded,
+			CaptureRevision::new(CaptureRevision::CURRENT.0.wrapping_add(1)),
+		));
 		assert_ne!(shaded, silhouette);
 		assert_ne!(shaded, bumped);
 		Ok(())

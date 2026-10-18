@@ -6,12 +6,12 @@
 
 use character_items::{
 	CharacterSheet, ClothingColor, ClothingMaterial, ClothingMaterialChoice, ClothingMesh,
-	Inventory, InventoryItem, InventorySlot, ItemColor, WORN_CLOTHING_LIMIT,
+	Inventory, InventoryItem, ItemColor, WORN_CLOTHING_LIMIT,
 };
 use character_ui_menu::{
 	AssetChoice, AssetOption, AssetSingleSelect, CameraFocus, GridCatalogChoice, ItemRow,
 	MenuComponent, MenuNode, MultiSelect, PreviewColor, SelectGroup, SingleSelect, StatCard,
-	StatLine, SwatchChoice, SwatchSingleSelect, ThumbnailCamera,
+	StatLine, SwatchChoice, SwatchSingleSelect,
 };
 use characters::ConceptAnimation;
 
@@ -202,7 +202,7 @@ fn inventory_catalog(menu: &ClothingMenu, owned: &[InventoryItem]) -> MenuNode<M
 					.iter()
 					.position(|worn| *worn == mesh)
 					.map(|position| (position + 1) as u8),
-				event: MenuEvent::ToggleInventory(index),
+				event: Some(MenuEvent::ToggleInventory(index)),
 			})
 		}),
 	)
@@ -243,49 +243,17 @@ pub(crate) fn clothing_menu_from_inventory(inventory: &Inventory) -> ClothingMen
 	menu
 }
 
-pub(crate) fn weapons_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
-	MenuNode::grid_catalog(
-		InventorySlot::Weapons.label(),
-		InventorySlot::Weapons.capacity(),
-		inventory.items.iter().enumerate().filter_map(|(index, item)| {
-			let mesh = item.firearm_mesh()?;
-			let asset = mesh.asset();
-			let rank = inventory.rank(index);
-			Some(GridCatalogChoice {
-				label: item.name(),
-				detail: item.catalog_detail(),
-				path: asset.path,
-				thumbnail_camera: asset.thumbnail_camera,
-				preview: PreviewColor::WHITE,
-				image_key: item.icon_catalog_key(),
-				selected: rank.is_some(),
-				rank,
-				event: MenuEvent::ToggleInventory(index),
-			})
-		}),
-	)
-}
-
-pub(crate) fn skills_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
-	MenuNode::grid_catalog(
-		InventorySlot::Skills.label(),
-		InventorySlot::Skills.capacity(),
-		inventory.items.iter().enumerate().filter_map(|(index, item)| {
-			let spec = item.skill_map_spec()?;
-			let [red, green, blue] = spec.kind.preview_srgb();
-			let rank = inventory.rank(index);
-			Some(GridCatalogChoice {
-				label: item.name(),
-				detail: item.catalog_detail(),
-				path: item.path(),
-				thumbnail_camera: ThumbnailCamera::DEFAULT,
-				preview: PreviewColor::srgb(red, green, blue),
-				image_key: item.icon_catalog_key(),
-				selected: rank.is_some(),
-				rank,
-				event: MenuEvent::ToggleInventory(index),
-			})
-		}),
+/// Overlay / header keys that stay editable after appearance lock.
+pub(crate) fn inventory_overlay_key(key: &str) -> bool {
+	matches!(
+		key,
+		"Inventory"
+			| "Starter Kit"
+			| "Clothing"
+			| "Weapons"
+			| "Tools" | "Skill Maps"
+			| "Lubikan"
+			| "Loadout"
 	)
 }
 

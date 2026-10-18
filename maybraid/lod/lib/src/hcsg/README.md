@@ -231,7 +231,7 @@ Subscription ids come from the `AtomicU64`. A presentation system holds exactly 
 ### Worker
 
 There is one dedicated worker thread. It schedules live subscriptions by
-[`HcsgClass`](shared/bounds.rs) weight (stride `pass`, lowest first, newest
+[`HcsgClass`](bounds.rs) weight (stride `pass`, lowest first, newest
 among ties) and runs each for a quantum of about 32 ids or 30 ms:
 
 ```text
@@ -460,9 +460,7 @@ The shared runtime provides everything else.
 
 ## What this replaces
 
-The legacy per-layer runtime is gone: `gen::runtime`, `GenerateOn`, producers and queues, `Seed` invalidation, bespoke spatial indexes, terrain replacement machinery, and synchronous generation in Bevy systems. Every app now generates and presents on this shared worker path. Session roots, epochs, and store clears on mode exit replace the old restart hooks.
-
-Legacy per-layer presenters (Durham terrain and water, Richmond hosts, Chico, Barking, Maputo, mobs) still compile in place; a final pass removes those modules once nothing references them.
+The legacy per-layer runtime is gone: `gen::runtime`, `GenerateOn`, producers and queues, `Seed` invalidation, bespoke spatial indexes, terrain replacement machinery, synchronous generation in Bevy systems, and the old per-layer presenters (Durham terrain and water, Richmond hosts, Chico, Barking, Maputo, mobs). Every app now generates and presents on this shared worker path. Session roots, epochs, and store clears on mode exit replace the old restart hooks.
 
 ## Migration
 
@@ -475,7 +473,7 @@ The public API is `lod::hcsg`: `HcsgStorage`, `HcsgDemand`, `GenerationContext`,
 4. **Modes and removal** (done).
    - **7a.** Training ground removed (to be rebuilt later).
    - **7b.** Discovery runs on this runtime: gated bounds channels, streamed terrain rings, gameplay through `DurhamSurface`.
-   - **7c.** Legacy runtime, indexes, and layer-stack generation machinery deleted. Retired playgrounds per [`maybraid/PLAYGROUNDS.md`](../../../PLAYGROUNDS.md) (`routing-playground`, `barking-playground`, `character-world-movements-playground`, `richmond-playground`). Leftover per-layer presenter modules come out in a final 7c pass.
+   - **7c.** Legacy runtime, indexes, layer-stack generation machinery, and per-layer presenters deleted. Retired playgrounds per [`maybraid/PLAYGROUNDS.md`](../../../../PLAYGROUNDS.md) (`routing-playground`, `barking-playground`, `character-world-movements-playground`, `richmond-playground`).
 
 ## Later
 
