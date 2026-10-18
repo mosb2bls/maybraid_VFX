@@ -110,7 +110,8 @@ where
 	/// Union intersecting ids into `out` without sorting or an extra hit `Vec`.
 	///
 	/// `out` is also the uniqueness filter, so refresh/cull fills can reuse
-	/// their destination `HashSet` across several AABBs.
+	/// their destination `HashSet` across several AABBs. The
+	/// [`crate::SpatialIndexQuery`] impl forwards here.
 	pub fn extend_intersecting(&self, region: Aabb3d, out: &mut HashSet<Id>) {
 		self.extend_intersecting_in(region, BaseScale::levels_through(self.max_level), out);
 	}
@@ -119,7 +120,8 @@ where
 	/// stored at coarser levels than the query itself.
 	///
 	/// Results are sorted by `Id` for deterministic replay. Prefer
-	/// [`Self::extend_intersecting`] when the caller only needs the set.
+	/// [`Self::extend_intersecting`] when the caller only needs the set. The
+	/// [`crate::SpatialIndexQuery`] impl forwards here.
 	pub fn query(&self, region: Aabb3d) -> Vec<Id> {
 		let mut ids = HashSet::new();
 		self.extend_intersecting(region, &mut ids);
