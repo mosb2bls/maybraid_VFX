@@ -10,7 +10,7 @@ use menu_components::{spawn_hud_text_card, HudFonts, HUD_TEXT_CARD_FACE_PX, TEXT
 use player::Player;
 
 use crate::continuous_health::{spawn_ui_meter_row, ContinuousHealthConfig};
-use crate::cycle_cue::CombatHudInventoryCycleCategory;
+use crate::cycle_cue::{idle_cycle_outline, CombatHudCyclePanel, CombatHudInventoryCycleCategory};
 use crate::plate::{spawn_hud_plate, HudPlateCorner, HudPlateLayout};
 use crate::vitals::VITALS_WIDTH;
 use crate::CombatHudVisible;
@@ -155,7 +155,11 @@ pub(crate) fn spawn_lubikan_charge(
 	spawn_hud_plate(
 		parent,
 		"lubikan-charge",
-		LubikanChargeRoot,
+		(
+			LubikanChargeRoot,
+			CombatHudCyclePanel(CombatHudInventoryCycleCategory::Lubikans),
+			idle_cycle_outline(),
+		),
 		HudPlateLayout {
 			width: CHARGE_WIDTH,
 			row_gap: CHARGE_ROW_GAP,

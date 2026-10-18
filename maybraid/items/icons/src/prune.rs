@@ -1,4 +1,7 @@
 //! Drop icon-cache PNGs that no saved inventory still needs.
+//!
+//! The shared Self Lubikan tile is not a bag item, so its cache key is always
+//! retained even when no character save still owns a bag.
 
 use bevy::prelude::*;
 use character_inventory_user;
@@ -8,7 +11,7 @@ use screen_capture::{CaptureCache, CaptureCacheKey, CaptureCacheRoot, CaptureLig
 use std::collections::HashSet;
 use std::fs;
 
-use crate::{item_icon_requests, CaptureRevision};
+use crate::{item_icon_requests, self_lubikan_icon_request, CaptureRevision};
 
 /// Impulse: prune `.maybraid/icon-cache` against player save inventories.
 #[derive(Component, Debug, Clone, Copy)]
@@ -18,6 +21,10 @@ pub fn kept_icon_file_names<'a>(
 	inventories: impl IntoIterator<Item = &'a Inventory>,
 ) -> HashSet<String> {
 	let mut keep = HashSet::new();
+	keep.insert(
+		CaptureCacheKey::from_request(&self_lubikan_icon_request(CaptureRevision::CURRENT))
+			.file_name(),
+	);
 	for inventory in inventories {
 		for item in &inventory.items {
 			for request in
@@ -129,6 +136,28 @@ mod tests {
 		fs::create_dir_all(cache.root())?;
 		fs::write(cache.root().join("stale_silhouette_256x256_abcd.png"), b"drop")?;
 		assert_eq!(prune_icon_cache_to_saved_inventories(&save, &cache), 1);
+		Ok(())
+	}
+
+	#[test]
+	fn prune_keeps_self_lubikan_without_saved_bags() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let save = SaveRoot::at(dir.path().join("saves"));
+		save.ensure_dirs()?;
+		let cache = CaptureCache::new(dir.path().join("icons"));
+		fs::create_dir_all(cache.root())?;
+		let keep = kept_icon_file_names(std::iter::empty());
+		let lubikan = keep.iter().next().cloned().ok_or_else(|| anyhow::anyhow!("self-lubikan"))?;
+		assert_eq!(keep.len(), 1);
+		assert!(
+			lubikan.contains("self-lubikan"),
+			"retention set should name the shared tile, got {lubikan}"
+		);
+		fs::write(cache.root().join(&lubikan), b"keep")?;
+		fs::write(cache.root().join("orphan_shaded_256x256_deadbeef.png"), b"drop")?;
+		assert_eq!(prune_icon_cache_to_saved_inventories(&save, &cache), 1);
+		assert!(cache.root().join(&lubikan).is_file());
+		assert!(!cache.root().join("orphan_shaded_256x256_deadbeef.png").is_file());
 		Ok(())
 	}
 }

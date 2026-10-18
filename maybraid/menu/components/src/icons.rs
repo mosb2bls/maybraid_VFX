@@ -2,4 +2,4 @@
 
 pub mod maybraid;
 
-pub use maybraid::{blink_animated_icons, spin_icons, AnimatedIcon, Icon, SpinningIcon};
+pub use maybraid::{spin_icons, Icon, SpinningIcon};

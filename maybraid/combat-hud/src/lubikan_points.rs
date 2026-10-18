@@ -560,6 +560,7 @@ mod tests {
 		Ok(())
 	}
 
+	#[test]
 	fn flyers_still_spawn_when_charge_is_already_full() -> Result<()> {
 		let (mut app, owner) = flyer_app();
 		app.update();

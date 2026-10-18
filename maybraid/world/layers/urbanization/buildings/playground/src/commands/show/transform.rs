@@ -2,6 +2,8 @@
 
 use bevy::prelude::*;
 
+pub use procedural_common::{parse_vec2_csv, parse_vec3_csv};
+
 #[derive(Clone, clap::Args)]
 #[command(rename_all = "kebab-case")]
 pub struct ShowTransform {
@@ -35,17 +37,6 @@ impl ShowTransform {
 	}
 }
 
-pub fn parse_vec3_csv(s: &str) -> Result<Vec3, String> {
-	let parts: Vec<_> = s.split(',').collect();
-	if parts.len() != 3 {
-		return Err(format!("expected x,y,z got {s:?}"));
-	}
-	let x: f32 = parts[0].trim().parse().map_err(|e| format!("x: {e}"))?;
-	let y: f32 = parts[1].trim().parse().map_err(|e| format!("y: {e}"))?;
-	let z: f32 = parts[2].trim().parse().map_err(|e| format!("z: {e}"))?;
-	Ok(Vec3::new(x, y, z))
-}
-
 /// Closed world polyline `x,y,z;x,y,z;…` — newtype so clap does not treat it as multi-arg `Vec`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Vec3Polyline(pub Vec<Vec3>);
@@ -61,17 +52,6 @@ pub fn parse_vec3_polyline(s: &str) -> Result<Vec3Polyline, String> {
 		.map(|part| parse_vec3_csv(part.trim()))
 		.collect::<Result<Vec<_>, _>>()?;
 	Ok(Vec3Polyline(pts))
-}
-
-/// Parse panel-space `x,z` (allows negatives, e.g. `-1,1`).
-pub fn parse_vec2_csv(s: &str) -> Result<Vec2, String> {
-	let parts: Vec<_> = s.split(',').collect();
-	if parts.len() != 2 {
-		return Err(format!("expected x,z got {s:?}"));
-	}
-	let x: f32 = parts[0].trim().parse().map_err(|e| format!("x: {e}"))?;
-	let z: f32 = parts[1].trim().parse().map_err(|e| format!("z: {e}"))?;
-	Ok(Vec2::new(x, z))
 }
 
 #[cfg(test)]
