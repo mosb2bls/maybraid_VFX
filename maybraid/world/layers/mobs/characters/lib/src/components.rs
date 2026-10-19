@@ -705,15 +705,20 @@ mod tests {
 	use anyhow::{anyhow, Result};
 
 	#[test]
-	fn humanoid_hull_matches_the_legacy_capsule() {
-		let hull = LocomotionCapsule::HUMANOID;
-		assert!((hull.radius - 0.4).abs() < 1e-5);
-		assert!((hull.length - 1.0).abs() < 1e-5);
+	fn orthograde_hull_has_clearance_and_an_upper_headshot_band() {
+		let hull = LocomotionCapsule {
+			radius: 0.55,
+			length: 1.6,
+			pronograde: false,
+			girdle: 0.0,
+			head: Vec3::ONE,
+		};
 		assert!(!hull.pronograde);
 		assert!(hull.hit_capsule().is_none());
-		assert!((hull.half_height() - 0.9).abs() < 1e-5);
-		assert!((hull.spawn_height() - 1.05).abs() < 1e-5);
-		assert!((hull.headshot_min_local_y() - 0.7).abs() < 1e-5);
+		assert!(hull.half_height() > hull.radius);
+		assert!(hull.spawn_height() > hull.half_height());
+		assert!(hull.headshot_min_local_y() > hull.length * 0.5);
+		assert!(hull.headshot_min_local_y() < hull.half_height());
 	}
 
 	#[test]

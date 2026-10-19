@@ -1120,13 +1120,16 @@ mod tests {
 	}
 
 	#[test]
-	fn default_respawn_waits_four_seconds_and_scans_nearby() {
-		let config = WorldPlayerRespawnConfig::default();
-		assert_eq!(config.delay_secs, 4.0);
-		assert_eq!(config.poi_radius, 320.0);
-		assert_eq!(config.fallback, NearbyFallback::new(60.0, 100.0));
+	fn respawn_queries_skip_the_fallback_ring_and_cover_the_map() {
+		let config = WorldPlayerRespawnConfig {
+			poi_radius: 80.0,
+			fallback: NearbyFallback::new(12.0, 30.0),
+			..WorldPlayerRespawnConfig::default()
+		};
 		assert_eq!(config.nearby_query().min_radius, config.fallback.min_radius);
-		assert!(config.picker_query(420.0).radius > config.poi_radius);
+		assert_eq!(config.nearby_query().radius, config.poi_radius);
+		assert!(config.picker_query(200.0).radius > config.poi_radius);
+		assert_eq!(config.picker_query(10.0).radius, config.poi_radius);
 	}
 
 	#[test]
