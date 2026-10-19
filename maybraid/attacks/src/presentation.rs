@@ -6,6 +6,10 @@ use crate::{
 use crate::hazard::WavefrontSpec;
 
 /// Gameplay announcement. VFX crates subscribe; they do not own timing or Hits.
+///
+/// Kinds: `Stage`, `Telegraph`, `Hazard` (optional [`WavefrontPresentation`]),
+/// and `Ended`. Bind presenter entities with [`AttackPresentationBinding`] so
+/// interruption can despawn them.
 #[derive(Message, Clone, Debug)]
 pub struct AttackPresentationEvent {
 	pub instance: AttackInstanceId,

@@ -117,6 +117,11 @@ pub struct AttackDefinition {
 	pub telegraph: Option<TelegraphSpec>,
 	pub hazards: Vec<HazardSpec>,
 	/// When false, a second begin is ignored until the live instance ends.
+	///
+	/// Admission is owner-exclusive, not definition-exclusive: any in-flight
+	/// instance, including one spawned earlier in the same `begin_attacks`
+	/// batch, blocks another nonconcurrent recipe. Concurrent recipes
+	/// (`bikanwarda.parade_blast` and similar child explosions) always admit.
 	pub concurrent: bool,
 }
 
@@ -175,6 +180,14 @@ impl AttackDefinition {
 		self
 	}
 
+	/// Exclusive recipes refuse a second begin while the owner is busy.
+	///
+	/// Concurrent recipes skip this lock so a parent attack can emit child
+	/// instances (Parade blasts) in the same system invocation.
+	pub fn requires_exclusive_owner(&self) -> bool {
+		!self.concurrent
+	}
+
 	pub fn authored_hazard(self, shape: crate::HazardShape, origin: crate::HazardOrigin) -> Self {
 		self.with_hazard(HazardSpec { shape, origin, damage: DamageSpec::authored() })
 	}
@@ -224,5 +237,19 @@ mod tests {
 		assert!(!policy.admits(owner, owner, &[ally]));
 		assert!(!policy.admits(owner, ally, &[ally]));
 		assert!(policy.admits(owner, foe, &[ally]));
+	}
+
+	#[test]
+	fn exclusive_owner_is_the_default_and_concurrent_opts_out() {
+		let exclusive = AttackDefinition::with_authored_defaults(
+			AttackId::new("bray"),
+			1.0,
+			1.0,
+			1.0,
+			AimPolicy::TargetAtWindup,
+		);
+		let blast = exclusive.clone().with_concurrent(true);
+		assert!(exclusive.requires_exclusive_owner());
+		assert!(!blast.requires_exclusive_owner());
 	}
 }

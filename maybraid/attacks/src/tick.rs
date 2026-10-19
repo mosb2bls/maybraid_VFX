@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use avian3d::prelude::SpatialQuery;
 use bevy::prelude::*;
 use combat_targeting::CombatTargeting;
@@ -7,10 +9,33 @@ use crate::{
 	aim::{owner_forward, owner_point, resolve_aim_contact, targeting_allies},
 	cleanup::end_instance,
 	overlap::gather_overlaps,
-	AttackCatalog, AttackEndReason, AttackEnded, AttackInstance, AttackInstanceId,
+	AttackCatalog, AttackDefinition, AttackEndReason, AttackEnded, AttackInstance, AttackInstanceId,
 	AttackPresentationBinding, AttackPresentationEvent, AttackUser, BeginAttack, HazardShape,
 	HazardSpec, WavefrontSweep,
 };
+
+/// Owners with a live instance, including deferred spawns from this batch.
+///
+/// `commands.spawn` is not visible to [`Query<&AttackInstance>`] until
+/// `ApplyDeferred`, so exclusive admission must record owners as they admit.
+#[derive(Default)]
+struct OwnerAttackAdmissions {
+	busy: HashSet<Entity>,
+}
+
+impl OwnerAttackAdmissions {
+	fn from_instances<'a>(instances: impl IntoIterator<Item = &'a AttackInstance>) -> Self {
+		Self { busy: instances.into_iter().map(|instance| instance.owner).collect() }
+	}
+
+	fn admits(&self, owner: Entity, definition: &AttackDefinition) -> bool {
+		!definition.requires_exclusive_owner() || !self.busy.contains(&owner)
+	}
+
+	fn record(&mut self, owner: Entity) {
+		self.busy.insert(owner);
+	}
+}
 
 #[derive(Resource, Default)]
 pub struct AttackInstanceIds(u64);
@@ -41,6 +66,7 @@ pub fn begin_attacks(
 	mut presented: MessageWriter<AttackPresentationEvent>,
 	mut commands: Commands,
 ) {
+	let mut admissions = OwnerAttackAdmissions::from_instances(existing.iter());
 	for begin in begins.read() {
 		let Some(definition) = catalog.get(begin.definition).cloned() else {
 			continue;
@@ -51,8 +77,7 @@ pub fn begin_attacks(
 		if !user.ready(definition.id) {
 			continue;
 		}
-		let already_busy = existing.iter().any(|instance| instance.owner == begin.owner);
-		if already_busy && !definition.concurrent {
+		if !admissions.admits(begin.owner, &definition) {
 			continue;
 		}
 		let targeting = targeting.get(begin.owner).ok();
@@ -95,6 +120,7 @@ pub fn begin_attacks(
 				kind,
 			));
 		}
+		admissions.record(begin.owner);
 		commands.spawn((Name::new(format!("attack-{}", definition.id.as_str())), instance));
 	}
 }
@@ -246,5 +272,57 @@ fn pulse_hits(
 				gather_overlaps(spatial, spec, pose, None, instance.owner, health, parents, transforms);
 			instance.collect_hits(now, index, spec, &candidates)
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::{AimPolicy, AimSnapshot, AttackDefinition, AttackId};
+
+	fn exclusive() -> AttackDefinition {
+		AttackDefinition::with_authored_defaults(
+			AttackId::new("exclusive"),
+			0.2,
+			0.4,
+			0.1,
+			AimPolicy::OwnerPoseAtWindup,
+		)
+	}
+
+	fn concurrent() -> AttackDefinition {
+		exclusive().with_concurrent(true)
+	}
+
+	fn instance(owner: Entity) -> AttackInstance {
+		AttackInstance::new(
+			AttackInstanceId(1),
+			&exclusive(),
+			owner,
+			AimSnapshot::owner_facing(Vec3::ZERO, Vec3::NEG_Z),
+			None,
+			Vec::new(),
+		)
+	}
+
+	#[test]
+	fn same_batch_second_exclusive_is_refused() {
+		let owner = Entity::from_bits(1);
+		let mut admissions = OwnerAttackAdmissions::from_instances([]);
+		assert!(admissions.admits(owner, &exclusive()));
+		admissions.record(owner);
+		assert!(!admissions.admits(owner, &exclusive()));
+		assert!(admissions.admits(owner, &concurrent()));
+	}
+
+	#[test]
+	fn live_instance_is_authoritative_for_exclusive_admission() {
+		let owner = Entity::from_bits(2);
+		let other = Entity::from_bits(3);
+		let live = instance(owner);
+		let admissions = OwnerAttackAdmissions::from_instances([&live]);
+		assert!(!admissions.admits(owner, &exclusive()));
+		assert!(admissions.admits(owner, &concurrent()));
+		assert!(admissions.admits(other, &exclusive()));
 	}
 }

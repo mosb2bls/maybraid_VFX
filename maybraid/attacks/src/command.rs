@@ -3,6 +3,12 @@ use bevy::prelude::*;
 use crate::AttackId;
 
 /// Start an authored attack on an owner that already has [`crate::AttackUser`].
+///
+/// Write one message per requested instance. Exclusive recipes
+/// ([`crate::AttackDefinition::requires_exclusive_owner`]) admit at most one
+/// live instance per owner, including begins processed earlier in the same
+/// `begin_attacks` batch. Concurrent recipes stack, including Parade child
+/// explosions written beside a live parent.
 #[derive(Message, Clone, Debug)]
 pub struct BeginAttack {
 	pub owner: Entity,

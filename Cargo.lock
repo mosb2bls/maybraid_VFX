@@ -548,7 +548,7 @@ dependencies = [
 
 [[package]]
 name = "attacks"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -560,7 +560,7 @@ dependencies = [
 
 [[package]]
 name = "attacks-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "attacks",
  "avian3d",

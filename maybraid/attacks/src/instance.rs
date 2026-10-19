@@ -12,6 +12,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AttackInstanceId(pub u64);
 
+/// Windup → Execute → Recover. Cooldown lives on [`AttackUser`], not here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttackStage {
 	Windup,
@@ -53,6 +54,9 @@ impl AttackUser {
 }
 
 /// One in-flight attack. Lives as its own entity so owner despawn is detectable.
+///
+/// Presenters and encounter scripts key this by [`AttackInstanceId`], not by
+/// owner. Exclusive admission treats any live instance on an owner as busy.
 #[derive(Component, Clone, Debug)]
 pub struct AttackInstance {
 	pub id: AttackInstanceId,

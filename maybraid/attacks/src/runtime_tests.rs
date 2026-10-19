@@ -559,3 +559,204 @@ fn placeholder_plugin_is_optional() {
 	let _ = AttackPlaceholderPresentationPlugin;
 	let _ = std::any::type_name::<AttackPresentationEvent>();
 }
+
+const PARADE: AttackId = AttackId("parade");
+const PARADE_BLAST: AttackId = AttackId("parade_blast");
+
+fn parade_parent() -> AttackDefinition {
+	AttackDefinition::with_authored_defaults(PARADE, 0.2, 1.0, 0.2, AimPolicy::TrackUntilExecute)
+}
+
+fn parade_blast() -> AttackDefinition {
+	AttackDefinition::with_authored_defaults(PARADE_BLAST, 0.0, 0.3, 0.0, AimPolicy::OwnerPoseAtWindup)
+		.with_concurrent(true)
+		.authored_hazard(HazardShape::Sphere { radius: 1.2 }, HazardOrigin::Emission)
+}
+
+fn insert_parade_catalog(app: &mut App) {
+	app.world_mut()
+		.resource_mut::<AttackCatalog>()
+		.insert(parade_parent())
+		.insert(parade_blast());
+}
+
+fn live_definitions(app: &mut App) -> Vec<AttackId> {
+	let mut query = app.world_mut().query::<&AttackInstance>();
+	query.iter(app.world()).map(|instance| instance.definition).collect()
+}
+
+fn live_owners(app: &mut App) -> Vec<Entity> {
+	let mut query = app.world_mut().query::<&AttackInstance>();
+	query.iter(app.world()).map(|instance| instance.owner).collect()
+}
+
+#[test]
+fn same_frame_duplicate_nonconcurrent_admits_one() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	observe(&mut app, owner, target, Vec3::new(0.0, 1.0, -1.0));
+	app.world_mut().write_message(BeginAttack::new(owner, COLUMN).with_target(target));
+	app.world_mut().write_message(BeginAttack::new(owner, WAVE).with_target(target));
+	step(&mut app, 0.1);
+	let live = live_definitions(&mut app);
+	if live != [COLUMN] {
+		return Err(anyhow!(
+			"same-batch exclusive begins must admit only the first, got {live:?}"
+		));
+	}
+	Ok(())
+}
+
+#[test]
+fn later_frame_exclusive_begin_still_refused_while_live() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	cast(&mut app, owner, COLUMN, target, Vec3::new(0.0, 1.0, -1.0));
+	step(&mut app, 0.1);
+	app.world_mut().write_message(BeginAttack::new(owner, WAVE).with_target(target));
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 1 {
+		return Err(anyhow!("a live exclusive instance must still block later exclusive begins"));
+	}
+	if live_definitions(&mut app) != [COLUMN] {
+		return Err(anyhow!("the original exclusive instance must remain the only live one"));
+	}
+	Ok(())
+}
+
+#[test]
+fn concurrent_parade_blasts_admit_beside_parent_in_one_batch() -> Result<()> {
+	let mut app = attack_app(0.1);
+	insert_parade_catalog(&mut app);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -2.0), 100.0);
+	observe(&mut app, owner, target, Vec3::new(0.0, 1.0, -2.0));
+	app.world_mut().write_message(BeginAttack::new(owner, PARADE).with_target(target));
+	app.world_mut().write_message(
+		BeginAttack::new(owner, PARADE_BLAST)
+			.with_target(target)
+			.with_emission(Vec3::new(0.0, 0.0, -2.0)),
+	);
+	app.world_mut().write_message(
+		BeginAttack::new(owner, PARADE_BLAST)
+			.with_target(target)
+			.with_emission(Vec3::new(0.0, 0.0, -4.0)),
+	);
+	app.world_mut().write_message(BeginAttack::new(owner, PARADE).with_target(target));
+	step(&mut app, 0.1);
+	let mut live = live_definitions(&mut app);
+	live.sort_by_key(|id| id.as_str());
+	if live != [PARADE, PARADE_BLAST, PARADE_BLAST] {
+		return Err(anyhow!(
+			"parent plus two concurrent blasts must admit; duplicate parent must not, got {live:?}"
+		));
+	}
+	Ok(())
+}
+
+#[test]
+fn concurrent_blasts_admit_after_parent_is_already_live() -> Result<()> {
+	let mut app = attack_app(0.1);
+	insert_parade_catalog(&mut app);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -2.0), 100.0);
+	cast(&mut app, owner, PARADE, target, Vec3::new(0.0, 1.0, -2.0));
+	step(&mut app, 0.1);
+	app.world_mut().write_message(
+		BeginAttack::new(owner, PARADE_BLAST)
+			.with_target(target)
+			.with_emission(Vec3::new(0.0, 0.0, -2.0)),
+	);
+	app.world_mut().write_message(
+		BeginAttack::new(owner, PARADE_BLAST)
+			.with_target(target)
+			.with_emission(Vec3::new(0.0, 0.0, -4.0)),
+	);
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 3 {
+		return Err(anyhow!(
+			"live parent must not block concurrent child explosions, got {}",
+			live_instances(&mut app)
+		));
+	}
+	Ok(())
+}
+
+#[test]
+fn cancel_clears_parent_and_concurrent_children() -> Result<()> {
+	let mut app = attack_app(0.1);
+	insert_parade_catalog(&mut app);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -2.0), 100.0);
+	observe(&mut app, owner, target, Vec3::new(0.0, 1.0, -2.0));
+	app.world_mut().write_message(BeginAttack::new(owner, PARADE).with_target(target));
+	app.world_mut().write_message(
+		BeginAttack::new(owner, PARADE_BLAST)
+			.with_target(target)
+			.with_emission(Vec3::new(0.0, 0.0, -2.0)),
+	);
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 2 {
+		return Err(anyhow!("expected parent and blast before cancel"));
+	}
+	app.world_mut().write_message(CancelAttacks::all(owner));
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 0 {
+		return Err(anyhow!("cancel must retire parent and concurrent children"));
+	}
+	let ended = drain_ended(&mut app);
+	if ended.iter().filter(|event| event.reason == AttackEndReason::Cancelled).count() != 2 {
+		return Err(anyhow!("expected cancelled ends for parent and blast, got {ended:?}"));
+	}
+	Ok(())
+}
+
+#[test]
+fn owner_death_clears_parent_and_concurrent_children() -> Result<()> {
+	let mut app = attack_app(0.1);
+	insert_parade_catalog(&mut app);
+	let owner = spawn_owner(&mut app, Vec3::ZERO);
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -2.0), 100.0);
+	observe(&mut app, owner, target, Vec3::new(0.0, 1.0, -2.0));
+	app.world_mut().write_message(BeginAttack::new(owner, PARADE).with_target(target));
+	app.world_mut().write_message(
+		BeginAttack::new(owner, PARADE_BLAST)
+			.with_target(target)
+			.with_emission(Vec3::new(0.0, 0.0, -2.0)),
+	);
+	step(&mut app, 0.1);
+	app.world_mut()
+		.entity_mut(owner)
+		.insert(Downed { source: None, point: Vec3::ZERO, at: 0.0 });
+	step(&mut app, 0.1);
+	if live_instances(&mut app) != 0 {
+		return Err(anyhow!("owner death must clean parent and concurrent children"));
+	}
+	if !drain_ended(&mut app)
+		.iter()
+		.all(|event| event.reason == AttackEndReason::OwnerDowned)
+	{
+		return Err(anyhow!("expected owner-downed ends for every live instance"));
+	}
+	Ok(())
+}
+
+#[test]
+fn exclusive_admission_is_per_owner() -> Result<()> {
+	let mut app = attack_app(0.1);
+	let first = spawn_owner(&mut app, Vec3::ZERO);
+	let second = spawn_owner(&mut app, Vec3::new(8.0, 0.0, 0.0));
+	let target = spawn_target(&mut app, Vec3::new(0.0, 1.0, -1.0), 100.0);
+	observe(&mut app, first, target, Vec3::new(0.0, 1.0, -1.0));
+	observe(&mut app, second, target, Vec3::new(0.0, 1.0, -1.0));
+	app.world_mut().write_message(BeginAttack::new(first, COLUMN).with_target(target));
+	app.world_mut().write_message(BeginAttack::new(second, COLUMN).with_target(target));
+	step(&mut app, 0.1);
+	let owners = live_owners(&mut app);
+	if owners.len() != 2 || !owners.contains(&first) || !owners.contains(&second) {
+		return Err(anyhow!("exclusive lock must not leak across owners, got {owners:?}"));
+	}
+	Ok(())
+}
