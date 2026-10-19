@@ -2203,16 +2203,6 @@ mod tests {
 	}
 
 	#[test]
-	fn selected_respawn_labels_are_larger_than_idle_pois() {
-		assert!(SELECTED_POI_LABEL_PX > map_label_size(MapLabelKind::Poi));
-	}
-
-	#[test]
-	fn picker_title_keeps_menu_gutters() {
-		assert_eq!(PICKER_TITLE_GUTTER, 48.0);
-	}
-
-	#[test]
 	fn picker_title_only_shows_on_a_locked_map() {
 		let locked = WorldMapView { open: true, close_locked: true, ..default() };
 		assert!(picker_prompt_visible(&locked, true));

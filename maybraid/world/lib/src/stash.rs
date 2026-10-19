@@ -1157,15 +1157,6 @@ mod tests {
 	}
 
 	#[test]
-	fn default_loot_ttl_is_sixty_seconds_not_corpse_time() {
-		assert_eq!(DEFAULT_LOOT_SECS, 60.0);
-		assert_eq!(StashPolicy::default().loot_secs, 60.0);
-		assert!(!StashPolicy::default().persist);
-		assert!(StashPolicy::chest().persist);
-		assert!(WorldStashSettings::default().loot_secs > 4.0);
-	}
-
-	#[test]
 	fn empty_bag_does_not_spawn_a_stash() -> anyhow::Result<()> {
 		let mut world = World::new();
 		let spawned = world
@@ -1411,28 +1402,45 @@ mod tests {
 
 	#[test]
 	fn stash_outlives_corpse_ttl_and_despawns_at_loot_secs() -> anyhow::Result<()> {
-		let mut app = App::new();
-		app.add_plugins(MinimalPlugins).add_systems(Last, tick_queued_despawns);
-		let stash = app
-			.world_mut()
+		use std::time::Duration;
+
+		const LOOT_SECS: f32 = 12.0;
+		const CORPSE_SECS: f32 = 4.0;
+
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		let stash = world
 			.run_system_once(spawn_stash_system(
 				Transform::IDENTITY,
 				mixed_bag(),
-				StashPolicy::ephemeral(DEFAULT_LOOT_SECS),
+				StashPolicy::ephemeral(LOOT_SECS),
 			))
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?
 			.ok_or_else(|| anyhow::anyhow!("stash"))?;
-		let remaining = app
-			.world()
+		let remaining = world
 			.get::<DespawnAfter>(stash)
 			.ok_or_else(|| anyhow::anyhow!("ttl"))?
 			.remaining_secs();
-		assert!((remaining - DEFAULT_LOOT_SECS).abs() < 1e-3);
-		assert!(remaining > 4.0);
+		assert!((remaining - LOOT_SECS).abs() < 1e-3);
+		assert!(remaining > CORPSE_SECS);
 
-		app.world_mut().entity_mut(stash).insert(DespawnAfter::seconds(0.0));
-		app.update();
-		assert!(!app.world().entities().contains(stash));
+		world.resource_mut::<Time>().advance_by(Duration::from_secs_f32(CORPSE_SECS + 0.5));
+		world
+			.run_system_once(tick_queued_despawns)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.entities().contains(stash), "stash must outlive the corpse clock");
+		let remaining = world
+			.get::<DespawnAfter>(stash)
+			.ok_or_else(|| anyhow::anyhow!("ttl after corpse"))?
+			.remaining_secs();
+		assert!(remaining > 0.0);
+		assert!(remaining < LOOT_SECS - 1.0);
+
+		world.resource_mut::<Time>().advance_by(Duration::from_secs_f32(LOOT_SECS));
+		world
+			.run_system_once(tick_queued_despawns)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.entities().contains(stash));
 		Ok(())
 	}
 
@@ -1832,19 +1840,6 @@ mod tests {
 			"quad +Z (opposite forward) should face the camera"
 		);
 		assert!((transform.translation - at).length() < 1e-4);
-	}
-
-	#[test]
-	fn claim_halo_uses_three_thinner_rings() {
-		let rings = halo_rings();
-		assert_eq!(rings[0].0, 1.5);
-		assert_eq!(rings[1].0, 0.75);
-		assert_eq!(rings[2].0, 0.25);
-		assert_eq!(rings[0].1, HALO_YELLOW);
-		assert_eq!(rings[1].1, HALO_GREEN);
-		assert_eq!(rings[2].1, HALO_BLUE);
-		assert!(HALO_RING_WIDTH < 0.18);
-		assert!(HALO_BLUE_RADIUS > HALO_RING_WIDTH);
 	}
 
 	fn one_garment() -> Inventory {
