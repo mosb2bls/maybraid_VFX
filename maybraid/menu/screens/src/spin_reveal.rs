@@ -124,6 +124,7 @@ fn apply_show_spin_reveal(
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut subjects: ResMut<ItemCaptureSubjects>,
 	mut poses: ResMut<PoseCaptureSubjects>,
+	mut cache: ResMut<ItemIconCache>,
 	mut client: CaptureClient,
 ) {
 	if screens.take(&mut commands, &requests).is_none() {
@@ -133,8 +134,8 @@ fn apply_show_spin_reveal(
 		return;
 	};
 	let bag = Inventory { items: items.0.clone(), ..Inventory::default() };
-	request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client);
-	request_inventory_tanz_icons(&bag, &mut discovery, &mut poses, &mut client);
+	request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client, &mut cache);
+	request_inventory_tanz_icons(&bag, &mut discovery, &mut poses, &mut client, &mut cache);
 	spawn_starter_kit(&mut commands, &items, &HudFonts::load(assets.as_ref()), time.elapsed());
 }
 
@@ -288,17 +289,16 @@ fn reveal_starter_kit_icons(
 	};
 	let layout = InventoryLayout::starter_kit(current.items.clone());
 	let icons = cache.as_deref();
-	let reports = layout
-		.captures
-		.iter()
-		.map(|need| icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette)));
+	let reports = layout.captures.iter().map(|need| {
+		icons.is_some_and(|cache| cache.catalog_need_is_terminal(need.key, need.silhouette))
+	});
 	let waited = time.elapsed().saturating_sub(wait.started);
 	if inventory_paint_state(reports, waited, INVENTORY_CAPTURE_TIMEOUT) != InventoryPaint::Ready {
 		return;
 	}
 	if waited >= INVENTORY_CAPTURE_TIMEOUT
 		&& !layout.captures.iter().all(|need| {
-			icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette))
+			icons.is_some_and(|cache| cache.catalog_need_is_terminal(need.key, need.silhouette))
 		}) {
 		warn!(
 			waited_secs = waited.as_secs_f32(),

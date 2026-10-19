@@ -1,12 +1,11 @@
 //! First-encounter item icons. Discovery stays in the host, capture in `screen-capture`.
 
+mod entry;
 mod host;
 mod prune;
 
 use bevy::prelude::*;
-use character_items::{
-	icon_catalog_key_for_label, Inventory, InventoryItem, SELF_LUBIKAN_CAPTURE_LABEL,
-};
+use character_items::{Inventory, InventoryItem, SELF_LUBIKAN_CAPTURE_LABEL};
 use character_persist::SaveRoot;
 use characters::AnimClip;
 use firearms_components::firearm_preview_camera;
@@ -20,6 +19,7 @@ use screen_capture::{
 	CaptureScene, CaptureSubject, CaptureView, ScreenCapturePlugin, ScreenCaptureSystems,
 };
 
+pub use entry::{IconCatalogProgress, IconEntry, IconEntryStatus, ItemIconCache};
 pub use host::{
 	CaptureHostRealized, CapturePoseSpec, ItemCaptureSubjects, PoseCaptureSpec,
 	PoseCaptureSubjects, HOST_GRENADE, HOST_SELF_LUBIKAN, HOST_SKILL_MAP,
@@ -29,10 +29,11 @@ pub use prune::{
 	RequestPruneItemIconCache,
 };
 pub use screen_capture::{
-	CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed, CaptureHostReady,
-	CaptureHostRoot, CaptureId, CaptureMode, RepresentativePose, HOST_REPRESENTATIVE_POSE,
+	CaptureCacheKey, CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed,
+	CaptureHostReady, CaptureHostRoot, CaptureId, CaptureMode, CaptureTicket, RepresentativePose,
+	HOST_REPRESENTATIVE_POSE,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
 
@@ -61,90 +62,6 @@ const SELF_LUBIKAN_LOOK: Vec3 = Vec3::new(0.0, 0.95, 0.0);
 pub enum ItemIconSystems {
 	Discover,
 	Store,
-}
-
-/// Handles for shaded and silhouette icons keyed by capture id.
-#[derive(Resource, Default, Debug)]
-pub struct ItemIconCache {
-	pub shaded: HashMap<CaptureId, Handle<Image>>,
-	pub silhouette: HashMap<CaptureId, Handle<Image>>,
-	shaded_by_key: HashMap<u64, Handle<Image>>,
-	silhouette_by_key: HashMap<u64, Handle<Image>>,
-	failed: HashSet<(CaptureId, CaptureMode)>,
-	failed_by_key: HashSet<(u64, CaptureMode)>,
-	/// Bumps when a handle is stored or a capture fails so hosts can rebuild UI.
-	pub generation: u64,
-}
-
-impl ItemIconCache {
-	pub fn shaded(&self, id: &CaptureId) -> Option<Handle<Image>> {
-		self.shaded.get(id).cloned()
-	}
-
-	pub fn silhouette(&self, id: &CaptureId) -> Option<Handle<Image>> {
-		self.silhouette.get(id).cloned()
-	}
-
-	pub fn shaded_for_key(&self, key: u64) -> Option<Handle<Image>> {
-		self.shaded_by_key.get(&key).cloned()
-	}
-
-	pub fn silhouette_for_key(&self, key: u64) -> Option<Handle<Image>> {
-		self.silhouette_by_key.get(&key).cloned()
-	}
-
-	/// Catalog tiles prefer a shaded still and fall back to a silhouette
-	/// (Self Lubikan and Tanz pose icons).
-	pub fn catalog_for_key(&self, key: u64) -> Option<Handle<Image>> {
-		self.shaded_for_key(key).or_else(|| self.silhouette_for_key(key))
-	}
-
-	pub fn silhouette_for_item(&self, item: &InventoryItem) -> Option<Handle<Image>> {
-		self.silhouette(&CaptureId::new(item.capture_id_label()?))
-	}
-
-	pub fn shaded_for_item(&self, item: &InventoryItem) -> Option<Handle<Image>> {
-		self.shaded(&CaptureId::new(item.capture_id_label()?))
-	}
-
-	pub fn failed(&self, id: &CaptureId, mode: CaptureMode) -> bool {
-		self.failed.contains(&(id.clone(), mode))
-	}
-
-	pub fn failed_for_key(&self, key: u64, mode: CaptureMode) -> bool {
-		self.failed_by_key.contains(&(key, mode))
-	}
-
-	/// Filled handle or a reported failure — hosts can stop waiting.
-	pub fn filled_or_failed(&self, key: u64, silhouette: bool) -> bool {
-		if silhouette {
-			self.silhouette_for_key(key).is_some()
-				|| self.failed_for_key(key, CaptureMode::Silhouette)
-		} else {
-			self.shaded_for_key(key).is_some() || self.failed_for_key(key, CaptureMode::Shaded)
-		}
-	}
-
-	pub fn insert_shaded(&mut self, id: CaptureId, image: Handle<Image>) {
-		let key = icon_catalog_key_for_label(id.as_str());
-		self.shaded_by_key.insert(key, image.clone());
-		self.shaded.insert(id, image);
-		self.generation = self.generation.wrapping_add(1);
-	}
-
-	pub fn insert_silhouette(&mut self, id: CaptureId, image: Handle<Image>) {
-		let key = icon_catalog_key_for_label(id.as_str());
-		self.silhouette_by_key.insert(key, image.clone());
-		self.silhouette.insert(id, image);
-		self.generation = self.generation.wrapping_add(1);
-	}
-
-	fn mark_failed(&mut self, id: CaptureId, mode: CaptureMode) {
-		let key = icon_catalog_key_for_label(id.as_str());
-		self.failed_by_key.insert((key, mode));
-		self.failed.insert((id, mode));
-		self.generation = self.generation.wrapping_add(1);
-	}
 }
 
 /// Capture ids already requested this process (per revision).
@@ -311,22 +228,27 @@ pub fn request_inventory_icons(
 	discovery: &mut ItemIconDiscovery,
 	subjects: &mut ItemCaptureSubjects,
 	client: &mut CaptureClient,
+	cache: &mut ItemIconCache,
 ) {
 	let revision = CaptureRevision::CURRENT;
 	if discovery.revision != revision {
 		discovery.requested.clear();
 		discovery.revision = revision;
 	}
-	request_self_lubikan_icon(discovery, client);
+	request_self_lubikan_icon(discovery, client, cache);
 	for request in
 		pending_inventory_icons(inventory, discovery, subjects, CaptureLighting::studio(), revision)
 	{
-		client.request(request);
+		cache.remember_ticket(&client.request(request));
 	}
 }
 
 /// Scene-capture the Self Lubikan tile: Braidman silhouette + medical cross.
-pub fn request_self_lubikan_icon(discovery: &mut ItemIconDiscovery, client: &mut CaptureClient) {
+pub fn request_self_lubikan_icon(
+	discovery: &mut ItemIconDiscovery,
+	client: &mut CaptureClient,
+	cache: &mut ItemIconCache,
+) {
 	let revision = CaptureRevision::CURRENT;
 	if discovery.revision != revision {
 		discovery.requested.clear();
@@ -336,7 +258,7 @@ pub fn request_self_lubikan_icon(discovery: &mut ItemIconDiscovery, client: &mut
 	if !discovery.requested.insert(subject.capture_id()) {
 		return;
 	}
-	client.request(self_lubikan_icon_request(revision));
+	cache.remember_ticket(&client.request(self_lubikan_icon_request(revision)));
 }
 
 /// Silhouette request for the shared Self Lubikan catalog tile.
@@ -391,6 +313,7 @@ pub fn request_pose_icon(
 	discovery: &mut ItemIconDiscovery,
 	poses: &mut PoseCaptureSubjects,
 	client: &mut CaptureClient,
+	cache: &mut ItemIconCache,
 ) {
 	let revision = CaptureRevision::CURRENT;
 	if discovery.revision != revision {
@@ -402,7 +325,7 @@ pub fn request_pose_icon(
 		return;
 	}
 	poses.remember(id, PoseCaptureSpec { clip, progress });
-	client.request(pose_icon_request(subject));
+	cache.remember_ticket(&client.request(pose_icon_request(subject)));
 }
 
 pub fn pending_inventory_icons(
@@ -434,17 +357,13 @@ fn store_completed_icons(
 	mut cache: ResMut<ItemIconCache>,
 ) {
 	for event in completed.read() {
-		let id = event.key.id.clone();
-		match event.key.mode {
-			CaptureMode::Shaded => cache.insert_shaded(id, event.image.clone()),
-			CaptureMode::Silhouette => cache.insert_silhouette(id, event.image.clone()),
-		}
+		cache.apply_completed(event);
 	}
 }
 
 fn store_failed_icons(mut failed: MessageReader<CaptureFailed>, mut cache: ResMut<ItemIconCache>) {
 	for event in failed.read() {
-		cache.mark_failed(event.key.id.clone(), event.key.mode);
+		cache.apply_failed(event);
 	}
 }
 
@@ -480,7 +399,8 @@ fn log_pose_icon_events(
 mod tests {
 	use super::*;
 	use character_items::{
-		ClothingMaterial, ClothingMesh, FirearmMesh, FirearmSpec, InventoryItem, ItemColor,
+		icon_catalog_key_for_label, ClothingMaterial, ClothingMesh, FirearmMesh, FirearmSpec,
+		InventoryItem, ItemColor,
 	};
 	use screen_capture::{CaptureCacheKey, CaptureError, CaptureFraming, CaptureSource};
 
@@ -721,7 +641,10 @@ mod tests {
 		assert!(cache.shaded_for_key(key).is_some());
 		assert!(cache.shaded_for_item(&item).is_some());
 		assert!(cache.silhouette_for_item(&item).is_none());
-		assert_eq!(cache.generation, 1);
+		assert_eq!(
+			cache.entry(&CaptureCacheKey::from_request(&request)).map(IconEntry::status),
+			Some(IconEntryStatus::Ready)
+		);
 		Ok(())
 	}
 
@@ -752,6 +675,10 @@ mod tests {
 		assert!(cache.silhouette_for_item(&item).is_none());
 		assert!(cache.failed(&subject.capture_id(), CaptureMode::Silhouette));
 		assert!(!cache.failed(&subject.capture_id(), CaptureMode::Shaded));
+		assert_eq!(
+			cache.entry(&CaptureCacheKey::from_request(&request)).map(IconEntry::status),
+			Some(IconEntryStatus::Failed)
+		);
 		Ok(())
 	}
 }

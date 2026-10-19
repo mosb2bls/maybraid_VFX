@@ -4,7 +4,9 @@ use std::borrow::Cow;
 
 use character_items::{icon_catalog_key_for_label, Inventory, InventoryItem, TanzId};
 use characters::fingerprint_humanoid_clip;
-use item_icons::{request_pose_icon, CaptureClient, ItemIconDiscovery, PoseCaptureSubjects};
+use item_icons::{
+	request_pose_icon, CaptureClient, ItemIconCache, ItemIconDiscovery, PoseCaptureSubjects,
+};
 use screen_capture::{CaptureSubject, RepresentativePose};
 
 use crate::TanzDefinitionExt;
@@ -26,6 +28,7 @@ pub fn request_inventory_tanz_icons(
 	discovery: &mut ItemIconDiscovery,
 	poses: &mut PoseCaptureSubjects,
 	client: &mut CaptureClient,
+	cache: &mut ItemIconCache,
 ) {
 	for id in inventory.items.iter().filter_map(InventoryItem::tanz_id) {
 		let pose = TanzPose(id);
@@ -36,6 +39,7 @@ pub fn request_inventory_tanz_icons(
 			discovery,
 			poses,
 			client,
+			cache,
 		);
 	}
 }
