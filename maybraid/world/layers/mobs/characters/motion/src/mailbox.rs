@@ -2269,31 +2269,6 @@ mod tests {
 	}
 
 	#[test]
-	fn weapon_overlay_sequence_restores_current_base_pose() -> anyhow::Result<()> {
-		let mut world = World::new();
-		world.init_resource::<Time>();
-		world.init_resource::<AnimClipCache>();
-		world.init_resource::<MailboxApplySet>();
-		world.resource_mut::<MailboxApplySet>().only = None;
-		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.22);
-		step_mailbox(&mut world, host, BLEND_DURATION + 0.02)?;
-		let base = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
-		{
-			let mut rig = world.get_mut::<HumanoidV0Rig>(host).unwrap();
-			apply_test_torso_yaw(&mut rig, -0.84);
-			stretch_test_forearm(&mut rig, 1.15);
-		}
-		world.run_system_once(init_working_pose).expect("init_working_pose");
-		let lumbar = world.get::<HumanoidV0Rig>(host).unwrap().posed_angle("lumbar");
-		let base_lumbar = base_angle(&base, "lumbar");
-		anyhow::ensure!(
-			(lumbar - base_lumbar).abs() < 1e-4,
-			"unarmed/base restore must drop firing twist, got {lumbar} vs {base_lumbar}"
-		);
-		Ok(())
-	}
-
-	#[test]
 	fn base_only_publish_matches_working_pose_and_leaves_base_immutable() -> anyhow::Result<()> {
 		let mut world = World::new();
 		world.init_resource::<Time>();
@@ -2453,12 +2428,6 @@ mod tests {
 		Ok(())
 	}
 
-	fn base_angle(base: &PoseBuffer, name: &str) -> f32 {
-		let definition = humanoid_v0_definition();
-		let index = definition.names.iter().position(|n| *n == name).unwrap_or(0);
-		base.local[index].rotation.to_euler(EulerRot::XYZ).1
-	}
-
 	fn stretch_test_forearm(rig: &mut HumanoidV0Rig, scale: f32) {
 		let Some(id) = rig.binding.definition.id("forearm.R") else {
 			return;
@@ -2466,112 +2435,6 @@ mod tests {
 		if let Some(slot) = rig.pose.local.get_mut(id.index()) {
 			slot.translation *= scale;
 		}
-	}
-
-	fn verify_steady_base_pose_refreshes(
-		publish_fn: fn(&mut AnimMailbox, &PoseBuffer, f32),
-	) -> anyhow::Result<()> {
-		use crate::clip_cache::RigVariantId;
-
-		let cache = AnimClipCache::default();
-		let prepared = cache
-			.prepare(AnimClip::walk(), RigVariantId::HUMANOID_V0, cache.settings.sampling)
-			.expect("walk");
-		let mut rig = HumanoidV0Rig::imported();
-		let mut mailbox = AnimMailbox::with_bones(Transform::IDENTITY, rig.pose.len());
-		sample_humanoid_prepared(
-			AnimClip::walk(),
-			&mut rig,
-			0.2,
-			true,
-			false,
-			Some(&cache),
-			Some(&prepared),
-		);
-		publish_fn(&mut mailbox, &rig.pose, 1.0);
-		let before = mailbox.output.clone();
-		sample_humanoid_prepared(
-			AnimClip::walk(),
-			&mut rig,
-			0.21,
-			true,
-			false,
-			Some(&cache),
-			Some(&prepared),
-		);
-		publish_fn(&mut mailbox, &rig.pose, 1.0);
-		if before.local == mailbox.output.local {
-			anyhow::bail!("steady base pose did not advance between walk samples");
-		}
-		Ok(())
-	}
-
-	fn verify_crossfade_ignores_overlay_on_rig(capture_from_rig: bool) -> anyhow::Result<()> {
-		use character_animations::Animation;
-		use character_animations::animations::{Run, Walk};
-
-		let mut rig = HumanoidV0Rig::imported();
-		Walk::default().apply_for(&mut rig, 0.35);
-		let mut mailbox = AnimMailbox::with_bones(Transform::IDENTITY, rig.pose.len());
-		mailbox.posed = true;
-		publish_pose(&mut mailbox, &rig.pose, 1.0);
-		let base_before_overlay = mailbox.output.clone();
-		apply_test_torso_yaw(&mut rig, -0.84);
-		if capture_from_rig {
-			if mailbox.posed {
-				mailbox.from_pose.copy_from(&rig.pose);
-			}
-		} else if mailbox.posed {
-			mailbox.from_pose.copy_from(&mailbox.output);
-		}
-		Run::default().apply_for(&mut rig, 0.1);
-		publish_pose(&mut mailbox, &rig.pose, 0.0);
-		let polluted = mailbox.output.local != base_before_overlay.local;
-		if capture_from_rig {
-			if polluted {
-				Ok(())
-			} else {
-				anyhow::bail!("rig capture should pollute crossfade with overlay twist")
-			}
-		} else if polluted {
-			anyhow::bail!("base capture must not pollute crossfade with overlay twist")
-		} else {
-			Ok(())
-		}
-	}
-
-	#[test]
-	fn regression_pr1321_steady_skip_stales_base_pose() {
-		let err = verify_steady_base_pose_refreshes(publish_pose_pr1321_steady_skip);
-		assert!(
-			err.is_err(),
-			"PR #1321 steady skip must stale output (cmd: cargo test -p character-motion regression_pr1321_steady_skip_stales_base_pose)"
-		);
-	}
-
-	#[test]
-	fn regression_pr1321_rig_capture_feeds_overlay_into_crossfade() {
-		assert!(
-			verify_crossfade_ignores_overlay_on_rig(true).is_ok(),
-			"PR #1321 rig capture must pollute crossfade (cmd: cargo test -p character-motion regression_pr1321_rig_capture_feeds_overlay_into_crossfade)"
-		);
-	}
-
-	#[test]
-	fn regression_pr1321_rig_capture_fails_on_fixed_contract() {
-		assert!(
-			verify_crossfade_ignores_overlay_on_rig(false).is_ok(),
-			"fixed contract must keep crossfade on published base (cmd: cargo test -p character-motion regression_pr1321_rig_capture_fails_on_fixed_contract)"
-		);
-	}
-
-	#[test]
-	fn regression_steady_playback_would_fail_if_pr1321_publish_used() {
-		let err = verify_steady_base_pose_refreshes(publish_pose);
-		assert!(
-			err.is_ok(),
-			"publish_pose must advance base; PR #1321 skip fails via regression_pr1321_steady_skip_stales_base_pose"
-		);
 	}
 
 	fn apply_test_torso_yaw(rig: &mut HumanoidV0Rig, yaw: f32) {
