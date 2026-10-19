@@ -110,12 +110,74 @@ type ShadowRigQuery<'w, 's> = Query<
 pub fn apply_camera_suggestion(
 	time: Res<Time>,
 	look_enabled: Option<Res<CameraLookEnabled>>,
+	capture_locked: Option<Res<crate::preview_capture::CaptureCameraLocked>>,
+	capture_settings: Option<Res<crate::preview_capture::PreviewCaptureSettings>>,
+	ground_contact: Option<Res<crate::preview_capture::CaptureGroundContact>>,
 	mut pending: ResMut<PendingCameraFocus>,
 	shadow_rigs: ShadowRigQuery,
 	bone_globals: Query<&GlobalTransform>,
-	mut cameras: Query<(&mut Transform, &mut CameraController), With<Camera3d>>,
+	preview_meshes: Query<
+		(
+			&bevy::prelude::Mesh3d,
+			&GlobalTransform,
+			Option<&Visibility>,
+			Option<&characters::CharacterPart>,
+		),
+		(
+			With<characters::CharacterPart>,
+			Without<crate::focus_reference::FocusReferenceRig>,
+			Without<crate::preview_capture::CaptureGroundPlane>,
+		),
+	>,
+	mesh_assets: Res<Assets<Mesh>>,
+	mut cameras: Query<(&mut Transform, &mut CameraController, &Projection), With<Camera3d>>,
 	mut last_wait_log: Local<Option<String>>,
 ) {
+	if capture_locked.is_some() {
+		if let Some(settings) = capture_settings {
+			let aspect = cameras.iter().next().map_or(16.0 / 9.0, |(_, _, projection)| {
+				match projection {
+					Projection::Perspective(p) => p.aspect_ratio,
+					_ => 16.0 / 9.0,
+				}
+			});
+			let fov_y = cameras.iter().next().map_or(std::f32::consts::FRAC_PI_4, |(_, _, projection)| {
+				match projection {
+					Projection::Perspective(p) => p.fov,
+					_ => std::f32::consts::FRAC_PI_4,
+				}
+			});
+			let ground_y = ground_contact
+				.and_then(|contact| contact.y)
+				.unwrap_or_else(|| {
+					crate::preview_capture::capture_ground_anchor_y(settings.encounter_scale)
+				});
+			let (eye, look_at) = crate::preview_capture::union_preview_mesh_bounds(
+				mesh_assets.as_ref(),
+				preview_meshes.iter(),
+			)
+				.map(|bounds| {
+					crate::preview_capture::capture_camera_frame_for_bounds(
+						bounds,
+						aspect,
+						fov_y,
+						ground_y,
+					)
+				})
+				.unwrap_or_else(|| {
+					crate::preview_capture::capture_camera_frame_fallback(settings.encounter_scale)
+				});
+			for (mut transform, mut controller, _) in &mut cameras {
+				characters_playground::camera::orient_camera(
+					&mut transform,
+					&mut controller,
+					eye,
+					look_at,
+				);
+			}
+		}
+		return;
+	}
 	if look_enabled.is_none_or(|enabled| enabled.0) {
 		pending.focus = None;
 		pending.focus_trigger = None;
@@ -146,7 +208,7 @@ pub fn apply_camera_suggestion(
 	}
 
 	let target = pending.resolved_target.unwrap();
-	let Ok((mut transform, mut controller)) = cameras.single_mut() else {
+	let Ok((mut transform, mut controller, _)) = cameras.single_mut() else {
 		return;
 	};
 

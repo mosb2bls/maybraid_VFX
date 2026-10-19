@@ -106,6 +106,20 @@ Order elevation after physics / locomotion.
 Insert `AnimRefRoot(AnimRef::new(AnimClip::walk()))` on the **body** rig host.
 The mailbox transitions on `AnimId` (variant), not knob values.
 
+Epiphant Bray / sleep clips expose normalized gameplay cues on [`AnimClipCues`](src/cue.rs)
+(`sonic_emit`, `ground_impact`). Constants live on the animation definitions
+(`SONIC_EMIT_NORM`, `SLEEP_ENTER_IMPACT_NORM`, `WAKE_IMPACT_NORM`); gameplay reads
+[`AnimClipCues::crossed`] after [`tick_anim_clip_cues`], not pose sampling.
+Cue crossing history resets when the clip identity changes, mailbox time steps backward
+(restart / scrub), or cyclic progress wraps so the first post-change frame can still fire.
+
+Bray sonic rings spawn at the mouth and travel horizontally along fight-forward. Sample
+[`BrayMouthEmit`](src/mouth_emit.rs) when [`AnimClipCues::sonic_emit_crossed`] is true:
+prefer the fulfilled head rig [`nose_socket`](../../animations/src/animations/quadruped_bray.rs)
+(`MOUTH_EMIT_SOCKET`), or [`sample_bray_mouth_emit`] across member [`BoneMap`]s with a
+`neck` fallback using [`MOUTH_EMIT_NECK_LOCAL`]. Run after [`apply_anim_mailbox`] so bone
+transforms match the flick pose.
+
 ### Gate work by LOD
 
 Host markers + `With<>` on expensive systems. [`motion_policy`](src/policy.rs) is

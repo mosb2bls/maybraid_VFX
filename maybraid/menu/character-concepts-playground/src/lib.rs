@@ -14,6 +14,7 @@ mod focus_reference;
 mod material;
 mod menu_listeners;
 mod preview;
+mod preview_capture;
 mod preview_color;
 mod scale_reference;
 mod skinning;
@@ -89,30 +90,42 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 			.add_systems(
 				Startup,
 				(
+					preview_capture::load_preview_capture_settings,
+					preview_capture::setup_capture_ground.after(preview_capture::load_preview_capture_settings),
 					camera::setup_camera,
 					add_lod_viewer_to_camera.after(camera::setup_camera),
 					setup_lighting,
-					scale_reference::setup_scale_reference,
-					init_character_menu_state,
-					ui::setup_creator_ui,
+					scale_reference::setup_scale_reference
+						.run_if(not(preview_capture::capture_hides_creator_ui)),
+					init_character_menu_state.run_if(not(preview_capture::capture_hides_creator_ui)),
+					ui::setup_creator_ui.run_if(not(preview_capture::capture_hides_creator_ui)),
 				),
 			)
 			.add_systems(
 				Update,
 				(
 					tick_preview_respawn_cooldown,
-					persist_species_session,
-					ensure_species_camera_focus.after(persist_species_session),
+					ensure_species_camera_focus,
 					sync_menu_state_from_config,
 					dispatch_menu_interactions,
 					on_character_menu_event.after(dispatch_menu_interactions),
-					ui::sync_creator_ui.after(dispatch_menu_interactions),
-					ui::refresh_creator_ui_display.after(ui::sync_creator_ui),
+					preview_capture::preview_capture_interrupt.after(on_character_menu_event),
+					preview_capture::apply_pending_capture_interrupt
+						.after(preview_capture::preview_capture_interrupt),
+					persist_species_session.after(preview_capture::apply_pending_capture_interrupt),
+					ensure_species_camera_focus.after(persist_species_session),
+					ui::sync_creator_ui
+						.after(dispatch_menu_interactions)
+						.run_if(not(preview_capture::capture_hides_creator_ui)),
+					ui::refresh_creator_ui_display
+						.after(ui::sync_creator_ui)
+						.run_if(not(preview_capture::capture_hides_creator_ui)),
 					camera::camera_controller,
 					ui::send_creator_ui_scroll_events,
 					sync_preview
 						.after(capture_command_line_input::<ConceptsCommand>)
-						.after(on_character_menu_event),
+						.after(preview_capture::apply_pending_capture_interrupt),
+					preview_capture::preview_capture_auto_quit,
 					sync_focus_reference.after(sync_preview).before(CharacterHostSystems::BoneMap),
 					stamp_lod_character_preview
 						.after(sync_preview)
@@ -140,9 +153,15 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 			)
 			.add_systems(
 				PostUpdate,
-				(apply_camera_suggestion
-					.after(TransformSystems::Propagate)
-					.after(CharacterHostSystems::Pose),),
+				(
+					preview_capture::align_capture_ground_to_contact,
+					preview_capture::draw_preview_mouth_emit_gizmo
+						.run_if(preview_capture::mouth_emit_gizmo_enabled),
+					apply_camera_suggestion
+						.after(TransformSystems::Propagate)
+						.after(CharacterHostSystems::Pose)
+						.after(preview_capture::align_capture_ground_to_contact),
+				),
 			);
 	}
 }

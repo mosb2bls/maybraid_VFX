@@ -425,10 +425,14 @@ pub fn reset_for_species_switch(
 
 pub fn ensure_species_camera_focus(
 	config: Res<ConceptPreviewConfig>,
+	capture: Option<Res<crate::preview_capture::CaptureCameraLocked>>,
 	mut ui_state: ResMut<CreatorUiState>,
 	mut pending: ResMut<PendingCameraFocus>,
 	mut boot: ResMut<CameraFocusBootState>,
 ) {
+	if capture.is_some() {
+		return;
+	}
 	let species = config.species();
 	if boot.applied_for == Some(species) {
 		return;
