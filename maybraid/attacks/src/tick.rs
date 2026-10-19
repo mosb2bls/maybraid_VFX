@@ -68,7 +68,7 @@ pub fn begin_attacks(
 ) {
 	let mut admissions = OwnerAttackAdmissions::from_instances(existing.iter());
 	for begin in begins.read() {
-		let Some(definition) = catalog.get(begin.definition).cloned() else {
+		let Some(definition) = catalog.get(begin.definition) else {
 			continue;
 		};
 		let Ok(user) = users.get_mut(begin.owner) else {
@@ -146,7 +146,7 @@ pub fn tick_attacks(
 	let now = time.elapsed_secs();
 	let mut completed = Vec::new();
 	for (entity, mut instance) in &mut instances {
-		let Some(definition) = catalog.get(instance.definition).cloned() else {
+		let Some(definition) = catalog.get(instance.definition) else {
 			completed.push((entity, AttackEndReason::Cancelled));
 			continue;
 		};
