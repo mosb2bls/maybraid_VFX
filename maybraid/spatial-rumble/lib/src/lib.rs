@@ -18,7 +18,7 @@ pub use compose::{
 	DEFAULT_PAD_REFRESH,
 };
 pub use listener::{AppliedCameraRumble, SpatialRumbleListener, SpatialRumbleReceiver};
-pub use math::{RumbleEnvelope, RumbleFalloff};
+pub use math::{RumbleEnvelope, RumbleFalloff, RumbleFalloffCurve};
 pub use present::{apply_camera_shake, pad_pulse_from_output, PadRumbleClock};
 pub use source::{SpatialRumble, SpatialRumbleSource};
 
