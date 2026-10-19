@@ -97,11 +97,17 @@ Playground evidence (`MAYBRAID_CAPTURE_DIR`) hides the command drawer, uses a **
 
 ## Recipe
 
+Canonical name: `doric_column` ([`RECIPE_DORIC_COLUMN`](src/column_surface.rs)). The landed
+[`doric-column`](../../../mobs/architectural/doric-column) kit stamps
+`doric-column-shaft-pom` ([`RECIPE_DORIC_COLUMN_SHAFT_KIT`](src/column_surface.rs)); both resolve to
+the same column-surface shader. Short aliases `doric` and `doric-column` are accepted in playgrounds.
+
 ```text
 MaterialRef::named("doric_column")
+// kit shaft: MaterialRef::named("doric-column-shaft-pom")
 ```
 
-Alias `doric` is accepted. Preview:
+Preview:
 
 ```text
 cargo run -p world-materials-playground -- show doric_column

@@ -19,7 +19,10 @@ use material_ref::{
 
 pub mod shaft;
 
+/// Canonical playground / docs recipe name.
 pub const RECIPE_DORIC_COLUMN: &str = "doric_column";
+/// Shaft recipe stamped by the [`doric-column`] kit ([#1144](https://github.com/ramate-io/maybraid/pull/1144)).
+pub const RECIPE_DORIC_COLUMN_SHAFT_KIT: &str = "doric-column-shaft-pom";
 pub const KIND_DORIC: u32 = 0;
 
 /// Classical Doric flute count. Overridable via [`MaterialRef`] scalar 3.
@@ -156,7 +159,13 @@ impl Material for ColumnSurfaceMaterial {
 
 /// Named recipes claimed by the column-surface lib.
 pub fn is_column_surface_recipe(name: &str) -> bool {
-	matches!(name, RECIPE_DORIC_COLUMN | "doric")
+	matches!(
+		name,
+		RECIPE_DORIC_COLUMN
+			| RECIPE_DORIC_COLUMN_SHAFT_KIT
+			| "doric"
+			| "doric-column"
+	)
 }
 
 /// Authored limestone Doric look used by the materials playground and kits.
@@ -168,6 +177,22 @@ pub fn doric_column_ref() -> MaterialRef {
 			Color::srgb(0.46, 0.50, 0.38),
 		])
 		.with_scalars([0.0, 0.35, 0.22])
+}
+
+/// Default kit shaft look: kit recipe id with stylized limestone cavity tuning.
+pub fn doric_column_kit_shaft_ref() -> MaterialRef {
+	MaterialRef::named(RECIPE_DORIC_COLUMN_SHAFT_KIT)
+		.with_palette([
+			Color::srgb(0.78, 0.76, 0.72),
+			Color::srgb(0.58, 0.52, 0.44),
+			Color::srgb(0.46, 0.50, 0.38),
+		])
+		.with_scalars([0.0, 0.35, 0.22])
+}
+
+/// Kit shaft with POM and flute cavity disabled (review A/B).
+pub fn doric_column_kit_shaft_flat_ref() -> MaterialRef {
+	doric_column_kit_shaft_ref().with_scalars([0.0, 0.35, 0.22, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0])
 }
 
 /// Same limestone recipe with POM and flute cavity disabled (review A/B).
@@ -200,7 +225,9 @@ mod tests {
 		assert_eq!(material.params.scalars[1], Vec4::new(20.0, 70.0, 24.0, 0.05));
 		assert_eq!(material.params.rasters[0][0], Vec4::new(1.0, 1.0, 1.0, 0.0));
 		assert!(is_column_surface_recipe(RECIPE_DORIC_COLUMN));
+		assert!(is_column_surface_recipe(RECIPE_DORIC_COLUMN_SHAFT_KIT));
 		assert!(is_column_surface_recipe("doric"));
+		assert!(is_column_surface_recipe("doric-column"));
 		assert!(!is_column_surface_recipe("stone"));
 		Ok(())
 	}
@@ -212,6 +239,14 @@ mod tests {
 		assert_eq!(material.params.colors[0], DEFAULT_LIMESTONE);
 		assert_eq!(material.params.colors[1], DEFAULT_ACCENT);
 		assert_eq!(material.params.kind, KIND_DORIC);
+		Ok(())
+	}
+
+	#[test]
+	fn kit_shaft_ref_uses_the_kit_recipe_name() -> anyhow::Result<()> {
+		let material_ref = doric_column_kit_shaft_ref();
+		assert_eq!(material_ref.name, MaterialId::named(RECIPE_DORIC_COLUMN_SHAFT_KIT));
+		assert_eq!(material_ref.scalar_values(), [0.0, 0.35, 0.22]);
 		Ok(())
 	}
 

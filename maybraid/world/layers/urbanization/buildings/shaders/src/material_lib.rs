@@ -146,10 +146,15 @@ impl Plugin for UrbanMaterialRefPlugin {
 #[cfg(test)]
 mod tests {
 	use bevy::prelude::*;
-	use material_ref::{MaterialRef, MaterialRefApplied, MaterialRefPlugin, MaterialRefRoot};
+	use material_ref::{
+		MaterialId, MaterialRef, MaterialRefApplied, MaterialRefPlugin, MaterialRefRoot,
+	};
 
 	use super::*;
-	use crate::{ColumnSurfaceMaterial, UrbanSurfaceMaterial, RECIPE_DORIC_COLUMN, RECIPE_WOOD};
+	use crate::{
+		ColumnSurfaceMaterial, UrbanSurfaceMaterial, RECIPE_DORIC_COLUMN,
+		RECIPE_DORIC_COLUMN_SHAFT_KIT, RECIPE_WOOD,
+	};
 
 	#[test]
 	fn urban_lib_fulfills_wood_as_urban_surface() {
@@ -193,5 +198,26 @@ mod tests {
 		assert!(app.world().get::<MeshMaterial3d<ColumnSurfaceMaterial>>(entity).is_some());
 		assert!(app.world().get::<MeshMaterial3d<UrbanSurfaceMaterial>>(entity).is_none());
 		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(entity).is_none());
+	}
+
+	#[test]
+	fn urban_lib_fulfills_kit_shaft_recipe_as_column_surface() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<StandardMaterial>()
+			.init_asset::<UrbanSurfaceMaterial>()
+			.init_asset::<ColumnSurfaceMaterial>()
+			.init_resource::<StandardMaterialRefCache>()
+			.init_resource::<UrbanSurfaceMaterialRefCache>()
+			.init_resource::<ColumnSurfaceMaterialRefCache>()
+			.add_plugins(MaterialRefPlugin::<UrbanSurfaceMaterialLib<'_>>::default());
+
+		let shaft = crate::doric_column_kit_shaft_ref();
+		assert_eq!(shaft.name, MaterialId::named(RECIPE_DORIC_COLUMN_SHAFT_KIT));
+		let entity = app.world_mut().spawn(MaterialRefRoot(shaft)).id();
+		app.update();
+
+		assert!(app.world().get::<MaterialRefApplied>(entity).is_some());
+		assert!(app.world().get::<MeshMaterial3d<ColumnSurfaceMaterial>>(entity).is_some());
 	}
 }

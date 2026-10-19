@@ -109,7 +109,9 @@ pub(crate) fn material_for_show(name: &str) -> MaterialRef {
 		"pulse" | "laser_pulse" | "laser-pulse" => laser_pulse_ref(),
 		"tail" | "laser_tail" | "laser-tail" => laser_tail_ref(),
 		"muzzle-flame" | "muzzle_flame" => muzzle_flame_ref(),
-		"doric" | "doric_column" | "doric-column" => building_shaders::doric_column_ref(),
+		"doric" | "doric_column" | "doric-column" | "doric-column-shaft-pom" => {
+			building_shaders::doric_column_ref()
+		}
 		"standard" | "default" => MaterialRef::default(),
 		other => MaterialRef::named(other),
 	}

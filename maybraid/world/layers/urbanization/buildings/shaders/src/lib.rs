@@ -14,7 +14,9 @@ pub use column_surface::shaft::{
 pub use column_surface::{
 	ColumnSurfaceMaterial, ColumnSurfaceMaterialPlugin, ColumnSurfaceUniform, DEFAULT_FLUTE_COUNT,
 	DEFAULT_POM_FADE_END_M, DEFAULT_POM_FADE_START_M, DEFAULT_POM_MAX_STEPS,
-	DEFAULT_RELIEF_DEPTH_D, RECIPE_DORIC_COLUMN, SCALAR_FLAT, doric_column_flat_ref,
+	DEFAULT_RELIEF_DEPTH_D, KIND_DORIC, RECIPE_DORIC_COLUMN, RECIPE_DORIC_COLUMN_SHAFT_KIT,
+	SCALAR_FLAT,
+	doric_column_flat_ref, doric_column_kit_shaft_flat_ref, doric_column_kit_shaft_ref,
 	doric_column_ref, is_column_surface_recipe,
 };
 pub use material_lib::{

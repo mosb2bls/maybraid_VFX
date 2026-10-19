@@ -4047,6 +4047,7 @@ dependencies = [
  "bevy",
  "building-components",
  "building-physics",
+ "building-shaders",
  "ground",
  "lod",
  "lod-avian",
@@ -4061,6 +4062,7 @@ version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
+ "building-shaders",
  "doric-column",
  "material-ref",
 ]
