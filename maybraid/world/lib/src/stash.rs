@@ -1255,16 +1255,6 @@ mod tests {
 		Ok(())
 	}
 
-	fn expected_npc_loot(
-		entity: Entity,
-		point: Vec3,
-		mut bag: Inventory,
-		fraction: LootFraction,
-	) -> Inventory {
-		let downed = Downed { source: None, point, at: 0.0 };
-		bag.take_fraction(&mut ItemRng::from_seed(npc_loot_seed(entity, &downed)), fraction)
-	}
-
 	fn spawn_downed_npc(
 		world: &mut World,
 		bag: Inventory,
@@ -1288,81 +1278,85 @@ mod tests {
 		entity.id()
 	}
 
+	struct NpcLootCase {
+		kind: Option<MobKind>,
+		brains: Option<CharacterBrains>,
+		point: Vec3,
+		fraction: LootFraction,
+	}
+
+	impl NpcLootCase {
+		fn drop_count(self) -> anyhow::Result<usize> {
+			let mut world = World::new();
+			world.init_resource::<WorldStashSettings>();
+			let mut bag = mixed_bag();
+			let body =
+				spawn_downed_npc(&mut world, bag.clone(), self.kind, self.brains, self.point);
+			let downed = Downed { source: None, point: self.point, at: 0.0 };
+			let expected = bag.take_fraction(
+				&mut ItemRng::from_seed(npc_loot_seed(body, &downed)),
+				self.fraction,
+			);
+			world
+				.run_system_once(detach_downed_npc_loot)
+				.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+			assert_eq!(world.query::<&WorldStash>().iter(&world).count(), expected.items.len());
+			Ok(expected.items.len())
+		}
+	}
+
 	#[test]
 	fn raider_downed_drops_one_third() -> anyhow::Result<()> {
-		let mut world = World::new();
-		world.init_resource::<WorldStashSettings>();
-		let point = Vec3::new(2.0, 0.0, 1.0);
-		let bag = mixed_bag();
-		let body = spawn_downed_npc(
-			&mut world,
-			bag.clone(),
-			Some(MobKind::Raider),
-			Some(CharacterBrains::Roamer),
-			point,
+		assert_eq!(
+			NpcLootCase {
+				kind: Some(MobKind::Raider),
+				brains: Some(CharacterBrains::Roamer),
+				point: Vec3::new(2.0, 0.0, 1.0),
+				fraction: LootFraction::ONE_THIRD,
+			}
+			.drop_count()?,
+			1
 		);
-		let expected = expected_npc_loot(body, point, bag, LootFraction::ONE_THIRD);
-
-		world
-			.run_system_once(detach_downed_npc_loot)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-
-		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), expected.items.len());
-		assert_eq!(expected.items.len(), 1);
 		Ok(())
 	}
 
 	#[test]
 	fn guard_downed_drops_one_third() -> anyhow::Result<()> {
-		let mut world = World::new();
-		world.init_resource::<WorldStashSettings>();
-		let point = Vec3::new(-1.0, 0.0, 3.0);
-		let bag = mixed_bag();
-		let body = spawn_downed_npc(&mut world, bag.clone(), Some(MobKind::Guard), None, point);
-		let expected = expected_npc_loot(body, point, bag, LootFraction::ONE_THIRD);
-
-		world
-			.run_system_once(detach_downed_npc_loot)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-
-		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), expected.items.len());
-		assert_eq!(expected.items.len(), 1);
+		assert_eq!(
+			NpcLootCase {
+				kind: Some(MobKind::Guard),
+				brains: None,
+				point: Vec3::new(-1.0, 0.0, 3.0),
+				fraction: LootFraction::ONE_THIRD,
+			}
+			.drop_count()?,
+			1
+		);
 		Ok(())
 	}
 
 	#[test]
 	fn brawler_downed_drops_one_twelfth() -> anyhow::Result<()> {
-		let mut world = World::new();
-		world.init_resource::<WorldStashSettings>();
-		let point = Vec3::new(0.0, 0.0, 5.0);
-		let bag = mixed_bag();
-		let body = spawn_downed_npc(&mut world, bag.clone(), Some(MobKind::Brawler), None, point);
-		let expected = expected_npc_loot(body, point, bag, LootFraction::ONE_TWELFTH);
-
-		world
-			.run_system_once(detach_downed_npc_loot)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-
-		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), expected.items.len());
-		assert!(expected.items.len() <= 1);
+		let dropped = NpcLootCase {
+			kind: Some(MobKind::Brawler),
+			brains: None,
+			point: Vec3::new(0.0, 0.0, 5.0),
+			fraction: LootFraction::ONE_TWELFTH,
+		}
+		.drop_count()?;
+		assert!(dropped <= 1);
 		Ok(())
 	}
 
 	#[test]
 	fn brains_set_loot_when_mob_kind_is_missing() -> anyhow::Result<()> {
-		let mut world = World::new();
-		world.init_resource::<WorldStashSettings>();
-		let point = Vec3::ZERO;
-		let bag = mixed_bag();
-		let body =
-			spawn_downed_npc(&mut world, bag.clone(), None, Some(CharacterBrains::Brawler), point);
-		let expected = expected_npc_loot(body, point, bag, LootFraction::ONE_TWELFTH);
-
-		world
-			.run_system_once(detach_downed_npc_loot)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-
-		assert_eq!(world.query::<&WorldStash>().iter(&world).count(), expected.items.len());
+		NpcLootCase {
+			kind: None,
+			brains: Some(CharacterBrains::Brawler),
+			point: Vec3::ZERO,
+			fraction: LootFraction::ONE_TWELFTH,
+		}
+		.drop_count()?;
 		Ok(())
 	}
 
