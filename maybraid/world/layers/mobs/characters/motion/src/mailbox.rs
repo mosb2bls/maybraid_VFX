@@ -101,6 +101,8 @@ pub struct AnimMailbox {
 	/// Prepared clip table. Rebuilt when the selected clip or its parameters change.
 	pub prepared_clip: Option<PreparedClip>,
 	prepared_from: Option<AnimClip>,
+	/// Next apply should copy the rig pose into [`Self::from_pose`] before sampling a new clip.
+	capture_rig_pose_for_crossfade: bool,
 }
 
 /// Sample coordinate for the current clip. When present, [`tick_anim_mailbox`]
@@ -133,11 +135,18 @@ impl AnimMailbox {
 			bind_transform,
 			prepared_clip: None,
 			prepared_from: None,
+			capture_rig_pose_for_crossfade: false,
 		}
 	}
 
 	fn blending(&self) -> bool {
 		self.blend_progress < 1.0
+	}
+
+	#[cfg(test)]
+	fn set_crossfade_for_test(&mut self, blend_progress: f32, from_offset: ArmatureOffset) {
+		self.blend_progress = blend_progress;
+		self.from_offset = from_offset;
 	}
 }
 
@@ -190,6 +199,7 @@ pub fn prepare_anim_mailbox(
 			RigSkeletonKind::Humanoid => {
 				let mut rig = HumanoidV0Rig::imported();
 				rig.binding = binding;
+				rig.binding.synced_rest_epoch = 0;
 				rig.segment_lengths = rig.binding.metrics.humanoid_leg;
 				rig.pose.copy_from(&rest);
 				commands.entity(entity).insert(rig);
@@ -197,6 +207,7 @@ pub fn prepare_anim_mailbox(
 			RigSkeletonKind::Quadruped => {
 				let mut rig = QuadrupedV0Rig::imported();
 				rig.binding = binding;
+				rig.binding.synced_rest_epoch = 0;
 				rig.segment_lengths = rig.binding.metrics.quadruped_leg;
 				rig.pose.copy_from(&rest);
 				commands.entity(entity).insert(rig);
@@ -204,6 +215,7 @@ pub fn prepare_anim_mailbox(
 			RigSkeletonKind::Forelimbed => {
 				let mut rig = ForelimbedV0Rig::imported();
 				rig.binding = binding;
+				rig.binding.synced_rest_epoch = 0;
 				rig.pose.copy_from(&rest);
 				commands.entity(entity).insert(rig);
 			}
@@ -353,10 +365,7 @@ pub fn tick_anim_mailbox(
 		let requested = root.0.clip;
 		let requested_id = requested.id();
 		if mailbox.last != Some(requested_id) {
-			if mailbox.posed {
-				let AnimMailbox { output, from_pose, .. } = &mut *mailbox;
-				from_pose.copy_from(output);
-			}
+			mailbox.capture_rig_pose_for_crossfade = mailbox.posed;
 			mailbox.from_offset = mailbox.displayed_offset;
 			mailbox.blend_progress = 0.0;
 			mailbox.clip_progress = 0.0;
@@ -428,8 +437,9 @@ pub fn apply_anim_mailbox(
 
 			let requested = root.0.clip;
 			let progress = clip_progress(requested, mailbox.clip_progress, entity);
-			let weight = BlendCurve::SmoothStep.sample(mailbox.blend_progress);
-			let prepared = mailbox.prepared_clip.as_ref();
+			let blend_progress = mailbox.blend_progress;
+			let crossfading = mailbox.blending();
+			let weight = clip_crossfade_weight(blend_progress);
 			let effects = match character_rig.skeleton {
 				RigSkeletonKind::Humanoid => {
 					let mut rig = match humanoid {
@@ -438,7 +448,12 @@ pub fn apply_anim_mailbox(
 					};
 					if write_bones {
 						sync_humanoid_rest(&mut rig, &bones);
+						if mailbox.capture_rig_pose_for_crossfade {
+							mailbox.from_pose.copy_from(&rig.pose);
+							mailbox.capture_rig_pose_for_crossfade = false;
+						}
 					}
+					let prepared = mailbox.prepared_clip.as_ref();
 					let effects = sample_humanoid_prepared(
 						requested,
 						&mut rig,
@@ -449,7 +464,7 @@ pub fn apply_anim_mailbox(
 						prepared,
 					);
 					if write_bones {
-						publish_pose(&mut mailbox, &rig.pose, weight);
+						publish_sampled_pose(&mut mailbox, &rig.pose, weight, crossfading);
 					}
 					effects
 				}
@@ -460,11 +475,15 @@ pub fn apply_anim_mailbox(
 					};
 					if write_bones {
 						sync_quadruped_rest(&mut rig, &bones);
+						if mailbox.capture_rig_pose_for_crossfade {
+							mailbox.from_pose.copy_from(&rig.pose);
+							mailbox.capture_rig_pose_for_crossfade = false;
+						}
 					}
 					let effects =
 						sample_quadruped(requested, &mut rig, progress, write_bones, write_effects);
 					if write_bones {
-						publish_pose(&mut mailbox, &rig.pose, weight);
+						publish_sampled_pose(&mut mailbox, &rig.pose, weight, crossfading);
 					}
 					effects
 				}
@@ -475,6 +494,10 @@ pub fn apply_anim_mailbox(
 					};
 					if write_bones {
 						sync_binding_rest(&mut rig.binding, &bones);
+						if mailbox.capture_rig_pose_for_crossfade {
+							mailbox.from_pose.copy_from(&rig.pose);
+							mailbox.capture_rig_pose_for_crossfade = false;
+						}
 					}
 					let effects = sample_forelimbed(
 						requested,
@@ -484,21 +507,34 @@ pub fn apply_anim_mailbox(
 						write_effects,
 					);
 					if write_bones {
-						publish_pose(&mut mailbox, &rig.pose, weight);
+						publish_sampled_pose(&mut mailbox, &rig.pose, weight, crossfading);
 					}
 					effects
 				}
 				RigSkeletonKind::Neck => return,
 			};
 			if write_effects {
-				let shown = ArmatureOffset::blend(mailbox.from_offset, effects, weight);
+				let shown = blend_mailbox_effects(mailbox.from_offset, effects, blend_progress);
 				mailbox.displayed_offset = shown;
 				*armature = shown.apply_to_bind(mailbox.bind_transform);
 			}
 		},
 	);
 
-	for (entity, _, mailbox, bone_map, character_rig, _, write_bones, _, _, _, _) in &hosts {
+	for (
+		entity,
+		_,
+		mailbox,
+		bone_map,
+		character_rig,
+		_,
+		write_bones,
+		_,
+		humanoid,
+		quadruped,
+		forelimbed,
+	) in &hosts
+	{
 		if !write_bones || character_rig.role != CharacterRigRole::Body {
 			continue;
 		}
@@ -511,10 +547,17 @@ pub fn apply_anim_mailbox(
 			RigSkeletonKind::Forelimbed => &forelimbed_v0_definition().names,
 			RigSkeletonKind::Neck => continue,
 		};
-		if indexed_cache_valid(&mailbox.bone_entities, mailbox.output.local.len(), &bone_tfs) {
-			write_pose_indexed(&mailbox.output, &mailbox.bone_entities, &mut bone_tfs);
+		let pose = mailbox_pose_for_write(
+			mailbox,
+			character_rig.skeleton,
+			humanoid,
+			quadruped,
+			forelimbed,
+		);
+		if indexed_cache_valid(&mailbox.bone_entities, pose.local.len(), &bone_tfs) {
+			write_pose_indexed(pose, &mailbox.bone_entities, &mut bone_tfs);
 		} else {
-			write_pose_by_name(&mailbox.output, names, bone_map, &mut bone_tfs);
+			write_pose_by_name(pose, names, bone_map, &mut bone_tfs);
 		}
 	}
 }
@@ -537,13 +580,70 @@ fn clip_progress(clip: AnimClip, clip_progress: f32, entity: Entity) -> f32 {
 	}
 }
 
+/// Smooth-stepped crossfade weight for mailbox clip transitions.
+fn clip_crossfade_weight(blend_progress: f32) -> f32 {
+	if blend_progress >= 1.0 {
+		1.0
+	} else {
+		BlendCurve::SmoothStep.sample(blend_progress)
+	}
+}
+
+/// Blend sampled armature effects against the pose captured at the last clip change.
+fn blend_mailbox_effects(from_offset: Effects, effects: Effects, blend_progress: f32) -> Effects {
+	if blend_progress >= 1.0 {
+		return effects;
+	}
+	if blend_progress <= 0.0 {
+		return from_offset;
+	}
+	let weight = BlendCurve::SmoothStep.sample(blend_progress);
+	ArmatureOffset::blend(from_offset, effects, weight)
+}
+
 fn publish_pose(mailbox: &mut AnimMailbox, sampled: &PoseBuffer, weight: f32) {
-	if weight < 1.0 {
+	if weight <= 0.0 {
+		mailbox.output.copy_from(&mailbox.from_pose);
+	} else if weight < 1.0 {
 		PoseBuffer::blend_into(&mailbox.from_pose, sampled, weight, &mut mailbox.output);
 	} else {
 		mailbox.output.copy_from(sampled);
 	}
 	mailbox.posed = true;
+}
+
+/// Publish crossfaded poses into the mailbox buffer. When the clip crossfade is complete,
+/// steady-state playback writes sampled bones directly from the rig and skips copying into
+/// [`AnimMailbox::output`].
+fn publish_sampled_pose(
+	mailbox: &mut AnimMailbox,
+	sampled: &PoseBuffer,
+	weight: f32,
+	crossfading: bool,
+) {
+	if crossfading {
+		publish_pose(mailbox, sampled, weight);
+	} else {
+		mailbox.posed = true;
+	}
+}
+
+fn mailbox_pose_for_write<'a>(
+	mailbox: &'a AnimMailbox,
+	skeleton: RigSkeletonKind,
+	humanoid: Option<&'a HumanoidV0Rig>,
+	quadruped: Option<&'a QuadrupedV0Rig>,
+	forelimbed: Option<&'a ForelimbedV0Rig>,
+) -> &'a PoseBuffer {
+	if mailbox.blending() {
+		return &mailbox.output;
+	}
+	match skeleton {
+		RigSkeletonKind::Humanoid => humanoid.map(|rig| &rig.pose).unwrap_or(&mailbox.output),
+		RigSkeletonKind::Quadruped => quadruped.map(|rig| &rig.pose).unwrap_or(&mailbox.output),
+		RigSkeletonKind::Forelimbed => forelimbed.map(|rig| &rig.pose).unwrap_or(&mailbox.output),
+		RigSkeletonKind::Neck => &mailbox.output,
+	}
 }
 
 fn sync_humanoid_rest(rig: &mut HumanoidV0Rig, bones: &Query<&AnimBone, Without<AnimMailbox>>) {
@@ -558,23 +658,34 @@ fn sync_quadruped_rest(rig: &mut QuadrupedV0Rig, bones: &Query<&AnimBone, Withou
 	}
 }
 
+fn binding_rests_match<R>(binding: &RigBinding, mut resolve: R) -> bool
+where
+	R: FnMut(Entity) -> Option<Transform>,
+{
+	binding
+		.entities
+		.iter()
+		.zip(binding.effective_rest.local.iter())
+		.all(|(entity, rest)| resolve(*entity).is_some_and(|bone| bone == *rest))
+}
+
 /// Refresh rest and segment lengths when a bone rest changed.
 fn sync_binding_rest(
 	binding: &mut RigBinding,
 	bones: &Query<&AnimBone, Without<AnimMailbox>>,
 ) -> bool {
-	if binding
-		.entities
-		.iter()
-		.zip(binding.effective_rest.local.iter())
-		.all(|(entity, rest)| bones.get(*entity).is_ok_and(|bone| bone.rest == *rest))
-	{
+	if binding.synced_rest_epoch == binding.rest_epoch {
+		return false;
+	}
+	if binding_rests_match(binding, |entity| bones.get(entity).ok().map(|bone| bone.rest)) {
+		binding.synced_rest_epoch = binding.rest_epoch;
 		return false;
 	}
 	let Some(rest) = rest_from_bones(binding, bones) else {
 		return false;
 	};
 	binding.refresh_rest(rest);
+	binding.synced_rest_epoch = binding.rest_epoch;
 	true
 }
 
@@ -1569,6 +1680,118 @@ mod tests {
 		run_ns
 	}
 
+	fn sync_binding_rest_legacy_query(
+		binding: &mut RigBinding,
+		bones: &Query<&AnimBone, Without<AnimMailbox>>,
+	) -> bool {
+		if binding_rests_match(binding, |entity| bones.get(entity).ok().map(|bone| bone.rest)) {
+			return false;
+		}
+		let Some(rest) = rest_from_bones(binding, bones) else {
+			return false;
+		};
+		binding.refresh_rest(rest);
+		true
+	}
+
+	fn run_rest_sync_bench(
+		bones: &Query<&AnimBone, Without<AnimMailbox>>,
+		rig: &mut HumanoidV0Rig,
+		use_epoch: bool,
+	) -> bool {
+		if use_epoch {
+			sync_binding_rest(&mut rig.binding, bones)
+		} else {
+			sync_binding_rest_legacy_query(&mut rig.binding, bones)
+		}
+	}
+
+	fn humanoid_rest_sync_fixture() -> (World, HumanoidV0Rig) {
+		let definition = humanoid_v0_definition();
+		let mut world = World::new();
+		let mut entities = Vec::with_capacity(definition.len());
+		let mut rest = PoseBuffer::identity(definition.len());
+		for (index, name) in definition.names.iter().enumerate() {
+			let transform = Transform {
+				translation: Vec3::new(index as f32 * 0.01, 0.0, 0.0),
+				rotation: Quat::from_rotation_x(index as f32 * 0.02),
+				scale: Vec3::ONE,
+			};
+			rest.local[index] = transform;
+			let entity = world
+				.spawn((AnimBone { name: RigName::from(*name), rest: transform }, transform))
+				.id();
+			entities.push(entity);
+		}
+		let binding = RigBinding::from_rest(definition, entities.into_boxed_slice(), rest);
+		let mut rig = HumanoidV0Rig::imported();
+		rig.binding = binding;
+		rig.binding.synced_rest_epoch = 0;
+		rig.pose.copy_from(&rig.binding.effective_rest);
+		(world, rig)
+	}
+
+	fn sync_binding_rest_in_world(
+		world: &mut World,
+		rig: &mut HumanoidV0Rig,
+		use_epoch: bool,
+	) -> bool {
+		let mut bones = world.query_filtered::<&AnimBone, Without<AnimMailbox>>();
+		let bones = bones.query(world);
+		run_rest_sync_bench(&bones, rig, use_epoch)
+	}
+
+	#[test]
+	fn binding_rest_epoch_matches_legacy_sync() {
+		let (mut legacy_world, mut legacy_rig) = humanoid_rest_sync_fixture();
+		let (mut epoch_world, mut epoch_rig) = humanoid_rest_sync_fixture();
+		sync_binding_rest_in_world(&mut legacy_world, &mut legacy_rig, false);
+		sync_binding_rest_in_world(&mut epoch_world, &mut epoch_rig, true);
+		let epoch_after_first = legacy_rig.binding.rest_epoch;
+
+		for _ in 0..32 {
+			let legacy_changed =
+				sync_binding_rest_in_world(&mut legacy_world, &mut legacy_rig, false);
+			let epoch_changed = sync_binding_rest_in_world(&mut epoch_world, &mut epoch_rig, true);
+			assert_eq!(legacy_changed, epoch_changed);
+			assert_eq!(legacy_rig.binding.effective_rest, epoch_rig.binding.effective_rest);
+			assert_eq!(legacy_rig.binding.metrics, epoch_rig.binding.metrics);
+			assert_eq!(legacy_rig.binding.rest_epoch, epoch_rig.binding.rest_epoch);
+		}
+		assert_eq!(epoch_after_first, legacy_rig.binding.rest_epoch);
+	}
+
+	fn bench_binding_rest_sync(use_epoch: bool) -> Vec<u128> {
+		const FRAMES: u32 = 5_000;
+		const CHARACTERS: u32 = 32;
+		const RUNS: u32 = 5;
+
+		let mut fixtures: Vec<_> = (0..CHARACTERS).map(|_| humanoid_rest_sync_fixture()).collect();
+		for (world, rig) in &mut fixtures {
+			let mut bones = world.query_filtered::<&AnimBone, Without<AnimMailbox>>();
+			let bones = bones.query(world);
+			run_rest_sync_bench(&bones, rig, true);
+		}
+
+		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
+		for _ in 0..RUNS {
+			let start = Instant::now();
+			for (world, rig) in &mut fixtures {
+				let mut bones = world.query_filtered::<&AnimBone, Without<AnimMailbox>>();
+				let bones = bones.query(world);
+				for frame in 0..FRAMES {
+					let frame = black_box(frame);
+					black_box(run_rest_sync_bench(&bones, rig, use_epoch));
+					black_box(frame);
+				}
+			}
+			let samples = FRAMES as u64 * CHARACTERS as u64;
+			run_ns.push(start.elapsed().as_nanos() / samples as u128);
+		}
+		run_ns.sort_unstable();
+		run_ns
+	}
+
 	fn report_handle_bench(label: &str, run_ns: &[u128]) {
 		let min = *run_ns.first().expect("run");
 		let median = run_ns[run_ns.len() / 2];
@@ -1578,6 +1801,19 @@ mod tests {
 			"mailbox_handle_microbench {label}: runs={runs:?} min={min} median={median} mean={mean} spread={spread} ns/lookup",
 			runs = run_ns,
 		);
+	}
+
+	/// `cargo test -p character-motion binding_rest_sync_microbench --release -- --ignored --nocapture`
+	#[test]
+	#[ignore]
+	fn binding_rest_sync_microbench() {
+		eprintln!(
+			"32 humanoid rigs, stable rests, sync_binding_rest each frame (real mailbox apply path)"
+		);
+		let legacy = bench_binding_rest_sync(false);
+		let optimized = bench_binding_rest_sync(true);
+		report_handle_bench("legacy per-bone scan", &legacy);
+		report_handle_bench("rest_epoch fast path", &optimized);
 	}
 
 	/// `cargo test -p character-motion mailbox_handle_microbench --release -- --ignored --nocapture`
@@ -1609,6 +1845,235 @@ mod tests {
 		report_bench("apply_loop legacy", legacy_min, legacy_median, legacy_mean);
 		let (min, median, mean) = bench_write_loop(false);
 		report_bench("apply_loop indexed", min, median, mean);
+	}
+
+	fn blend_mailbox_effects_legacy(
+		from_offset: Effects,
+		effects: Effects,
+		blend_progress: f32,
+	) -> Effects {
+		let weight = BlendCurve::SmoothStep.sample(blend_progress);
+		ArmatureOffset::blend(from_offset, effects, weight)
+	}
+
+	fn publish_pose_legacy(mailbox: &mut AnimMailbox, sampled: &PoseBuffer, weight: f32) {
+		if weight < 1.0 {
+			PoseBuffer::blend_into(&mailbox.from_pose, sampled, weight, &mut mailbox.output);
+		} else {
+			mailbox.output.copy_from(sampled);
+		}
+		mailbox.posed = true;
+	}
+
+	#[test]
+	fn mailbox_crossfade_helpers_match_legacy() {
+		let from = ArmatureOffset::from_translation(Vec3::new(0.0, 0.2, 0.0));
+		let to = ArmatureOffset::from_translation(Vec3::new(0.0, 1.0, 0.0));
+		for blend_progress in [0.0, 0.05, 0.35, 0.85, 1.0] {
+			let legacy = blend_mailbox_effects_legacy(from, to, blend_progress);
+			let optimized = blend_mailbox_effects(from, to, blend_progress);
+			assert_eq!(legacy, optimized, "blend_progress={blend_progress}");
+			let weight = clip_crossfade_weight(blend_progress);
+			assert!(
+				(weight - BlendCurve::SmoothStep.sample(blend_progress)).abs() < 1e-6
+					|| blend_progress >= 1.0,
+				"weight shortcut at blend_progress={blend_progress}"
+			);
+		}
+
+		let mut legacy_mailbox = AnimMailbox::with_bones(Transform::IDENTITY, 4);
+		let mut optimized_mailbox = AnimMailbox::with_bones(Transform::IDENTITY, 4);
+		legacy_mailbox.from_pose.local[0].translation.x = 1.0;
+		optimized_mailbox.from_pose = legacy_mailbox.from_pose.clone();
+		let sampled = PoseBuffer::identity(4);
+		publish_pose_legacy(&mut legacy_mailbox, &sampled, 0.0);
+		publish_pose(&mut optimized_mailbox, &sampled, 0.0);
+		assert_eq!(legacy_mailbox.output, optimized_mailbox.output);
+	}
+
+	#[test]
+	fn steady_pose_write_matches_legacy_mailbox_output() {
+		use crate::clip_cache::RigVariantId;
+
+		let cache = AnimClipCache::default();
+		let prepared = cache
+			.prepare(AnimClip::walk(), RigVariantId::HUMANOID_V0, cache.settings.sampling)
+			.expect("walk");
+		let mut legacy_rig = HumanoidV0Rig::imported();
+		let mut optimized_rig = HumanoidV0Rig::imported();
+		let mut legacy_mailbox =
+			AnimMailbox::with_bones(Transform::IDENTITY, legacy_rig.pose.len());
+		let mut optimized_mailbox =
+			AnimMailbox::with_bones(Transform::IDENTITY, optimized_rig.pose.len());
+		for progress in [0.0, 0.21, 0.55, 0.93] {
+			sample_humanoid_prepared(
+				AnimClip::walk(),
+				&mut legacy_rig,
+				progress,
+				true,
+				false,
+				Some(&cache),
+				Some(&prepared),
+			);
+			sample_humanoid_prepared(
+				AnimClip::walk(),
+				&mut optimized_rig,
+				progress,
+				true,
+				false,
+				Some(&cache),
+				Some(&prepared),
+			);
+			publish_pose(&mut legacy_mailbox, &legacy_rig.pose, 1.0);
+			publish_sampled_pose(&mut optimized_mailbox, &optimized_rig.pose, 1.0, false);
+			let legacy_pose = mailbox_pose_for_write(
+				&legacy_mailbox,
+				RigSkeletonKind::Humanoid,
+				Some(&legacy_rig),
+				None,
+				None,
+			);
+			let optimized_pose = mailbox_pose_for_write(
+				&optimized_mailbox,
+				RigSkeletonKind::Humanoid,
+				Some(&optimized_rig),
+				None,
+				None,
+			);
+			assert_eq!(legacy_pose.local, optimized_pose.local, "progress={progress}");
+		}
+	}
+
+	#[test]
+	fn clip_change_crossfade_captures_rig_pose_for_from_pose() {
+		use character_animations::animations::{Run, Walk};
+		use character_animations::Animation;
+
+		let mut rig = HumanoidV0Rig::imported();
+		Walk::default().apply_for(&mut rig, 0.35);
+		let walk_pose = rig.pose.clone();
+		let mut mailbox = AnimMailbox::with_bones(Transform::IDENTITY, rig.pose.len());
+		mailbox.posed = true;
+		mailbox.capture_rig_pose_for_crossfade = true;
+		mailbox.from_pose.copy_from(&rig.pose);
+		mailbox.capture_rig_pose_for_crossfade = false;
+		Run::default().apply_for(&mut rig, 0.1);
+		publish_pose(&mut mailbox, &rig.pose, 0.0);
+		assert_eq!(mailbox.output.local, walk_pose.local);
+	}
+
+	fn bench_mailbox_sample_publish_effects(legacy: bool, blend_progress: f32) -> Vec<u128> {
+		use crate::clip_cache::RigVariantId;
+
+		const FRAMES: u32 = 5_000;
+		const CHARACTERS: u32 = 32;
+		const RUNS: u32 = 5;
+		let clips = [AnimClip::still(), AnimClip::walk(), AnimClip::run(), AnimClip::jump()];
+		let cache = AnimClipCache::default();
+		let prepared: Vec<Option<PreparedClip>> = clips
+			.iter()
+			.map(|clip| cache.prepare(*clip, RigVariantId::HUMANOID_V0, cache.settings.sampling))
+			.collect();
+
+		let mut rigs: Vec<HumanoidV0Rig> =
+			(0..CHARACTERS).map(|_| HumanoidV0Rig::imported()).collect();
+		let mut mailboxes: Vec<AnimMailbox> = (0..CHARACTERS)
+			.map(|_| {
+				let mut mailbox = AnimMailbox::with_bones(Transform::IDENTITY, rigs[0].pose.len());
+				mailbox.set_crossfade_for_test(
+					blend_progress,
+					ArmatureOffset::from_translation(Vec3::new(0.0, 0.1, 0.0)),
+				);
+				mailbox
+			})
+			.collect();
+
+		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
+		for _ in 0..RUNS {
+			let start = Instant::now();
+			for frame in 0..FRAMES {
+				let frame = black_box(frame);
+				for (index, rig) in rigs.iter_mut().enumerate() {
+					let clip_index = index as usize % clips.len();
+					let clip = clips[clip_index];
+					let progress =
+						black_box((frame as f32 * 0.013 + index as f32 * 0.07).rem_euclid(1.0));
+					let prepared = prepared[clip_index].as_ref();
+					let effects = sample_humanoid_prepared(
+						clip,
+						rig,
+						progress,
+						true,
+						true,
+						Some(&cache),
+						prepared,
+					);
+					let mailbox = &mut mailboxes[index as usize];
+					let weight = if legacy {
+						BlendCurve::SmoothStep.sample(blend_progress)
+					} else {
+						clip_crossfade_weight(blend_progress)
+					};
+					let crossfading = blend_progress < 1.0;
+					if legacy {
+						publish_pose_legacy(mailbox, &rig.pose, weight);
+						black_box(blend_mailbox_effects_legacy(
+							mailbox.from_offset,
+							effects,
+							blend_progress,
+						));
+						for bone in &mailbox.output.local {
+							black_box(bone);
+						}
+					} else {
+						publish_sampled_pose(mailbox, &rig.pose, weight, crossfading);
+						black_box(blend_mailbox_effects(
+							mailbox.from_offset,
+							effects,
+							blend_progress,
+						));
+						let pose = if crossfading { &mailbox.output } else { &rig.pose };
+						black_box(pose.local.len());
+						for bone in &pose.local {
+							black_box(bone);
+						}
+					}
+				}
+			}
+			let samples = FRAMES as u64 * CHARACTERS as u64;
+			run_ns.push(start.elapsed().as_nanos() / samples as u128);
+		}
+		run_ns.sort_unstable();
+		run_ns
+	}
+
+	fn report_mailbox_apply_bench(label: &str, run_ns: &[u128]) {
+		let min = *run_ns.first().expect("run");
+		let median = run_ns[run_ns.len() / 2];
+		eprintln!(
+			"mailbox_apply_microbench {label}: runs={runs:?} min={min} median={median} ns/character-frame",
+			runs = run_ns,
+		);
+	}
+
+	/// `cargo test -p character-motion mailbox_apply_microbench --release -- --ignored --nocapture`
+	#[test]
+	#[ignore]
+	fn mailbox_apply_microbench() {
+		eprintln!(
+			"32 characters × 5000 frames × 5 runs; Still/Walk/Run prepared + Jump live; sample + publish_pose + effects"
+		);
+		for blend_progress in [1.0, 0.35] {
+			let label = if blend_progress >= 1.0 { "steady blend=1.0" } else { "mid crossfade" };
+			report_mailbox_apply_bench(
+				&format!("{label} legacy"),
+				&bench_mailbox_sample_publish_effects(true, blend_progress),
+			);
+			report_mailbox_apply_bench(
+				&format!("{label} optimized"),
+				&bench_mailbox_sample_publish_effects(false, blend_progress),
+			);
+		}
 	}
 
 	#[test]

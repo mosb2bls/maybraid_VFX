@@ -14,8 +14,11 @@ mod camera;
 pub mod commands;
 pub mod control;
 mod crate_loot;
+mod cycle_target;
 mod first_wave;
 mod intelligence;
+mod inventory_cycling;
+mod inventory_drop;
 mod item_icons;
 mod map_view;
 mod occupancy;
@@ -42,6 +45,10 @@ mod world_layers;
 pub use world_furnished::WorldFurnished;
 
 pub use agent::AgentDrive;
+pub use character_items::{
+	ActiveInventoryDropPolicy, InventoryDrop, InventoryDropError, InventoryDropPolicy,
+	InventoryDropRefused, InventoryDropRequest, InventoryDropped, InventoryMenuDropped,
+};
 #[cfg(feature = "debug-commands")]
 pub use commands::{
 	CameraMode, RequestActivate, RequestCamera, RequestGrantPoints, RequestPeaceful,
@@ -49,15 +56,17 @@ pub use commands::{
 };
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
 pub use control::{
-	InventoryEditCameraFollow, WorldGameplayEnabled, WorldPlaySessionEnded, WorldSceneryVisible,
-	WorldSurfaceReady, WorldSurfaceSet,
+	InventoryEditCameraFollow, WorldGameplayEnabled, WorldMenuShell, WorldPlaySessionEnded,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
 };
+pub use cycle_target::InventoryCycleTarget;
 pub use durham::Durham;
 #[cfg(any(test, feature = "test-support"))]
 pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
+pub use inventory_cycling::ActiveInventoryCyclingCategory;
 pub use item_icons::{
 	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
 	ItemIconPlugin, ITEM_ICON_RESOLUTION,
@@ -77,13 +86,19 @@ pub use player_lifecycle::{
 pub use player_position::{
 	resume_discovery_from_saved_waypoints, PlayerPositionPlugin, PlayerPositionWaypoints,
 };
-pub use poi::{WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems};
+pub use poi::{
+	GrovePois, PlacePois, UrbanPois, WorldPoiDiscoveryBudget, WorldPoiPlugin, WorldPoiSystems,
+	WorldPoiTiles,
+};
 pub use render_scale::{
-	map_render_to_window, map_window_to_render, parse_force_offscreen_env,
-	parse_presentation_treatment_env, parse_render_scale_env, parse_visual_style_env,
-	target_physical_size, RenderScale, RequestForceOffscreen, RequestRenderScale,
-	RequestVisualStyle, VisualStyle, VisualStyleSetting, FORCE_OFFSCREEN_ENV,
-	PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV, VISUAL_STYLE_ENV,
+	host_memory_bytes, map_render_to_window, map_window_to_render, parse_device_tier_env,
+	parse_force_offscreen_env, parse_meminfo_total_bytes, parse_presentation_treatment_env,
+	parse_render_scale_env, parse_visual_style_env, pick_default_visual_style,
+	target_physical_size, window_above_1080p, AdapterKind, DeviceTier, RenderScale,
+	RequestForceOffscreen, RequestRenderScale, RequestVisualStyle, VisualStyle,
+	VisualStyleAutoReason, VisualStylePick, VisualStyleSetting, VisualStyleSignals,
+	DEVICE_TIER_ENV, FORCE_OFFSCREEN_ENV, PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV,
+	UNIFIED_MEMORY_NATIVE_BYTES, VISUAL_STYLE_ENV,
 };
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
@@ -232,6 +247,7 @@ impl Plugin for WorldPlugin {
 			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
+			.init_resource::<crate::WorldMenuShell>()
 			.init_resource::<crate::FirstWave>()
 			.init_resource::<WorldSceneryVisible>()
 			.insert_resource(WorldMobHudEnabled::from_debug_chrome(self.debug_chrome))
@@ -288,6 +304,9 @@ impl Plugin for WorldPlugin {
 				),
 			);
 		camera::configure(app);
+		inventory_cycling::configure(app);
+		inventory_drop::configure(app);
+		cycle_target::configure(app);
 		weapon::configure(app);
 		app.configure_sets(
 			Update,

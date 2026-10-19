@@ -1,3 +1,8 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use crate::PoiId;
+
 /// SplitMix64-style mix used by nearby placement and replacement seeds.
 pub fn mix(mut value: u64) -> u64 {
 	value ^= value >> 30;
@@ -9,4 +14,12 @@ pub fn mix(mut value: u64) -> u64 {
 
 pub(crate) fn unit_f32(value: u64) -> f32 {
 	((value >> 40) as f32) / ((1_u32 << 24) as f32)
+}
+
+/// Stable [`PoiId`] from a generation-scheme key and a source salt.
+pub fn hashed_poi_id(salt: u64, value: impl Hash) -> PoiId {
+	let mut hasher = DefaultHasher::new();
+	salt.hash(&mut hasher);
+	value.hash(&mut hasher);
+	PoiId(hasher.finish())
 }

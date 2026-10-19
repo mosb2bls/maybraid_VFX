@@ -1,4 +1,4 @@
-use character_items::{Inventory, InventoryItem};
+use character_items::{Inventory, InventoryDropPolicy, InventoryItem};
 use character_ui_menu::{
 	CameraFocus, LabelOption, ListValues, MenuComponent, MenuNode, SingleSelect,
 };
@@ -49,7 +49,7 @@ use crate::{
 	},
 	cycle_value,
 	event::{AssetValue, CharacterField, MenuEvent, SectionId, SwatchValue},
-	shared::{clothing_menu_from_inventory, loadout_section, skills_catalog, weapons_catalog},
+	shared::{clothing_menu_from_inventory, inventory_overlay_key, loadout_section},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,6 +181,33 @@ impl ConceptSpecies {
 				| Self::Tuberwaber
 		)
 	}
+
+	/// Body-rig family used to expand and aim whole-body preview framing.
+	pub const fn skeleton_kind(self) -> characters::RigSkeletonKind {
+		use characters::RigSkeletonKind;
+		match self {
+			Self::Brenal
+			| Self::Caole
+			| Self::Epiphant
+			| Self::Hars
+			| Self::Yilter
+			| Self::Sonyak
+			| Self::Claber
+			| Self::Croconot => RigSkeletonKind::Quadruped,
+			Self::Grener | Self::Thumplus | Self::Mistler => RigSkeletonKind::Forelimbed,
+			_ => RigSkeletonKind::Humanoid,
+		}
+	}
+
+	/// Whole-body preview framing from a rest-pose hull (no per-species offsets).
+	pub fn body_preview_focus(self, hull: characters::LocomotionCapsule) -> CameraFocus {
+		let kind = self.skeleton_kind();
+		CameraFocus::fit_preview_bounds(
+			hull.preview_aabb_for(kind),
+			CameraFocus::BODY_PREVIEW_FOV,
+			kind.preview_view_direction(),
+		)
+	}
 }
 
 impl LabelOption for ConceptSpecies {
@@ -293,10 +320,35 @@ impl CharacterMenu {
 			}
 		};
 		menu.name = name;
-		menu.inventory = Some(inventory);
+		menu.set_inventory(inventory);
 		menu.appearance_locked = true;
-		menu.sync_inventory_clothing();
 		menu
+	}
+
+	/// Replace the bag copy and keep species clothing menus in sync.
+	pub fn set_inventory(&mut self, inventory: Inventory) {
+		self.inventory = Some(inventory);
+		self.sync_inventory_clothing();
+	}
+
+	/// Remove `index` under `policy`. Hosts pass the resolved drop policy so
+	/// this mutation is authoritative — not a hardcoded placeholder.
+	pub fn apply_drop(&mut self, index: usize, policy: InventoryDropPolicy) -> bool {
+		let Some(inventory) = self.inventory.as_mut() else {
+			return false;
+		};
+		if inventory.try_drop(index, policy).is_err() {
+			return false;
+		}
+		self.sync_inventory_clothing();
+		true
+	}
+
+	pub fn apply_with_policy(&mut self, event: MenuEvent, policy: InventoryDropPolicy) -> bool {
+		match event {
+			MenuEvent::DropInventory(index) => self.apply_drop(index, policy),
+			other => self.apply(other),
+		}
 	}
 
 	pub fn appearance(&self) -> CharacterAppearance {
@@ -332,14 +384,10 @@ impl CharacterMenu {
 		self.appearance_locked
 	}
 
-	/// Overlay interiors for body catalogs stay visible when locked; clothing
-	/// and weapons stay editable.
+	/// Overlay interiors for body catalogs stay visible when locked; inventory
+	/// stays editable (wear / queue / drop).
 	pub fn overlay_editable(&self, key: &str) -> bool {
-		!self.appearance_locked()
-			|| key == "Clothing"
-			|| key == "Weapons"
-			|| key == "Skill Maps"
-			|| key == "Loadout"
+		!self.appearance_locked() || inventory_overlay_key(key)
 	}
 
 	fn sync_inventory_clothing(&mut self) {
@@ -1394,9 +1442,10 @@ impl CharacterMenu {
 	}
 
 	/// Lowers the currently selected species menu; the other species' state is
-	/// retained but not part of the tree.
+	/// retained but not part of the tree. When the bag is present, Clothing
+	/// lives under Inventory instead of the species subtree.
 	fn species_node(&self) -> MenuNode<MenuEvent> {
-		match self.species.value {
+		let node = match self.species.value {
 			ConceptSpecies::Braidman => self.braidman.menu_node(),
 			ConceptSpecies::Brenal => self.brenal.menu_node(),
 			ConceptSpecies::Caole => self.caole.menu_node(),
@@ -1425,6 +1474,11 @@ impl CharacterMenu {
 			ConceptSpecies::Thumplus => self.thumplus.menu_node(),
 			ConceptSpecies::Mistler => self.mistler.menu_node(),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.menu_node(),
+		};
+		if self.inventory.is_some() {
+			omit_clothing_section(node)
+		} else {
+			node
 		}
 	}
 
@@ -1600,6 +1654,9 @@ impl CharacterMenu {
 				self.sync_inventory_clothing();
 				return true;
 			}
+			MenuEvent::DropInventory(index) => {
+				return self.apply_drop(index, InventoryDropPolicy::PLACEHOLDER);
+			}
 			MenuEvent::ToggleClothing(_) if self.inventory.is_some() => return false,
 			MenuEvent::ToggleSection(_) => return false,
 			_ if self.appearance_locked() && !event.edits_inventory() => return false,
@@ -1637,16 +1694,63 @@ impl CharacterMenu {
 		}
 	}
 
+	pub fn locomotion_capsule(&self) -> characters::LocomotionCapsule {
+		use characters::CharacterRecipe;
+		match self.species.value {
+			ConceptSpecies::Braidman => self.braidman_config().locomotion_capsule(),
+			ConceptSpecies::Brenal => self.brenal_config().locomotion_capsule(),
+			ConceptSpecies::Caole => self.caole_config().locomotion_capsule(),
+			ConceptSpecies::Epiphant => self.epiphant_config().locomotion_capsule(),
+			ConceptSpecies::Hars => self.hars_config().locomotion_capsule(),
+			ConceptSpecies::Yilter => self.ylter_config().locomotion_capsule(),
+			ConceptSpecies::Sonyak => self.sonyak_config().locomotion_capsule(),
+			ConceptSpecies::Claber => self.claber_config().locomotion_capsule(),
+			ConceptSpecies::Croconot => self.croconot_config().locomotion_capsule(),
+			ConceptSpecies::Brodler => self.brodler_config().locomotion_capsule(),
+			ConceptSpecies::Mygr => self.mygr_config().locomotion_capsule(),
+			ConceptSpecies::Dui => self.dui_config().locomotion_capsule(),
+			ConceptSpecies::Lidder => self.lidder_config().locomotion_capsule(),
+			ConceptSpecies::Chupri => self.chupri_config().locomotion_capsule(),
+			ConceptSpecies::Brokker => self.brokker_config().locomotion_capsule(),
+			ConceptSpecies::Tipple => self.tipple_config().locomotion_capsule(),
+			ConceptSpecies::Topple => self.topple_config().locomotion_capsule(),
+			ConceptSpecies::Kispar => self.kispar_config().locomotion_capsule(),
+			ConceptSpecies::Tapp => self.tapp_config().locomotion_capsule(),
+			ConceptSpecies::Kaller => self.kaller_config().locomotion_capsule(),
+			ConceptSpecies::Kappler => self.kappler_config().locomotion_capsule(),
+			ConceptSpecies::Wumbus => self.wumbus_config().locomotion_capsule(),
+			ConceptSpecies::Lero => self.lero_config().locomotion_capsule(),
+			ConceptSpecies::Spibmom => self.spibmom_config().locomotion_capsule(),
+			ConceptSpecies::Grener => self.grener_config().locomotion_capsule(),
+			ConceptSpecies::Thumplus => self.thumplus_config().locomotion_capsule(),
+			ConceptSpecies::Mistler => self.mistler_config().locomotion_capsule(),
+			ConceptSpecies::Tuberwaber => self.tuberwaber_config().locomotion_capsule(),
+		}
+	}
+
+	/// Rest-pose envelope used to frame the live preview for the selected species.
+	pub fn preview_aabb(&self) -> bevy_math::bounding::Aabb3d {
+		self.locomotion_capsule().preview_aabb_for(self.species.value.skeleton_kind())
+	}
+
+	/// Whole-body camera for the current species' actual size.
+	pub fn body_preview_focus(&self) -> CameraFocus {
+		self.species.value.body_preview_focus(self.locomotion_capsule())
+	}
+
 	pub fn camera_focus_for_event(&self, event: MenuEvent) -> Option<CameraFocus> {
-		if matches!(event, MenuEvent::ToggleInventory(_)) {
-			return Some(crate::BODY_FOCUS);
+		if matches!(
+			event,
+			MenuEvent::ToggleInventory(_) | MenuEvent::DropInventory(_) | MenuEvent::SetSpecies(_)
+		) {
+			return Some(self.body_preview_focus());
 		}
 		let field = match event {
 			MenuEvent::SetAsset(field, _) | MenuEvent::Cycle(field, _) => Some(field),
 			MenuEvent::ToggleClothing(clothing) => Some(CharacterField::Clothing(clothing)),
 			_ => None,
 		}?;
-		match self.species.value {
+		let focus = match self.species.value {
 			ConceptSpecies::Braidman => self.braidman.camera_focus_for_field(field),
 			ConceptSpecies::Brenal => self.brenal.camera_focus_for_field(field),
 			ConceptSpecies::Caole => self.caole.camera_focus_for_field(field),
@@ -1675,7 +1779,11 @@ impl CharacterMenu {
 			ConceptSpecies::Thumplus => self.thumplus.camera_focus_for_field(field),
 			ConceptSpecies::Mistler => self.mistler.camera_focus_for_field(field),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.camera_focus_for_field(field),
-		}
+		}?;
+		Some(match focus.rig {
+			character_ui_menu::FocusRig::Body => self.body_preview_focus(),
+			character_ui_menu::FocusRig::Head => focus,
+		})
 	}
 
 	fn apply_braidman(&mut self, event: MenuEvent) -> bool {
@@ -1758,9 +1866,10 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::SetSwatch(_, _) | MenuEvent::Cycle(_, _) | MenuEvent::ToggleInventory(_) => {
-				false
-			}
+			MenuEvent::SetSwatch(_, _)
+			| MenuEvent::Cycle(_, _)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -1833,7 +1942,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -1893,7 +2003,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -1957,7 +2068,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2017,7 +2129,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2073,7 +2186,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2133,7 +2247,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2206,7 +2321,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2279,7 +2395,8 @@ impl CharacterMenu {
 			MenuEvent::SetSwatch(_, _)
 			| MenuEvent::Cycle(_, _)
 			| MenuEvent::ToggleClothing(_)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2360,7 +2477,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2423,7 +2541,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2487,7 +2606,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2550,7 +2670,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2613,7 +2734,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2672,7 +2794,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2735,7 +2858,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2798,7 +2922,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2861,7 +2986,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2924,7 +3050,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -2987,7 +3114,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3050,7 +3178,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3129,7 +3258,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3196,7 +3326,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3271,7 +3402,8 @@ impl CharacterMenu {
 			},
 			MenuEvent::Cycle(_, _)
 			| MenuEvent::SliderDelta(_, _)
-			| MenuEvent::ToggleInventory(_) => false,
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 
@@ -3286,7 +3418,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::GrenerBodyColor, SwatchValue::GrenerBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3309,7 +3443,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::ThumplusBodyColor, SwatchValue::ThumplusBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3332,7 +3468,9 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::ToggleClothing(_) | MenuEvent::ToggleInventory(_) => false,
+			MenuEvent::ToggleClothing(_)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 			MenuEvent::SetSwatch(field, value) => match (field, value) {
 				(CharacterField::MistlerBodyColor, SwatchValue::MistlerBody(color)) => {
 					menu.body.value.body.value = color;
@@ -3427,9 +3565,10 @@ impl CharacterMenu {
 				}
 				_ => false,
 			},
-			MenuEvent::SetSwatch(_, _) | MenuEvent::Cycle(_, _) | MenuEvent::ToggleInventory(_) => {
-				false
-			}
+			MenuEvent::SetSwatch(_, _)
+			| MenuEvent::Cycle(_, _)
+			| MenuEvent::ToggleInventory(_)
+			| MenuEvent::DropInventory(_) => false,
 		}
 	}
 }
@@ -3497,11 +3636,30 @@ impl MenuComponent<MenuEvent> for CharacterMenu {
 			),
 		];
 		if let Some(inventory) = &self.inventory {
-			nodes.push(MenuNode::section("Weapons", weapons_catalog(inventory)));
-			nodes.push(MenuNode::section("Skill Maps", skills_catalog(inventory)));
+			nodes.push(crate::InventoryLayout::character_menu(inventory).node);
 			nodes.push(loadout_section(inventory));
 		}
 		MenuNode::fragment(nodes)
+	}
+}
+
+fn omit_clothing_section(node: MenuNode<MenuEvent>) -> MenuNode<MenuEvent> {
+	match node {
+		MenuNode::Fragment(children) => {
+			MenuNode::fragment(children.into_iter().filter_map(omit_clothing_child))
+		}
+		other => omit_clothing_child(other).unwrap_or_else(|| MenuNode::fragment([])),
+	}
+}
+
+fn omit_clothing_child(node: MenuNode<MenuEvent>) -> Option<MenuNode<MenuEvent>> {
+	match node {
+		MenuNode::Section { label: "Clothing", .. } => None,
+		MenuNode::Fragment(children) => {
+			let kept: Vec<_> = children.into_iter().filter_map(omit_clothing_child).collect();
+			(!kept.is_empty()).then(|| MenuNode::fragment(kept))
+		}
+		other => Some(other),
 	}
 }
 

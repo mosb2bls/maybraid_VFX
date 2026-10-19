@@ -75,8 +75,8 @@ impl<R: TerrainStream, T: hcsg::GenerationScheme> hcsg::GenerationScheme for Str
 	}
 
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let value = cx.get_or_generate::<T>(id)?;
-		Some((Self::new(value), id.origin_cell_bounds()?))
+		let (value, bounds) = cx.get_or_generate_stored::<T>(id)?;
+		Some((Self::new(value), bounds))
 	}
 }
 

@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use character_persist::SaveRoot;
 use clap::Parser;
-use maybraid::{assets_root, GamePlugin};
+use maybraid::{
+	assets_root, install_panic_log_hook, maybe_supervise, GamePlugin, RecoverBoot, RecoveryMode,
+};
 use maybraid_agent::AgentArgs;
 use maybraid_input::PadHidPlugins;
 use maybraid_world::{
@@ -14,12 +16,23 @@ struct GameArgs {
 	/// Start Discovery at world XZ metres (`x,z` or `x,y,z`; y is ignored).
 	#[arg(long = "start-at", value_name = "X,Z", allow_hyphen_values = true)]
 	start_at: Option<String>,
+	/// Relaunch destination after a panic. The supervisor sets this.
+	#[arg(long = "recover")]
+	recover: bool,
+	/// Skip the panic supervisor (run only this process).
+	#[arg(long = "no-supervise")]
+	no_supervise: bool,
 	#[command(flatten)]
 	agent: AgentArgs,
 }
 
 fn main() {
-	let args = GameArgs::parse();
+	install_panic_log_hook();
+	let mut args = GameArgs::parse();
+	args.agent = args.agent.merge_env();
+	if let Some(code) = maybe_supervise(args.agent.enabled(), args.no_supervise) {
+		std::process::exit(code);
+	}
 	let start_at = match args.start_at {
 		Some(raw) => Some(parse_start_at(&raw)),
 		None => start_at_from_env().unwrap_or_else(|error| {
@@ -27,12 +40,16 @@ fn main() {
 			std::process::exit(2);
 		}),
 	};
-	let agent = args.agent.merge_env();
+	let agent = args.agent;
 
 	let assets_path = assets_root();
 	let mut app = App::new();
 	app.insert_resource(SaveRoot::discover())
-		.insert_resource(player_spawn_xz(start_at));
+		.insert_resource(player_spawn_xz(start_at))
+		.insert_resource(RecoveryMode::from_runtime(agent.enabled()));
+	if args.recover {
+		app.insert_resource(RecoverBoot);
+	}
 	if agent.enabled() {
 		app.insert_resource(AgentDrive::from_args(agent));
 	}
@@ -126,7 +143,6 @@ mod tests {
 		assert_eq!(parse_resolution_env(Some("1920X1080")), Some((1920, 1080)));
 		assert_eq!(parse_resolution_env(Some("")), None);
 		assert_eq!(parse_resolution_env(None), None);
-		assert_eq!(ENV_RESOLUTION, "MAYBRAID_RESOLUTION");
 	}
 
 	#[test]
@@ -136,7 +152,6 @@ mod tests {
 		assert!(env_flag_on(Some("YES")));
 		assert!(!env_flag_on(Some("0")));
 		assert!(!env_flag_on(None));
-		assert_eq!(ENV_FULLSCREEN, "MAYBRAID_FULLSCREEN");
 	}
 
 	#[test]
@@ -154,5 +169,13 @@ mod tests {
 		assert!(args.agent.enabled());
 		assert!(args.agent.quit_when_idle);
 		assert_eq!(args.agent.script.as_deref(), Some(std::path::Path::new("walk.jsonl")));
+	}
+
+	#[test]
+	fn recover_and_no_supervise_parse() {
+		let args = GameArgs::try_parse_from(["maybraid", "--recover", "--no-supervise"]).unwrap();
+		assert!(args.recover);
+		assert!(args.no_supervise);
+		assert!(!args.agent.enabled());
 	}
 }

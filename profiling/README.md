@@ -34,9 +34,10 @@ each with a same-named `.md` of findings — see **Traces Releases** in
 
 `tracy-flight.sh` starts `tracy-capture` first, then the game with
 `MAYBRAID_VSYNC=off --start-at=0,0 --agent-quit`, and exports zone /
-message CSVs plus a top-zone summary. Profile scripts omit `stats vsync`
-because that command *toggles* present mode and would re-enable vsync
-over the env var.
+message CSVs plus a top-zone summary. Home-first picker / character-switch
+scripts must not latch `PlayerSpawnXz`: set `MAYBRAID_NO_START_AT=1`.
+Profile scripts omit `stats vsync` because that command *toggles* present
+mode and would re-enable vsync over the env var.
 
 ## Scripts outside the repo
 

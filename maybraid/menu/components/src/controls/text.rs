@@ -3,11 +3,9 @@
 use bevy::prelude::*;
 use bevy::text::{Justify, LineBreak, LineHeight, TextSpan};
 
-use crate::icons::maybraid::AnimatedIcon;
-use crate::single_select::TextCursorSlot;
 use crate::theme::{
-	PANEL_BLOCK_FONT_SIZE, PANEL_CURSOR_ICON_SIZE, PANEL_GROUP_FONT_SIZE, PANEL_HEADER_FONT_SIZE,
-	PANEL_ITEM_FONT_SIZE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
+	PANEL_BLOCK_FONT_SIZE, PANEL_GROUP_FONT_SIZE, PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE,
+	TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 
 use super::display::menu_display_name;
@@ -101,31 +99,6 @@ pub fn spawn_hud_plain(
 		LineHeight::RelativeToFont(1.0),
 		Pickable::IGNORE,
 	));
-}
-
-/// Reserved gutter; the blinking mark is hidden unless `visible`.
-pub fn spawn_cursor_slot(parent: &mut ChildSpawnerCommands, fonts: &HudFonts, visible: bool) {
-	spawn_cursor_slot_sized(parent, fonts, visible, PANEL_CURSOR_ICON_SIZE);
-}
-
-/// Cursor gutter sized to sit against a header or a field row.
-pub fn spawn_cursor_slot_sized(
-	parent: &mut ChildSpawnerCommands,
-	fonts: &HudFonts,
-	visible: bool,
-	size: f32,
-) {
-	let visibility = if visible { Visibility::Inherited } else { Visibility::Hidden };
-	parent
-		.spawn((
-			TextCursorSlot,
-			Node { width: Val::Px(size), height: Val::Px(size), flex_shrink: 0.0, ..default() },
-			Pickable::IGNORE,
-		))
-		.with_children(|slot| {
-			let (icon, animated) = AnimatedIcon::maybraid(size, TEXT_YELLOW);
-			AnimatedIcon::spawn(icon, animated, slot, fonts.logo.clone(), visibility);
-		});
 }
 
 pub fn spawn_item_label(

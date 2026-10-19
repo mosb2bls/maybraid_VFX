@@ -3,13 +3,11 @@
 use bevy::prelude::*;
 use bevy::text::Justify;
 
-use crate::theme::{
-	CURSOR_ICON_GAP, CURSOR_ICON_SIZE, ITEM_FONT_SIZE, PANEL_CURSOR_ICON_GAP,
-	PANEL_HEADER_CURSOR_ICON_SIZE, PANEL_HEADER_FONT_SIZE, PANEL_VALUE_FONT_SIZE, TEXT_YELLOW,
-};
+use crate::theme::{ITEM_FONT_SIZE, PANEL_HEADER_FONT_SIZE, PANEL_VALUE_FONT_SIZE, TEXT_YELLOW};
 
+use super::focus::spawn_focus_tag;
 use super::section::CursorRow;
-use super::text::{spawn_cursor_slot_sized, spawn_header_line, spawn_hud_text};
+use super::text::{spawn_header_line, spawn_hud_text};
 use super::tile::HoverTile;
 use super::HudFonts;
 
@@ -23,7 +21,7 @@ pub fn spawn_text_button(
 	parent
 		.spawn((
 			Button,
-			HoverTile { equipped: false, preserve_fill: false },
+			HoverTile { equipped: false, preserve_fill: false, face: TEXT_YELLOW },
 			extra,
 			Node {
 				min_width: Val::Px(22.0),
@@ -48,7 +46,7 @@ pub fn spawn_text_button(
 		});
 }
 
-/// Full-width HUD action row (same mark + header type as section headers).
+/// Full-width HUD action row (same header type as section headers).
 pub fn spawn_hud_action(
 	parent: &mut ChildSpawnerCommands,
 	fonts: &HudFonts,
@@ -67,19 +65,19 @@ pub fn spawn_hud_action(
 				flex_direction: FlexDirection::Row,
 				justify_content: justify,
 				align_items: AlignItems::Center,
-				column_gap: Val::Px(PANEL_CURSOR_ICON_GAP),
 				..default()
 			},
 			BackgroundColor(Color::NONE),
 		))
 		.with_children(|row| {
-			spawn_cursor_slot_sized(row, fonts, false, PANEL_HEADER_CURSOR_ICON_SIZE);
-			spawn_header_line(row, fonts, label, None, PANEL_HEADER_FONT_SIZE, TEXT_YELLOW);
+			spawn_focus_tag(row, TEXT_YELLOW, false, |tag| {
+				spawn_header_line(tag, fonts, label, None, PANEL_HEADER_FONT_SIZE, TEXT_YELLOW);
+			});
 		});
 }
 
-/// Screen-chrome action (bottom-right Save Character). Same mark + face as
-/// spin-reveal Next, without the caption.
+/// Screen-chrome action (bottom-right Save Character). Same face as spin-reveal
+/// Next, without the caption.
 pub fn spawn_corner_action(
 	parent: &mut ChildSpawnerCommands,
 	fonts: &HudFonts,
@@ -95,14 +93,14 @@ pub fn spawn_corner_action(
 				flex_direction: FlexDirection::Row,
 				justify_content: JustifyContent::FlexStart,
 				align_items: AlignItems::Center,
-				column_gap: Val::Px(CURSOR_ICON_GAP),
 				padding: UiRect::axes(Val::Px(0.0), Val::Px(2.0)),
 				..default()
 			},
 			BackgroundColor(Color::NONE),
 		))
 		.with_children(|row| {
-			spawn_cursor_slot_sized(row, fonts, false, CURSOR_ICON_SIZE);
-			spawn_hud_text(row, fonts.item(ITEM_FONT_SIZE), label, TEXT_YELLOW, Justify::Left);
+			spawn_focus_tag(row, TEXT_YELLOW, false, |tag| {
+				spawn_hud_text(tag, fonts.item(ITEM_FONT_SIZE), label, TEXT_YELLOW, Justify::Left);
+			});
 		});
 }

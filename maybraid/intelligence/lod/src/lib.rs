@@ -116,6 +116,33 @@ pub fn due_by_rank(due: &mut [Entity], priority: &IntelligencePriority) {
 	due.sort_by_key(|entity| (priority.rank_of(*entity), entity.to_bits()));
 }
 
+/// Frame-local buffer for intelligence systems that build a due-entity set each tick.
+///
+/// Cleared and refilled before [`Self::finish`] sorts by [`IntelligencePriority`].
+#[derive(Default)]
+pub struct IntelligenceDueEntities {
+	entities: Vec<Entity>,
+}
+
+impl IntelligenceDueEntities {
+	pub fn clear(&mut self) {
+		self.entities.clear();
+	}
+
+	pub fn push(&mut self, entity: Entity) {
+		self.entities.push(entity);
+	}
+
+	pub fn as_slice(&self) -> &[Entity] {
+		&self.entities
+	}
+
+	pub fn finish(&mut self, priority: &IntelligencePriority) -> &[Entity] {
+		due_by_rank(&mut self.entities, priority);
+		&self.entities
+	}
+}
+
 /// Per-entity jitter in `[0.8, 1.2]×` for scan / forget clocks so plants do not align.
 pub fn staggered_interval(interval: f32, entity: Entity, salt: u64) -> f32 {
 	let bits = entity.to_bits().wrapping_add(salt.wrapping_mul(0x9e37_79b9));
@@ -211,6 +238,54 @@ mod tests {
 		due_by_rank(&mut due, &priority);
 		assert_eq!(due, [known, unknown]);
 		assert_eq!(priority.rank_of(unknown), u32::MAX);
+	}
+
+	/// `cargo test -p intelligence-lod due_entities_scratch_timing --release -- --ignored --nocapture`
+	#[test]
+	#[ignore = "microbench"]
+	fn due_entities_scratch_timing() {
+		const PLANT_COUNT: usize = 256;
+		const FRAMES: usize = 4_000;
+
+		let mut priority = IntelligencePriority::default();
+		let entities: Vec<Entity> =
+			(0..PLANT_COUNT).map(|index| Entity::from_bits(index as u64 + 1)).collect();
+		for (index, entity) in entities.iter().enumerate() {
+			priority.rank.insert(*entity, index as u32);
+		}
+
+		let allocate_start = std::time::Instant::now();
+		for frame in 0..FRAMES {
+			let mut due: Vec<Entity> = entities
+				.iter()
+				.filter(|entity| entity.to_bits() as usize % 3 == frame % 3)
+				.copied()
+				.collect();
+			due_by_rank(&mut due, &priority);
+			std::hint::black_box(&due);
+		}
+		let allocate_elapsed = allocate_start.elapsed();
+
+		let mut scratch = IntelligenceDueEntities::default();
+		let reuse_start = std::time::Instant::now();
+		for frame in 0..FRAMES {
+			scratch.clear();
+			for entity in
+				entities.iter().filter(|entity| entity.to_bits() as usize % 3 == frame % 3)
+			{
+				scratch.push(*entity);
+			}
+			let due = scratch.finish(&priority);
+			std::hint::black_box(due);
+		}
+		let reuse_elapsed = reuse_start.elapsed();
+
+		eprintln!(
+			"due_entities_scratch_timing: {PLANT_COUNT} plants × {FRAMES} frames — allocate {:?}, reuse {:?} ({:.2}x)",
+			allocate_elapsed,
+			reuse_elapsed,
+			allocate_elapsed.as_secs_f64() / reuse_elapsed.as_secs_f64().max(1e-9),
+		);
 	}
 
 	#[test]

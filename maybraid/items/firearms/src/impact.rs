@@ -15,6 +15,7 @@ use bevy_hanabi::prelude::{
 	SizeOverLifetimeModifier, SpawnerSettings,
 };
 use bevy_hanabi::Gradient;
+use procedural_common::Smoothstep01;
 
 const BURST_LIFE: f32 = 1.1;
 const SURFACE_LIFT: f32 = 0.03;
@@ -143,8 +144,7 @@ pub(crate) fn puff_mask() -> Image {
 			let dx = (x as f32 - c) / c;
 			let dy = (y as f32 - c) / c;
 			let r = (dx * dx + dy * dy).sqrt();
-			let t = (1.0 - r).max(0.0);
-			let t = t * t * (3.0 - 2.0 * t);
+			let t = Smoothstep01::eval((1.0 - r).max(0.0));
 			data[(y * n + x) as usize] = (t * t * 255.0) as u8;
 		}
 	}
