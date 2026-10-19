@@ -9,7 +9,7 @@
 //!   what is missing.
 //! - [`HcsgDemand`]: one subscription per bounds source, and the epoch that
 //!   sessions advance.
-//! - [`HcsgWorker`]: the thread that fills subscriptions.
+//! - Worker thread: fills subscriptions (started by [`runtime`] / [`spawn_worker`] in tests).
 //! - [`HcsgRegions<C>`]: the boxes channel `C` wants values in, sent by
 //!   [`HcsgBounds`] producers.
 //! - [`GenerationPlugin`]: keeps `T` warm within `C`'s regions, fire and forget.
@@ -27,8 +27,11 @@ mod presentation;
 mod runtime;
 mod session;
 mod storage;
+mod test_support;
 mod worker;
 
+#[cfg(test)]
+mod perf;
 #[cfg(test)]
 mod system_tests;
 #[cfg(test)]
@@ -50,7 +53,22 @@ pub use session::{
 	HcsgSessionRestarted, HcsgSessionSeed,
 };
 pub use storage::{Busy, HcsgStorage, HcsgValue};
-pub use worker::HcsgWorker;
+pub use test_support::{
+	drain_retired_hosts, hcsg_hosts, hosts_replaced, leftover_retired_hosts, settle_presentation,
+	wait_replaced_hosts, SettlePresentation, SettleTimedOut,
+};
+
+/// Keeps a test [`worker::HcsgWorker`] alive until dropped.
+/// Allow unused since this a guard object.
+#[allow(unused)]
+pub struct TestWorkerGuard(worker::HcsgWorker);
+
+/// Starts the shared generation worker. Production apps rely on
+/// [`PresentationPlugin`] / [`GenerationPlugin`] to install one worker; call
+/// this only in tests that subscribe [`HcsgDemand`] without those plugins.
+pub fn spawn_worker(storage: HcsgStorage, demand: HcsgDemand) -> std::io::Result<TestWorkerGuard> {
+	worker::HcsgWorker::spawn(storage, demand).map(TestWorkerGuard)
+}
 
 use bevy::math::bounding::Aabb3d;
 use bevy::math::Vec3;

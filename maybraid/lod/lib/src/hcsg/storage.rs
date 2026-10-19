@@ -1,0 +1,45 @@
+//! [`HcsgStorage`]: completed, immutable values shared across threads.
+
+mod diagnostics;
+mod eviction;
+mod reads;
+pub(in crate::hcsg) mod store;
+mod writes;
+
+use std::sync::Arc;
+
+use bevy::prelude::Resource;
+
+use store::Registry;
+
+/// Any value HCSG can store.
+pub trait HcsgValue: Send + Sync + 'static {}
+
+impl<T: Send + Sync + 'static> HcsgValue for T {}
+
+/// A lock was held elsewhere. Retry next frame; this is never "empty".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Busy;
+
+/// Cloneable handle over one [`NodeStore`](super::node_store::NodeStore) of `Arc<T>` per type.
+///
+/// The registry lock is held only long enough to clone a store's `Arc`; a
+/// store's lock only for lookup and publication. Neither is held while a
+/// value is generated. Values never change once published: replacing one
+/// publishes a new [`Version`](crate::gen::Version) from a counter shared by every store.
+///
+/// ## Reads
+///
+/// Frame and main-thread code must use [`Self::try_entry`], [`Self::try_entries`],
+/// [`Self::try_overlapping`], and [`Self::try_membership_revision`]. They return [`Busy`] while the worker
+/// or eviction sweep holds a store lock.
+///
+/// Blocking reads ([`Self::get`], [`Self::entry`], [`Self::overlapping`],
+/// [`Self::membership_revision`], [`Self::contains`]) are for the generation
+/// worker and for tests that drive storage directly. Production frame code
+/// should still prefer the `try_*` methods. [`Self::clear`] and
+/// [`Self::remove`] are test and setup helpers; production clears stores
+/// through session restart ([`Self::clear_derived`]); the worker evicts
+/// through internal sweeps.
+#[derive(Resource, Clone, Default)]
+pub struct HcsgStorage(Arc<Registry>);

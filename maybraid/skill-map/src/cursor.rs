@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-use crate::controller::{skill_map_steer_held, SkillMapFlick};
+use crate::controller::{skill_map_steer_held, SkillMapFlick, SkillMapSteerPolicy};
 use crate::map::{render_layer, SkillMapId};
 use crate::tile_material::SkillMapTileAssets;
 use crate::user::{SkillMapHeld, SkillMapMember, SkillMapSteerLock, SkillMapUser};
@@ -31,10 +31,15 @@ pub(crate) struct FlickBead {
 
 pub fn sync_skill_map_held(
 	enabled: Res<SkillMapEnabled>,
+	policy: Option<Res<SkillMapSteerPolicy>>,
 	pad: Option<Res<VirtualPad>>,
 	mut users: Query<&mut SkillMapHeld, With<SkillMapUser>>,
 ) {
-	let held = enabled.0 && pad.as_deref().is_some_and(skill_map_steer_held);
+	let held = enabled.0
+		&& match policy.as_deref().copied().unwrap_or_default() {
+			SkillMapSteerPolicy::Standard => pad.as_deref().is_some_and(skill_map_steer_held),
+			SkillMapSteerPolicy::Tanz => true,
+		};
 	for mut slot in &mut users {
 		slot.0 = held;
 	}
@@ -198,6 +203,24 @@ mod tests {
 		pad.finish_digital();
 		world.insert_resource(pad);
 		world.run_system_once(sync_skill_map_held).expect("held with rb");
+		assert!(world.get::<SkillMapHeld>(user).expect("slot").0);
+	}
+
+	#[test]
+	fn tanz_policy_holds_without_rb() {
+		use bevy::ecs::system::RunSystemOnce;
+
+		use crate::user::spawn_skill_maps;
+
+		let mut world = World::new();
+		world.init_resource::<SkillMapEnabled>();
+		world.insert_resource(SkillMapSteerPolicy::Tanz);
+		let user = world.spawn_empty().id();
+		world
+			.run_system_once(move |mut commands: Commands| spawn_skill_maps(&mut commands, user))
+			.expect("spawn");
+		world.flush();
+		world.run_system_once(sync_skill_map_held).expect("held in tanz");
 		assert!(world.get::<SkillMapHeld>(user).expect("slot").0);
 	}
 }

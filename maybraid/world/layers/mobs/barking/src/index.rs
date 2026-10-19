@@ -2,7 +2,7 @@
 
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
-use lod::gen::Id;
+use lod::gen::{Id, OriginalId};
 use urbanization_cells::UrbanizationKind;
 
 use crate::generation::{GroupKind, MobGroup, MobPlantHost};
@@ -60,6 +60,23 @@ impl MobCellExtent {
 			.flat_map(|ix| {
 				(min.1.min(max.1)..=min.1.max(max.1)).map(move |iz| Self::from_cell_index(ix, iz))
 			})
+			.collect()
+	}
+
+	/// [`OriginalId`]s of cells whose footprints overlap `region` on XZ.
+	pub fn original_ids_overlapping(region: Aabb3d) -> Vec<OriginalId> {
+		Self::cells_overlapping(region)
+			.into_iter()
+			.map(|extent| OriginalId(extent.id()))
+			.collect()
+	}
+
+	/// Like [`Self::original_ids_overlapping`], but only cells that hold a mob group.
+	pub fn occupied_original_ids_overlapping(region: Aabb3d) -> Vec<OriginalId> {
+		Self::cells_overlapping(region)
+			.into_iter()
+			.filter(|extent| extent.group_seed().is_some())
+			.map(|extent| OriginalId(extent.id()))
 			.collect()
 	}
 

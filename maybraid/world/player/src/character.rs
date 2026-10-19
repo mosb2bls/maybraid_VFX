@@ -225,7 +225,9 @@ pub(crate) fn drive_player_locomotion(
 
 	let ground_normal = grounded.then(|| walkable.map(|ground| ground.normal)).flatten();
 	let speed = locomotion_speed(velocity, ground_normal);
-	heading.turn_toward(&mut visual, wish.0, time.delta_secs());
+	if heading.would_turn_toward(&visual, wish.0) {
+		heading.turn_toward(&mut visual, wish.0, time.delta_secs());
+	}
 
 	for member in members.iter() {
 		let Ok(rig) = rigs.get(member) else {

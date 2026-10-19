@@ -2,11 +2,12 @@
 
 use std::collections::BTreeMap;
 
+use bevy::prelude::info;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{InGameSettings, InGameShadowQuality};
+use super::{InGameRenderScale, InGameSettings, InGameShadowQuality, InGameVisualStyle};
 
 /// Host class used to seed catalog defaults.
 ///
@@ -123,15 +124,64 @@ impl Preference for MobHud {
 	}
 }
 
+/// Visual style presentation mode. Machine-scoped.
+pub struct VisualStylePref;
+
+impl Preference for VisualStylePref {
+	const KEY: &'static str = "visual_style";
+	const PERSIST: PersistPolicy = PersistPolicy::Machine;
+	type Value = InGameVisualStyle;
+
+	fn get(settings: &InGameSettings) -> Self::Value {
+		settings.visual_style
+	}
+
+	fn set(settings: &mut InGameSettings, value: Self::Value) {
+		settings.visual_style = value;
+	}
+
+	fn device_default(_class: DeviceClass) -> Self::Value {
+		InGameVisualStyle::Native
+	}
+}
+
+/// LEGACY: 3D shading scale. Machine-scoped. Preserved for migration only.
+/// This preference is no longer active; VisualStylePref replaced it.
+pub struct RenderScalePref;
+
+impl Preference for RenderScalePref {
+	const KEY: &'static str = "render_scale";
+	const PERSIST: PersistPolicy = PersistPolicy::Machine;
+	type Value = InGameRenderScale;
+
+	fn get(_settings: &InGameSettings) -> Self::Value {
+		// Not active; exists only for migration.
+		InGameRenderScale::Auto
+	}
+
+	fn set(_settings: &mut InGameSettings, _value: Self::Value) {
+		// Not active; exists only for migration.
+	}
+
+	fn device_default(_class: DeviceClass) -> Self::Value {
+		InGameRenderScale::Auto
+	}
+}
+
 impl InGameSettings {
 	pub fn from_device(class: DeviceClass) -> Self {
-		Self { shadows: Shadows::device_default(class), mob_hud: MobHud::device_default(class) }
+		Self {
+			shadows: Shadows::device_default(class),
+			mob_hud: MobHud::device_default(class),
+			visual_style: VisualStylePref::device_default(class),
+		}
 	}
 
 	/// Machine keys only. Session chrome such as Mob HUD is omitted.
 	pub fn persisted_fields(&self) -> BTreeMap<String, Value> {
 		let mut fields = BTreeMap::new();
 		write_machine_field::<Shadows>(&mut fields, self);
+		write_machine_field::<VisualStylePref>(&mut fields, self);
 		write_machine_field::<MobHud>(&mut fields, self);
 		fields
 	}
@@ -142,7 +192,41 @@ pub(super) fn overlay_machine_fields(
 	fields: &BTreeMap<String, Value>,
 ) {
 	overlay_machine_field::<Shadows>(settings, fields);
+	overlay_machine_field::<VisualStylePref>(settings, fields);
 	overlay_machine_field::<MobHud>(settings, fields);
+
+	// Migration: if visual_style is missing but render_scale exists, migrate.
+	// Legacy `auto` stays unsaved so the host heuristic can still pick.
+	if !fields.contains_key(VisualStylePref::KEY) && fields.contains_key(RenderScalePref::KEY) {
+		if let Ok(legacy_scale) = serde_json::from_value::<InGameRenderScale>(
+			fields.get(RenderScalePref::KEY).unwrap().clone(),
+		) {
+			if legacy_scale != InGameRenderScale::Auto {
+				settings.visual_style = InGameVisualStyle::from_legacy_render_scale(legacy_scale);
+				info!(
+					"Migrated legacy render_scale {:?} -> visual_style {:?}",
+					legacy_scale, settings.visual_style
+				);
+			}
+		}
+	}
+}
+
+/// True when the file has an explicit visual-style choice.
+///
+/// A missing key is first-run. Legacy `render_scale: auto` is also unsaved.
+/// Any other `visual_style` or explicit `render_scale` step is saved.
+pub fn visual_style_choice_is_saved(fields: &BTreeMap<String, Value>) -> bool {
+	if fields.contains_key(VisualStylePref::KEY) {
+		return true;
+	}
+	let Some(value) = fields.get(RenderScalePref::KEY) else {
+		return false;
+	};
+	match serde_json::from_value::<InGameRenderScale>(value.clone()) {
+		Ok(InGameRenderScale::Auto) | Err(_) => false,
+		Ok(_) => true,
+	}
 }
 
 fn write_machine_field<P: Preference>(
@@ -175,8 +259,9 @@ fn overlay_machine_field<P: Preference>(
 #[cfg(test)]
 mod tests {
 	use super::{
-		classify_host, seed_device_class, DeviceClass, DeviceType, HostProbe, InGameSettings,
-		InGameShadowQuality, MobHud, Preference, Shadows,
+		classify_host, seed_device_class, visual_style_choice_is_saved, DeviceClass, DeviceType,
+		HostProbe, InGameSettings, InGameShadowQuality, InGameVisualStyle, MobHud, Preference,
+		Shadows, VisualStylePref,
 	};
 
 	#[test]
@@ -204,11 +289,44 @@ mod tests {
 	}
 
 	#[test]
-	fn catalog_projection_writes_shadows_only() {
-		let fields =
-			InGameSettings { shadows: InGameShadowQuality::Low, mob_hud: true }.persisted_fields();
+	fn catalog_projection_writes_machine_keys_only() {
+		let fields = InGameSettings {
+			shadows: InGameShadowQuality::Low,
+			mob_hud: true,
+			visual_style: InGameVisualStyle::Native,
+		}
+		.persisted_fields();
 		assert_eq!(fields.get("shadows"), Some(&serde_json::json!("low")));
+		assert_eq!(fields.get("visual_style"), Some(&serde_json::json!("native")));
 		assert!(!fields.contains_key("mob_hud"));
-		assert_eq!(fields.len(), 1);
+		assert_eq!(fields.len(), 2);
+	}
+
+	#[test]
+	fn visual_style_defaults_to_native() {
+		assert_eq!(VisualStylePref::device_default(DeviceClass::Modest), InGameVisualStyle::Native);
+		assert_eq!(
+			InGameSettings::from_device(DeviceClass::Modest).visual_style,
+			InGameVisualStyle::Native
+		);
+	}
+
+	#[test]
+	fn visual_style_choice_is_saved_for_explicit_keys_only() {
+		use std::collections::BTreeMap;
+
+		let empty = BTreeMap::new();
+		assert!(!visual_style_choice_is_saved(&empty));
+
+		let mut fields = BTreeMap::new();
+		fields.insert("render_scale".into(), serde_json::json!("auto"));
+		assert!(!visual_style_choice_is_saved(&fields));
+
+		fields.insert("render_scale".into(), serde_json::json!("75"));
+		assert!(visual_style_choice_is_saved(&fields));
+
+		fields.clear();
+		fields.insert("visual_style".into(), serde_json::json!("native"));
+		assert!(visual_style_choice_is_saved(&fields));
 	}
 }

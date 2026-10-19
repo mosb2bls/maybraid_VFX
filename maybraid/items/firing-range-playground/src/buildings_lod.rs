@@ -2,8 +2,8 @@
 
 use bevy::prelude::*;
 use building_components::{
-	ComponentsOnly, DoorNode, FloorNode, FurnitureNode, JointNode, LabelNode, PanelNode,
-	PartitionNode, RoofNode, StairNode,
+	BuildingStructuralLodPlugin, ComponentsOnly, DoorNode, FloorNode, FurnitureNode, JointNode,
+	LabelNode, PanelNode, PartitionNode, RoofNode, StairNode,
 };
 use buildings::{ConnectingStairwell, MixedUseLesHallesStorey, PitchedRoof};
 use lod::{
@@ -55,6 +55,9 @@ impl Plugin for FiringRangeBuildingsLodPlugin {
 		register_motor_traction_physics(app);
 		if !app.is_plugin_added::<LodRefreshCorePlugin>() {
 			app.add_plugins(LodRefreshCorePlugin);
+		}
+		if !app.is_plugin_added::<BuildingStructuralLodPlugin>() {
+			app.add_plugins(BuildingStructuralLodPlugin);
 		}
 
 		app.insert_resource(Bullseye { inner: 80.0, outer: 500.0 })

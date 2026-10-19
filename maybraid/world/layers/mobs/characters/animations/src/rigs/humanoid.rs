@@ -6,6 +6,8 @@ pub mod idle;
 pub mod jab;
 pub mod land;
 pub mod leap;
+pub mod power_dash;
+pub mod power_strafe;
 pub mod prone;
 pub mod run;
 pub mod soaring;

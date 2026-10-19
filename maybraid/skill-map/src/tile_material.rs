@@ -38,27 +38,45 @@ pub struct SkillMapTileMaterial {
 	pub params: TileParams,
 }
 
+impl SkillKind {
+	fn land_tile_shader(self) -> f32 {
+		match self {
+			Self::Fireball => TILE_KIND_LAND,
+			Self::Dumbwave => TILE_KIND_LAND_WAVE,
+			Self::Rockadder => TILE_KIND_LAND_ROCK,
+			Self::Cosimo => TILE_KIND_LAND_COSMO,
+		}
+	}
+
+	fn power_tile_shader(self) -> f32 {
+		match self {
+			Self::Fireball => TILE_KIND_FIRE,
+			Self::Dumbwave => TILE_KIND_WAVE,
+			Self::Rockadder => TILE_KIND_ROCK,
+			Self::Cosimo => TILE_KIND_COSMO,
+		}
+	}
+}
+
 impl SkillMapTileMaterial {
 	pub fn for_kind(kind: TileKind, seed: u32) -> Self {
-		let (tint, code) = match kind {
-			TileKind::Land => (Vec4::ONE, TILE_KIND_LAND),
-			TileKind::Water => (Vec4::ONE, TILE_KIND_WATER),
-			TileKind::Power(SkillKind::Fireball) => (Vec4::ONE, TILE_KIND_FIRE),
-			TileKind::Power(SkillKind::Dumbwave) => (Vec4::ONE, TILE_KIND_WAVE),
-			TileKind::Power(SkillKind::Rockadder) => (Vec4::ONE, TILE_KIND_ROCK),
-			TileKind::Power(SkillKind::Cosimo) => (Vec4::ONE, TILE_KIND_COSMO),
+		let code = match kind {
+			TileKind::Land => TILE_KIND_LAND,
+			TileKind::Water => TILE_KIND_WATER,
+			TileKind::Power(skill) => skill.power_tile_shader(),
 		};
-		Self { params: TileParams { tint, style: Vec4::new(code, 1.0, seed as f32, 0.0) } }
+		Self {
+			params: TileParams { tint: Vec4::ONE, style: Vec4::new(code, 1.0, seed as f32, 0.0) },
+		}
 	}
 
 	pub fn land(map: SkillKind) -> Self {
-		let code = match map {
-			SkillKind::Fireball => TILE_KIND_LAND,
-			SkillKind::Dumbwave => TILE_KIND_LAND_WAVE,
-			SkillKind::Rockadder => TILE_KIND_LAND_ROCK,
-			SkillKind::Cosimo => TILE_KIND_LAND_COSMO,
-		};
-		Self { params: TileParams { tint: Vec4::ONE, style: Vec4::new(code, 1.0, 1.0, 0.0) } }
+		Self {
+			params: TileParams {
+				tint: Vec4::ONE,
+				style: Vec4::new(map.land_tile_shader(), 1.0, 1.0, 0.0),
+			},
+		}
 	}
 
 	pub fn cursor() -> Self {
@@ -110,17 +128,27 @@ pub struct SkillMapTileAssets {
 impl SkillMapTileAssets {
 	pub fn material(&self, kind: TileKind, map: SkillKind) -> Handle<SkillMapTileMaterial> {
 		match kind {
-			TileKind::Land => match map {
-				SkillKind::Fireball => self.land_fire.clone(),
-				SkillKind::Dumbwave => self.land_wave.clone(),
-				SkillKind::Rockadder => self.land_rock.clone(),
-				SkillKind::Cosimo => self.land_cosmo.clone(),
-			},
+			TileKind::Land => self.land_material(map).clone(),
 			TileKind::Water => self.water.clone(),
-			TileKind::Power(SkillKind::Fireball) => self.fireball.clone(),
-			TileKind::Power(SkillKind::Dumbwave) => self.dumbwave.clone(),
-			TileKind::Power(SkillKind::Rockadder) => self.rockadder.clone(),
-			TileKind::Power(SkillKind::Cosimo) => self.cosimo.clone(),
+			TileKind::Power(skill) => self.power_material(skill).clone(),
+		}
+	}
+
+	fn land_material(&self, kind: SkillKind) -> &Handle<SkillMapTileMaterial> {
+		match kind {
+			SkillKind::Fireball => &self.land_fire,
+			SkillKind::Dumbwave => &self.land_wave,
+			SkillKind::Rockadder => &self.land_rock,
+			SkillKind::Cosimo => &self.land_cosmo,
+		}
+	}
+
+	fn power_material(&self, kind: SkillKind) -> &Handle<SkillMapTileMaterial> {
+		match kind {
+			SkillKind::Fireball => &self.fireball,
+			SkillKind::Dumbwave => &self.dumbwave,
+			SkillKind::Rockadder => &self.rockadder,
+			SkillKind::Cosimo => &self.cosimo,
 		}
 	}
 }

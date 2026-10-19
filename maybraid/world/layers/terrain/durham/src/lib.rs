@@ -7,13 +7,15 @@ pub mod hcsg;
 pub mod terrain;
 pub mod water;
 
+#[cfg(any(test))]
+pub use hcsg::SharedTerrainStorageTestExt;
 pub use hcsg::{
 	register_durham_hcsg_session, BackgroundStream, DurhamPresentationPlugin, DurhamSurface,
 	DurhamWindow, DurhamWorldPlugin, FarStream, NearStream, PlayableStreams, SharedTerrainStorage,
 	StreamPresentationPlugin, StreamRing, Streamed, TerrainStream, WaterPresentationPlugin,
 };
-/// Durham's nodes live in the shared HCSG storage; read them through [`SharedTerrainStorage`].
-pub use lod::hcsg::HcsgStorage;
+/// Frame-side terrain reads use [`SharedTerrainStorage`]; storage itself is
+/// [`lod::hcsg::HcsgStorage`].
 pub use terrain::render::cascade_chunk_for_cell;
 pub use terrain::{
 	fine_patch_cell_layout, mesh_assets, playable_world_cell_layout, register_terrain_plugin,
@@ -27,11 +29,11 @@ pub use terrain::{
 	PocketWaterHighPassControllerLayout, PocketWaterLowPassControllerLayout, PocketWaterStampCell,
 	PrePocketHighPassLayout, PrePocketLowPassLayout, PreWatershedTerrain,
 	RollingHighPassControllerLayout, RollingLowPassControllerLayout, RollingStampCell,
-	StreamBandedLod, Terrain, TerrainCellLayout, TerrainCellRing, TerrainColliderMeshSource,
-	TerrainColliderSystems, TerrainConfig, TerrainCoverage, TerrainFrictionConfig,
-	TerrainHeightSnapshot, TerrainLayoutPinned, TerrainMeshAssets, TerrainMeshBuilder,
-	TerrainMeshLodBand, TerrainPresentPending, TerrainPresentationDirty, TerrainRenderItem,
-	TerrainResourcesPlugin, TerrainRetarget, TerrainSdf, TerrainStampConfigs,
+	StreamBandedLod, Terrain, TerrainCellLayout, TerrainCellRing, TerrainColliderCookBudget,
+	TerrainColliderMeshSource, TerrainColliderSystems, TerrainConfig, TerrainCoverage,
+	TerrainFrictionConfig, TerrainHeightSnapshot, TerrainLayoutPinned, TerrainMeshAssets,
+	TerrainMeshBuilder, TerrainMeshLodBand, TerrainPresentPending, TerrainPresentationDirty,
+	TerrainRenderItem, TerrainResourcesPlugin, TerrainRetarget, TerrainSdf, TerrainStampConfigs,
 	TerrainTrimeshCollider, ValleyHighPassControllerLayout, ValleyLowPassControllerLayout,
 	ValleyStampCell, WaterSurfaceSnapshot, WatershedBandPass, WatershedConfigs,
 	WatershedLeafBounds, WatershedLeafKind, WorldBaseTerrain, MACRO_CELL_SIZE, TERRAIN_CELL_SIZE,

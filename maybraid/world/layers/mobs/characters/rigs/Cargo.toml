@@ -16,5 +16,8 @@ game-commands = { workspace = true }
 log = { workspace = true }
 rigs = { workspace = true }
 
+[dev-dependencies]
+anyhow = { workspace = true }
+
 [lints]
 workspace = true

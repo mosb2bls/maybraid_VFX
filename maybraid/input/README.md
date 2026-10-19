@@ -17,25 +17,34 @@ event. Chords are queries. Text / IME stays on Bevy `KeyboardInput`.
 
 | Field | Source |
 |---|---|
-| `move_stick` | Left stick, WASD / arrows |
+| `move_stick` | Left stick, WASD / arrows (gameplay map) |
 | `look_stick` | Right stick (camera-space) + mouse delta |
 | `trigger_focus` / `trigger_fire` | LT / RT, digital after threshold |
 | `dpad` | Hat + arrow keys |
 | `buttons` | Xbox-letter face (`South` → A) |
 | `keys` | Full physical `KeyCode` overlay |
 
-Default keyboard faces: Space → A, Shift → L3 (sprint), Escape → B (menu Back;
-character tap squat / hold prone when no menu is focused), Enter → Start,
-Tab → Select, C → left bumper (iron ADS), E / X → X (interact).
+Default keyboard faces (gameplay map): Space → A, Shift → L3 (sprint), Escape → B
+(menu Back; character tap squat / hold prone when no menu is focused). **B** is
+not a Back key — it types. Enter → Start, Tab → Select, C → left bumper
+(iron ADS), E / X → X (interact). WASD walks; arrows walk and also feed the
+D-Pad.
+
+While a menu is focused or a text modal is open, [`KeyboardPadMap::Menu`] maps
+only arrows (D-Pad), Escape (Back), and Enter (Start) so letter keys can type.
+Gamepad left stick still navigates menus.
 
 Gameplay systems should read sticks / buttons. `keys` is the escape hatch
-(`/`, F1, chords). Set [`PadGameplayEnabled`] to `false` while text is focused
-so analog and pad buttons clear; the key overlay remains.
+(`/`, F1, chords). [`PadGameplayEnabled`] has separate text and menu lanes;
+hosts write one lane each. The pad is off only when a lane suppresses it. The
+key overlay remains.
 
 ## Schedule
 
 `VirtualPadSystems::Produce` (after Bevy `InputSystems`) then `Derive`, both
-in `PreUpdate`. Consumers run in `Update`.
+in `PreUpdate`. Consumers run in `Update`. An optional [`PadOverlay`] resource
+is applied after HID producers and before `finish_produce`. Insert it only when
+an injector (the agent plugin) is active; missing overlay is a no-op.
 
 Set [`VirtualPadConfig::debug_overlay`] to dump raw `Gamepad` sticks/buttons
 and the virtual pad onto the screen (menu playground enables this). Menu
@@ -46,6 +55,11 @@ On macOS / iOS, chain `.with_pad_hid()` on `DefaultPlugins` so gilrs is not
 started. `VirtualPadPlugin` then polls Apple’s GameController framework into
 Bevy `Gamepad`. Xbox pads on macOS are claimed by that driver; IOKit (gilrs)
 can connect them without delivering reports. Linux and Windows keep gilrs.
+
+Apple GameController and Core Haptics objects are main-thread-only. The
+`hid/gamecontroller.rs` backend stores them in thread-local storage and marks
+its poll / rumble / init systems with Bevy `NonSendMarker` so the multithreaded
+executor keeps them on the main thread.
 
 ## Rumble
 

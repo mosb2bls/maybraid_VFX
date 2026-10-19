@@ -33,11 +33,13 @@ use crate::english::{
 	named_forest_english, named_geographic_english, named_grove_english, named_place_english,
 	named_region_english, named_urban_english,
 };
-use crate::hcsg::{generated, LanguageWorldSeed};
+use crate::hcsg::LanguageWorldSeed;
 use crate::key::{name_key_salt, NameKey};
 use crate::name::PlaceName;
 use crate::places::{DevelopmentPlaces, LanguageGround};
-use crate::tiles::{large_tile_aabb, large_tile_index, large_tiles_overlapping, LargeTile};
+use crate::tiles::{
+	large_tile_aabb, large_tile_index, large_tile_original_ids_overlapping, LargeTile,
+};
 
 /// A place's footprint on the map, around its anchor.
 const PLACE_EXTENT: f32 = 12.0;
@@ -170,9 +172,7 @@ impl NameSource for Regions {
 	const INDEX_SCALE: DVec3 = crate::hcsg::TILE_INDEX_SCALE;
 
 	fn original_ids_for(_cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
-		large_tiles_overlapping(region)
-			.map(|(ix, iz)| OriginalId(LargeTile::id(ix, iz)))
-			.collect()
+		large_tile_original_ids_overlapping(region)
 	}
 
 	fn nameables(cx: &mut GenerationContext, id: Id) -> Option<(Vec<Nameable>, Aabb3d)> {
@@ -198,7 +198,7 @@ impl NameSource for Forests {
 	}
 
 	fn nameables(cx: &mut GenerationContext, id: Id) -> Option<(Vec<Nameable>, Aabb3d)> {
-		let (forest, bounds) = generated::<ChicoForest>(cx, id)?;
+		let (forest, bounds) = cx.get_or_generate_stored::<ChicoForest>(id)?;
 		let layers = &forest.layers;
 		let kinds = [layers.tufts, layers.understory, layers.lower_canopy, layers.upper_canopy];
 		let key = NameKey::Forest(id);
@@ -219,7 +219,7 @@ impl<W: LanguageGround> NameSource for Groves<W> {
 	}
 
 	fn nameables(cx: &mut GenerationContext, id: Id) -> Option<(Vec<Nameable>, Aabb3d)> {
-		let (grove, bounds) = generated::<ChicoGrove>(cx, id)?;
+		let (grove, bounds) = cx.get_or_generate_stored::<ChicoGrove>(id)?;
 		if cx.get_or_generate::<GrownGrove<W>>(id).is_none() {
 			return Some((Vec::new(), bounds));
 		}
@@ -241,7 +241,7 @@ impl NameSource for Urban {
 	}
 
 	fn nameables(cx: &mut GenerationContext, id: Id) -> Option<(Vec<Nameable>, Aabb3d)> {
-		let (cell, bounds) = generated::<SelectedUrbanization>(cx, id)?;
+		let (cell, bounds) = cx.get_or_generate_stored::<SelectedUrbanization>(id)?;
 		let key = NameKey::Urban(id);
 		let mut out =
 			vec![feature(key, bounds, named_urban_english(cell.kind, None, name_key_salt(key)))];
@@ -266,7 +266,7 @@ impl<W: LanguageGround> NameSource for Places<W> {
 	}
 
 	fn nameables(cx: &mut GenerationContext, id: Id) -> Option<(Vec<Nameable>, Aabb3d)> {
-		let (places, bounds) = generated::<DevelopmentPlaces<W>>(cx, id)?;
+		let (places, bounds) = cx.get_or_generate_stored::<DevelopmentPlaces<W>>(id)?;
 		let nameables = places
 			.places
 			.iter()
@@ -327,7 +327,7 @@ impl<T: GeographicStamp> NameSource for Stamp<T> {
 	}
 
 	fn nameables(cx: &mut GenerationContext, id: Id) -> Option<(Vec<Nameable>, Aabb3d)> {
-		let (stamp, bounds) = generated::<T>(cx, id)?;
+		let (stamp, bounds) = cx.get_or_generate_stored::<T>(id)?;
 		if stamp.modulations().is_empty() {
 			return Some((Vec::new(), bounds));
 		}
@@ -369,7 +369,7 @@ impl<T: AuthoredWaters> NameSource for Waters<T> {
 	}
 
 	fn nameables(cx: &mut GenerationContext, id: Id) -> Option<(Vec<Nameable>, Aabb3d)> {
-		let (waters, bounds) = generated::<T>(cx, id)?;
+		let (waters, bounds) = cx.get_or_generate_stored::<T>(id)?;
 		let (kind, source) = match waters.authored() {
 			PocketWater::Empty => return Some((Vec::new(), bounds)),
 			PocketWater::Lake(lake) => (GeographicFeatureKind::Lake, lake.bounds),

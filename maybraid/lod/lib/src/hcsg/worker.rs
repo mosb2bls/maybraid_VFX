@@ -26,13 +26,13 @@ use super::storage::HcsgStorage;
 /// stored values by reach. Dropping the worker shuts the thread down and
 /// joins it.
 #[derive(Resource)]
-pub struct HcsgWorker {
+pub(crate) struct HcsgWorker {
 	demand: HcsgDemand,
 	thread: Option<JoinHandle<()>>,
 }
 
 impl HcsgWorker {
-	pub fn spawn(storage: HcsgStorage, demand: HcsgDemand) -> std::io::Result<Self> {
+	pub(crate) fn spawn(storage: HcsgStorage, demand: HcsgDemand) -> std::io::Result<Self> {
 		let thread = thread::Builder::new().name("hcsg-worker".into()).spawn({
 			let demand = demand.clone();
 			move || run(&storage, &demand)
@@ -58,14 +58,13 @@ fn run(storage: &HcsgStorage, demand: &HcsgDemand) {
 			WorkerWait::Job(job) => {
 				let id = job.id;
 				let reach = job.reach.clone();
-				let progress =
-					panic::catch_unwind(AssertUnwindSafe(|| fill_quantum(storage, job)))
-						.unwrap_or_else(|_| {
-							error!(
-								"hcsg worker: generation panicked; subscription {id:?} left partial"
-							);
-							QuantumProgress { done: true, ..QuantumProgress::default() }
-						});
+				let progress = panic::catch_unwind(AssertUnwindSafe(|| fill_quantum(storage, job)))
+					.unwrap_or_else(|_| {
+						error!(
+							"hcsg worker: generation panicked; subscription {id:?} left partial"
+						);
+						QuantumProgress { done: true, ..QuantumProgress::default() }
+					});
 				demand.finish_quantum(id, progress, Some(reach));
 			}
 		}

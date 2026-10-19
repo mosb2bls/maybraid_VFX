@@ -1,7 +1,7 @@
 //! [`GenerationScheme`]s and the [`GenerationContext`] they generate through.
 
 use std::any::TypeId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use bevy::math::bounding::Aabb3d;
@@ -9,7 +9,8 @@ use bevy::math::DVec3;
 
 use crate::gen::{Id, OriginalId};
 
-use super::node_store::{StoredEntry, DEFAULT_BASE_SCALE};
+use super::node_store::DEFAULT_BASE_SCALE;
+use super::storage::store::{ErasedStore, TypedStore};
 use super::storage::{HcsgStorage, HcsgValue};
 
 /// How one generated type is discovered and built.
@@ -36,6 +37,8 @@ pub trait GenerationScheme: HcsgValue + Sized {
 /// after its store is released, and recursion never holds a lock.
 pub struct GenerationContext<'a> {
 	storage: &'a HcsgStorage,
+	/// Resolved typed stores for this fill, avoiding registry reads on every lookup.
+	stores: HashMap<TypeId, Arc<dyn ErasedStore>>,
 	/// `(TypeId, Id)` pairs being built on this stack; a repeat is a cycle.
 	generating: HashSet<(TypeId, Id)>,
 	/// Types this fill read, hit or miss. The worker unions this into the
@@ -55,18 +58,12 @@ impl<'a> GenerationContext<'a> {
 	pub fn with_stale(storage: &'a HcsgStorage, stale: &'a (dyn Fn() -> bool + 'a)) -> Self {
 		Self {
 			storage,
+			stores: HashMap::new(),
 			generating: HashSet::new(),
 			reached: HashSet::new(),
 			nested_depth: 0,
 			stale,
 		}
-	}
-
-	/// Crate-only escape hatch. Schemes must read through `get` / `entry` so
-	/// reach is recorded.
-	#[allow(dead_code)]
-	pub(crate) fn storage(&self) -> &HcsgStorage {
-		self.storage
 	}
 
 	pub fn is_stale(&self) -> bool {
@@ -77,29 +74,38 @@ impl<'a> GenerationContext<'a> {
 		self.reached.insert(TypeId::of::<T>());
 	}
 
+	fn typed_store<T: HcsgValue>(&mut self) -> Option<Arc<TypedStore<T>>> {
+		let type_id = TypeId::of::<T>();
+		if let Some(store) = self.stores.get(&type_id) {
+			return store.clone().into_any().downcast::<TypedStore<T>>().ok();
+		}
+		let store = self.storage.store::<T>()?;
+		self.stores.insert(type_id, store.clone());
+		Some(store)
+	}
+
+	fn stored<T: HcsgValue>(&mut self, id: Id) -> Option<Arc<T>> {
+		let store = self.typed_store::<T>()?;
+		let nodes = store.read();
+		nodes.value(id).cloned()
+	}
+
 	/// Types this context read since it was created.
 	pub(super) fn take_reached(&mut self) -> HashSet<TypeId> {
 		std::mem::take(&mut self.reached)
 	}
 
-	/// Bounds of a value already stored for `id`.
-	pub fn stored_bounds<T: HcsgValue>(&self, id: Id) -> Option<Aabb3d> {
-		self.storage.entry::<T>(id).map(|entry| entry.bounds)
+	/// Bounds of a value already stored for `id`, recording `T` on this fill's reach.
+	pub fn stored_bounds<T: HcsgValue>(&mut self, id: Id) -> Option<Aabb3d> {
+		self.touch::<T>();
+		let store = self.typed_store::<T>()?;
+		let nodes = store.read();
+		nodes.entry(id).map(|entry| entry.bounds)
 	}
 
 	pub fn get<T: HcsgValue>(&mut self, id: Id) -> Option<Arc<T>> {
 		self.touch::<T>();
-		self.storage.get(id)
-	}
-
-	/// The stored entry, recording `T` on this fill's reach.
-	pub fn entry<T: HcsgValue>(&mut self, id: Id) -> Option<StoredEntry<Arc<T>>> {
-		self.touch::<T>();
-		self.storage.entry(id)
-	}
-
-	pub fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
-		self.storage.overlapping::<T>(region)
+		self.stored::<T>(id)
 	}
 
 	pub fn original_ids_for<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<OriginalId> {
@@ -111,9 +117,23 @@ impl<'a> GenerationContext<'a> {
 	/// once stale.
 	pub fn get_or_generate<T: GenerationScheme>(&mut self, id: Id) -> Option<Arc<T>> {
 		self.touch::<T>();
-		if let Some(value) = self.storage.get::<T>(id) {
+		if let Some(value) = self.stored::<T>(id) {
 			return Some(value);
 		}
+		self.generate_missing::<T>(id)
+	}
+
+	/// Worker path: one store lookup on cache hits, no redundant miss check.
+	pub(in crate::hcsg) fn generate_cached<T: GenerationScheme>(&mut self, id: Id) -> bool {
+		self.touch::<T>();
+		if self.stored::<T>(id).is_some() {
+			return true;
+		}
+		self.generate_missing::<T>(id).is_some()
+	}
+
+	/// Builds and publishes `id` when it is not already stored.
+	fn generate_missing<T: GenerationScheme>(&mut self, id: Id) -> Option<Arc<T>> {
 		let key = (TypeId::of::<T>(), id);
 		if self.is_stale() || !self.generating.insert(key) {
 			return None;
@@ -132,12 +152,36 @@ impl<'a> GenerationContext<'a> {
 		Some(value)
 	}
 
+	/// The stored value for `id` and its published bounds after generate.
+	pub fn get_or_generate_stored<T: GenerationScheme>(
+		&mut self,
+		id: Id,
+	) -> Option<(Arc<T>, Aabb3d)> {
+		let value = self.get_or_generate::<T>(id)?;
+		let bounds = self.stored_bounds::<T>(id)?;
+		Some((value, bounds))
+	}
+
 	/// Every `T` originating in `region` that exists, in id order.
 	pub fn get_or_generate_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<Arc<T>> {
 		self.sorted_ids_for::<T>(region)
 			.into_iter()
 			.filter_map(|id| self.get_or_generate::<T>(id))
 			.collect()
+	}
+
+	/// Like [`get_or_generate_in`], but sorted narrowest `footprint` first.
+	///
+	/// Overlapping cells at different resolutions sample correctly when the
+	/// finest cell covering a point should win.
+	pub fn get_or_generate_in_finest_first<T: GenerationScheme>(
+		&mut self,
+		region: Aabb3d,
+		footprint: impl Fn(&T) -> Aabb3d,
+	) -> Vec<Arc<T>> {
+		let mut cells = self.get_or_generate_in::<T>(region);
+		cells.sort_by(|a, b| aabb3_span_x(footprint(a)).total_cmp(&aabb3_span_x(footprint(b))));
+		cells
 	}
 
 	/// Every `T` originating in `region`, in id order; `None` if one of them
@@ -162,4 +206,8 @@ impl<'a> GenerationContext<'a> {
 		ids.dedup();
 		ids
 	}
+}
+
+fn aabb3_span_x(bounds: Aabb3d) -> f32 {
+	bounds.max.x - bounds.min.x
 }

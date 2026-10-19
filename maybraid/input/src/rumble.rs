@@ -12,6 +12,8 @@ use bevy::prelude::*;
 pub struct PadRumble {
 	pub duration: Duration,
 	pub intensity: GamepadRumbleIntensity,
+	/// Wait this long on the pad clock before starting the motors.
+	pub delay: Duration,
 }
 
 impl PadRumble {
@@ -22,13 +24,49 @@ impl PadRumble {
 				weak_motor: weak.clamp(0.0, 1.0),
 				strong_motor: strong.clamp(0.0, 1.0),
 			},
+			delay: Duration::ZERO,
 		}
+	}
+
+	pub fn after(mut self, delay: Duration) -> Self {
+		self.delay = delay;
+		self
 	}
 
 	pub fn is_silent(self) -> bool {
 		self.duration.is_zero()
 			|| (self.intensity.weak_motor <= 0.0 && self.intensity.strong_motor <= 0.0)
 	}
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct DelayedPadRumble {
+	waiting: Vec<DelayedPulse>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct DelayedPulse {
+	remaining: f32,
+	pulse: PadRumble,
+}
+
+/// Pulses whose delay has elapsed, oldest first. `dt` is not applied to a
+/// brand-new zero-delay pulse so it can fan out on the same tick it arrives.
+pub(crate) fn take_due_rumbles(waiting: &mut Vec<DelayedPulse>, dt: f32) -> Vec<PadRumble> {
+	let mut due = Vec::new();
+	waiting.retain_mut(|item| {
+		if item.remaining <= 1e-4 {
+			due.push(item.pulse);
+			return false;
+		}
+		item.remaining -= dt;
+		if item.remaining <= 1e-4 {
+			due.push(item.pulse);
+			return false;
+		}
+		true
+	});
+	due
 }
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -38,7 +76,9 @@ pub enum PadRumbleSystems {
 }
 
 pub(crate) fn fan_out_pad_rumble(
+	time: Res<Time>,
 	mut pulses: MessageReader<PadRumble>,
+	mut delayed: ResMut<DelayedPadRumble>,
 	pads: Query<Entity, With<Gamepad>>,
 	mut rumble: MessageWriter<GamepadRumbleRequest>,
 ) {
@@ -47,21 +87,31 @@ pub(crate) fn fan_out_pad_rumble(
 			debug!("pad_rumble: skipped silent pulse");
 			continue;
 		}
-		let n = pads.iter().count();
-		if n == 0 {
-			debug!(
-				"pad_rumble: fan_out had pulse ({:?} weak={:.2} strong={:.2}) but 0 Gamepad entities",
-				pulse.duration, pulse.intensity.weak_motor, pulse.intensity.strong_motor
-			);
-			continue;
-		}
+		delayed
+			.waiting
+			.push(DelayedPulse { remaining: pulse.delay.as_secs_f32(), pulse: *pulse });
+	}
+	let due = take_due_rumbles(&mut delayed.waiting, time.delta_secs());
+	if due.is_empty() {
+		return;
+	}
+	let pads: Vec<Entity> = pads.iter().collect();
+	if pads.is_empty() {
+		debug!("pad_rumble: fan_out had {} pulse(s) but 0 Gamepad entities", due.len());
+		return;
+	}
+	for pulse in due {
 		debug!(
-			"pad_rumble: fan_out pads={n} duration={:?} weak={:.2} strong={:.2}",
-			pulse.duration, pulse.intensity.weak_motor, pulse.intensity.strong_motor
+			"pad_rumble: fan_out pads={} duration={:?} delay={:?} weak={:.2} strong={:.2}",
+			pads.len(),
+			pulse.duration,
+			pulse.delay,
+			pulse.intensity.weak_motor,
+			pulse.intensity.strong_motor
 		);
 		for gamepad in &pads {
 			rumble.write(GamepadRumbleRequest::Add {
-				gamepad,
+				gamepad: *gamepad,
 				duration: pulse.duration,
 				intensity: pulse.intensity,
 			});
@@ -91,6 +141,7 @@ mod tests {
 	fn fan_out_copies_onto_each_gamepad() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
+			.init_resource::<DelayedPadRumble>()
 			.add_message::<PadRumble>()
 			.add_message::<GamepadRumbleRequest>()
 			.add_systems(Update, fan_out_pad_rumble);
@@ -121,6 +172,7 @@ mod tests {
 	fn silent_pulse_does_not_fan_out() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
+			.init_resource::<DelayedPadRumble>()
 			.add_message::<PadRumble>()
 			.add_message::<GamepadRumbleRequest>()
 			.add_systems(Update, fan_out_pad_rumble);
@@ -138,6 +190,7 @@ mod tests {
 	fn no_gamepad_means_no_rumble() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
+			.init_resource::<DelayedPadRumble>()
 			.add_message::<PadRumble>()
 			.add_message::<GamepadRumbleRequest>()
 			.add_systems(Update, fan_out_pad_rumble);
@@ -148,5 +201,24 @@ mod tests {
 		let messages = app.world().resource::<Messages<GamepadRumbleRequest>>();
 		let mut cursor = messages.get_cursor();
 		assert_eq!(cursor.read(messages).count(), 0);
+	}
+
+	#[test]
+	fn zero_delay_is_due_immediately() {
+		let pulse = PadRumble::motors(Duration::from_millis(40), 0.3, 0.1);
+		let mut waiting = vec![DelayedPulse { remaining: 0.0, pulse }];
+		let due = take_due_rumbles(&mut waiting, 0.016);
+		assert_eq!(due, vec![pulse]);
+		assert!(waiting.is_empty());
+	}
+
+	#[test]
+	fn delayed_pulse_waits_out_the_clock() {
+		let pulse =
+			PadRumble::motors(Duration::from_millis(40), 0.3, 0.1).after(Duration::from_millis(40));
+		let mut waiting = vec![DelayedPulse { remaining: 0.04, pulse }];
+		assert!(take_due_rumbles(&mut waiting, 0.016).is_empty());
+		assert!(take_due_rumbles(&mut waiting, 0.016).is_empty());
+		assert_eq!(take_due_rumbles(&mut waiting, 0.016), vec![pulse]);
 	}
 }

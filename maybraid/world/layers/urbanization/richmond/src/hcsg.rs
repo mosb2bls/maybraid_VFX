@@ -119,10 +119,13 @@ mod tests {
 		TerrainColliderMeshSource, TerrainConfig, TerrainMeshAssets, TerrainMeshLodBand,
 		TerrainStampConfigs, WaterMeshAssets, WaterPresentationPlugin, WatershedConfigs,
 	};
-	use lod::gen::{Id, OriginalId, Version};
-	use lod::hcsg::{HcsgDemand, HcsgNode, HcsgRestartRequest, HcsgValue};
+	use lod::gen::{Id, OriginalId};
+	use lod::hcsg::{
+		hcsg_hosts, settle_presentation, wait_replaced_hosts, HcsgDemand, HcsgRestartRequest,
+		SettlePresentation, SettleTimedOut,
+	};
 	use lod::lod_ref::LodNodePose;
-	use lod::LodViewer;
+	use lod::{LodChunkFulfillment, LodLevelSpawnRequest, LodViewer};
 	use terrain_layer_model::OnTerrain;
 	use urbanization_layer_model::UrbanSetting;
 
@@ -193,28 +196,8 @@ mod tests {
 		app
 	}
 
-	/// Restart and subscribe, let the worker finish, then spawn and fulfill hosts.
 	fn settle(app: &mut App) -> anyhow::Result<()> {
-		for _ in 0..2 {
-			app.update();
-			let demand = app.world().resource::<HcsgDemand>().clone();
-			anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-		}
-		for _ in 0..8 {
-			app.update();
-		}
-		Ok(())
-	}
-
-	fn hosts<T: HcsgValue>(app: &mut App) -> Vec<(Id, Version)> {
-		let mut hosts: Vec<_> = app
-			.world_mut()
-			.query::<&HcsgNode<T>>()
-			.iter(app.world())
-			.map(|node| (node.id, node.version))
-			.collect();
-		hosts.sort();
-		hosts
+		settle_presentation(app, SettlePresentation::layer_integration(IDLE)).map_err(Into::into)
 	}
 
 	fn count<C: Component>(app: &mut App) -> usize {
@@ -260,10 +243,12 @@ mod tests {
 			.map(|OriginalId(id)| id)
 			.collect();
 		cells.sort();
-		let padded: Vec<Id> =
-			hosts::<PaddedTerrain<Ground>>(&mut app).into_iter().map(|(id, _)| id).collect();
+		let padded: Vec<Id> = hcsg_hosts::<PaddedTerrain<Ground>>(&mut app)
+			.into_iter()
+			.map(|(id, _)| id)
+			.collect();
 		assert_eq!(padded, cells, "one padded host per ground cell, padded or not");
-		assert!(hosts::<Terrain>(&mut app).is_empty(), "raw ground is never presented");
+		assert!(hcsg_hosts::<Terrain>(&mut app).is_empty(), "raw ground is never presented");
 		assert_eq!(count::<TerrainColliderMeshSource>(&mut app), cells.len());
 		assert!((pad_height(&app)? - 12.0).abs() < 1e-3, "the pad flattens to its terrace");
 		Ok(())
@@ -276,7 +261,7 @@ mod tests {
 
 		let id = authored(12.0).id();
 		let built: Vec<Id> =
-			hosts::<Built<Ground>>(&mut app).into_iter().map(|(id, _)| id).collect();
+			hcsg_hosts::<Built<Ground>>(&mut app).into_iter().map(|(id, _)| id).collect();
 		assert_eq!(built, vec![id]);
 		let settings: Vec<UrbanSetting> = app
 			.world_mut()
@@ -286,24 +271,73 @@ mod tests {
 			.collect();
 		assert_eq!(settings.len(), 1);
 		assert_eq!(settings[0].id, id);
+		wait_building_walk_colliders(&mut app, 64)?;
 		assert!(count::<BuildingWalkCollider>(&mut app) > 0, "buildings bear weight");
 		Ok(())
+	}
+
+	/// Building colliders attach after nested host scenes fulfill. Worker-idle
+	/// plus eight frames does not guarantee that under the shared 2 ms drain.
+	fn wait_building_walk_colliders(app: &mut App, max_frames: u32) -> anyhow::Result<()> {
+		for _ in 0..max_frames {
+			if count::<BuildingWalkCollider>(app) > 0 {
+				return Ok(());
+			}
+			app.update();
+			let demand = app.world().resource::<HcsgDemand>().clone();
+			if !demand.wait_idle(IDLE) {
+				return Err(SettleTimedOut { timeout: IDLE }.into());
+			}
+		}
+		let built = hcsg_hosts::<Built<Ground>>(app);
+		let mut states = Vec::new();
+		for (id, _) in &built {
+			let Some(host) = app
+				.world_mut()
+				.query_filtered::<(Entity, &lod::hcsg::HcsgNode<Built<Ground>>), Allow<Disabled>>()
+				.iter(app.world())
+				.find_map(|(entity, node)| (node.id == *id).then_some(entity))
+			else {
+				states.push(format!("{id:?} host missing"));
+				continue;
+			};
+			let spawn = app
+				.world()
+				.get::<LodLevelSpawnRequest>(host)
+				.map(|request| format!("{:?}", request.level));
+			let fulfillment = {
+				let mut jobs =
+					app.world_mut().query_filtered::<&LodChunkFulfillment, Allow<Disabled>>();
+				jobs.iter(app.world()).find(|job| job.host == host).map(|job| {
+					format!("spawned={}/{} queue={}", job.spawned, job.expected, job.queue.len())
+				})
+			};
+			states.push(format!(
+				"{id:?} spawn_request={spawn} fulfillment={fulfillment}",
+				spawn = spawn.as_deref().unwrap_or("none"),
+				fulfillment = fulfillment.as_deref().unwrap_or("none"),
+			));
+		}
+		panic!(
+			"buildings bear weight: missing BuildingWalkCollider after {max_frames} frames; {}",
+			states.join("; ")
+		);
 	}
 
 	#[test]
 	fn a_restart_replaces_padded_and_built_hosts() -> anyhow::Result<()> {
 		let mut app = app(12.0);
 		settle(&mut app)?;
-		let padded = hosts::<PaddedTerrain<Ground>>(&mut app);
-		let built = hosts::<Built<Ground>>(&mut app);
+		let padded = hcsg_hosts::<PaddedTerrain<Ground>>(&mut app);
+		let built = hcsg_hosts::<Built<Ground>>(&mut app);
 
 		seed_resources(&mut app, 20.0);
 		settle(&mut app)?;
+		let padded_after =
+			wait_replaced_hosts::<PaddedTerrain<Ground>>(&mut app, &padded, IDLE, 64)?;
+		let built_after = wait_replaced_hosts::<Built<Ground>>(&mut app, &built, IDLE, 64)?;
 
-		for (before, after) in [
-			(padded, hosts::<PaddedTerrain<Ground>>(&mut app)),
-			(built, hosts::<Built<Ground>>(&mut app)),
-		] {
+		for (before, after) in [(padded, padded_after), (built, built_after)] {
 			assert_eq!(after.len(), before.len());
 			for ((id, old), (new_id, new)) in before.iter().zip(&after) {
 				assert_eq!(id, new_id);

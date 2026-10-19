@@ -4,39 +4,7 @@
 //! the triple picks one word from each list so the same item always has the same
 //! name (`Celestial Red Tide Joggers`).
 
-use crate::{ClothingMaterial, ClothingMesh, FirearmSpec, ItemColor, SkillMapSpec};
-
-/// Material adjective, then color adjective, then clothing noun.
-pub fn hashed_item_name(
-	mesh: ClothingMesh,
-	material: ClothingMaterial,
-	color: ItemColor,
-) -> String {
-	let hash = mix(mix(mix(0xC0FF_EE42_D00D_A5E5, mesh.label()), material.label()), color.label());
-	format!(
-		"{} {} {}",
-		pick(material.adjectives(), hash),
-		pick(color.adjectives(), hash >> 17),
-		pick(mesh.nouns(), hash >> 33),
-	)
-}
-
-/// Material adjective, color adjective, then firearm noun.
-pub fn hashed_firearm_name(spec: FirearmSpec) -> String {
-	let hash = mix(0xA11A_4A45_F1A4_0001, &spec.identity_label());
-	format!(
-		"{} {} {}",
-		pick(spec.looks.body.material.adjectives(), hash),
-		pick(spec.looks.body.color.adjectives(), hash >> 17),
-		pick(spec.kit.body.nouns(), hash >> 33),
-	)
-}
-
-/// Adjective plus the authored kind so two seeds of the same map still differ.
-pub fn hashed_skill_map_name(spec: SkillMapSpec) -> String {
-	let hash = mix(0x5A11_5A1D_0000_0001, spec.kind.label()).wrapping_add(u64::from(spec.seed));
-	format!("{} {}", pick(spec.kind.adjectives(), hash), spec.kind.display_name())
-}
+use crate::{ClothingMaterial, ClothingMesh, FirearmSpec, GrenadeSpec, ItemColor, SkillMapSpec};
 
 pub(crate) fn mix(seed: u64, label: &str) -> u64 {
 	let mut hash = seed ^ 0x9E37_79B9_7F4A_7C15;
@@ -51,6 +19,18 @@ fn pick<'a>(words: &'a [&'a str], hash: u64) -> &'a str {
 }
 
 impl ClothingMesh {
+	/// Material adjective, then color adjective, then clothing noun.
+	pub fn hashed_name(self, material: ClothingMaterial, color: ItemColor) -> String {
+		let hash =
+			mix(mix(mix(0xC0FF_EE42_D00D_A5E5, self.label()), material.label()), color.label());
+		format!(
+			"{} {} {}",
+			pick(material.adjectives(), hash),
+			pick(color.adjectives(), hash >> 17),
+			pick(self.nouns(), hash >> 33),
+		)
+	}
+
 	/// Nouns a rolled item of this mesh may be called.
 	pub const fn nouns(self) -> &'static [&'static str] {
 		match self {
@@ -100,6 +80,35 @@ impl ClothingMaterial {
 	}
 }
 
+impl FirearmSpec {
+	/// Material adjective, color adjective, then firearm noun.
+	pub fn hashed_name(self) -> String {
+		let hash = mix(0xA11A_4A45_F1A4_0001, &self.identity_label());
+		format!(
+			"{} {} {}",
+			pick(self.looks.body.material.adjectives(), hash),
+			pick(self.looks.body.color.adjectives(), hash >> 17),
+			pick(self.kit.body.nouns(), hash >> 33),
+		)
+	}
+}
+
+impl GrenadeSpec {
+	/// Stable noun from the grenade mesh.
+	pub fn hashed_name(self) -> String {
+		let hash = mix(0x6E4A_DE00_F1A4_0001, self.mesh.label());
+		pick(self.mesh.nouns(), hash).to_string()
+	}
+}
+
+impl SkillMapSpec {
+	/// Adjective plus the authored kind so two seeds of the same map still differ.
+	pub fn hashed_name(self) -> String {
+		let hash = mix(0x5A11_5A1D_0000_0001, self.kind.label()).wrapping_add(u64::from(self.seed));
+		format!("{} {}", pick(self.kind.adjectives(), hash), self.kind.display_name())
+	}
+}
+
 impl ItemColor {
 	/// Adjectives a rolled item of this color may be called.
 	pub const fn adjectives(self) -> &'static [&'static str] {
@@ -133,16 +142,10 @@ mod tests {
 
 	#[test]
 	fn name_is_stable_for_a_triple() {
-		let a = hashed_item_name(
-			ClothingMesh::HaremPants,
-			ClothingMaterial::WizardsVeins,
-			ItemColor::Red,
-		);
-		let b = hashed_item_name(
-			ClothingMesh::HaremPants,
-			ClothingMaterial::WizardsVeins,
-			ItemColor::Red,
-		);
+		let a =
+			ClothingMesh::HaremPants.hashed_name(ClothingMaterial::WizardsVeins, ItemColor::Red);
+		let b =
+			ClothingMesh::HaremPants.hashed_name(ClothingMaterial::WizardsVeins, ItemColor::Red);
 		assert_eq!(a, b);
 		let material = ClothingMaterial::WizardsVeins.adjectives();
 		let color = ItemColor::Red.adjectives();
@@ -165,15 +168,19 @@ mod tests {
 		}
 		for mesh in FirearmMesh::VALUES {
 			assert!(!mesh.nouns().is_empty(), "{}", mesh.label());
-			let name = hashed_firearm_name(FirearmSpec::from_mesh(*mesh));
+			let name = FirearmSpec::from_mesh(*mesh).hashed_name();
 			assert!(name.contains(' '), "{name}");
 		}
 		for material in FirearmMaterial::VALUES {
 			assert!(!material.adjectives().is_empty(), "{}", material.label());
 		}
+		for mesh in crate::GrenadeMesh::VALUES {
+			assert!(!mesh.nouns().is_empty(), "{}", mesh.label());
+			assert!(!crate::GrenadeSpec { mesh: *mesh }.hashed_name().is_empty());
+		}
 		for kind in crate::SkillMapKind::VALUES {
 			assert!(!kind.adjectives().is_empty(), "{}", kind.label());
-			let name = hashed_skill_map_name(crate::SkillMapSpec::new(*kind, 7));
+			let name = crate::SkillMapSpec::new(*kind, 7).hashed_name();
 			assert!(name.contains(kind.display_name()), "{name}");
 			assert_ne!(kind.preview_srgb(), [1.0, 1.0, 1.0], "{}", kind.label());
 		}

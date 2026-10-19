@@ -35,6 +35,8 @@ use characters::{
 use damage::{DamageSystems, DespawnAfter, Downed};
 use firearm_user::{held_scale_from_bounds, FirearmUser, FirearmUserSettings, GeneratedFirearm};
 use firearms::{firearm_bounds, spawn_firearm_components};
+use grenade_user::{GrenadeThrow, GrenadeUser, GrenadeUserSystems};
+use grenades::{DropLiveGrenade, GrenadeEffect};
 use lod::lod_ref::LodRef;
 use lod::scene::LodSceneLevel;
 use lod::LodScene;
@@ -220,7 +222,12 @@ impl Plugin for WorldStashPlugin {
 					.after(CharacterControlSystems)
 					.run_if(resource_equals(WorldGameplayEnabled(true))),
 			);
-		app.add_systems(PostUpdate, detach_downed_npc_loot.after(DamageSystems::Down));
+		app.add_systems(
+			PostUpdate,
+			detach_downed_npc_loot
+				.after(DamageSystems::Down)
+				.after(GrenadeUserSystems::Interrupt),
+		);
 	}
 }
 
@@ -526,6 +533,7 @@ type DownedNpcLoot<'a> = (
 	&'a Downed,
 	Option<&'a InventoryUser>,
 	Option<&'a FirearmUser>,
+	Option<&'a GrenadeUser>,
 	Option<&'a MobKind>,
 	Option<&'a CharacterBrains>,
 );
@@ -550,7 +558,7 @@ fn detach_downed_npc_loot(
 	mut bags: Query<&mut Inventory>,
 ) {
 	let assets = assets.as_deref();
-	for (body, downed, user, firearm, kind, brains) in &downed {
+	for (body, downed, user, firearm, grenade, kind, brains) in &downed {
 		let fraction = npc_loot_fraction(kind, brains);
 		let loot = user.and_then(|user| bags.get_mut(user.bag).ok()).map_or_else(
 			Inventory::default,
@@ -565,6 +573,12 @@ fn detach_downed_npc_loot(
 		if let Some(firearm) = firearm {
 			commands.entity(firearm.held).try_despawn();
 			commands.entity(body).remove::<(FirearmUser, PlayerUse)>();
+		}
+		if let Some(grenade) = grenade {
+			commands.entity(grenade.held).try_despawn();
+			commands
+				.entity(body)
+				.remove::<(GrenadeUser, grenade_user::GrenadeThrow, PlayerUse)>();
 		}
 		let mut policy = settings.ephemeral_policy();
 		policy.loot_secs = settings.loot_secs;
@@ -666,12 +680,20 @@ fn nearest_stash_in_radius<'a>(
 		.map(|(_, entity, bag, policy, translation)| (entity, bag, policy, translation))
 }
 
-type DroppingPlayer<'a> = (Entity, &'a Transform, &'a InventoryUser, Option<&'a FirearmUser>);
+type DroppingPlayer<'a> = (
+	Entity,
+	&'a Transform,
+	&'a InventoryUser,
+	Option<&'a FirearmUser>,
+	Option<&'a GrenadeUser>,
+	Option<&'a GrenadeThrow>,
+);
 
 fn drop_player_inventory(
 	settings: Res<WorldStashSettings>,
 	mut intents: MessageReader<CharacterIntent>,
 	mut commands: Commands,
+	mut drops: MessageWriter<DropLiveGrenade>,
 	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
 	assets: Option<Res<AssetServer>>,
 	players: Query<DroppingPlayer<'_>, With<VegetationPlayer>>,
@@ -681,15 +703,37 @@ fn drop_player_inventory(
 		return;
 	}
 	let assets = assets.as_deref();
-	for (player, transform, user, firearm) in &players {
+	for (player, transform, user, firearm, grenade, throw) in &players {
 		let Ok(mut bag) = bags.get_mut(user.bag) else {
 			continue;
 		};
+		if let Some((fuse, spec, stats)) = throw.and_then(|throw| {
+			let fuse = throw.live_fuse()?;
+			let spec = bag.primary_weapon().and_then(InventoryItem::grenade_spec)?;
+			let stats = bag.primary_weapon().and_then(InventoryItem::grenade_stats)?;
+			Some((fuse, spec, stats))
+		}) {
+			drops.write(DropLiveGrenade {
+				origin: transform.translation + Vec3::Y * 1.0,
+				velocity: Vec3::ZERO,
+				spec,
+				stats,
+				effect: GrenadeEffect::from_stats(&stats),
+				fuse,
+				source: player,
+			});
+		}
 		let loot = bag.take_all();
 		let snapshot = bag.clone();
 		if let Some(firearm) = firearm {
 			commands.entity(firearm.held).try_despawn();
 			commands.entity(player).remove::<(FirearmUser, PlayerUse)>();
+		}
+		if let Some(grenade) = grenade {
+			commands.entity(grenade.held).try_despawn();
+			commands
+				.entity(player)
+				.remove::<(GrenadeUser, grenade_user::GrenadeThrow, PlayerUse)>();
 		}
 		if let Some(loadout) = loadout.as_deref_mut() {
 			apply_dropped_loadout(loadout, &snapshot);
@@ -1450,6 +1494,7 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<WorldStashSettings>();
 		world.init_resource::<Messages<CharacterIntent>>();
+		world.init_resource::<Messages<DropLiveGrenade>>();
 		let player_bag = world.spawn(mixed_bag()).id();
 		let player = world
 			.spawn((
@@ -1554,6 +1599,7 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<WorldStashSettings>();
 		world.init_resource::<Messages<CharacterIntent>>();
+		world.init_resource::<Messages<DropLiveGrenade>>();
 		let bag = mixed_bag();
 		world.insert_resource(WorldPlayerLoadout::new(
 			"active",

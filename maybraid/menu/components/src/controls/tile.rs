@@ -5,9 +5,10 @@ use bevy::text::{Justify, LineBreak, LineHeight, TextBounds, TextSpan};
 use bevy::ui::widget::ViewportNode;
 
 use crate::theme::{
-	PANEL_CHIP_GAP, PANEL_GROUP_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_TILE_COLUMNS,
-	PANEL_TILE_MIN_HEIGHT, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT,
-	TEXT_YELLOW_HOVER, TILE_FOCUS_PAD,
+	CATALOG_THUMB_PX, MENU_CLEAR, OBJECTIVE_MARKER_BORDER, OBJECTIVE_MARKER_RADIUS, PANEL_CHIP_GAP,
+	PANEL_GROUP_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_TILE_COLUMNS, PANEL_TILE_MIN_HEIGHT,
+	TEXT_DEEP_BLUE, TEXT_LIME, TEXT_SALMON, TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_HOVER,
+	TILE_FOCUS_PAD,
 };
 
 use super::display::menu_display_name;
@@ -23,8 +24,8 @@ pub fn tile_caption(label: &str) -> String {
 	menu_display_name(label)
 }
 
-fn tile_grid_columns() -> Vec<RepeatedGridTrack> {
-	RepeatedGridTrack::flex(PANEL_TILE_COLUMNS, 1.0)
+fn tile_grid_columns(count: u16) -> Vec<RepeatedGridTrack> {
+	RepeatedGridTrack::flex(count, 1.0)
 }
 
 fn tile_node() -> Node {
@@ -84,7 +85,7 @@ pub fn spawn_asset_tile(
 	parent
 		.spawn((
 			Button,
-			HoverTile { equipped: selected, preserve_fill: false },
+			HoverTile { equipped: selected, preserve_fill: false, face },
 			extra,
 			tile_node(),
 			BorderColor::all(if selected { face } else { Color::NONE }),
@@ -95,7 +96,7 @@ pub fn spawn_asset_tile(
 			if let Some(thumbnail) = thumbnail {
 				button.spawn((
 					ImageNode::new(thumbnail),
-					Node { width: Val::Px(54.0), height: Val::Px(54.0), ..default() },
+					Node { width: Val::Px(48.0), height: Val::Px(48.0), ..default() },
 					Pickable::IGNORE,
 				));
 			}
@@ -117,18 +118,20 @@ pub fn spawn_grid_catalog_tile(
 	selected: bool,
 	rank: Option<u8>,
 	thumbnail: Option<Handle<Image>>,
+	thumbnail_tint: Color,
 	viewport: Option<Entity>,
 	swatch: Option<Color>,
 	muted: bool,
+	thumb_px: f32,
 	extra: impl Bundle,
 ) {
 	let face = tile_face(selected, muted);
 	let mark = if muted { TEXT_YELLOW_FAINT } else { TEXT_YELLOW };
 	let pictured = thumbnail.is_some() || viewport.is_some();
-	const VIEWPORT_PX: f32 = 160.0;
+	let thumb_px = if thumb_px > 0.0 { thumb_px } else { CATALOG_THUMB_PX };
 	let mut tile = parent.spawn((
 		Button,
-		HoverTile { equipped: selected, preserve_fill: false },
+		HoverTile { equipped: selected, preserve_fill: false, face },
 		extra,
 		tile_node(),
 		BorderColor::all(Color::NONE),
@@ -142,28 +145,10 @@ pub fn spawn_grid_catalog_tile(
 		button
 			.spawn((
 				Node {
-					width: if viewport.is_some() {
-						Val::Px(VIEWPORT_PX)
-					} else if pictured {
-						Val::Percent(100.0)
-					} else {
-						Val::Px(54.0)
-					},
-					height: if viewport.is_some() {
-						Val::Px(VIEWPORT_PX)
-					} else if pictured {
-						Val::Auto
-					} else {
-						Val::Px(54.0)
-					},
+					width: if pictured { Val::Percent(100.0) } else { Val::Px(48.0) },
+					height: if pictured { Val::Auto } else { Val::Px(48.0) },
 					aspect_ratio: pictured.then_some(1.0),
-					min_height: if viewport.is_some() {
-						Val::Px(VIEWPORT_PX)
-					} else if pictured {
-						Val::Px(120.0)
-					} else {
-						Val::Px(54.0)
-					},
+					min_height: Val::Px(if pictured { thumb_px } else { 48.0 }),
 					position_type: PositionType::Relative,
 					justify_content: JustifyContent::Center,
 					align_items: AlignItems::Center,
@@ -182,8 +167,8 @@ pub fn spawn_grid_catalog_tile(
 						slot.spawn((
 							Node {
 								position_type: PositionType::Absolute,
-								width: Val::Px(54.0),
-								height: Val::Px(54.0),
+								width: Val::Px(48.0),
+								height: Val::Px(48.0),
 								justify_content: JustifyContent::Center,
 								align_items: AlignItems::Center,
 								border_radius: BorderRadius::all(Val::Px(6.0)),
@@ -210,27 +195,24 @@ pub fn spawn_grid_catalog_tile(
 					slot.spawn((
 						ViewportNode::new(camera),
 						Node {
-							width: Val::Px(VIEWPORT_PX),
-							height: Val::Px(VIEWPORT_PX),
+							width: Val::Percent(100.0),
+							height: Val::Percent(100.0),
 							..default()
 						},
 						Pickable::IGNORE,
 					));
 				} else if let Some(thumbnail) = thumbnail {
 					slot.spawn((
-						ImageNode::new(thumbnail),
+						ImageNode { image: thumbnail, color: thumbnail_tint, ..default() },
 						Node { width: Val::Percent(100.0), aspect_ratio: Some(1.0), ..default() },
 						Pickable::IGNORE,
 					));
 				}
 				if let Some(rank) = rank {
-					slot.spawn((
-						Text::new(rank.to_string()),
-						fonts.item(PANEL_ITEM_FONT_SIZE),
-						TextColor(mark),
-						Pickable::IGNORE,
-					));
-				} else if selected {
+					spawn_rank_tag(slot, fonts, rank, mark);
+				} else if selected && !pictured {
+					// Clothing without a thumbnail uses the Maybraid son.
+					// A pictured tile is just the icon — no select overlay.
 					crate::icons::Icon::maybraid(22.0, mark).spawn(
 						slot,
 						fonts.logo.clone(),
@@ -243,6 +225,35 @@ pub fn spawn_grid_catalog_tile(
 			spawn_detail_line(button, fonts, detail);
 		}
 	});
+}
+
+fn spawn_rank_tag(parent: &mut ChildSpawnerCommands, fonts: &HudFonts, rank: u8, face: Color) {
+	parent
+		.spawn((
+			Node {
+				position_type: PositionType::Absolute,
+				top: Val::Px(2.0),
+				left: Val::Px(2.0),
+				padding: UiRect::axes(Val::Px(5.0), Val::Px(1.0)),
+				border: UiRect::all(Val::Px(OBJECTIVE_MARKER_BORDER)),
+				border_radius: BorderRadius::all(Val::Px(OBJECTIVE_MARKER_RADIUS)),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				..default()
+			},
+			BackgroundColor(MENU_CLEAR),
+			BorderColor::all(face),
+			ZIndex(1),
+			Pickable::IGNORE,
+		))
+		.with_children(|tag| {
+			tag.spawn((
+				Text::new(rank.to_string()),
+				fonts.item(PANEL_ITEM_FONT_SIZE),
+				TextColor(face),
+				Pickable::IGNORE,
+			));
+		});
 }
 
 fn spawn_detail_line(parent: &mut ChildSpawnerCommands, fonts: &HudFonts, detail: &str) {
@@ -291,19 +302,22 @@ fn detail_chip_color(part: &str) -> Color {
 	}
 }
 
-/// Inventory / catalog cell that pulses while focused or pointer-hovered.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+/// Inventory / catalog cell that inverts while focused or pointer-hovered.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct HoverTile {
 	pub equipped: bool,
 	/// Keep the authored fill (color chips). Tiles wash; swatches do not.
 	pub preserve_fill: bool,
+	/// Caption color while idle. Restored when the tile loses focus.
+	pub face: Color,
 }
 
-/// Pulse the focused or hovered tile so stick and mouse share the same cue.
+/// Invert the focused or hovered tile so stick and mouse share the same cue.
+#[allow(clippy::type_complexity)]
 pub fn sync_hover_tiles(
-	time: Res<Time>,
 	menus: Query<&HudMenu>,
 	mut tiles: Query<(
+		Entity,
 		&HoverTile,
 		Option<&HudMenuItem>,
 		Option<&Interaction>,
@@ -311,20 +325,24 @@ pub fn sync_hover_tiles(
 		&mut BorderColor,
 		&mut BackgroundColor,
 	)>,
+	children: Query<&Children>,
+	mut captions: Query<&mut TextColor, With<TileWrap>>,
 ) {
-	let pulse = 0.55 + 0.45 * (time.elapsed_secs() * 7.0).sin();
-	for (tile, item, interaction, mut node, mut border, mut background) in &mut tiles {
+	for (entity, tile, item, interaction, mut node, mut border, mut background) in &mut tiles {
 		let focused = item
 			.is_some_and(|item| menus.get(item.menu).is_ok_and(|menu| menu.selected == item.index));
 		let hovered = matches!(interaction, Some(Interaction::Hovered | Interaction::Pressed));
-		if focused || hovered {
+		let live = focused || hovered;
+		if live {
 			node.border = UiRect::all(Val::Px(TILE_BORDER));
-			*border = BorderColor::all(TEXT_YELLOW.with_alpha(0.4 + 0.6 * pulse));
+			*border = BorderColor::all(if tile.preserve_fill { TEXT_YELLOW } else { Color::NONE });
 			if !tile.preserve_fill {
-				background.0 = Color::srgba(0.98, 0.86, 0.32, 0.06 + 0.12 * pulse);
+				background.0 = TEXT_YELLOW;
 			}
+			recolor_tile_captions(entity, TEXT_DEEP_BLUE, &children, &mut captions);
 			continue;
 		}
+		recolor_tile_captions(entity, tile.face, &children, &mut captions);
 		if tile.equipped {
 			node.border = UiRect::all(Val::Px(TILE_BORDER));
 			*border = BorderColor::all(TEXT_YELLOW_HOVER);
@@ -338,6 +356,22 @@ pub fn sync_hover_tiles(
 			BorderColor::all(if tile.preserve_fill { TEXT_YELLOW_FAINT } else { Color::NONE });
 		if !tile.preserve_fill {
 			background.0 = Color::NONE;
+		}
+	}
+}
+
+fn recolor_tile_captions(
+	tile: Entity,
+	face: Color,
+	children: &Query<&Children>,
+	captions: &mut Query<&mut TextColor, With<TileWrap>>,
+) {
+	let Ok(kids) = children.get(tile) else {
+		return;
+	};
+	for child in kids {
+		if let Ok(mut color) = captions.get_mut(*child) {
+			color.0 = face;
 		}
 	}
 }
@@ -357,12 +391,21 @@ pub fn spawn_tile_grid(
 	justify: JustifyContent,
 	children: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
+	spawn_tile_grid_columns(parent, justify, PANEL_TILE_COLUMNS, children);
+}
+
+pub fn spawn_tile_grid_columns(
+	parent: &mut ChildSpawnerCommands,
+	justify: JustifyContent,
+	columns: u16,
+	children: impl FnOnce(&mut ChildSpawnerCommands),
+) {
 	parent
 		.spawn((
 			Node {
 				display: Display::Grid,
 				width: Val::Percent(100.0),
-				grid_template_columns: tile_grid_columns(),
+				grid_template_columns: tile_grid_columns(columns),
 				column_gap: Val::Px(PANEL_CHIP_GAP),
 				row_gap: Val::Px(PANEL_CHIP_GAP),
 				align_items: AlignItems::Stretch,
@@ -382,7 +425,7 @@ mod tests {
 
 	use super::{sync_hover_tiles, tile_caption, tile_grid_columns, tile_node, HoverTile};
 	use crate::controls::hud_menu::{HudMenu, HudMenuItem};
-	use crate::theme::PANEL_TILE_COLUMNS;
+	use crate::theme::{PANEL_TILE_COLUMNS, TEXT_DEEP_BLUE, TEXT_YELLOW};
 
 	#[test]
 	fn short_caption_unchanged() {
@@ -395,20 +438,19 @@ mod tests {
 	}
 
 	#[test]
-	fn tile_grid_is_two_columns() {
-		assert_eq!(PANEL_TILE_COLUMNS, 2);
-		assert_eq!(tile_grid_columns().len(), 1);
+	fn tile_grid_is_three_columns() {
+		assert_eq!(PANEL_TILE_COLUMNS, 3);
+		assert_eq!(tile_grid_columns(PANEL_TILE_COLUMNS).len(), 1);
 		assert_eq!(tile_node().width, Val::Percent(100.0));
 	}
 
 	#[test]
-	fn focused_tile_gains_a_border() {
+	fn focused_tile_inverts_to_navy_on_yellow() {
 		let mut world = World::new();
-		world.init_resource::<Time>();
 		let menu = world.spawn(HudMenu { selected: 1, item_count: 2 }).id();
 		let idle = world
 			.spawn((
-				HoverTile { equipped: false, preserve_fill: false },
+				HoverTile { equipped: false, preserve_fill: false, face: TEXT_YELLOW },
 				HudMenuItem { index: 0, menu },
 				Node::default(),
 				BorderColor::all(Color::NONE),
@@ -417,7 +459,7 @@ mod tests {
 			.id();
 		let focused = world
 			.spawn((
-				HoverTile { equipped: false, preserve_fill: false },
+				HoverTile { equipped: false, preserve_fill: false, face: TEXT_YELLOW },
 				HudMenuItem { index: 1, menu },
 				Node::default(),
 				BorderColor::all(Color::NONE),
@@ -425,9 +467,9 @@ mod tests {
 			))
 			.id();
 		world.run_system_once(sync_hover_tiles).expect("hover");
-		let idle_border = world.get::<BorderColor>(idle).expect("idle").top;
-		let live_border = world.get::<BorderColor>(focused).expect("focused").top;
-		assert_eq!(idle_border, Color::NONE);
-		assert_ne!(live_border, Color::NONE);
+		assert_eq!(world.get::<BackgroundColor>(idle).expect("idle").0, Color::NONE);
+		assert_eq!(world.get::<BackgroundColor>(focused).expect("focused").0, TEXT_YELLOW);
+		assert_eq!(world.get::<BorderColor>(idle).expect("idle border").top, Color::NONE);
+		assert!(TEXT_DEEP_BLUE.to_srgba().blue > TEXT_YELLOW.to_srgba().blue);
 	}
 }

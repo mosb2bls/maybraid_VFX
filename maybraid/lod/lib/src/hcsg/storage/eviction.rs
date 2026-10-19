@@ -10,9 +10,7 @@ use bevy::math::bounding::Aabb3d;
 use crate::gen::Id;
 
 use super::super::node_store::expand_region;
-#[cfg(debug_assertions)]
-use super::store::lock_mutex;
-use super::store::{read, ErasedStore};
+use super::store::ErasedStore;
 use super::{HcsgStorage, HcsgValue};
 
 pub(super) fn record_evictions(storage: &HcsgStorage, removed: Vec<(TypeId, Id)>) {
@@ -20,14 +18,14 @@ pub(super) fn record_evictions(storage: &HcsgStorage, removed: Vec<(TypeId, Id)>
 		return;
 	}
 	#[cfg(debug_assertions)]
-	lock_mutex(&storage.0.evicted).extend(removed);
+	storage.0.lock_evicted().extend(removed);
 	#[cfg(not(debug_assertions))]
 	let _ = (storage, removed);
 }
 
 pub(super) fn forget_evictions_of(storage: &HcsgStorage, type_id: TypeId) {
 	#[cfg(debug_assertions)]
-	lock_mutex(&storage.0.evicted).retain(|(stored, _)| *stored != type_id);
+	storage.0.lock_evicted().retain(|(stored, _)| *stored != type_id);
 	#[cfg(not(debug_assertions))]
 	let _ = (storage, type_id);
 }
@@ -54,7 +52,9 @@ impl HcsgStorage {
 		if regions_by_type.is_empty() {
 			self.clear_evictions();
 		}
-		let stores: Vec<(TypeId, Arc<dyn ErasedStore>)> = read(&self.0.stores)
+		let stores: Vec<(TypeId, Arc<dyn ErasedStore>)> = self
+			.0
+			.read_stores()
 			.iter()
 			.map(|(type_id, store)| (*type_id, store.clone()))
 			.collect();
@@ -67,7 +67,11 @@ impl HcsgStorage {
 				.map(|region| expand_region(*region, margin))
 				.collect();
 			let stamp = self.stamp();
-			let removed = store.evict_outside(&expanded, stamp);
+			let removed = if expanded.is_empty() {
+				store.clear_non_universal(stamp)
+			} else {
+				store.evict_outside(&expanded, stamp)
+			};
 			if removed.is_empty() {
 				continue;
 			}
@@ -79,7 +83,7 @@ impl HcsgStorage {
 	pub(in crate::hcsg) fn take_evicted(&self, type_id: TypeId, id: Id) -> bool {
 		#[cfg(debug_assertions)]
 		{
-			lock_mutex(&self.0.evicted).remove(&(type_id, id))
+			self.0.lock_evicted().remove(&(type_id, id))
 		}
 		#[cfg(not(debug_assertions))]
 		{
@@ -98,8 +102,8 @@ impl HcsgStorage {
 
 	/// Drops every recorded eviction. Called when no live subscription remains
 	/// (epoch or last unsubscribe) so a new session does not count as rebuilds.
-	pub fn clear_evictions(&self) {
+	pub(crate) fn clear_evictions(&self) {
 		#[cfg(debug_assertions)]
-		lock_mutex(&self.0.evicted).clear();
+		self.0.lock_evicted().clear();
 	}
 }

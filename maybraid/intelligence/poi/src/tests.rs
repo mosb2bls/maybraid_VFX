@@ -445,6 +445,41 @@ fn far_skip_does_not_reset_skips() -> anyhow::Result<()> {
 }
 
 #[test]
+fn settled_discover_leaves_capped_learner_unchanged() -> anyhow::Result<()> {
+	let mut app = discover_app();
+	let learner = spawn_learner(
+		&mut app,
+		camp_learner(),
+		PoiKnowledge::default(),
+		IntelligenceLod::missing(),
+	);
+	app.update();
+	if let Some(mut user) = app.world_mut().get_mut::<PoiIntelligenceUser>(learner) {
+		user.learning_credit = user.policy.candidates_per_scan.max(1) as f32;
+		user.next_forget_at = 100.0;
+		user.next_local_scan_at = 100.0;
+		user.next_global_scan_at = 100.0;
+	}
+	let before = app
+		.world()
+		.entity(learner)
+		.get_change_ticks::<PoiIntelligenceUser>()
+		.ok_or_else(|| anyhow::anyhow!("missing learner"))?
+		.changed
+		.get();
+	app.update();
+	let after = app
+		.world()
+		.entity(learner)
+		.get_change_ticks::<PoiIntelligenceUser>()
+		.ok_or_else(|| anyhow::anyhow!("missing learner"))?
+		.changed
+		.get();
+	anyhow::ensure!(before == after, "settled discover rewrote learner: {before} -> {after}");
+	Ok(())
+}
+
+#[test]
 fn maintain_still_runs_on_far_we_do_not_scan() -> anyhow::Result<()> {
 	let mut app = discover_app();
 	app.insert_resource(PoiDiscoverLimits { max_scans_per_tick: 1 });
@@ -581,9 +616,81 @@ fn local_query_clone_timing() {
 
 	eprintln!(
 		"local_query_clone_timing: {POI_COUNT} pois × {SCANS} scans — clone local_matching() {:?}, collect_local_matching+get {:?}",
-		clone_elapsed,
-		id_elapsed,
+		clone_elapsed, id_elapsed,
 	);
+}
+
+#[test]
+fn catalog_scheme_resolves_only_the_queried_tile() -> anyhow::Result<()> {
+	use crate::{collect_matching_in_xz_tile, Catalog, PoiCatalog, PoiEntry};
+	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
+
+	let storage = HcsgStorage::default();
+	storage.seed(
+		PoiCatalog {
+			entries: vec![
+				PoiEntry {
+					id: PoiId(1),
+					kind: CAMP,
+					position: Vec3::new(40.0, 0.0, 40.0),
+					arrival_radius: 1.0,
+					salience: 1.0,
+					local: true,
+					global: false,
+				},
+				PoiEntry {
+					id: PoiId(2),
+					kind: CAMP,
+					position: Vec3::new(400.0, 0.0, 400.0),
+					arrival_radius: 1.0,
+					salience: 1.0,
+					local: false,
+					global: true,
+				},
+			],
+		},
+		universal_bounds(),
+	);
+	let mut cx = GenerationContext::new(&storage);
+	let interests = PoiInterests::one(CAMP);
+	let mut ids = Vec::new();
+	collect_matching_in_xz_tile::<Catalog>(&mut cx, IVec2::ZERO, 256.0, 0.0, &interests, &mut ids);
+	assert_eq!(ids.iter().map(|poi| poi.id).collect::<Vec<_>>(), [PoiId(1)]);
+	collect_matching_in_xz_tile::<Catalog>(
+		&mut cx,
+		IVec2::new(1, 1),
+		256.0,
+		0.0,
+		&interests,
+		&mut ids,
+	);
+	assert_eq!(ids.iter().map(|poi| poi.id).collect::<Vec<_>>(), [PoiId(2)]);
+	Ok(())
+}
+
+#[test]
+fn grid_scheme_tile_lookup_is_one_origin_id() -> anyhow::Result<()> {
+	use crate::{collect_matching_in_xz_tile, xz_tile_region, GridTiles, PoiOrigin, GRID_KIND};
+	use lod::hcsg::{GenerationContext, HcsgStorage};
+
+	let storage = HcsgStorage::default();
+	let mut cx = GenerationContext::new(&storage);
+	let region = xz_tile_region(IVec2::new(3, -2), 256.0, 0.0).expect("finite tile");
+	let origins = GridTiles::original_ids_for(&mut cx, region);
+	assert_eq!(origins.len(), 1);
+	let interests = PoiInterests::one(GRID_KIND);
+	let mut pois = Vec::new();
+	collect_matching_in_xz_tile::<GridTiles>(
+		&mut cx,
+		IVec2::new(3, -2),
+		256.0,
+		0.0,
+		&interests,
+		&mut pois,
+	);
+	assert_eq!(pois.len(), 1);
+	assert_eq!(GridTiles::original_ids_for(&mut cx, region).len(), 1);
+	Ok(())
 }
 
 #[test]
@@ -640,7 +747,6 @@ fn choose_in_clone_timing() {
 
 	eprintln!(
 		"choose_in_clone_timing: {POI_COUNT} pois × {PICKS} picks — nearby_in+weighted {:?}, choose_in {:?}",
-		clone_elapsed,
-		id_elapsed,
+		clone_elapsed, id_elapsed,
 	);
 }

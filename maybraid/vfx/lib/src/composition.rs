@@ -183,16 +183,43 @@ impl EffectLayer {
 	}
 }
 
+/// Default per-instance scale clamp for standalone layers and composites.
+pub const DEFAULT_SCALE_MIN: f32 = 0.25;
+pub const DEFAULT_SCALE_MAX: f32 = 4.0;
+
+/// Per-definition scale clamp applied at spawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ScaleBounds {
+	pub min: f32,
+	pub max: f32,
+}
+
+impl Default for ScaleBounds {
+	fn default() -> Self {
+		Self { min: DEFAULT_SCALE_MIN, max: DEFAULT_SCALE_MAX }
+	}
+}
+
 /// Ordered collection of layers forming a named composite.
 #[derive(Clone, Debug)]
 pub struct EffectDefinition {
 	pub name: String,
 	pub layers: Vec<EffectLayer>,
+	pub scale_bounds: ScaleBounds,
 }
 
 impl EffectDefinition {
 	pub fn new(name: impl Into<String>, layers: impl IntoIterator<Item = EffectLayer>) -> Self {
-		Self { name: name.into(), layers: layers.into_iter().collect() }
+		Self {
+			name: name.into(),
+			layers: layers.into_iter().collect(),
+			scale_bounds: ScaleBounds::default(),
+		}
+	}
+
+	pub fn with_scale_bounds(mut self, bounds: ScaleBounds) -> Self {
+		self.scale_bounds = bounds;
+		self
 	}
 
 	pub fn duration(&self) -> f32 {

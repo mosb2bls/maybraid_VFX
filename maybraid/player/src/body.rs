@@ -34,8 +34,15 @@ impl Default for CharacterLocomotion {
 	}
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Clone, Copy, PartialEq)]
 pub struct MoveWish(pub Vec3);
+
+/// Absolute ground-speed cap (m/s) that replaces jog/sprint while present.
+///
+/// Stick locomotion never inserts this. Tanz bursts set it so a dash can
+/// exceed [`JOG_SPEED`] without changing ordinary [`wish_throttle`] semantics.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct MoveSpeedCap(pub f32);
 
 /// Last walkable contact plane. Default is world up (flat XZ heading).
 ///
@@ -420,7 +427,9 @@ fn control_ground_velocity(
 	}
 	let tangent = **velocity - normal * velocity.dot(normal);
 	let target = wish_on_ground(wish, Some(normal)) * max_speed * wish_throttle(wish);
-	let rate = if target.length_squared() > 1e-8 { accel } else { MOVE_BRAKE };
+	// Idle uses at least MOVE_BRAKE. Burst dashes pass a larger accel so they
+	// can also stop inside the clip's brake window instead of coasting at 50 m/s².
+	let rate = if target.length_squared() > 1e-8 { accel } else { accel.max(MOVE_BRAKE) };
 	**velocity = move_toward(tangent, target, rate * dt);
 }
 
@@ -442,6 +451,15 @@ fn control_air_velocity(
 	velocity.z = next.z;
 }
 
+/// Reach `cap` (or brake from `current_speed`) in about two 60 Hz frames.
+pub(crate) fn burst_accel(cap: f32, current_speed: f32) -> f32 {
+	(cap.max(current_speed) * 30.0).max(MOVE_ACCEL)
+}
+
+fn horizontal_speed(velocity: Vec3) -> f32 {
+	Vec3::new(velocity.x, 0.0, velocity.z).length()
+}
+
 /// Apply [`MoveWish`] for every capsule. Pad intent and NPC drive both write it.
 pub(crate) fn apply_wish_movement(
 	time: Res<Time>,
@@ -452,6 +470,7 @@ pub(crate) fn apply_wish_movement(
 			Option<&MaxSlopeAngle>,
 			Option<&WalkableGround>,
 			&MovementAcceleration,
+			Option<&MoveSpeedCap>,
 			&mut LinearVelocity,
 			Has<Grounded>,
 			Has<crate::buoyancy::Buoyant>,
@@ -470,6 +489,7 @@ pub(crate) fn apply_wish_movement(
 		max_slope,
 		walkable,
 		accel,
+		speed_cap,
 		mut velocity,
 		grounded,
 		buoyant,
@@ -479,21 +499,25 @@ pub(crate) fn apply_wish_movement(
 		jumping,
 	) in &mut controllers
 	{
-		let max_speed = if buoyant {
+		let default_cap = if buoyant {
 			crate::buoyancy::swim_speed()
 		} else if wading {
 			crate::buoyancy::wade_speed()
 		} else {
 			move_cap(sprinting, stance.map(|stance| stance.speed_scale()).unwrap_or(1.0))
 		};
+		let (max_speed, drive_accel) = match speed_cap {
+			Some(MoveSpeedCap(cap)) => (*cap, burst_accel(*cap, horizontal_speed(velocity.0))),
+			None => (default_cap, accel.0),
+		};
 		let contact = walkable_ground_normal(hits, max_slope);
 		let airborne = jumping.is_some_and(Jumping::airborne) || buoyant;
 		let ground =
 			ground_plane_for_wish(contact, walkable.map(|plane| plane.normal), grounded, airborne);
 		if let Some(normal) = ground {
-			control_ground_velocity(&mut velocity, wish.0, accel.0, dt, normal, max_speed);
+			control_ground_velocity(&mut velocity, wish.0, drive_accel, dt, normal, max_speed);
 		} else {
-			control_air_velocity(&mut velocity, wish.0, accel.0, dt, max_speed);
+			control_air_velocity(&mut velocity, wish.0, drive_accel, dt, max_speed);
 		}
 	}
 }
@@ -566,6 +590,27 @@ mod tests {
 		assert!(JOG_SPEED <= LEAP_SPEED);
 		assert!((move_cap(true, 1.0) - MOVE_SPEED).abs() < 1e-6);
 		assert!((move_cap(true, 0.5) - MOVE_SPEED * 0.5).abs() < 1e-6);
+	}
+
+	#[test]
+	fn burst_accel_reaches_dash_cruise_in_two_sixtieths() {
+		let cap = 45.0;
+		let accel = burst_accel(cap, 0.0);
+		assert!(accel * (2.0 / 60.0) >= cap - 1e-4, "accel={accel}");
+		let mut velocity = LinearVelocity(Vec3::ZERO);
+		control_ground_velocity(&mut velocity, Vec3::Z, accel, 1.0 / 60.0, Vec3::Y, cap);
+		control_ground_velocity(&mut velocity, Vec3::Z, accel, 1.0 / 60.0, Vec3::Y, cap);
+		assert!((velocity.z - cap).abs() < 1e-3, "{velocity:?}");
+	}
+
+	#[test]
+	fn burst_accel_brakes_from_cruise_when_the_cap_drops() {
+		let mut velocity = LinearVelocity(Vec3::Z * 45.0);
+		let cap = 0.0;
+		let accel = burst_accel(cap, 45.0);
+		control_ground_velocity(&mut velocity, Vec3::ZERO, accel, 1.0 / 60.0, Vec3::Y, cap);
+		control_ground_velocity(&mut velocity, Vec3::ZERO, accel, 1.0 / 60.0, Vec3::Y, cap);
+		assert!(velocity.z.abs() < 1e-3, "{velocity:?}");
 	}
 
 	#[test]

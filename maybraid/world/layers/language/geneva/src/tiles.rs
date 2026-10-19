@@ -4,7 +4,7 @@ use bevy::math::bounding::Aabb3d;
 use bevy::math::{Vec2, Vec3};
 use comproc::guillotine::{Bounds2, DepthRange, GuillotineConfig, VariableGuillotine};
 use comproc::noise::config::NoiseConfig;
-use lod::gen::Id;
+use lod::gen::{Id, OriginalId};
 use maybraid_language_core::lexicalizer::mix;
 use noise::Perlin;
 
@@ -118,6 +118,13 @@ pub fn large_tiles_overlapping(region: Aabb3d) -> impl Iterator<Item = (i32, i32
 	let min_z = large_tile_index(region.min.z);
 	let max_z = last(min_z, region.max.z);
 	(min_x..=max_x).flat_map(move |ix| (min_z..=max_z).map(move |iz| (ix, iz)))
+}
+
+/// [`OriginalId`]s of large tiles whose footprints overlap `region`.
+pub fn large_tile_original_ids_overlapping(region: Aabb3d) -> Vec<OriginalId> {
+	large_tiles_overlapping(region)
+		.map(|(ix, iz)| OriginalId(LargeTile::id(ix, iz)))
+		.collect()
 }
 
 /// Distinct tiles under `boxes`, in order.

@@ -1,0 +1,23 @@
+[package]
+name = "doric-column-playground"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[[bin]]
+name = "doric-column-playground"
+path = "src/main.rs"
+
+[dependencies]
+avian3d = { workspace = true }
+bevy = { workspace = true }
+doric-column = { workspace = true }
+material-ref = { workspace = true }
+
+[lints]
+workspace = true

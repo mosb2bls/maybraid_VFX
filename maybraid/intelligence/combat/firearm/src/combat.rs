@@ -10,9 +10,8 @@ use firearms::{
 	WeaponFired, WeaponTrigger,
 };
 use movement_intelligence::{MovementBody, MovementIntelligence};
-use player::{PlayerLook, PlayerYawOwner};
+use player::{clamp_aim_pitch, look_delta, PlayerLook, PlayerYawOwner};
 use spotting_intelligence::{SpotBounds, SpotSubject};
-use std::f32::consts::FRAC_PI_2;
 
 use crate::engagement::{allows_fire, FirearmEngagement};
 use crate::targeting::FirearmTargeting;
@@ -143,7 +142,7 @@ impl FirearmIntelligence {
 			self.last_output_look = observed;
 			self.aim_initialized = true;
 		} else {
-			self.recoil_offset += Self::look_delta(self.last_output_look, observed);
+			self.recoil_offset += look_delta(self.last_output_look, observed);
 		}
 
 		if let Some(desired) = desired {
@@ -159,7 +158,7 @@ impl FirearmIntelligence {
 
 		let output = Vec2::new(
 			self.tracked_look.x + self.recoil_offset.x,
-			Self::clamp_aim_pitch(self.tracked_look.y + self.recoil_offset.y),
+			clamp_aim_pitch(self.tracked_look.y + self.recoil_offset.y),
 		);
 		look.yaw = output.x;
 		look.pitch = output.y;
@@ -167,24 +166,12 @@ impl FirearmIntelligence {
 	}
 
 	fn move_look_towards(current: Vec2, target: Vec2, max_step: f32) -> Vec2 {
-		let delta = Self::look_delta(current, target);
+		let delta = look_delta(current, target);
 		let distance = delta.length();
 		if distance <= max_step || distance <= 1e-6 {
 			return current + delta;
 		}
 		current + delta * (max_step.max(0.0) / distance)
-	}
-
-	fn look_delta(from: Vec2, to: Vec2) -> Vec2 {
-		Vec2::new(Self::wrap_pi(to.x - from.x), to.y - from.y)
-	}
-
-	fn wrap_pi(angle: f32) -> f32 {
-		(angle + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
-	}
-
-	fn clamp_aim_pitch(pitch: f32) -> f32 {
-		pitch.clamp(-FRAC_PI_2 + 0.1, FRAC_PI_2 - 0.1)
 	}
 }
 
@@ -258,7 +245,7 @@ impl FirearmIntelligenceSettings {
 		let yaw = (-to.x).atan2(-to.z) + shake.x;
 		let xz = Vec2::new(to.x, to.z).length();
 		let pitch = to.y.atan2(xz.max(1e-4)) + shake.y;
-		(yaw, FirearmIntelligence::clamp_aim_pitch(pitch))
+		(yaw, clamp_aim_pitch(pitch))
 	}
 
 	fn jitter(entity: Entity, elapsed: f32) -> Vec2 {
@@ -368,15 +355,22 @@ pub(crate) fn orient_firearm_combatants(
 		};
 		if targeting.engaged.is_none() {
 			if let Some(mut yaw_owner) = yaw_owner {
-				*yaw_owner = PlayerYawOwner::Wish;
+				if *yaw_owner != PlayerYawOwner::Wish {
+					*yaw_owner = PlayerYawOwner::Wish;
+				}
 			}
 			continue;
 		}
 		if let Some(mut yaw_owner) = yaw_owner {
-			*yaw_owner = PlayerYawOwner::Look;
+			if *yaw_owner != PlayerYawOwner::Look {
+				*yaw_owner = PlayerYawOwner::Look;
+			}
 		}
 		let forward = Quat::from_axis_angle(Vec3::Y, look.yaw) * -Vec3::Z;
-		let current = heading.resolve(&visual);
+		if !heading.would_turn_toward(&visual, forward) {
+			continue;
+		}
+		let current = heading.facing(&visual);
 		heading.set(&mut visual, current.slerp(forward, amount));
 	}
 }

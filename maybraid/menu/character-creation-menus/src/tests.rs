@@ -10,6 +10,32 @@ use crate::{
 	MenuEvent,
 };
 
+fn inventory_section<'a>(
+	nodes: &'a [MenuNode<MenuEvent>],
+) -> anyhow::Result<&'a MenuNode<MenuEvent>> {
+	nodes
+		.iter()
+		.find(|node| matches!(node, MenuNode::Section { label: "Inventory", .. }))
+		.ok_or_else(|| anyhow::anyhow!("expected a top-level Inventory section"))
+}
+
+fn inventory_child<'a>(
+	nodes: &'a [MenuNode<MenuEvent>],
+	label: &str,
+) -> anyhow::Result<&'a MenuNode<MenuEvent>> {
+	let MenuNode::Section { children, .. } = inventory_section(nodes)? else {
+		anyhow::bail!("Inventory must be a Section");
+	};
+	for child in children {
+		if let MenuNode::Section { label: child_label, children } = child {
+			if *child_label == label {
+				return children.first().ok_or_else(|| anyhow::anyhow!("{label} section is empty"));
+			}
+		}
+	}
+	anyhow::bail!("expected Inventory child {label}")
+}
+
 #[test]
 fn braidman_config_round_trip() -> anyhow::Result<()> {
 	let config = BraidmanConfig::default_preview();
@@ -475,6 +501,7 @@ fn create_menu_clothing_is_grid_catalog() -> anyhow::Result<()> {
 		InventoryItem::clothing(ClothingMesh::Robe, ClothingMaterial::Hawaiian, ItemColor::Red),
 	];
 	let expected_name = items[0].name();
+	let expected_key = items[0].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.braidman.clothing.value.menu_nodes();
 	let MenuNode::GridCatalog { max_selected, choices, .. } = &nodes[0] else {
@@ -485,7 +512,11 @@ fn create_menu_clothing_is_grid_catalog() -> anyhow::Result<()> {
 	assert!(choices[0].selected);
 	assert!(choices[1].selected);
 	assert!(!choices[2].selected);
+	assert_eq!(choices[0].rank, Some(1));
+	assert_eq!(choices[1].rank, Some(2));
+	assert_eq!(choices[2].rank, None);
 	assert_eq!(choices[0].label, expected_name);
+	assert_eq!(choices[0].image_key, expected_key);
 	assert!(!choices[0].detail.is_empty());
 	assert!(menu.apply(MenuEvent::ToggleInventory(0)));
 	assert!(!menu.inventory.as_ref().expect("create inventory").is_worn(0));
@@ -507,14 +538,12 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 		InventoryItem::firearm(FirearmMesh::Reltor),
 	];
 	let expected_name = items[3].name();
+	let expected_key = items[3].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.menu_nodes();
-	let weapons = nodes.iter().find_map(|node| match node {
-		MenuNode::Section { label: "Weapons", children } => children.first(),
-		_ => None,
-	});
-	let Some(MenuNode::GridCatalog { max_selected, choices, .. }) = weapons else {
-		anyhow::bail!("expected a top-level Weapons GridCatalog");
+	let tools = inventory_child(&nodes, "Tools")?;
+	let MenuNode::GridCatalog { max_selected, choices, .. } = tools else {
+		anyhow::bail!("expected Inventory Tools to lower to a GridCatalog");
 	};
 	assert_eq!(*max_selected, WEAPON_QUEUE_LIMIT);
 	assert_eq!(choices.len(), 2);
@@ -522,8 +551,10 @@ fn create_menu_weapons_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	assert_eq!(choices[1].rank, Some(2));
 	assert!(choices[0].selected);
 	assert_eq!(choices[0].label, expected_name);
+	assert_eq!(choices[0].image_key, expected_key);
 	assert!(!choices[0].detail.is_empty());
-	assert!(menu.overlay_editable("Weapons"));
+	assert!(menu.overlay_editable("Inventory"));
+	assert!(menu.overlay_editable("Tools"));
 	assert!(menu.apply(MenuEvent::ToggleInventory(3)));
 	let inventory = menu.inventory.as_ref().expect("create inventory");
 	assert_eq!(inventory.weapons, vec![4]);
@@ -541,15 +572,12 @@ fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
 		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 2)),
 	];
 	let expected_name = items[0].name();
-	let expected_key = items[0].skill_map_spec().map(|spec| spec.catalog_key());
+	let expected_key = items[0].icon_catalog_key();
 	let mut menu = CharacterMenu::for_create(items);
 	let nodes = menu.menu_nodes();
-	let skills = nodes.iter().find_map(|node| match node {
-		MenuNode::Section { label: "Skill Maps", children } => children.first(),
-		_ => None,
-	});
-	let Some(MenuNode::GridCatalog { max_selected, choices, .. }) = skills else {
-		anyhow::bail!("expected a top-level Skill Maps GridCatalog");
+	let skills = inventory_child(&nodes, "Skill Maps")?;
+	let MenuNode::GridCatalog { max_selected, choices, .. } = skills else {
+		anyhow::bail!("expected Inventory Skill Maps to lower to a GridCatalog");
 	};
 	assert_eq!(*max_selected, SKILL_MAP_QUEUE_LIMIT);
 	assert_eq!(choices.len(), 2);
@@ -559,10 +587,82 @@ fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	assert_ne!(choices[0].preview, character_ui_menu::PreviewColor::WHITE);
 	assert_ne!(choices[0].preview, choices[1].preview);
 	assert_eq!(choices[0].image_key, expected_key);
+	assert!(menu.overlay_editable("Inventory"));
 	assert!(menu.overlay_editable("Skill Maps"));
 	assert!(menu.apply(MenuEvent::ToggleInventory(0)));
 	let inventory = menu.inventory.as_ref().expect("create inventory");
 	assert_eq!(inventory.skills, vec![1]);
+	Ok(())
+}
+
+#[test]
+fn create_menu_inventory_is_one_section_with_four_headers() -> anyhow::Result<()> {
+	use character_items::{
+		ClothingMaterial, ClothingMesh, FirearmMesh, InventoryItem, ItemColor, SkillMapKind,
+		SkillMapSpec,
+	};
+
+	let items = vec![
+		InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Red),
+		InventoryItem::firearm(FirearmMesh::Bullpup),
+		InventoryItem::standard_grenade(),
+		InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
+	];
+	let grenade_name = items[2].name();
+	let menu = CharacterMenu::for_create(items);
+	let nodes = menu.menu_nodes();
+	let MenuNode::Section { label: "Inventory", children } = inventory_section(&nodes)? else {
+		anyhow::bail!("Inventory must be a Section");
+	};
+	let labels: Vec<_> = children
+		.iter()
+		.filter_map(|node| match node {
+			MenuNode::Section { label, .. } => Some(*label),
+			_ => None,
+		})
+		.collect();
+	assert_eq!(labels, ["Clothing", "Tools", "Skill Maps", "Lubikan"]);
+	assert!(nodes
+		.iter()
+		.all(|node| !matches!(node, MenuNode::Section { label: "Weapons" | "Skill Maps", .. })));
+	let MenuNode::SectionSelect { children: species, .. } = &nodes[1] else {
+		anyhow::bail!("expected species SectionSelect");
+	};
+	assert!(species
+		.iter()
+		.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. })));
+	let tools = inventory_child(&nodes, "Tools")?;
+	let MenuNode::GridCatalog { choices, .. } = tools else {
+		anyhow::bail!("Tools must be a GridCatalog");
+	};
+	assert_eq!(choices.len(), 2);
+	assert_eq!(choices[1].label, grenade_name);
+	let lubikan = inventory_child(&nodes, "Lubikan")?;
+	let MenuNode::GridCatalog { choices, .. } = lubikan else {
+		anyhow::bail!("Lubikan must be a catalog tile");
+	};
+	assert_eq!(choices.len(), 1);
+	assert_eq!(choices[0].label, "Self");
+	assert_eq!(choices[0].detail, "Always equipped");
+	assert_eq!(choices[0].image_key, Some(character_items::self_lubikan_catalog_key()));
+	assert!(choices[0].selected);
+	Ok(())
+}
+
+#[test]
+fn appearance_only_menu_keeps_clothing_under_species() -> anyhow::Result<()> {
+	let menu = CharacterMenu::default();
+	assert!(menu.inventory.is_none());
+	let nodes = menu.menu_nodes();
+	assert!(nodes
+		.iter()
+		.all(|node| !matches!(node, MenuNode::Section { label: "Inventory", .. })));
+	let MenuNode::SectionSelect { children, .. } = &nodes[1] else {
+		anyhow::bail!("expected species SectionSelect");
+	};
+	assert!(children
+		.iter()
+		.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. })));
 	Ok(())
 }
 
@@ -661,13 +761,18 @@ fn saved_menu_locks_body_and_keeps_inventory() -> anyhow::Result<()> {
 		.any(|node| matches!(node, MenuNode::Section { label: "Body", .. })));
 	assert!(children
 		.iter()
-		.any(|node| matches!(node, MenuNode::Section { label: "Clothing", .. })));
+		.all(|node| !matches!(node, MenuNode::Section { label: "Clothing", .. })));
+	assert!(nodes
+		.iter()
+		.any(|node| matches!(node, MenuNode::Section { label: "Inventory", .. })));
 	assert!(nodes.iter().all(|node| !matches!(node, MenuNode::Action { .. })));
 	assert!(!menu.overlay_editable("Species"));
 	assert!(!menu.overlay_editable("Body"));
+	assert!(menu.overlay_editable("Inventory"));
 	assert!(menu.overlay_editable("Clothing"));
-	assert!(menu.overlay_editable("Weapons"));
+	assert!(menu.overlay_editable("Tools"));
 	assert!(menu.overlay_editable("Skill Maps"));
+	assert!(menu.overlay_editable("Lubikan"));
 	assert!(menu.overlay_editable("Loadout"));
 	assert!(!menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Brodler)));
 	assert_eq!(menu.species.value, ConceptSpecies::Braidman);
@@ -700,5 +805,145 @@ fn saved_menu_strips_clothing_from_appearance() -> anyhow::Result<()> {
 	assert_eq!(restored.name, "Misty");
 	assert_eq!(restored.appearance(), appearance);
 	assert_eq!(restored.inventory.as_ref().expect("inventory").worn().len(), 2);
+	Ok(())
+}
+
+#[test]
+fn body_preview_focus_contains_every_species_bounds() {
+	use character_ui_menu::{CameraFocus, ListValues};
+
+	for &species in ConceptSpecies::values() {
+		let mut menu = CharacterMenu::default();
+		assert!(
+			menu.apply(MenuEvent::SetSpecies(species)) || species == ConceptSpecies::Braidman,
+			"{species:?} should be selectable from the default menu"
+		);
+		let bounds = menu.preview_aabb();
+		let focus = menu.body_preview_focus();
+		assert!(
+			focus.contains_preview_bounds(bounds, CameraFocus::BODY_PREVIEW_FOV, 1.0),
+			"{species:?} framing must contain its rest-pose hull {bounds:?} from {focus:?}"
+		);
+	}
+}
+
+#[test]
+fn body_preview_focus_scales_with_species_size() {
+	let braidman = CharacterMenu::default();
+	let mut spibmom = CharacterMenu::default();
+	assert!(spibmom.apply(MenuEvent::SetSpecies(ConceptSpecies::Spibmom)));
+	let mut chupri = CharacterMenu::default();
+	assert!(chupri.apply(MenuEvent::SetSpecies(ConceptSpecies::Chupri)));
+	let mut thumplus = CharacterMenu::default();
+	assert!(thumplus.apply(MenuEvent::SetSpecies(ConceptSpecies::Thumplus)));
+
+	let braidman_dist = braidman
+		.body_preview_focus()
+		.camera_offset
+		.distance(braidman.body_preview_focus().look_at_offset);
+	let spibmom_dist = spibmom
+		.body_preview_focus()
+		.camera_offset
+		.distance(spibmom.body_preview_focus().look_at_offset);
+	let chupri_dist = chupri
+		.body_preview_focus()
+		.camera_offset
+		.distance(chupri.body_preview_focus().look_at_offset);
+	let thumplus_dist = thumplus
+		.body_preview_focus()
+		.camera_offset
+		.distance(thumplus.body_preview_focus().look_at_offset);
+
+	assert!(
+		spibmom_dist > braidman_dist,
+		"Spibmom's 2× head + stature should sit farther than Braidman ({spibmom_dist} vs {braidman_dist})"
+	);
+	assert!(
+		chupri_dist < braidman_dist,
+		"Chupri should sit closer than Braidman ({chupri_dist} vs {braidman_dist})"
+	);
+	assert!(
+		thumplus_dist > spibmom_dist,
+		"Thumplus should sit farther than Spibmom ({thumplus_dist} vs {spibmom_dist})"
+	);
+}
+
+#[test]
+fn set_species_requests_body_preview_focus() {
+	let mut menu = CharacterMenu::default();
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Spibmom)));
+	let focus = menu
+		.camera_focus_for_event(MenuEvent::SetSpecies(ConceptSpecies::Spibmom))
+		.expect("species change should reframe");
+	assert_eq!(focus, menu.body_preview_focus());
+}
+
+#[test]
+fn human_scale_body_focus_misses_spibmom() {
+	use character_ui_menu::CameraFocus;
+
+	let mut menu = CharacterMenu::default();
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Spibmom)));
+	let bounds = menu.preview_aabb();
+	assert!(
+		!crate::BODY_FOCUS.contains_preview_bounds(bounds, CameraFocus::BODY_PREVIEW_FOV, 1.0),
+		"legacy human-scale BODY_FOCUS should crop a tall Spibmom"
+	);
+}
+
+#[test]
+fn drop_inventory_removes_an_item_and_unequips_it() -> anyhow::Result<()> {
+	use character_items::{ClothingMaterial, ClothingMesh, FirearmMesh, InventoryItem, ItemColor};
+
+	let items = vec![
+		InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Natural),
+		InventoryItem::clothing(ClothingMesh::TankTop, ClothingMaterial::Cloth, ItemColor::Red),
+		InventoryItem::firearm(FirearmMesh::Bullpup),
+		InventoryItem::firearm(FirearmMesh::Reltor),
+	];
+	let mut menu = CharacterMenu::for_create(items);
+	assert!(menu.apply(MenuEvent::DropInventory(2)));
+	let inventory = menu.inventory.as_ref().ok_or_else(|| anyhow::anyhow!("create inventory"))?;
+	assert_eq!(inventory.items.len(), 3);
+	assert_eq!(inventory.weapons, vec![2]);
+	assert_eq!(
+		inventory.primary_weapon().and_then(InventoryItem::firearm_mesh),
+		Some(FirearmMesh::Reltor)
+	);
+	assert_eq!(inventory.clothing, vec![0, 1]);
+	assert!(menu.apply(MenuEvent::DropInventory(0)));
+	let inventory = menu.inventory.as_ref().ok_or_else(|| anyhow::anyhow!("create inventory"))?;
+	assert_eq!(inventory.items.len(), 2);
+	assert_eq!(inventory.clothing, vec![0]);
+	assert_eq!(inventory.items[0].mesh(), Some(ClothingMesh::TankTop));
+	assert!(!menu.apply(MenuEvent::DropInventory(9)));
+	let no_equipped = character_items::InventoryDropPolicy {
+		allow_equipped: false,
+		..character_items::InventoryDropPolicy::PLACEHOLDER
+	};
+	assert!(!menu.apply_drop(0, no_equipped));
+	assert_eq!(menu.inventory.as_ref().map(|bag| bag.items.len()), Some(2));
+	Ok(())
+}
+
+#[test]
+fn saved_menu_can_drop_after_appearance_lock() -> anyhow::Result<()> {
+	use character_items::{ClothingMaterial, ClothingMesh, InventoryItem, ItemColor};
+
+	let items = vec![
+		InventoryItem::clothing(ClothingMesh::Pants, ClothingMaterial::Cloth, ItemColor::Natural),
+		InventoryItem::clothing(ClothingMesh::TankTop, ClothingMaterial::Cloth, ItemColor::Red),
+	];
+	let mut created = CharacterMenu::for_create(items);
+	created.name = String::from("Misty");
+	let appearance = created.appearance();
+	let inventory = created.inventory.clone().ok_or_else(|| anyhow::anyhow!("inventory"))?;
+	let mut menu = CharacterMenu::for_saved(created.saved_name(), &appearance, inventory);
+	assert!(menu.appearance_locked());
+	assert!(MenuEvent::DropInventory(0).edits_inventory());
+	assert!(menu.apply(MenuEvent::DropInventory(0)));
+	let inventory = menu.inventory.as_ref().ok_or_else(|| anyhow::anyhow!("inventory"))?;
+	assert_eq!(inventory.items.len(), 1);
+	assert_eq!(inventory.clothing, vec![0]);
 	Ok(())
 }

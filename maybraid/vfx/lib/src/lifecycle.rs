@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy_hanabi::prelude::{CompiledParticleEffect, EffectSpawner, EffectSystems, SpawnerSettings};
 
-use crate::lobe_instances::sync_lobe_instance_buffer;
+use crate::lobe_material::LobeMaterial;
 use crate::lobes::{lobe_transform, stamp_lobe_materials, VfxLobe};
 use crate::membership::{VfxInstanceMembers, VfxMemberOf};
 use crate::spawn::{
@@ -111,17 +111,19 @@ pub fn tick_vfx_flashes(
 pub fn tick_vfx_lobes(
 	time: Res<Time>,
 	instances: Query<&VfxInstance>,
+	mut materials: ResMut<Assets<LobeMaterial>>,
 	mut lobes: Query<(
 		Entity,
 		&VfxMemberOf,
 		&mut VfxLobe,
 		&mut Transform,
 		&mut Visibility,
+		Option<&MeshMaterial3d<LobeMaterial>>,
 		Option<&mut VfxLayerLife>,
 	)>,
 ) {
 	let dt = time.delta_secs();
-	for (_entity, member, mut lobe, mut transform, mut visibility, life) in &mut lobes {
+	for (_entity, member, mut lobe, mut transform, mut visibility, material, life) in &mut lobes {
 		if !member.instance_armed(&instances) {
 			*visibility = Visibility::Hidden;
 			continue;
@@ -132,6 +134,11 @@ pub fn tick_vfx_lobes(
 			life.age = lobe.age;
 		}
 		*transform = lobe_transform(&lobe.spec, lobe.age);
+		if let Some(handle) = material {
+			if let Some(mut material) = materials.get_mut(&handle.0) {
+				material.set_age(lobe.age);
+			}
+		}
 	}
 }
 
@@ -167,7 +174,6 @@ pub fn vfx_lifecycle_plugin(app: &mut App) {
 			tick_vfx_instances,
 			tick_vfx_flashes,
 			tick_vfx_lobes,
-			sync_lobe_instance_buffer,
 			tick_vfx_layer_lives,
 		)
 			.chain(),
@@ -233,11 +239,17 @@ mod tests {
 			.single(&world)
 			.map_err(|_| "missing deep member")?;
 		let member = world.get::<VfxMemberOf>(deep).ok_or("missing VfxMemberOf")?;
-		assert!(!member.instance_armed_in_world(&world), "disarmed instance should gate deep member");
+		assert!(
+			!member.instance_armed_in_world(&world),
+			"disarmed instance should gate deep member"
+		);
 
 		world.entity_mut(root).get_mut::<VfxInstance>().ok_or("missing instance")?.armed = true;
 		let member = world.get::<VfxMemberOf>(deep).ok_or("missing VfxMemberOf")?;
-		assert!(member.instance_armed_in_world(&world), "armed instance should release deep member");
+		assert!(
+			member.instance_armed_in_world(&world),
+			"armed instance should release deep member"
+		);
 		Ok(())
 	}
 
@@ -249,15 +261,18 @@ mod tests {
 		world.spawn((ChildOf(mid), VfxMemberOf(root), VfxEmitter { count: 1.0 }));
 		world.flush();
 
-		let members = world
-			.get::<VfxInstanceMembers>(root)
-			.ok_or("root missing VfxInstanceMembers")?;
+		let members =
+			world.get::<VfxInstanceMembers>(root).ok_or("root missing VfxInstanceMembers")?;
 		assert!(!members.emitters_ready_in_world(&world), "unarmed emitter should block readiness");
 
 		let emitter = members.iter().next().ok_or("missing nested emitter")?;
 		world.entity_mut(emitter).insert(VfxEmitterArmed);
-		let members = world.get::<VfxInstanceMembers>(root).ok_or("root missing VfxInstanceMembers")?;
-		assert!(members.emitters_ready_in_world(&world), "armed nested emitter should satisfy readiness");
+		let members =
+			world.get::<VfxInstanceMembers>(root).ok_or("root missing VfxInstanceMembers")?;
+		assert!(
+			members.emitters_ready_in_world(&world),
+			"armed nested emitter should satisfy readiness"
+		);
 		Ok(())
 	}
 
@@ -269,41 +284,34 @@ mod tests {
 		world.spawn((
 			ChildOf(cluster),
 			VfxMemberOf(root),
-			VfxLayerLife {
-				age: 0.5,
-				duration: 0.5,
-				playback: 1.0,
-				waiting_for_emitter: false,
-			},
+			VfxLayerLife { age: 0.5, duration: 0.5, playback: 1.0, waiting_for_emitter: false },
 		));
 		world.spawn((
 			ChildOf(cluster),
 			VfxMemberOf(root),
-			VfxLayerLife {
-				age: 0.2,
-				duration: 0.5,
-				playback: 1.0,
-				waiting_for_emitter: false,
-			},
+			VfxLayerLife { age: 0.2, duration: 0.5, playback: 1.0, waiting_for_emitter: false },
 		));
 		world.flush();
 
-		let members = world
-			.get::<VfxInstanceMembers>(root)
-			.ok_or("root missing VfxInstanceMembers")?;
-		assert!(!members.layers_finished_in_world(&world), "unfinished deep lobe should block cleanup");
+		let members =
+			world.get::<VfxInstanceMembers>(root).ok_or("root missing VfxInstanceMembers")?;
+		assert!(
+			!members.layers_finished_in_world(&world),
+			"unfinished deep lobe should block cleanup"
+		);
 
 		for member in members.iter().collect::<Vec<_>>() {
 			let Some(life) = world.get::<VfxLayerLife>(member).cloned() else {
 				continue;
 			};
-			world.entity_mut(member).insert(VfxLayerLife {
-				age: life.duration,
-				..life
-			});
+			world.entity_mut(member).insert(VfxLayerLife { age: life.duration, ..life });
 		}
-		let members = world.get::<VfxInstanceMembers>(root).ok_or("root missing VfxInstanceMembers")?;
-		assert!(members.layers_finished_in_world(&world), "finished deep lobes should allow cleanup");
+		let members =
+			world.get::<VfxInstanceMembers>(root).ok_or("root missing VfxInstanceMembers")?;
+		assert!(
+			members.layers_finished_in_world(&world),
+			"finished deep lobes should allow cleanup"
+		);
 		Ok(())
 	}
 }

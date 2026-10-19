@@ -14,7 +14,7 @@ use bevy::prelude::*;
 use crate::fireball_embers::FireballEffects;
 use crate::fireball_material::FireballMaterial;
 use crate::user::SkillMapUser;
-use crate::{SkillKind, SkillMapEnabled, SkillMapEvent};
+use crate::{skill_map_dispatch_ready, SkillKind, SkillMapEnabled, SkillMapEvent};
 
 pub const FIREBALL_LENGTH: f32 = 0.12;
 pub const FIREBALL_RADIUS: f32 = 1.0;
@@ -64,8 +64,7 @@ pub fn dispatch_fireballs(
 	mut events: MessageReader<SkillMapEvent>,
 	users: Query<(Entity, &GlobalTransform, Option<&PlayerLook>), With<SkillMapUser>>,
 ) {
-	if !enabled.0 {
-		for _ in events.read() {}
+	if !skill_map_dispatch_ready(&enabled, &mut events) {
 		return;
 	}
 	for event in events.read() {
@@ -158,8 +157,7 @@ pub fn dispatch_dumbwaves(
 	users: Query<(Entity, &GlobalTransform), With<SkillMapUser>>,
 	mut managers: DumbwaveManagers,
 ) {
-	if !enabled.0 {
-		for _ in events.read() {}
+	if !skill_map_dispatch_ready(&enabled, &mut events) {
 		return;
 	}
 	let now = time.elapsed_secs();

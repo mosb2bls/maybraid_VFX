@@ -7,68 +7,46 @@ use bevy::math::bounding::Aabb3d;
 use crate::gen::Id;
 
 use super::super::node_store::StoredEntry;
-use super::store::{read, try_read};
 use super::{Busy, HcsgStorage, HcsgValue};
 
 impl HcsgStorage {
-	fn blocking_get<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
+	pub fn blocking_get<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
 		let store = self.store::<T>()?;
-		let nodes = read(&store.nodes);
+		let nodes = store.read();
 		nodes.value(id).cloned()
 	}
 
-	fn blocking_entry<T: HcsgValue>(&self, id: Id) -> Option<StoredEntry<Arc<T>>> {
+	pub fn blocking_entry<T: HcsgValue>(&self, id: Id) -> Option<StoredEntry<Arc<T>>> {
 		let store = self.store::<T>()?;
-		let nodes = read(&store.nodes);
+		let nodes = store.read();
 		nodes.entry(id).cloned()
 	}
 
 	/// Stored ids of `T` whose bounds intersect `region`, in id order.
 	fn blocking_overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
 		self.store::<T>()
-			.map(|store| read(&store.nodes).overlapping(region))
+			.map(|store| store.read().overlapping(region))
 			.unwrap_or_default()
 	}
 
-	#[cfg(not(any(test, feature = "test-support")))]
-	pub(crate) fn get<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
-		self.blocking_get::<T>(id)
-	}
-
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn get<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
 		self.blocking_get::<T>(id)
 	}
 
-	#[cfg(not(any(test, feature = "test-support")))]
-	pub(crate) fn entry<T: HcsgValue>(&self, id: Id) -> Option<StoredEntry<Arc<T>>> {
-		self.blocking_entry::<T>(id)
-	}
-
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn entry<T: HcsgValue>(&self, id: Id) -> Option<StoredEntry<Arc<T>>> {
 		self.blocking_entry::<T>(id)
 	}
 
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn contains<T: HcsgValue>(&self, id: Id) -> bool {
-		self.store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
+		self.store::<T>().is_some_and(|store| store.read().contains(id))
 	}
 
-	#[cfg(not(any(test, feature = "test-support")))]
-	pub(crate) fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
-		self.blocking_overlapping::<T>(region)
-	}
-
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id> {
 		self.blocking_overlapping::<T>(region)
 	}
 
-	/// Bumped by every publish, removal and clear of `T`.
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn membership_revision<T: HcsgValue>(&self) -> u64 {
-		self.store::<T>().map_or(0, |store| read(&store.nodes).membership_revision())
+		self.store::<T>().map_or(0, |store| store.read().membership_revision())
 	}
 
 	/// [`Self::entry`] for the frame: never waits on a lock.
@@ -76,8 +54,23 @@ impl HcsgStorage {
 		let Some(store) = self.try_store::<T>()? else {
 			return Ok(None);
 		};
-		let entry = try_read(&store.nodes)?.entry(id).cloned();
+		let entry = store.try_read()?.entry(id).cloned();
 		Ok(entry)
+	}
+
+	/// Like [`Self::try_entry`] for each id in `ids`, resolving the typed store
+	/// once and holding one store read lock for the whole batch. `Err(Busy)`
+	/// when the registry or store read lock is busy, same as a
+	/// [`Self::try_entry`] loop would return on the first id.
+	pub fn try_entries<T: HcsgValue>(
+		&self,
+		ids: &[Id],
+	) -> Result<Vec<Option<StoredEntry<Arc<T>>>>, Busy> {
+		let Some(store) = self.try_store::<T>()? else {
+			return Ok(vec![None; ids.len()]);
+		};
+		let nodes = store.try_read()?;
+		Ok(ids.iter().map(|id| nodes.entry(*id).cloned()).collect())
 	}
 
 	/// [`Self::overlapping`] for the frame: never waits on a lock.
@@ -85,7 +78,7 @@ impl HcsgStorage {
 		let Some(store) = self.try_store::<T>()? else {
 			return Ok(Vec::new());
 		};
-		let ids = try_read(&store.nodes)?.overlapping(region);
+		let ids = store.try_read()?.overlapping(region);
 		Ok(ids)
 	}
 
@@ -94,7 +87,7 @@ impl HcsgStorage {
 		let Some(store) = self.try_store::<T>()? else {
 			return Ok(0);
 		};
-		let revision = try_read(&store.nodes)?.membership_revision();
+		let revision = store.try_read()?.membership_revision();
 		Ok(revision)
 	}
 }

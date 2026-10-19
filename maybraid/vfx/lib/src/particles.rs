@@ -55,7 +55,7 @@ pub fn effect_properties(
 	shade: ParticleShade,
 ) -> EffectProperties {
 	let mut properties = EffectProperties::default();
-	properties.set(PROP_SCALE, (spawn.clamped_scale() * layer_scale).into());
+	properties.set(PROP_SCALE, (spawn.scale * layer_scale).into());
 	let tint = spawn.tint.map(LinearRgba::from).unwrap_or(LinearRgba::WHITE);
 	properties.set(PROP_TINT, Vec4::new(tint.red, tint.green, tint.blue, 1.0).into());
 	properties.set(PROP_SEED, seed::unit(spawn.resolved_seed()).into());

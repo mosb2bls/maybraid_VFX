@@ -58,7 +58,7 @@ mod tests {
 		world.init_resource::<Messages<WeaponFired>>();
 		let player = world.spawn(Player).id();
 		let npc = world.spawn((Npc, FirearmEngagement::hold())).id();
-		world.write_message(WeaponFired { shooter: player, recoil: 0.0 });
+		world.write_message(WeaponFired::new(player, 0.0));
 		world.run_system_once(record_player_shot)?;
 		assert!(world.resource::<NpcEngagement>().is_live());
 		assert_eq!(

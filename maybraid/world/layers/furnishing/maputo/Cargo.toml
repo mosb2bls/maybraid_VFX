@@ -21,6 +21,7 @@ furniture-usage-areas = { workspace = true }
 furnishing-layer-model = { workspace = true }
 layer-stack = { workspace = true }
 lod = { workspace = true }
+procedural-common = { workspace = true }
 lod-avian = { workspace = true }
 lod-gimme = { workspace = true }
 richmond = { workspace = true }

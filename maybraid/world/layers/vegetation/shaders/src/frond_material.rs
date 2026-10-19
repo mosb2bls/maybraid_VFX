@@ -16,6 +16,7 @@ use bevy::{
 	},
 	shader::ShaderRef,
 };
+use vegetation_components::CanopyShadowMode;
 
 /// Registers embedded **`frond_material.wgsl`** and [`MaterialPlugin`] for [`FrondMaterial`].
 pub struct FrondMaterialPlugin;
@@ -31,7 +32,11 @@ impl Plugin for FrondMaterialPlugin {
 fn disable_frond_shadow_casters(
 	mut commands: Commands,
 	query: Query<Entity, (With<MeshMaterial3d<FrondMaterial>>, Without<NotShadowCaster>)>,
+	mode: Option<Res<CanopyShadowMode>>,
 ) {
+	if mode.is_some_and(|mode| mode.canopy_casts()) {
+		return;
+	}
 	for entity in &query {
 		commands.entity(entity).insert(NotShadowCaster);
 	}

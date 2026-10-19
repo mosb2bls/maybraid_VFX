@@ -7,7 +7,7 @@ use material_ref::{
 	MaterialId, MaterialLib, MaterialRef, MaterialRefCache, MaterialRefKey, MaterialRefPlugin,
 	StandardMaterialLib, StandardMaterialRefCache,
 };
-use vegetation_components::{FROND_MATERIAL, LEAF_MATERIAL, STICK_MATERIAL};
+use vegetation_components::{CanopyShadowMode, FROND_MATERIAL, LEAF_MATERIAL, STICK_MATERIAL};
 
 use crate::{FrondMaterial, LeafMaterial, StickMaterial};
 
@@ -37,6 +37,7 @@ pub struct VegetationMaterialLib<'w> {
 	pub stick_cache: ResMut<'w, StickMaterialRefCache>,
 	pub frond_materials: ResMut<'w, Assets<FrondMaterial>>,
 	pub frond_cache: ResMut<'w, FrondMaterialRefCache>,
+	pub canopy_shadows: Option<Res<'w, CanopyShadowMode>>,
 }
 
 impl VegetationMaterialLib<'_> {
@@ -78,14 +79,11 @@ impl MaterialLib for VegetationMaterialLib<'_> {
 		material_ref: &MaterialRef,
 		commands: &mut Commands,
 	) -> bool {
+		let canopy_casts = self.canopy_shadows.as_ref().is_some_and(|mode| mode.canopy_casts());
 		match &material_ref.name {
 			MaterialId::Name(name) if name == LEAF_MATERIAL => {
 				let handle = self.resolve_leaf(material_ref);
-				commands
-					.entity(entity)
-					.remove::<MeshMaterial3d<StandardMaterial>>()
-					.insert(MeshMaterial3d(handle))
-					.insert(NotShadowCaster);
+				fulfill_canopy_material(commands, entity, handle, canopy_casts);
 				true
 			}
 			MaterialId::Name(name) if name == STICK_MATERIAL => {
@@ -99,11 +97,7 @@ impl MaterialLib for VegetationMaterialLib<'_> {
 			}
 			MaterialId::Name(name) if name == FROND_MATERIAL => {
 				let handle = self.resolve_frond(material_ref);
-				commands
-					.entity(entity)
-					.remove::<MeshMaterial3d<StandardMaterial>>()
-					.insert(MeshMaterial3d(handle))
-					.insert(NotShadowCaster);
+				fulfill_canopy_material(commands, entity, handle, canopy_casts);
 				true
 			}
 			_ => false,
@@ -131,6 +125,26 @@ impl MaterialLib for StandaloneVegetationMaterialLib<'_> {
 
 	fn fulfill(&mut self, entity: Entity, material_ref: &MaterialRef, commands: &mut Commands) {
 		let _ = self.try_fulfill(entity, material_ref, commands);
+	}
+}
+
+fn fulfill_canopy_material<M: Asset + Clone + Material>(
+	commands: &mut Commands,
+	entity: Entity,
+	handle: Handle<M>,
+	canopy_casts: bool,
+) {
+	if canopy_casts {
+		commands
+			.entity(entity)
+			.remove::<MeshMaterial3d<StandardMaterial>>()
+			.insert(MeshMaterial3d(handle));
+	} else {
+		commands
+			.entity(entity)
+			.remove::<MeshMaterial3d<StandardMaterial>>()
+			.insert(MeshMaterial3d(handle))
+			.insert(NotShadowCaster);
 	}
 }
 

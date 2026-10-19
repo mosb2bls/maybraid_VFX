@@ -14,11 +14,10 @@ use lod::scene::{LodScene, LodSceneLevel, LodSceneStatus};
 use urbanization_layer_model::UrbanSetting;
 
 use crate::artifact::BuiltDevelopment;
+use crate::developments::site::DevelopmentSite;
 use crate::developments::RichmondDevelopment;
 use crate::ground::RichmondGround;
 use crate::host::DevelopmentHosts;
-use crate::storage::column_bounds;
-
 /// Buildings fitted to one filled [`RichmondDevelopment`] over ground `G`.
 pub struct Built<G> {
 	pub development: BuiltDevelopment,
@@ -51,18 +50,15 @@ impl<G: RichmondGround> hcsg::GenerationScheme for Built<G> {
 
 	/// The filled developments originating in `region`.
 	fn original_ids_for(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
-		cx.original_ids_for::<RichmondDevelopment<G>>(region)
+		cx.original_ids_for::<DevelopmentSite>(region)
 			.into_iter()
-			.filter(|OriginalId(id)| {
-				cx.get_or_generate::<RichmondDevelopment<G>>(*id)
-					.is_some_and(|development| development.is_filled())
-			})
+			.filter(|OriginalId(id)| RichmondDevelopment::<G>::builds_filled(cx, *id))
 			.collect()
 	}
 
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let development = cx.get_or_generate::<RichmondDevelopment<G>>(id)?;
-		Some((Self::fit(id, &development)?, column_bounds(development.cell())))
+		let (development, bounds) = cx.get_or_generate_stored::<RichmondDevelopment<G>>(id)?;
+		Some((Self::fit(id, &development)?, bounds))
 	}
 }
 
@@ -73,7 +69,7 @@ impl<G: RichmondGround> LodScene for Built<G> {
 		LodSceneStatus::Unchanged
 	}
 
-	fn scene_with_level(&self, _lod_ref: &LodRef, _level: LodSceneLevel) -> impl Scene + 'static {
+	fn scene_with_level(&self, lod_ref: &LodRef, _level: LodSceneLevel) -> impl Scene + 'static {
 		let setting = self.setting;
 		let at = Transform::from_translation(self.setting_at);
 		let mut children: Vec<Box<dyn Scene>> = vec![Box::new(bsn! {
@@ -81,7 +77,62 @@ impl<G: RichmondGround> LodScene for Built<G> {
 			template(move |_ctx| Ok(setting))
 			template_value(at)
 		})];
-		children.extend(self.development.hosts().iter().map(|host| host.scene(Some(setting.id))));
+		children.extend(
+			self.development
+				.hosts()
+				.iter()
+				.map(|host| host.scene(Some(setting.id), lod_ref)),
+		);
 		scene_children(children)
+	}
+}
+
+#[cfg(test)]
+mod scheme_perf_tests {
+	use super::*;
+	use durham::Durham;
+	use lod::hcsg::{universal_bounds, GenerationContext, HcsgStorage};
+	use terrain_layer_model::OnTerrain;
+	use urbanization_cells::{UrbanizationKind, UrbanizationSelection};
+
+	type Ground = OnTerrain<Durham>;
+
+	fn naive_built_ids(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+		cx.original_ids_for::<RichmondDevelopment<Ground>>(region)
+			.into_iter()
+			.filter(|OriginalId(id)| {
+				cx.get_or_generate::<RichmondDevelopment<Ground>>(*id)
+					.is_some_and(|development| development.is_filled())
+			})
+			.collect()
+	}
+
+	#[test]
+	fn built_discovery_matches_materializing_every_development() -> anyhow::Result<()> {
+		let storage = HcsgStorage::default();
+		storage.seed(
+			crate::DevelopmentConfig {
+				sites: crate::DevelopmentSites::Urbanization,
+				..crate::DevelopmentConfig::default()
+			},
+			universal_bounds(),
+		);
+		storage.seed(
+			UrbanizationSelection {
+				kind: Some(UrbanizationKind::Frontier),
+				..UrbanizationSelection::default()
+			},
+			universal_bounds(),
+		);
+		let region = urbanization_cells::UrbanizationExtent::xz_radius_aabb(
+			Vec3::ZERO,
+			urbanization_cells::DEVELOPMENT_GENERATE_RADIUS_M,
+		);
+		let mut naive_cx = GenerationContext::new(&storage);
+		let mut optimized_cx = GenerationContext::new(&storage);
+		let naive = naive_built_ids(&mut naive_cx, region);
+		let optimized = optimized_cx.original_ids_for::<Built<Ground>>(region);
+		assert_eq!(naive, optimized);
+		Ok(())
 	}
 }

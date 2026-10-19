@@ -2,7 +2,7 @@
 
 use bevy::math::bounding::Aabb3d;
 use bevy_math::Vec3;
-use lod::gen::Id;
+use lod::gen::{Id, OriginalId};
 
 /// Default square urbanization cell span in metres on X and Z.
 pub const DEFAULT_URBANIZATION_EXTENT_XZ: f32 = 1600.0;
@@ -70,6 +70,14 @@ impl UrbanizationExtent {
 		let (z0, z1) = (min_idx.1.min(max_idx.1), min_idx.1.max(max_idx.1));
 		(x0..=x1)
 			.flat_map(|ix| (z0..=z1).map(move |iz| Self::from_cell_index(ix, iz)))
+			.collect()
+	}
+
+	/// [`OriginalId`]s of cells whose footprints overlap `region` on XZ.
+	pub fn original_ids_overlapping(region: Aabb3d) -> Vec<OriginalId> {
+		Self::cells_overlapping(region)
+			.into_iter()
+			.map(|extent| OriginalId(extent.id()))
 			.collect()
 	}
 

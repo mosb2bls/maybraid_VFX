@@ -85,6 +85,7 @@ impl DevelopmentExtent {
 			.collect()
 	}
 
+	/// [`OriginalId`]s of cells whose footprints overlap `region` on XZ.
 	pub fn original_ids_overlapping(region: Aabb3d) -> Vec<OriginalId> {
 		Self::cells_overlapping(region)
 			.into_iter()

@@ -9,10 +9,12 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use bevy::text::{FontSourceTemplate, Justify};
 
+use crate::controls::focus::{first_focus_tag, paint_focus_tag, FocusTag};
 use crate::theme::{
 	BARLOW_BLACK, BARLOW_SEMIBOLD, COLUMN_BOTTOM, COLUMN_INSET, CORNER_BOTTOM, CORNER_INSET,
-	HEADER_FONT_SIZE, HEADER_MARGIN_BOTTOM, ITEM_FONT_SIZE, ITEM_ROW_GAP, TEXT_YELLOW,
-	TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS, TEXT_YELLOW_HOVER,
+	FOCUS_TAG_PAD_X, FOCUS_TAG_PAD_Y, FOCUS_TAG_RADIUS, HEADER_FONT_SIZE, HEADER_MARGIN_BOTTOM,
+	ITEM_FONT_SIZE, ITEM_ROW_GAP, TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_FAINT_FOCUS,
+	TEXT_YELLOW_HOVER,
 };
 use maybraid_input::{MenuNav, MenuNavImpulse};
 
@@ -84,6 +86,10 @@ pub struct TextMenuItem {
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct MenuItemLocked;
 
+/// Row that consumes left/right to change a value instead of moving the cursor.
+#[derive(Component, Debug, Default, Clone, Copy)]
+pub struct MenuStepper;
+
 impl TextMenuItem {
 	pub fn yellow(index: usize) -> Self {
 		Self { index, idle: TEXT_YELLOW, active: TEXT_YELLOW_HOVER }
@@ -107,6 +113,31 @@ impl TextMenuItem {
 		let label = label.into();
 		let justify_content = align.justify_content();
 		let text_justify = align.text_justify();
+		let tag = FocusTag::new(self.idle);
+		let label_children: Vec<Box<dyn Scene>> = vec![Box::new(bsn! {
+			template_value(Text::new(label))
+			TextFont {
+				font: FontSourceTemplate::Handle(BARLOW_SEMIBOLD),
+				font_size: px(ITEM_FONT_SIZE),
+			}
+			TextColor(TEXT_YELLOW)
+			TextLayout::new(text_justify, bevy::text::LineBreak::NoWrap)
+			TextMenuItemLabel
+			Pickable::IGNORE
+		})];
+		let children: Vec<Box<dyn Scene>> = vec![Box::new(bsn! {
+			template_value(tag)
+			Node {
+				padding: UiRect::axes(px(FOCUS_TAG_PAD_X), px(FOCUS_TAG_PAD_Y)),
+				border_radius: BorderRadius::all(px(FOCUS_TAG_RADIUS)),
+				justify_content: JustifyContent::Center,
+				align_items: AlignItems::Center,
+				flex_shrink: 0.0,
+			}
+			BackgroundColor(Color::NONE)
+			Pickable::IGNORE
+			Children [ {label_children} ]
+		})];
 		bsn! {
 			Button
 			template_value(self)
@@ -117,17 +148,7 @@ impl TextMenuItem {
 				align_items: AlignItems::Center,
 			}
 			BackgroundColor(Color::NONE)
-			Children [(
-				template_value(Text::new(label))
-				TextFont {
-					font: FontSourceTemplate::Handle(BARLOW_SEMIBOLD),
-					font_size: px(ITEM_FONT_SIZE),
-				}
-				TextColor(TEXT_YELLOW)
-				TextLayout::new(text_justify, bevy::text::LineBreak::NoWrap)
-				TextMenuItemLabel
-				Pickable::IGNORE
-			)]
+			Children [ {children} ]
 		}
 	}
 }
@@ -187,7 +208,7 @@ pub enum TextColumnAnchor {
 /// How labels sit inside the column and inside each row.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextColumnAlign {
-	/// Reserved cursor gutter; labels share a left edge.
+	/// Labels share a left edge. The focus tag hugs each title.
 	#[default]
 	Start,
 	/// Each label is centered on the column axis.
@@ -364,6 +385,24 @@ pub struct MenuActivate<E> {
 	pub choice: E,
 }
 
+/// In-screen left/right step: triggered on the [`TextMenu`], bubbles to the screen.
+#[derive(EntityEvent, Clone, Copy, Debug)]
+#[entity_event(propagate, auto_propagate)]
+pub struct MenuStep<E> {
+	pub entity: Entity,
+	pub choice: E,
+	pub delta: i32,
+}
+
+/// Left/right on a [`MenuStepper`] row, decided from the selection before the
+/// same impulse can move the cursor. [`emit_menu_step`] types it as [`MenuStep<E>`].
+#[derive(EntityEvent, Clone, Copy, Debug)]
+pub struct MenuStepRow {
+	pub entity: Entity,
+	pub menu: Entity,
+	pub delta: i32,
+}
+
 fn selected_item<E: Component + Copy>(
 	menu_entity: Entity,
 	menu: &TextMenu,
@@ -482,18 +521,71 @@ pub fn emit_menu_activate_on_nav<E: Component + Copy + Send + Sync + 'static>(
 	}
 }
 
+/// Move the cursor, or step the selected [`MenuStepper`] row on left/right.
+///
+/// Both outcomes come from one read of [`TextMenu::selected`], so a left/right
+/// that moves onto a stepper does not also step it.
 pub fn apply_text_menu_nav(
 	impulse: On<MenuNavImpulse>,
 	lock: Res<TextMenuInputLock>,
 	mut menus: Query<&mut TextMenu>,
+	steppers: Query<(Entity, &TextMenuItem, &ChildOf), With<MenuStepper>>,
+	child_of: Query<&ChildOf>,
+	mut commands: Commands,
 ) {
 	if lock.0 {
 		return;
 	}
-	let Ok(mut menu) = menus.get_mut(impulse.entity) else {
+	let menu_entity = impulse.entity;
+	let Ok(mut menu) = menus.get_mut(menu_entity) else {
 		return;
 	};
-	menu.apply_nav(impulse.event().nav);
+	let nav = impulse.event().nav;
+	let delta = match nav {
+		MenuNav::Left => Some(-1),
+		MenuNav::Right => Some(1),
+		_ => None,
+	};
+	if let Some(delta) = delta {
+		if let Some(row) = selected_stepper(menu_entity, &menu, &steppers, &child_of) {
+			commands.trigger(MenuStepRow { entity: row, menu: menu_entity, delta });
+			return;
+		}
+	}
+	menu.apply_nav(nav);
+}
+
+fn selected_stepper(
+	menu_entity: Entity,
+	menu: &TextMenu,
+	steppers: &Query<(Entity, &TextMenuItem, &ChildOf), With<MenuStepper>>,
+	child_of: &Query<&ChildOf>,
+) -> Option<Entity> {
+	steppers.iter().find_map(|(entity, item, item_child)| {
+		(item.index == menu.selected && entity_is_under(item_child.parent(), menu_entity, child_of))
+			.then_some(entity)
+	})
+}
+
+/// Type a [`MenuStepRow`] as [`MenuStep<E>`] on the row's menu.
+pub fn emit_menu_step<E: Component + Copy + Send + Sync + 'static>(
+	step: On<MenuStepRow>,
+	items: Query<&E, With<MenuStepper>>,
+	locked: Query<(), With<MenuItemLocked>>,
+	mut commands: Commands,
+) {
+	let row = step.event().entity;
+	if locked.contains(row) {
+		return;
+	}
+	let Ok(choice) = items.get(row) else {
+		return;
+	};
+	commands.trigger(MenuStep {
+		entity: step.event().menu,
+		choice: *choice,
+		delta: step.event().delta,
+	});
 }
 
 /// Screen-boundary adapter: [`MenuActivate<E>`] → [`Message<E>`].
@@ -529,15 +621,33 @@ pub fn sync_text_menu_item_colors(
 	menus: Query<&TextMenu>,
 	child_of: Query<&ChildOf>,
 	items: Query<(Entity, &TextMenuItem, &Children)>,
-	mut labels: Query<&mut TextColor, With<TextMenuItemLabel>>,
+	locked: Query<(), With<MenuItemLocked>>,
+	tags: Query<(), With<FocusTag>>,
+	children: Query<&Children>,
+	mut backgrounds: Query<&mut BackgroundColor, With<FocusTag>>,
+	mut colors: Query<&mut TextColor>,
 ) {
-	for (entity, item, children) in &items {
+	for (entity, item, item_children) in &items {
 		let Some(menu) = text_menu_for_item(entity, &child_of, &menus) else {
 			continue;
 		};
-		let color = if item.index == menu.selected { item.active } else { item.idle };
-		for child in children {
-			if let Ok(mut text_color) = labels.get_mut(*child) {
+		let focused = item.index == menu.selected;
+		let is_locked = locked.contains(entity);
+		if let Some(tag) = first_focus_tag(item_children, &tags) {
+			paint_focus_tag(
+				tag,
+				focused,
+				is_locked,
+				item.idle,
+				&children,
+				&mut backgrounds,
+				&mut colors,
+			);
+			continue;
+		}
+		let color = if focused { item.active } else { item.idle };
+		for child in item_children {
+			if let Ok(mut text_color) = colors.get_mut(*child) {
 				text_color.0 = color;
 			}
 		}
@@ -664,5 +774,62 @@ mod tests {
 		app.world_mut()
 			.trigger(maybraid_input::MenuNavImpulse::new(menu, maybraid_input::MenuNav::Select));
 		assert_eq!(app.world().resource::<ActivateHits>().0, 0);
+	}
+
+	#[derive(Resource, Default)]
+	struct StepDeltas(Vec<i32>);
+
+	fn record_step(step: On<super::MenuStep<TestChoice>>, mut deltas: ResMut<StepDeltas>) {
+		deltas.0.push(step.event().delta);
+	}
+
+	fn stepper_app(stepper_index: usize) -> (App, Entity) {
+		let mut app = App::new();
+		app.init_resource::<super::TextMenuInputLock>()
+			.init_resource::<StepDeltas>()
+			.add_observer(super::apply_text_menu_nav)
+			.add_observer(super::emit_menu_step::<TestChoice>)
+			.add_observer(record_step);
+		let menu = app.world_mut().spawn(super::TextMenu::new(3)).id();
+		for index in 0..3 {
+			let mut row = app.world_mut().spawn((
+				super::TextMenuItem::yellow(index),
+				TestChoice::Go,
+				ChildOf(menu),
+			));
+			if index == stepper_index {
+				row.insert(super::MenuStepper);
+			}
+		}
+		(app, menu)
+	}
+
+	fn nav(app: &mut App, menu: Entity, nav: maybraid_input::MenuNav) {
+		app.world_mut().trigger(maybraid_input::MenuNavImpulse::new(menu, nav));
+		app.world_mut().flush();
+	}
+
+	fn selected(app: &App, menu: Entity) -> usize {
+		app.world().entity(menu).get::<super::TextMenu>().unwrap().selected
+	}
+
+	#[test]
+	fn stepper_row_steps_once_and_keeps_selection() {
+		let (mut app, menu) = stepper_app(0);
+		nav(&mut app, menu, maybraid_input::MenuNav::Left);
+		nav(&mut app, menu, maybraid_input::MenuNav::Right);
+		assert_eq!(selected(&app, menu), 0);
+		assert_eq!(app.world().resource::<StepDeltas>().0, vec![-1, 1]);
+	}
+
+	#[test]
+	fn moving_onto_a_stepper_does_not_step_it() {
+		let (mut app, menu) = stepper_app(1);
+		nav(&mut app, menu, maybraid_input::MenuNav::Right);
+		assert_eq!(selected(&app, menu), 1);
+		app.world_mut().entity_mut(menu).get_mut::<super::TextMenu>().unwrap().selected = 2;
+		nav(&mut app, menu, maybraid_input::MenuNav::Left);
+		assert_eq!(selected(&app, menu), 1);
+		assert!(app.world().resource::<StepDeltas>().0.is_empty());
 	}
 }

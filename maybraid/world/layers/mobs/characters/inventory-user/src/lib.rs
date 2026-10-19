@@ -4,8 +4,9 @@ use bevy::prelude::*;
 use character_items::{
 	BoltMaterial, ClothingMaterial, ClothingMesh, ClothingStats, FirearmBarrel, FirearmGrip,
 	FirearmKitSpec, FirearmLooks, FirearmMaterial, FirearmMesh, FirearmScales, FirearmSight,
-	FirearmSpec, FirearmStats, FirearmStock, FirearmTriggerBox, Inventory, InventoryItem,
-	InventorySlot, ItemColor, SkillMapKind, SkillMapSpec, WORN_CLOTHING_LIMIT,
+	FirearmSpec, FirearmStats, FirearmStock, FirearmTriggerBox, GrenadeMesh, GrenadeRecharge,
+	GrenadeSpec, GrenadeStats, Inventory, InventoryItem, InventorySlot, ItemColor, SkillMapKind,
+	SkillMapSpec, WORN_CLOTHING_LIMIT,
 };
 use character_persist::{CharacterId, PersistError, SaveRoot};
 use serde::{Deserialize, Serialize};
@@ -105,6 +106,14 @@ enum InventoryItemFile {
 		skill: SkillMapKind,
 		seed: u32,
 	},
+	Grenade {
+		#[serde(default)]
+		mesh: GrenadeMesh,
+		#[serde(default)]
+		stats: Option<GrenadeStats>,
+		#[serde(default)]
+		recharge: f32,
+	},
 }
 
 #[derive(Serialize, Deserialize)]
@@ -170,6 +179,9 @@ impl InventoryItemFile {
 			InventoryItem::SkillMap { spec } => {
 				Self::SkillMap { skill: spec.kind, seed: spec.seed }
 			}
+			InventoryItem::Grenade { spec, stats, recharge } => {
+				Self::Grenade { mesh: spec.mesh, stats: Some(*stats), recharge: recharge.remaining }
+			}
 		}
 	}
 
@@ -200,6 +212,11 @@ impl InventoryItemFile {
 			Self::SkillMap { skill, seed } => {
 				InventoryItem::skill_map(SkillMapSpec::new(skill, seed))
 			}
+			Self::Grenade { mesh, stats, recharge } => InventoryItem::Grenade {
+				spec: GrenadeSpec { mesh },
+				stats: stats.unwrap_or_else(GrenadeStats::standard),
+				recharge: GrenadeRecharge { remaining: recharge },
+			},
 		}
 	}
 }
@@ -299,19 +316,21 @@ pub fn spawn_bag(commands: &mut Commands, host: Entity, inventory: Inventory) ->
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use character_items::{random_starter_loadout, ClothingMesh, ItemRng};
+	use character_items::{ClothingMesh, ItemRng};
 
 	#[test]
 	fn starter_outfit_round_trips() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
 		let id = CharacterId(7);
-		let items = random_starter_loadout(&mut ItemRng::from_seed(3));
+		let mut rng = ItemRng::from_seed(3);
+		let items = rng.random_starter_loadout();
 		let inventory = Inventory::with_starter_outfit(items);
 		save(&root, id, &inventory).expect("save");
 		let loaded = load(&root, id).expect("load");
 		assert_eq!(loaded, inventory);
-		assert_eq!(loaded.weapons.len(), 2);
+		assert_eq!(loaded.weapons.len(), 3);
+		assert!(loaded.items.iter().any(|item| item.grenade_spec().is_some()));
 		assert!(loaded.items[0].clothing_stats().is_some_and(|stats| stats.weight > 0));
 		assert!(loaded
 			.items
@@ -434,6 +453,25 @@ mod tests {
 		let json = fs::read_to_string(root.inventory_path(id)).expect("read");
 		assert!(json.contains("\"kind\": \"skill-map\""));
 		assert!(json.contains("\"dumbwave\""));
+		assert_eq!(load(&root, id).expect("load"), inventory);
+	}
+
+	#[test]
+	fn grenade_round_trips_remaining_recharge() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		let id = CharacterId(15);
+		let items = vec![InventoryItem::Grenade {
+			spec: GrenadeSpec::standard(),
+			stats: GrenadeStats::standard(),
+			recharge: GrenadeRecharge { remaining: 2.5 },
+		}];
+		let inventory =
+			Inventory { items, clothing: Vec::new(), weapons: vec![0], skills: Vec::new() };
+		save(&root, id, &inventory).expect("save");
+		let json = fs::read_to_string(root.inventory_path(id)).expect("read");
+		assert!(json.contains("\"kind\": \"grenade\""));
+		assert!(json.contains("2.5"));
 		assert_eq!(load(&root, id).expect("load"), inventory);
 	}
 

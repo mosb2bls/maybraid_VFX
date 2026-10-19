@@ -132,7 +132,7 @@ fn burst(
 		playback: request.playback,
 		..default()
 	}
-	.resolved();
+	.resolved_for(definition);
 	spawn_vfx(commands, definition, spawn.clone());
 	spawn
 }

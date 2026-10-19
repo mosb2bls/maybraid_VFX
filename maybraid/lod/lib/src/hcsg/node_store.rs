@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use bevy::math::bounding::{Aabb3d, IntersectsVolume};
+use bevy::math::bounding::{Aabb3d, BoundingVolume, IntersectsVolume};
 use bevy::math::{DVec3, Vec3};
 
 use crate::gen::{Id, Version};
@@ -79,7 +79,6 @@ impl<T> NodeStore<T> {
 		self.entries.get(&id).map(|entry| &entry.value)
 	}
 
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn contains(&self, id: Id) -> bool {
 		self.entries.contains_key(&id)
 	}
@@ -95,21 +94,33 @@ impl<T> NodeStore<T> {
 
 	/// Ids whose stored bounds intersect `region`, in id order.
 	pub fn overlapping(&self, region: Aabb3d) -> Vec<Id> {
-		let intersects =
-			|id: &Id| self.entries.get(id).is_some_and(|e| e.bounds.intersects(&region));
 		let mut ids: Vec<Id> = match &self.spatial {
 			Some(spatial) if !self.region_is_sparse(region) => {
-				let mut ids = spatial.query(region);
-				ids.extend(self.unindexed.iter().copied().filter(intersects));
+				let ids = spatial.query(region);
+				if self.unindexed.is_empty() {
+					ids
+				} else {
+					let mut ids = ids;
+					ids.extend(self.unindexed.iter().copied().filter(|id| {
+						self.entries.get(id).is_some_and(|entry| entry.bounds.intersects(&region))
+					}));
+					ids.sort();
+					ids
+				}
+			}
+			_ => {
+				let mut ids = self
+					.entries
+					.keys()
+					.copied()
+					.filter(|id| *id != Id::Universal)
+					.filter(|id| {
+						self.entries.get(id).is_some_and(|entry| entry.bounds.intersects(&region))
+					})
+					.collect::<Vec<_>>();
+				ids.sort();
 				ids
 			}
-			_ => self
-				.entries
-				.keys()
-				.copied()
-				.filter(|id| *id != Id::Universal)
-				.filter(intersects)
-				.collect(),
 		};
 		if self
 			.entries
@@ -118,7 +129,6 @@ impl<T> NodeStore<T> {
 		{
 			ids.push(Id::Universal);
 		}
-		ids.sort();
 		ids
 	}
 
@@ -146,53 +156,119 @@ impl<T> NodeStore<T> {
 		Some(entry)
 	}
 
-	/// Ids that would be dropped by [`Self::retain_overlapping`], without mutating.
-	pub(super) fn ids_outside(&self, regions: &[Aabb3d]) -> Vec<Id> {
-		let keep = |id: Id, bounds: Aabb3d| {
-			id == Id::Universal || regions.iter().any(|region| bounds.intersects(region))
-		};
-		self.entries
-			.iter()
-			.filter(|(id, entry)| !keep(**id, entry.bounds))
-			.map(|(id, _)| *id)
-			.collect()
-	}
-
 	/// Removes entries outside `regions` and bumps the membership revision.
 	pub(super) fn evict_outside(&mut self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
-		let removed = self.ids_outside(regions);
-		self.remove_ids(&removed, revision);
-		removed
-	}
-
-	/// Removes `ids` and bumps the membership revision. No-op when `ids` is empty.
-	pub(super) fn remove_ids(&mut self, ids: &[Id], revision: u64) {
-		if ids.is_empty() {
-			return;
+		if regions.is_empty() {
+			return self.clear_non_universal(revision);
 		}
-		for id in ids {
-			self.entries.remove(id);
-			if let Some(spatial) = self.spatial.as_mut() {
-				spatial.remove(*id);
+		let keep = KeepRegions::new(regions);
+		let mut removed = Vec::new();
+		let before = self.entries.len();
+		self.entries.retain(|id, entry| {
+			let retain = *id == Id::Universal || keep.overlaps(entry.bounds);
+			if !retain {
+				removed.push(*id);
 			}
-			self.unindexed.remove(id);
+			retain
+		});
+		if removed.is_empty() {
+			return removed;
+		}
+		let bulk = self.spatial.is_some() && removed.len() * 2 > before;
+		if bulk {
+			self.rebuild_index(self.base_scale);
+		} else {
+			if let Some(spatial) = self.spatial.as_mut() {
+				for id in &removed {
+					spatial.remove(*id);
+				}
+			}
+			for id in &removed {
+				self.unindexed.remove(id);
+			}
 		}
 		self.membership_revision = revision;
+		removed
 	}
 
 	/// Keeps entries that overlap any of `regions`, and every `Id::Universal`
 	/// entry regardless of bounds. Returns the ids that were removed.
 	#[cfg(test)]
 	pub(super) fn retain_overlapping(&mut self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
-		let removed = self.ids_outside(regions);
-		self.remove_ids(&removed, revision);
-		removed
+		self.evict_outside(regions, revision)
 	}
 
 	/// Drops every entry, keeping the base scale.
 	pub(super) fn reset(&mut self, revision: u64) {
 		*self = Self::new(self.base_scale);
 		self.membership_revision = revision;
+	}
+
+	/// Worker sweep when no live subscription reaches this type: drop every
+	/// entry except [`Id::Universal`] without rebuilding the spatial index from
+	/// thousands of per-id removes. Under release builds, does not list removed
+	/// ids (see [`ErasedStore::clear_non_universal`]).
+	pub(super) fn clear_non_universal(&mut self, revision: u64) -> Vec<Id> {
+		#[cfg(debug_assertions)]
+		let removed: Vec<Id> = self.entries.keys().filter(|id| **id != Id::Universal).copied().collect();
+		#[cfg(debug_assertions)]
+		if removed.is_empty() {
+			return removed;
+		}
+		#[cfg(not(debug_assertions))]
+		{
+			let len = self.entries.len();
+			if len == 0 || (len == 1 && self.entries.contains_key(&Id::Universal)) {
+				return Vec::new();
+			}
+		}
+		let universal = self.entries.remove(&Id::Universal);
+		let base_scale = self.base_scale;
+		*self = Self::new(base_scale);
+		self.membership_revision = revision;
+		if let Some(entry) = universal {
+			self.index(Id::Universal, entry.bounds);
+			self.entries.insert(Id::Universal, entry);
+		}
+		#[cfg(debug_assertions)]
+		{
+			return removed;
+		}
+		#[cfg(not(debug_assertions))]
+		Vec::new()
+	}
+}
+
+fn regions_envelope(regions: &[Aabb3d]) -> Aabb3d {
+	let mut envelope = regions[0];
+	for region in regions.iter().skip(1) {
+		envelope = envelope.merge(region);
+	}
+	envelope
+}
+
+/// Precomputes the bounding envelope for multi-region retention checks.
+struct KeepRegions<'a> {
+	regions: &'a [Aabb3d],
+	envelope: Option<Aabb3d>,
+}
+
+impl<'a> KeepRegions<'a> {
+	fn new(regions: &'a [Aabb3d]) -> Self {
+		let envelope = if regions.len() > 1 { Some(regions_envelope(regions)) } else { None };
+		Self { regions, envelope }
+	}
+
+	fn overlaps(&self, bounds: Aabb3d) -> bool {
+		match self.regions {
+			[] => false,
+			[region] => bounds.intersects(region),
+			_ => {
+				let envelope = self.envelope.expect("envelope set for multiple regions");
+				bounds.intersects(&envelope)
+					&& self.regions.iter().any(|region| bounds.intersects(region))
+			}
+		}
 	}
 }
 

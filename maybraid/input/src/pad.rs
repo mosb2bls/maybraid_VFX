@@ -26,6 +26,10 @@ pub struct VirtualPad {
 	pub key_hold_secs: HashMap<KeyCode, f32>,
 	/// Working set for this frame's digital union. Cleared in [`Self::begin_frame`].
 	digital_mask: u16,
+	/// Buttons held through a [`Self::suppress_gameplay`] frame. They stay
+	/// released until the device lets go, so lifting the gate is not a press.
+	swallowed: u16,
+	suppressed: bool,
 }
 
 impl Default for VirtualPad {
@@ -43,6 +47,8 @@ impl Default for VirtualPad {
 			key_events: Vec::new(),
 			key_hold_secs: HashMap::new(),
 			digital_mask: 0,
+			swallowed: 0,
+			suppressed: false,
 		}
 	}
 }
@@ -64,6 +70,14 @@ impl VirtualPad {
 		self.button_hold_secs[button.index()]
 	}
 
+	/// True while both shoulder bumpers are down (LB + RB).
+	///
+	/// Used as the Standard ↔ Tanzer chord so individual bumper actions stay
+	/// live unless both buttons are participating.
+	pub fn bumper_chord_held(&self) -> bool {
+		self.pressed(PadButton::BumperFocus) && self.pressed(PadButton::BumperFire)
+	}
+
 	pub fn key_hold_secs(&self, key: KeyCode) -> f32 {
 		self.key_hold_secs.get(&key).copied().unwrap_or(0.0)
 	}
@@ -78,6 +92,7 @@ impl VirtualPad {
 		self.button_events.clear();
 		self.key_events.clear();
 		self.digital_mask = 0;
+		self.suppressed = false;
 	}
 
 	pub fn add_move(&mut self, value: Vec2) {
@@ -105,18 +120,25 @@ impl VirtualPad {
 		self.digital_mask & (1 << button.index()) != 0
 	}
 
-	/// Zero analog and drop this frame's digital union (keys stay).
+	/// Zero analog and drop this frame's digital union (keys stay). Buttons
+	/// still down when the gate lifts need a fresh press.
 	pub fn suppress_gameplay(&mut self) {
 		self.move_stick = Vec2::ZERO;
 		self.look_stick = Vec2::ZERO;
 		self.trigger_focus = 0.0;
 		self.trigger_fire = 0.0;
 		self.dpad = Vec2::ZERO;
+		self.swallowed = self.digital_mask;
 		self.digital_mask = 0;
+		self.suppressed = true;
 	}
 
 	/// Apply the digital union to [`Self::buttons`] and collect edges.
 	pub fn finish_digital(&mut self) {
+		if !self.suppressed {
+			self.swallowed &= self.digital_mask;
+			self.digital_mask &= !self.swallowed;
+		}
 		for button in PadButton::ALL {
 			if self.digital_held(button) {
 				self.buttons.press(button);
@@ -227,6 +249,59 @@ mod tests {
 		pad.finish_digital();
 		assert!(pad.just_released(PadButton::A));
 		assert!(!pad.pressed(PadButton::A));
+		Ok(())
+	}
+
+	fn frame(pad: &mut VirtualPad, held: &[PadButton], suppressed: bool) {
+		pad.begin_frame();
+		for button in held {
+			pad.hold_digital(*button);
+		}
+		if suppressed {
+			pad.suppress_gameplay();
+		}
+		pad.finish_digital();
+	}
+
+	#[test]
+	fn lifting_suppression_under_a_held_button_is_not_a_press() {
+		let mut pad = VirtualPad::default();
+		frame(&mut pad, &[PadButton::B], false);
+		assert!(pad.just_pressed(PadButton::B));
+		frame(&mut pad, &[PadButton::B], true);
+		assert!(pad.just_released(PadButton::B));
+		frame(&mut pad, &[PadButton::B], false);
+		assert!(!pad.just_pressed(PadButton::B));
+		assert!(!pad.pressed(PadButton::B));
+		assert!(pad.button_events.is_empty());
+
+		frame(&mut pad, &[], false);
+		frame(&mut pad, &[PadButton::B], false);
+		assert!(pad.just_pressed(PadButton::B), "a real press after release counts");
+	}
+
+	#[test]
+	fn release_during_suppression_rearms_the_button() {
+		let mut pad = VirtualPad::default();
+		frame(&mut pad, &[PadButton::A], true);
+		frame(&mut pad, &[], true);
+		frame(&mut pad, &[PadButton::A], false);
+		assert!(pad.just_pressed(PadButton::A));
+	}
+
+	#[test]
+	fn bumper_chord_needs_both_shoulders() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.hold_digital(PadButton::BumperFocus);
+		pad.finish_digital();
+		assert!(!pad.bumper_chord_held());
+
+		pad.begin_frame();
+		pad.hold_digital(PadButton::BumperFocus);
+		pad.hold_digital(PadButton::BumperFire);
+		pad.finish_digital();
+		assert!(pad.bumper_chord_held());
 		Ok(())
 	}
 

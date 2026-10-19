@@ -305,6 +305,17 @@ pub fn holding_elevation(base: &BaseTerrainNoise, x: f32, z: f32) -> f32 {
 	base.height_at(x, z) + base.height_scale * HOLD_ABOVE_BASE_FACTOR
 }
 
+/// Composed height at `xz`, or [`holding_elevation`] while the cell is unpublished or busy.
+///
+/// Spawn placement must not use [`DurhamSurface::height_or_fallback`]: raw base
+/// noise sits under jersey plateaus. Hold above the base until snap can drop
+/// onto the published cell.
+pub fn surface_or_hold_at(surface: &DurhamSurface, xz: Vec2) -> f32 {
+	surface
+		.composed_height_at(xz)
+		.unwrap_or_else(|| holding_elevation(surface.base(), xz.x, xz.y))
+}
+
 pub fn player_spawn_point_at(xz: Vec2, elevation: f32) -> Vec3 {
 	player_position_above_surface(Vec3::new(xz.x, elevation, xz.y))
 }
@@ -724,6 +735,24 @@ mod tests {
 		let base = BaseTerrainNoise::from_config(&TerrainConfig::new(42));
 		let hold = holding_elevation(&base, 0.0, 0.0);
 		assert!(hold > base.height_at(0.0, 0.0) + 50.0);
+	}
+
+	#[test]
+	fn surface_or_hold_at_holds_above_unpublished_cells() -> anyhow::Result<()> {
+		let mut world = World::new();
+		let layout = TerrainCellLayout::default();
+		let base = BaseTerrainNoise::from_config(&TerrainConfig::new(42));
+		world.init_resource::<HcsgStorage>();
+		world.insert_resource(layout);
+		world.insert_resource(WorldBaseTerrain(base.clone()));
+
+		let mut state = bevy::ecs::system::SystemState::<DurhamSurface>::new(&mut world);
+		let surface = state.get(&world)?;
+		let xz = Vec2::new(80.0, 5.0);
+		let hold = surface_or_hold_at(&surface, xz);
+		assert_eq!(hold, holding_elevation(&base, xz.x, xz.y));
+		assert!(hold > surface.fallback_height_at(xz) + 50.0);
+		Ok(())
 	}
 
 	#[test]

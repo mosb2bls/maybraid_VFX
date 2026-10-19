@@ -21,10 +21,17 @@ where
 		animation_progress: f32,
 		transition_progress: f32,
 	) -> Effects {
+		let weight = self.weight(transition_progress);
+		if weight <= 0.0 {
+			rig.pose.copy_from(&self.from_pose);
+			return self.from_offset;
+		}
 		self.animation.apply_for(rig, animation_progress);
 		let effects = self.animation.effects_for(rig, animation_progress);
+		if weight >= 1.0 {
+			return mix_effects(self.from_offset, effects, 1.0);
+		}
 		rig.scratch.b.copy_from(&rig.pose);
-		let weight = self.weight(transition_progress);
 		PoseBuffer::blend_into(&self.from_pose, &rig.scratch.b, weight, &mut rig.pose);
 		mix_effects(self.from_offset, effects, weight)
 	}
@@ -42,12 +49,126 @@ where
 
 #[cfg(test)]
 mod tests {
+	use std::hint::black_box;
+	use std::time::Instant;
+
 	use super::*;
 	use bevy::prelude::*;
 
 	use crate::animations::{Fall, Land, Spring, Squat, Transition, TransitionCurve};
 	use character_rigs::authoring::ArmatureOffset;
 	use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
+
+	fn apply_legacy<A>(
+		transition: &Transition<A>,
+		rig: &mut HumanoidV0Rig,
+		animation_progress: f32,
+		transition_progress: f32,
+	) -> Effects
+	where
+		A: Animation<HumanoidV0Rig>,
+	{
+		transition.animation.apply_for(rig, animation_progress);
+		let effects = transition.animation.effects_for(rig, animation_progress);
+		rig.scratch.b.copy_from(&rig.pose);
+		let weight = transition.weight(transition_progress);
+		PoseBuffer::blend_into(&transition.from_pose, &rig.scratch.b, weight, &mut rig.pose);
+		mix_effects(transition.from_offset, effects, weight)
+	}
+
+	#[test]
+	fn endpoint_apply_matches_legacy_pose_and_effects() -> anyhow::Result<()> {
+		let mut source = HumanoidV0Rig::imported();
+		let from_pose = capture_animation_pose(&Fall::default(), &mut source, 0.75);
+		let from_offset = ArmatureOffset::from_translation(Vec3::new(0.0, -0.1, 0.0));
+		let transition = Transition::from_visible(Spring::default(), from_pose, from_offset)
+			.with_curve(TransitionCurve::EaseInOut);
+
+		for transition_progress in [0.0, 1.0] {
+			for animation_progress in [0.0, 0.35, 0.9] {
+				let mut legacy = HumanoidV0Rig::imported();
+				let legacy_effects =
+					apply_legacy(&transition, &mut legacy, animation_progress, transition_progress);
+				let mut optimized = HumanoidV0Rig::imported();
+				let optimized_effects =
+					transition.apply(&mut optimized, animation_progress, transition_progress);
+				for name in legacy.animation_bone_names() {
+					assert!(
+						legacy.rotation(name).dot(optimized.rotation(name)).abs() > 1.0 - 1e-5,
+						"pose mismatch at anim={animation_progress} trans={transition_progress} on {name}"
+					);
+				}
+				assert_eq!(legacy_effects, optimized_effects);
+			}
+		}
+		Ok(())
+	}
+
+	fn bench_transition_apply(legacy: bool, transition_progress: f32) -> Vec<u128> {
+		const FRAMES: u32 = 5_000;
+		const CHARACTERS: u32 = 32;
+		const RUNS: u32 = 5;
+		let mut source = HumanoidV0Rig::imported();
+		Fall::default().apply(&mut source, 1.0);
+		let from_pose = source.pose.clone();
+		let transition = Transition::from_pose(Squat::for_loop(1.0, 1.0), from_pose);
+
+		let mut rigs: Vec<HumanoidV0Rig> =
+			(0..CHARACTERS).map(|_| HumanoidV0Rig::imported()).collect();
+
+		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
+		for _ in 0..RUNS {
+			let start = Instant::now();
+			for frame in 0..FRAMES {
+				let frame = black_box(frame);
+				for (index, rig) in rigs.iter_mut().enumerate() {
+					let animation_progress =
+						black_box((frame as f32 * 0.011 + index as f32 * 0.03).rem_euclid(1.0));
+					if legacy {
+						black_box(apply_legacy(
+							&transition,
+							rig,
+							animation_progress,
+							transition_progress,
+						));
+					} else {
+						black_box(transition.apply(
+							rig,
+							animation_progress,
+							black_box(transition_progress),
+						));
+					}
+				}
+			}
+			let samples = FRAMES as u64 * CHARACTERS as u64;
+			run_ns.push(start.elapsed().as_nanos() / samples as u128);
+		}
+		run_ns.sort_unstable();
+		run_ns
+	}
+
+	/// `cargo test -p character-animations transition_apply_endpoints_microbench --release -- --ignored --nocapture`
+	#[test]
+	#[ignore]
+	fn transition_apply_endpoints_microbench() {
+		eprintln!(
+			"32 characters × 5000 frames, Transition Spring→Squat, real Transition::apply path"
+		);
+		for (label, progress) in [("weight 0.0", 0.0), ("weight 1.0", 1.0), ("weight 0.5", 0.5)] {
+			let legacy = bench_transition_apply(true, progress);
+			let optimized = bench_transition_apply(false, progress);
+			eprintln!(
+				"transition_apply_endpoints_microbench {label} legacy: min={} median={} ns/sample",
+				legacy.first().expect("run"),
+				legacy[legacy.len() / 2]
+			);
+			eprintln!(
+				"transition_apply_endpoints_microbench {label} optimized: min={} median={} ns/sample",
+				optimized.first().expect("run"),
+				optimized[optimized.len() / 2]
+			);
+		}
+	}
 
 	#[test]
 	fn transition_at_zero_matches_from_pose() -> anyhow::Result<()> {

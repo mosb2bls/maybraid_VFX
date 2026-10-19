@@ -213,22 +213,7 @@ impl hcsg::GenerationScheme for DevelopmentSite {
 				ids.extend(DevelopmentExtent::original_ids_overlapping(region));
 			}
 			DevelopmentSites::Urbanization => {
-				for extent in UrbanizationExtent::cells_overlapping(region) {
-					let Some(selected) = cx.get_or_generate::<SelectedUrbanization>(extent.id())
-					else {
-						continue;
-					};
-					ids.extend(
-						selected
-							.leaves
-							.iter()
-							.filter(|leaf| {
-								leaf.kind != UrbanDevelopmentKind::Empty
-									&& overlaps_xz(region, leaf.bounds)
-							})
-							.map(|leaf| OriginalId(leaf.id())),
-					);
-				}
+				ids.extend(SelectedUrbanization::original_leaf_ids_for(cx, region));
 			}
 		}
 		ids.sort_unstable_by_key(|OriginalId(id)| *id);
@@ -396,5 +381,208 @@ mod tests {
 			.ok_or_else(|| anyhow::anyhow!("lattice site"))?;
 		anyhow::ensure!(procedural.kind == DevelopmentKind::Empty, "overlapped site stays empty");
 		Ok(())
+	}
+
+	mod scheme_perf_tests {
+		use super::*;
+		use bevy::math::Vec3;
+		use lod::hcsg::{universal_bounds, GenerationContext};
+		use procedural_common::NoiseParams;
+		use std::sync::Arc;
+		use std::time::Instant;
+		use urbanization_cells::{
+			UrbanizationKind, UrbanizationSelection, DEVELOPMENT_GENERATE_RADIUS_M,
+		};
+
+		fn urbanization_config() -> DevelopmentConfig {
+			DevelopmentConfig {
+				sites: DevelopmentSites::Urbanization,
+				..DevelopmentConfig::default()
+			}
+		}
+
+		fn seed_urbanization(storage: &HcsgStorage) {
+			storage.seed(urbanization_config(), universal_bounds());
+			storage.seed(
+				UrbanizationSelection {
+					noise: NoiseParams::from_scalar(1337.0, 0.0005, 1.0, 1),
+					kind: Some(UrbanizationKind::Frontier),
+				},
+				universal_bounds(),
+			);
+		}
+
+		fn discovery_region() -> Aabb3d {
+			UrbanizationExtent::xz_radius_aabb(Vec3::ZERO, DEVELOPMENT_GENERATE_RADIUS_M)
+		}
+
+		fn site_ids(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
+			cx.original_ids_for::<DevelopmentSite>(region)
+		}
+
+		fn build_sites(cx: &mut GenerationContext, ids: &[OriginalId]) -> usize {
+			ids.iter()
+				.filter(|OriginalId(id)| cx.get_or_generate::<DevelopmentSite>(*id).is_some())
+				.count()
+		}
+
+		#[test]
+		fn urbanization_site_discovery_delegates_to_cached_leaves() -> anyhow::Result<()> {
+			let storage = HcsgStorage::default();
+			seed_urbanization(&storage);
+			let region = discovery_region();
+
+			let mut leaf_cx = GenerationContext::new(&storage);
+			let leaves = SelectedUrbanization::original_leaf_ids_for(&mut leaf_cx, region);
+
+			let mut site_cx = GenerationContext::new(&storage);
+			let sites = site_ids(&mut site_cx, region);
+
+			anyhow::ensure!(!sites.is_empty(), "discovery should find urbanization sites");
+			anyhow::ensure!(
+				leaves == sites,
+				"DevelopmentSite urbanization ids must be the urbanization leaf ids"
+			);
+			for extent in UrbanizationExtent::cells_overlapping(region) {
+				anyhow::ensure!(
+					site_cx.get::<SelectedUrbanization>(extent.id()).is_some(),
+					"site discovery stores SelectedUrbanization for reuse"
+				);
+			}
+			Ok(())
+		}
+
+		#[test]
+		fn urbanization_discovery_finds_unpresented_sites() -> anyhow::Result<()> {
+			let storage = HcsgStorage::default();
+			seed_urbanization(&storage);
+			let region = UrbanizationExtent::xz_radius_aabb(Vec3::new(6400.0, 0.0, -4800.0), 900.0);
+			let mut cx = GenerationContext::new(&storage);
+			let ids = site_ids(&mut cx, region);
+			anyhow::ensure!(!ids.is_empty(), "seeded urbanization is discoverable off the origin");
+			for OriginalId(id) in &ids {
+				let owner = UrbanizationExtent::owning_leaf(*id)
+					.ok_or_else(|| anyhow::anyhow!("leaf owner"))?;
+				anyhow::ensure!(cx.get::<SelectedUrbanization>(owner.id()).is_some());
+			}
+			Ok(())
+		}
+
+		#[test]
+		fn urbanization_build_reuses_discovered_selections() -> anyhow::Result<()> {
+			let storage = HcsgStorage::default();
+			seed_urbanization(&storage);
+			let first = UrbanizationExtent::xz_radius_aabb(Vec3::ZERO, 1500.0);
+			let second = UrbanizationExtent::xz_radius_aabb(Vec3::new(1200.0, 0.0, 0.0), 1500.0);
+			let mut cx = GenerationContext::new(&storage);
+			let ids = site_ids(&mut cx, first);
+			anyhow::ensure!(!ids.is_empty());
+
+			let mut cached = Vec::new();
+			for extent in UrbanizationExtent::cells_overlapping(first) {
+				let selected = cx
+					.get::<SelectedUrbanization>(extent.id())
+					.ok_or_else(|| anyhow::anyhow!("discovery stored the selection"))?;
+				cached.push((extent.id(), selected));
+			}
+
+			anyhow::ensure!(build_sites(&mut cx, &ids) == ids.len());
+			let overlap = site_ids(&mut cx, second);
+			anyhow::ensure!(!overlap.is_empty());
+			anyhow::ensure!(build_sites(&mut cx, &overlap) == overlap.len());
+
+			for (id, first_value) in cached {
+				let again = cx
+					.get_or_generate::<SelectedUrbanization>(id)
+					.ok_or_else(|| anyhow::anyhow!("selection remains"))?;
+				anyhow::ensure!(
+					Arc::ptr_eq(&first_value, &again),
+					"build and overlapping discovery reuse the cached selection"
+				);
+			}
+			Ok(())
+		}
+
+		fn percentile(sorted_ns: &[u128], p: f64) -> f64 {
+			let idx = ((sorted_ns.len() as f64 - 1.0) * p).round() as usize;
+			sorted_ns[idx] as f64 / 1_000_000.0
+		}
+
+		fn bench_workload(radius_m: f32, runs: usize, warm: bool, build: bool) -> (f64, f64) {
+			let region = UrbanizationExtent::xz_radius_aabb(Vec3::ZERO, radius_m);
+			let mut samples_ns = Vec::with_capacity(runs);
+			for _ in 0..runs {
+				let storage = HcsgStorage::default();
+				seed_urbanization(&storage);
+				if warm {
+					let mut warm_cx = GenerationContext::new(&storage);
+					let ids = site_ids(&mut warm_cx, region);
+					if build {
+						let _ = build_sites(&mut warm_cx, &ids);
+					}
+				}
+				let start = Instant::now();
+				let mut cx = GenerationContext::new(&storage);
+				let ids = site_ids(&mut cx, region);
+				if build {
+					let _ = build_sites(&mut cx, &ids);
+				}
+				samples_ns.push(start.elapsed().as_nanos());
+			}
+			samples_ns.sort_unstable();
+			(percentile(&samples_ns, 0.5), percentile(&samples_ns, 0.95))
+		}
+
+		fn bench_overlap(radius_m: f32, shift_m: f32, runs: usize) -> (f64, f64, f64, f64) {
+			let first = UrbanizationExtent::xz_radius_aabb(Vec3::ZERO, radius_m);
+			let second = UrbanizationExtent::xz_radius_aabb(Vec3::new(shift_m, 0.0, 0.0), radius_m);
+			let mut first_ns = Vec::with_capacity(runs);
+			let mut second_ns = Vec::with_capacity(runs);
+			for _ in 0..runs {
+				let storage = HcsgStorage::default();
+				seed_urbanization(&storage);
+				let mut cx = GenerationContext::new(&storage);
+				let start = Instant::now();
+				let ids = site_ids(&mut cx, first);
+				let _ = build_sites(&mut cx, &ids);
+				first_ns.push(start.elapsed().as_nanos());
+				let start = Instant::now();
+				let ids = site_ids(&mut cx, second);
+				let _ = build_sites(&mut cx, &ids);
+				second_ns.push(start.elapsed().as_nanos());
+			}
+			first_ns.sort_unstable();
+			second_ns.sort_unstable();
+			(
+				percentile(&first_ns, 0.5),
+				percentile(&first_ns, 0.95),
+				percentile(&second_ns, 0.5),
+				percentile(&second_ns, 0.95),
+			)
+		}
+
+		/// `cargo test -p richmond site_discovery_perf --release -- --ignored --nocapture`
+		#[test]
+		#[ignore = "perf benchmark"]
+		fn site_discovery_perf() {
+			let runs = 40;
+			let radius = DEVELOPMENT_GENERATE_RADIUS_M;
+
+			eprintln!(
+				"\nDevelopmentSite urbanization discover+build (median / p95 ms, {} runs, {} m):",
+				runs, radius
+			);
+			let (cold_d_med, cold_d_p95) = bench_workload(radius, runs, false, false);
+			let (warm_d_med, warm_d_p95) = bench_workload(radius, runs, true, false);
+			let (cold_b_med, cold_b_p95) = bench_workload(radius, runs, false, true);
+			let (warm_b_med, warm_b_p95) = bench_workload(radius, runs, true, true);
+			let (ov1_med, ov1_p95, ov2_med, ov2_p95) = bench_overlap(radius, 1500.0, runs);
+			eprintln!("  cold discover            {:>8.3} / {:>8.3}", cold_d_med, cold_d_p95);
+			eprintln!("  warm discover            {:>8.3} / {:>8.3}", warm_d_med, warm_d_p95);
+			eprintln!("  cold discover+build      {:>8.3} / {:>8.3}", cold_b_med, cold_b_p95);
+			eprintln!("  warm discover+build      {:>8.3} / {:>8.3}", warm_b_med, warm_b_p95);
+			eprintln!("  overlapping first        {:>8.3} / {:>8.3}", ov1_med, ov1_p95);
+			eprintln!("  overlapping second       {:>8.3} / {:>8.3}", ov2_med, ov2_p95);
+		}
 	}
 }

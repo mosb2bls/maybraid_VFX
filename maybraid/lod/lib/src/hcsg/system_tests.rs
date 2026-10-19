@@ -1,8 +1,6 @@
 //! App tests for [`super::GenerationPlugin`] and [`super::PresentationPlugin`],
 //! with the real worker.
 
-use std::time::Duration;
-
 use bevy::ecs::system::SystemParamItem;
 use bevy::math::bounding::{Aabb3d, IntersectsVolume};
 use bevy::math::{DVec3, Vec3};
@@ -18,11 +16,10 @@ use crate::scene::{LodHostBounds, LodSceneHost, LodViewer};
 use crate::scene::{LodScene, LodSceneLevel};
 
 use super::{
-	GenerationContext, GenerationPlugin, GenerationScheme, HcsgBounds, HcsgBoundsPlugin, HcsgClass,
-	HcsgDemand, HcsgNode, HcsgStorage, PresentationPlugin,
+	settle_presentation, GenerationContext, GenerationPlugin, GenerationScheme, HcsgBounds,
+	HcsgBoundsPlugin, HcsgClass, HcsgDemand, HcsgNode, HcsgStorage, PresentationPlugin,
+	RetiredHost, SettlePresentation,
 };
-
-const IDLE: Duration = Duration::from_secs(10);
 
 #[derive(Resource, Default)]
 struct Window(Vec<Aabb3d>);
@@ -97,22 +94,14 @@ fn set_window(app: &mut App, regions: Vec<Aabb3d>) {
 	app.world_mut().resource_mut::<Window>().0 = regions;
 }
 
-/// Subscribe (or notice a dropped subscription and resubscribe), let the
-/// worker finish, then reconcile hosts.
 fn settle(app: &mut App) -> anyhow::Result<()> {
-	for _ in 0..2 {
-		app.update();
-		let demand = app.world().resource::<HcsgDemand>().clone();
-		anyhow::ensure!(demand.wait_idle(IDLE), "worker did not go idle");
-	}
-	app.update();
-	Ok(())
+	settle_presentation(app, SettlePresentation::PLUGIN_TESTS).map_err(Into::into)
 }
 
 fn hosts(app: &mut App) -> Vec<(Id, Version, Entity)> {
 	let mut hosts: Vec<_> = app
 		.world_mut()
-		.query::<(Entity, &HcsgNode<Terrain>)>()
+		.query_filtered::<(Entity, &HcsgNode<Terrain>), Without<RetiredHost>>()
 		.iter(app.world())
 		.map(|(entity, node)| (node.id, node.version, entity))
 		.collect();
@@ -190,7 +179,39 @@ fn a_retired_host_lasts_the_frame() -> anyhow::Result<()> {
 	set_window(&mut app, Vec::new());
 	app.update();
 	assert_eq!(app.world().resource::<PostUpdateHosts>().0, 3);
-	assert!(hosts(&mut app).is_empty(), "retired hosts are gone after Last");
+	assert!(
+		hosts(&mut app).is_empty(),
+		"presented queries drop RetiredHost after Last even if leftovers linger"
+	);
+	let leftover: Vec<Entity> = app
+		.world_mut()
+		.query_filtered::<Entity, (With<RetiredHost>, With<HcsgNode<Terrain>>)>()
+		.iter(app.world())
+		.collect();
+	assert!(
+		leftover.len() <= 1,
+		"cull-root cap (2) leaves at most one of the three hosts for a later Last: {}",
+		leftover.len()
+	);
+	for entity in &leftover {
+		assert!(
+			app.world()
+				.get::<Visibility>(*entity)
+				.is_some_and(|v| matches!(*v, Visibility::Hidden)),
+			"leftover retired hosts stay Hidden so they do not extract"
+		);
+	}
+	for _ in 0..leftover.len() {
+		app.update();
+	}
+	assert_eq!(
+		app.world_mut()
+			.query_filtered::<Entity, With<RetiredHost>>()
+			.iter(app.world())
+			.count(),
+		0,
+		"further Last ticks finish the leftover"
+	);
 	Ok(())
 }
 
@@ -222,7 +243,11 @@ fn presentation_replaces_hosts_whose_value_changed_across_an_epoch() -> anyhow::
 		assert_eq!(id, before_id);
 		assert!(version > before_version);
 		assert_ne!(entity, before_entity);
-		assert!(app.world().get_entity(*before_entity).is_err(), "stale host despawned");
+		assert!(
+			app.world().get_entity(*before_entity).is_err()
+				|| app.world().get::<RetiredHost>(*before_entity).is_some(),
+			"stale host is retired or already despawned"
+		);
 	}
 	Ok(())
 }
@@ -293,7 +318,7 @@ fn a_new_session_retires_hosts_it_does_not_publish() -> anyhow::Result<()> {
 	let kept = |app: &mut App| {
 		let mut ids: Vec<Id> = app
 			.world_mut()
-			.query::<&HcsgNode<Kept>>()
+			.query_filtered::<&HcsgNode<Kept>, Without<RetiredHost>>()
 			.iter(app.world())
 			.map(|n| n.id)
 			.collect();

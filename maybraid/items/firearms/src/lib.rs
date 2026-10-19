@@ -17,7 +17,10 @@ pub mod projectiles;
 pub mod sound;
 
 pub use ::projectiles::{BoltSpec, BulletSpec, Flight, PenetrationCost, ProjectileSource};
-pub use cadence::{Cadence, FireControl, WeaponFired, WeaponRecoil};
+pub use cadence::{
+	advance_shot_clock, catch_up_limit, idle_shot_clock, Cadence, FireControl, ShotClockTick,
+	WeaponFired, WeaponRecoil, CATCH_UP_SHOTS,
+};
 pub use concepts::FirearmConcept;
 pub use energy::{
 	init_energy_material_caches, is_energy_recipe, laser_hex_ref, laser_pulse_ref, laser_tail_ref,

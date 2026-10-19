@@ -22,9 +22,11 @@ impl FirstWave {
 	pub fn sample(demand: Option<&HcsgDemand>, jobs: u64) -> Self {
 		let near = match demand {
 			None => Outstanding::default(),
-			Some(demand) => demand
-				.try_outstanding(&[HcsgClass::Near])
-				.unwrap_or(Outstanding { undiscovered: 1, remaining: 0 }),
+			Some(demand) => demand.try_outstanding(&[HcsgClass::Near]).unwrap_or_else(|_| {
+				// Demand lock busy: treat as one undiscovered subscription so unveil
+				// stays conservative until the next frame can read queue state.
+				Outstanding { undiscovered: 1, remaining: 0 }
+			}),
 		};
 		Self {
 			undiscovered: near.undiscovered,

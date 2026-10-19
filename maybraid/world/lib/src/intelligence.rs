@@ -8,8 +8,9 @@ use characters::CharacterMotionSystems;
 use evasion_intelligence::{EvasionPlugin, EvasionSystems};
 use firearm_intelligence::{FirearmIntelligencePlugin, FirearmIntelligenceSystems};
 use firearm_user::FirearmUserPlugin;
-use firearms::{FirearmWeaponSystems, FirearmWeaponsPlugin};
+use firearms::FirearmWeaponsPlugin;
 use fleeing_intelligence::{FleeingPlugin, FleeingSystems};
+use grenade_user::GrenadeUserPlugin;
 use hiding_intelligence::{HidingPlugin, HidingSystems};
 use intelligence_lod::{
 	look_near_m, look_promotes, IntelligenceBakeKey, IntelligenceBand, IntelligenceFocus,
@@ -33,6 +34,7 @@ use routing_intelligence::{RoutingPlugin, RoutingSystems};
 use spotting_intelligence::{
 	InterestLayers, SpotBounds, SpotSubject, SpottingObserveLimits, SpottingSystems,
 };
+use tanz_user::TanzUserPlugin;
 use tether_intelligence::TetherSystems;
 use threat_intelligence::{
 	Affiliations, ThreatDiscoverLimits, ThreatId, ThreatIntelligencePlugin, ThreatSubject,
@@ -88,6 +90,12 @@ impl Plugin for WorldIntelligencePlugin {
 		}
 		if !app.is_plugin_added::<FirearmUserPlugin>() {
 			app.add_plugins(FirearmUserPlugin);
+		}
+		if !app.is_plugin_added::<GrenadeUserPlugin>() {
+			app.add_plugins(GrenadeUserPlugin);
+		}
+		if !app.is_plugin_added::<TanzUserPlugin>() {
+			app.add_plugins(TanzUserPlugin);
 		}
 		if !app.is_plugin_added::<MovementIntelligencePlugin<AvianMovementSurface<'_, '_>>>() {
 			app.add_plugins(MovementIntelligencePlugin::<AvianMovementSurface<'_, '_>>::default());
@@ -179,10 +187,6 @@ impl Plugin for WorldIntelligencePlugin {
 			.configure_sets(
 				PostUpdate,
 				FirearmIntelligenceSystems::Fire.run_if(on_timer(Duration::from_millis(33))),
-			)
-			.configure_sets(
-				PostUpdate,
-				FirearmWeaponSystems::Fire.run_if(on_timer(Duration::from_millis(33))),
 			);
 	}
 }
@@ -595,6 +599,7 @@ mod tests {
 			target: victim,
 			source: Some(player),
 			amount: 10.0,
+			applied: 10.0,
 			remaining: 90.0,
 			point: Vec3::ZERO,
 		});
@@ -666,8 +671,7 @@ mod tests {
 
 		eprintln!(
 			"bake_lod_rank_scratch_timing: {PLANT_COUNT} plants × {BAKES} bakes — clone lod rows {:?}, key scratch {:?}",
-			clone_elapsed,
-			key_elapsed,
+			clone_elapsed, key_elapsed,
 		);
 	}
 }

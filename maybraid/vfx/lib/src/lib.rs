@@ -15,23 +15,21 @@ pub mod flipbook;
 pub mod layers;
 pub mod library;
 pub mod lifecycle;
-pub mod lobe_instances;
-pub mod membership;
 pub mod lobe_material;
 pub mod lobes;
+pub mod membership;
 pub mod names;
 pub mod palette;
 pub mod particles;
 pub mod seed;
 pub mod spawn;
 
-pub use assets::VfxFlipbooks;
+pub use assets::{FlipbookAsset, VfxFlipbooks};
 pub use composition::{
 	EffectDefinition, EffectLayer, EffectPart, LightPulse, LobeKind, LobeSpec, MeshPart,
-	ParticlePart, ParticleShade,
+	ParticlePart, ParticleShade, ScaleBounds, DEFAULT_SCALE_MAX, DEFAULT_SCALE_MIN,
 };
 pub use library::{canonicalize_effect_name, VfxLibrary};
-pub use lobe_instances::LobeInstanceGpu;
 pub use lobe_material::{LobeMaterial, LobeMaterialPlugin};
 pub use names::{FIERY_EXPLOSION, FIREBALL, FLASH, SMOKE, SPARKS};
 pub use palette::ExplosionPalette;

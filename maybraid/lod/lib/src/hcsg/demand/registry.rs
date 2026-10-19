@@ -78,7 +78,7 @@ impl HcsgDemand {
 		id
 	}
 
-	pub fn unsubscribe(&self, id: SubscriptionId) {
+	pub(crate) fn unsubscribe(&self, id: SubscriptionId) {
 		let mut state = self.lock();
 		if let Some(subscription) = state.subscriptions.remove(&id) {
 			subscription.cancel();
@@ -92,7 +92,8 @@ impl HcsgDemand {
 	///
 	/// `Ok(None)` when the subscription no longer exists (replaced, removed,
 	/// or dropped by [`Self::advance_epoch`]): subscribe again.
-	pub fn try_read_published(
+	#[cfg(test)]
+	pub(crate) fn try_read_published(
 		&self,
 		id: SubscriptionId,
 		cursor: usize,
@@ -115,13 +116,13 @@ impl HcsgDemand {
 
 	/// Whether `id` still exists; `false` once replaced, removed, or dropped by
 	/// [`Self::advance_epoch`].
-	pub fn try_is_live(&self, id: SubscriptionId) -> Result<bool, Busy> {
+	pub(crate) fn try_is_live(&self, id: SubscriptionId) -> Result<bool, Busy> {
 		Ok(self.try_lock()?.subscriptions.contains_key(&id))
 	}
 
 	/// Ends the session: cancels and drops every subscription. Values the
 	/// worker is still generating are not published.
-	pub fn advance_epoch(&self) -> u64 {
+	pub(crate) fn advance_epoch(&self) -> u64 {
 		let mut state = self.lock();
 		for (_, subscription) in state.subscriptions.drain() {
 			subscription.cancel();

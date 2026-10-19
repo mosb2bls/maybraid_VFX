@@ -22,6 +22,8 @@ pub(crate) struct HudPlateLayout {
 	pub width: f32,
 	pub row_gap: f32,
 	pub corner: HudPlateCorner,
+	/// Extra lift for a stacked plate (charge above vitals).
+	pub bottom_lift: f32,
 }
 
 impl HudPlateLayout {
@@ -30,7 +32,7 @@ impl HudPlateLayout {
 			position_type: PositionType::Absolute,
 			width: Val::Px(self.width),
 			flex_direction: FlexDirection::Column,
-			align_items: AlignItems::Stretch,
+			align_items: AlignItems::Center,
 			row_gap: Val::Px(self.row_gap),
 			padding: UiRect::axes(Val::Px(PLATE_PAD_X), Val::Px(PLATE_PAD_Y)),
 			border: UiRect::all(Val::Px(PLATE_BORDER)),
@@ -40,7 +42,7 @@ impl HudPlateLayout {
 		match self.corner {
 			HudPlateCorner::BottomLeft => {
 				node.left = Val::Px(HUD_CORNER_INSET);
-				node.bottom = Val::Px(HUD_CORNER_INSET);
+				node.bottom = Val::Px(HUD_CORNER_INSET + self.bottom_lift);
 			}
 			HudPlateCorner::TopRight => {
 				node.right = Val::Px(HUD_CORNER_INSET);
@@ -52,13 +54,13 @@ impl HudPlateLayout {
 }
 
 /// Spawns a hidden, pick-ignored HUD plate with shared fill, stroke, and padding.
-pub(crate) fn spawn_hud_plate<M: Component>(
+pub(crate) fn spawn_hud_plate(
 	parent: &mut ChildSpawnerCommands,
 	name: &'static str,
-	marker: M,
+	marker: impl Bundle,
 	layout: HudPlateLayout,
 	children: impl FnOnce(&mut ChildSpawnerCommands),
-) {
+) -> Entity {
 	parent
 		.spawn((
 			Name::new(name),
@@ -69,5 +71,6 @@ pub(crate) fn spawn_hud_plate<M: Component>(
 			Visibility::Hidden,
 			Pickable::IGNORE,
 		))
-		.with_children(children);
+		.with_children(children)
+		.id()
 }

@@ -28,7 +28,7 @@ pub use pose::{
 };
 pub use reticle::{spawn_reticle, Reticle};
 pub use swap::{WeaponSwap, WEAPON_SWAP_SECS};
-pub use weapon::{live_weapon_from_stats, LiveWeapon, RECOIL_PITCH_PER_UNIT};
+pub use weapon::{live_weapon_from_stats, LiveWeapon, RECOIL_PITCH_PER_UNIT, SEMI_INTERVAL_FLOOR};
 
 /// Firearm-user schedule points other combat systems can order against.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]

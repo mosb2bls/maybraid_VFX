@@ -100,7 +100,9 @@ pub(crate) fn maintain_hit_volumes(
 
 	for extras in by_key.into_values() {
 		for volume in extras {
-			commands.entity(volume).despawn();
+			if let Ok(mut entity) = commands.get_entity(volume) {
+				entity.try_despawn();
+			}
 		}
 	}
 }
@@ -117,7 +119,9 @@ fn despawn_kind(
 ) {
 	if let Some(existing) = by_key.remove(&(body, kind)) {
 		for volume in existing {
-			commands.entity(volume).despawn();
+			if let Ok(mut entity) = commands.get_entity(volume) {
+				entity.try_despawn();
+			}
 		}
 	}
 }
@@ -136,10 +140,14 @@ fn maintain_one(
 	match existing.split_first() {
 		Some((&volume, extras)) => {
 			for extra in extras {
-				commands.entity(*extra).despawn();
+				if let Ok(mut entity) = commands.get_entity(*extra) {
+					entity.try_despawn();
+				}
 			}
 			if changed {
-				commands.entity(volume).insert((collider, transform));
+				if let Ok(mut entity) = commands.get_entity(volume) {
+					entity.try_insert((collider, transform));
+				}
 			}
 		}
 		None => {
@@ -342,6 +350,44 @@ mod tests {
 		if (aligned.translation - yaw * rest.translation).length() > 1e-4 {
 			return Err(anyhow!("hit hull origin should yaw with the visual"));
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn maintain_survives_death_handoff_that_already_despawned_volumes() -> Result<()> {
+		let mut world = World::new();
+		let body = world.spawn(HitCapsule { radius: 0.4, length: 0.8, along: 0.0 }).id();
+		let volume = world
+			.spawn((HitVolume, HitVolumeOf(body), HitVolumeKind::Body, ChildOf(body)))
+			.id();
+		world.flush();
+		world.entity_mut(body).remove::<HitCapsule>();
+		world.despawn(volume);
+		world.flush();
+		world.run_system_once(maintain_hit_volumes).map_err(|err| anyhow!("{err}"))?;
+		world.flush();
+		if world.get_entity(body).is_err() {
+			return Err(anyhow!("body should survive a stale volume despawn"));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn maintain_does_not_panic_when_handoff_queues_a_second_despawn() -> Result<()> {
+		let mut world = World::new();
+		let body = world.spawn(HitCapsule { radius: 0.4, length: 0.8, along: 0.0 }).id();
+		let volume = world
+			.spawn((HitVolume, HitVolumeOf(body), HitVolumeKind::Body, ChildOf(body)))
+			.id();
+		world.flush();
+		world
+			.run_system_once(move |mut commands: Commands| {
+				commands.entity(body).remove::<HitCapsule>();
+				commands.entity(volume).try_despawn();
+			})
+			.map_err(|err| anyhow!("{err}"))?;
+		world.run_system_once(maintain_hit_volumes).map_err(|err| anyhow!("{err}"))?;
+		world.flush();
 		Ok(())
 	}
 }

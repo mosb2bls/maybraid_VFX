@@ -36,7 +36,7 @@ pub mod wordnet;
 
 pub use concept::{
 	Concept, ConceptId, ConceptRelation, ConceptUniverse, EnglishSenseLookup, NeighborhoodRequest,
-	Pos, RelationKind,
+	OverlayTag, Pos, RelationKind,
 };
 pub use error::{LanguageError, LanguagePipelineError};
 pub use grammar::{

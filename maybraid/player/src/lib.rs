@@ -8,6 +8,7 @@ mod hit;
 mod identity;
 mod intent;
 mod locomotion;
+mod look;
 mod movement;
 mod separation;
 mod spawn;
@@ -20,8 +21,8 @@ use maybraid_character_controller::CharacterControlSystems;
 pub use body::{
 	apply_character_controller, apply_character_mobility, apply_locomotion_capsule,
 	ground_plane_for_wish, tick_jump, walkable_contact_normal, wish_on_ground, CharacterController,
-	CharacterLocomotion, Grounded, JumpPhase, JumpWish, Jumping, MoveWish, PlayerControlSystems,
-	Sprinting, WalkableGround,
+	CharacterLocomotion, Grounded, JumpPhase, JumpWish, Jumping, MoveSpeedCap, MoveWish,
+	PlayerControlSystems, Sprinting, WalkableGround,
 };
 pub use buoyancy::{Buoyant, Wading, WaterRegime};
 pub use characters::{HeadCapsule, HitCapsule};
@@ -34,6 +35,7 @@ pub use identity::{
 	PlayerUse, PlayerVisual, PlayerYawOwner,
 };
 pub use locomotion::drive_player_locomotion;
+pub use look::{clamp_aim_pitch, look_delta, look_forward, wrap_pi, yaw_xz, AIM_PITCH_MARGIN};
 pub use separation::{SoftBump, NPC_SEPARATION};
 pub use spawn::{
 	capsule_spawn_height, needs_npc_visual, needs_player_visual, spawn_npc, spawn_npc_visual,

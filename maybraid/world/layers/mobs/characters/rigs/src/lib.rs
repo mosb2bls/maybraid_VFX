@@ -1,3 +1,4 @@
+pub mod arm_reach;
 pub mod articulation;
 pub mod authoring;
 pub mod debug;

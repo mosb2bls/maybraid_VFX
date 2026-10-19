@@ -4,8 +4,8 @@
 
 pub use character_motion::{
 	apply_anim_mailbox, prepare_anim_mailbox, tick_anim_mailbox, AnimBone, AnimClip, AnimId,
-	AnimMailbox, AnimProgress, AnimRef, AnimRefRoot, JabParams, JumpParams, ThinkAgainParams,
-	TuckParams, TuckedFlipParams, TwoFootedTuckedFlipParams,
+	AnimMailbox, AnimProgress, AnimRef, AnimRefRoot, JabParams, JumpParams, PowerStrafeParams,
+	ThinkAgainParams, TuckParams, TuckedFlipParams, TwoFootedTuckedFlipParams,
 };
 
 use crate::concepts::ConceptAnimation;

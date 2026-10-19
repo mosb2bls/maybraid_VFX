@@ -8,6 +8,7 @@ pub mod debug;
 pub mod gate;
 pub mod hid;
 pub mod history;
+pub mod overlay;
 pub mod pad;
 pub mod produce;
 pub mod rumble;
@@ -16,13 +17,17 @@ pub mod surface;
 pub use analog::{Cardinal, Deadzone};
 pub use button::{ButtonPhase, ButtonStroke, PadButton, PAD_BUTTON_COUNT};
 pub use config::VirtualPadConfig;
-pub use gate::{MenuOwnsBack, PadGameplayEnabled};
+pub use gate::{KeyboardPadMap, MenuOwnsBack, PadGameplayEnabled};
 pub use hid::{with_pad_hid, PadHidPlugins};
 pub use history::{PadEdge, PadHistory, PadSnapshot, Timed};
+pub use overlay::PadOverlay;
 pub use pad::VirtualPad;
 pub use rumble::{PadRumble, PadRumbleSystems};
 pub use surface::cursor::PadCursor;
-pub use surface::menu::{MenuNav, MenuNavImpulse, MenuNavPad};
+pub use surface::menu::{
+	MenuNav, MenuNavImpulse, MenuNavPad, INVENTORY_DROP_KEYS, INVENTORY_DROP_PAD, MENU_SELECT_KEYS,
+	MENU_SELECT_PAD,
+};
 
 use bevy::input::InputSystems;
 use bevy::prelude::*;
@@ -62,10 +67,12 @@ impl Plugin for VirtualPadPlugin {
 			.init_resource::<VirtualPad>()
 			.init_resource::<PadHistory>()
 			.init_resource::<PadGameplayEnabled>()
+			.init_resource::<KeyboardPadMap>()
 			.init_resource::<MenuOwnsBack>()
 			.init_resource::<MenuNavPad>()
 			.init_resource::<PadCursor>()
 			.add_message::<rumble::PadRumble>()
+			.init_resource::<rumble::DelayedPadRumble>()
 			.configure_sets(
 				PreUpdate,
 				VirtualPadSystems::Produce.after(InputSystems).before(VirtualPadSystems::Derive),
