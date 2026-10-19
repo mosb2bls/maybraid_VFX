@@ -3,9 +3,13 @@
 use character_items::{ClothingColor, ClothingMaterialChoice, Inventory, InventoryItem};
 use serde::{Deserialize, Serialize};
 
-use crate::species::{
-	braidman::BraidmanConfig, brodler::BrodlerConfig, dui::DuiConfig, lero::LeroConfig,
-	mygr::MygrConfig, spibmom::SpibmomConfig, tuberwaber::TuberwaberConfig, wumbus::WumbusConfig,
+use crate::{
+	concept_species::{ConceptSpecies, ConceptSpeciesConfig},
+	species::{
+		braidman::BraidmanConfig, brodler::BrodlerConfig, dui::DuiConfig, lero::LeroConfig,
+		mygr::MygrConfig, spibmom::SpibmomConfig, tuberwaber::TuberwaberConfig,
+		wumbus::WumbusConfig,
+	},
 };
 
 /// Humanoid appearance written to `characters/{id}.json`. Worn garments are not
@@ -30,30 +34,25 @@ impl Default for CharacterAppearance {
 }
 
 impl CharacterAppearance {
-	pub fn species_id(&self) -> &'static str {
+	pub fn species(&self) -> ConceptSpecies {
 		match self {
-			Self::Braidman(_) => "braidman",
-			Self::Brodler(_) => "brodler",
-			Self::Mygr(_) => "mygr",
-			Self::Dui(_) => "dui",
-			Self::Wumbus(_) => "wumbus",
-			Self::Lero(_) => "lero",
-			Self::Spibmom(_) => "spibmom",
-			Self::Tuberwaber(_) => "tuberwaber",
+			Self::Braidman(_) => ConceptSpecies::Braidman,
+			Self::Brodler(_) => ConceptSpecies::Brodler,
+			Self::Mygr(_) => ConceptSpecies::Mygr,
+			Self::Dui(_) => ConceptSpecies::Dui,
+			Self::Wumbus(_) => ConceptSpecies::Wumbus,
+			Self::Lero(_) => ConceptSpecies::Lero,
+			Self::Spibmom(_) => ConceptSpecies::Spibmom,
+			Self::Tuberwaber(_) => ConceptSpecies::Tuberwaber,
 		}
 	}
 
+	pub fn species_id(&self) -> &'static str {
+		self.species().label()
+	}
+
 	pub fn species_title(&self) -> &'static str {
-		match self {
-			Self::Braidman(_) => "Braidman",
-			Self::Brodler(_) => "Brodler",
-			Self::Mygr(_) => "Mygr",
-			Self::Dui(_) => "Dui",
-			Self::Wumbus(_) => "Wumbus",
-			Self::Lero(_) => "Lero",
-			Self::Spibmom(_) => "Spibmom",
-			Self::Tuberwaber(_) => "Tuberwaber",
-		}
+		self.species().title()
 	}
 
 	/// Drop clothing layers so the model file does not duplicate the bag.
@@ -139,6 +138,38 @@ impl CharacterAppearance {
 			Self::Tuberwaber(config) => apply!(config),
 		}
 		self
+	}
+}
+
+impl From<CharacterAppearance> for ConceptSpeciesConfig {
+	fn from(appearance: CharacterAppearance) -> Self {
+		match appearance {
+			CharacterAppearance::Braidman(config) => Self::Braidman(config),
+			CharacterAppearance::Brodler(config) => Self::Brodler(config),
+			CharacterAppearance::Mygr(config) => Self::Mygr(config),
+			CharacterAppearance::Dui(config) => Self::Dui(config),
+			CharacterAppearance::Wumbus(config) => Self::Wumbus(config),
+			CharacterAppearance::Lero(config) => Self::Lero(config),
+			CharacterAppearance::Spibmom(config) => Self::Spibmom(config),
+			CharacterAppearance::Tuberwaber(config) => Self::Tuberwaber(config),
+		}
+	}
+}
+
+impl ConceptSpeciesConfig {
+	/// Persistable humanoid subset. Preview-only species stay `None`.
+	pub fn appearance(&self) -> Option<CharacterAppearance> {
+		match self {
+			Self::Braidman(config) => Some(CharacterAppearance::Braidman(config.clone())),
+			Self::Brodler(config) => Some(CharacterAppearance::Brodler(config.clone())),
+			Self::Mygr(config) => Some(CharacterAppearance::Mygr(config.clone())),
+			Self::Dui(config) => Some(CharacterAppearance::Dui(config.clone())),
+			Self::Wumbus(config) => Some(CharacterAppearance::Wumbus(config.clone())),
+			Self::Lero(config) => Some(CharacterAppearance::Lero(config.clone())),
+			Self::Spibmom(config) => Some(CharacterAppearance::Spibmom(config.clone())),
+			Self::Tuberwaber(config) => Some(CharacterAppearance::Tuberwaber(config.clone())),
+			_ => None,
+		}
 	}
 }
 

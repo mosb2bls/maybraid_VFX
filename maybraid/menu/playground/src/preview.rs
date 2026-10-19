@@ -16,8 +16,8 @@ use character_ui_menu::{CameraFocus, FocusRig};
 use characters::{
 	add_character_components_host, character_bounds, ActiveRigPose, AnimRef, AnimRefRoot,
 	ApplyTerrainPitch, BoneMap, CharacterComponents, CharacterHostSystems, CharacterMembers,
-	CharacterRecipe, CharacterRig, CharacterRigRole, ClothingLayer, ComponentsOnly, Layers,
-	PartNode, ResolvedPoseApplied, RigBindScales, SocketRefApplied, SocketRefRoot,
+	CharacterRig, CharacterRigRole, ClothingLayer, ComponentsOnly, Layers, PartNode,
+	ResolvedPoseApplied, RigBindScales, SocketRefApplied, SocketRefRoot,
 };
 use characters_playground::CameraController;
 use firearm_user::GeneratedFirearm;
@@ -549,36 +549,9 @@ impl CharacterComponents for ClothingPreview {
 }
 
 fn spawn_from_menu(commands: &mut Commands, menu: &CharacterMenu) {
-	match menu.species.value {
-		ConceptSpecies::Braidman => spawn_clothed(commands, &menu.braidman_config().clothed()),
-		ConceptSpecies::Brenal => spawn_clothed(commands, &menu.brenal_config().clothed()),
-		ConceptSpecies::Caole => spawn_clothed(commands, &menu.caole_config().clothed()),
-		ConceptSpecies::Epiphant => spawn_clothed(commands, &menu.epiphant_config().clothed()),
-		ConceptSpecies::Hars => spawn_clothed(commands, &menu.hars_config().clothed()),
-		ConceptSpecies::Yilter => spawn_clothed(commands, &menu.ylter_config().clothed()),
-		ConceptSpecies::Sonyak => spawn_clothed(commands, &menu.sonyak_config().clothed()),
-		ConceptSpecies::Claber => spawn_clothed(commands, &menu.claber_config().clothed()),
-		ConceptSpecies::Croconot => spawn_clothed(commands, &menu.croconot_config().clothed()),
-		ConceptSpecies::Brodler => spawn_clothed(commands, &menu.brodler_config().clothed()),
-		ConceptSpecies::Mygr => spawn_clothed(commands, &menu.mygr_config().clothed()),
-		ConceptSpecies::Dui => spawn_clothed(commands, &menu.dui_config().clothed()),
-		ConceptSpecies::Lidder => spawn_clothed(commands, &menu.lidder_config().clothed()),
-		ConceptSpecies::Chupri => spawn_clothed(commands, &menu.chupri_config().clothed()),
-		ConceptSpecies::Brokker => spawn_clothed(commands, &menu.brokker_config().clothed()),
-		ConceptSpecies::Tipple => spawn_clothed(commands, &menu.tipple_config().clothed()),
-		ConceptSpecies::Topple => spawn_clothed(commands, &menu.topple_config().clothed()),
-		ConceptSpecies::Kispar => spawn_clothed(commands, &menu.kispar_config().clothed()),
-		ConceptSpecies::Tapp => spawn_clothed(commands, &menu.tapp_config().clothed()),
-		ConceptSpecies::Kaller => spawn_clothed(commands, &menu.kaller_config().clothed()),
-		ConceptSpecies::Kappler => spawn_clothed(commands, &menu.kappler_config().clothed()),
-		ConceptSpecies::Wumbus => spawn_clothed(commands, &menu.wumbus_config().clothed()),
-		ConceptSpecies::Lero => spawn_clothed(commands, &menu.lero_config().clothed()),
-		ConceptSpecies::Spibmom => spawn_clothed(commands, &menu.spibmom_config().clothed()),
-		ConceptSpecies::Grener => spawn_clothed(commands, &menu.grener_config().clothed()),
-		ConceptSpecies::Thumplus => spawn_clothed(commands, &menu.thumplus_config().clothed()),
-		ConceptSpecies::Mistler => spawn_clothed(commands, &menu.mistler_config().clothed()),
-		ConceptSpecies::Tuberwaber => spawn_clothed(commands, &menu.tuberwaber_config().clothed()),
-	}
+	characters::with_clothed_concept_recipe!(&menu.species_config(), recipe => {
+		spawn_clothed(commands, &recipe);
+	});
 }
 
 fn spawn_clothed<T>(commands: &mut Commands, character: &T)

@@ -1,7 +1,5 @@
 use character_items::{Inventory, InventoryDropPolicy, InventoryItem};
-use character_ui_menu::{
-	CameraFocus, LabelOption, ListValues, MenuComponent, MenuNode, SingleSelect,
-};
+use character_ui_menu::{CameraFocus, MenuComponent, MenuNode, SingleSelect};
 use characters::{
 	species::{
 		braidman::BraidmanConfig, brenal::BrenalConfig, brodler::BrodlerConfig,
@@ -13,7 +11,7 @@ use characters::{
 		tipple::TippleConfig, topple::ToppleConfig, tuberwaber::TuberwaberConfig,
 		wumbus::WumbusConfig, ylter::YilterConfig,
 	},
-	CharacterAppearance, ConceptAnimation,
+	CharacterAppearance, ConceptAnimation, ConceptSpeciesConfig,
 };
 
 use crate::{
@@ -52,198 +50,7 @@ use crate::{
 	shared::{clothing_menu_from_inventory, inventory_overlay_key, loadout_section},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConceptSpecies {
-	Braidman,
-	Brenal,
-	Caole,
-	Epiphant,
-	Hars,
-	Yilter,
-	Sonyak,
-	Claber,
-	Croconot,
-	Brodler,
-	Mygr,
-	Dui,
-	Lidder,
-	Chupri,
-	Brokker,
-	Tipple,
-	Topple,
-	Kispar,
-	Tapp,
-	Kaller,
-	Kappler,
-	Wumbus,
-	Lero,
-	Spibmom,
-	Grener,
-	Thumplus,
-	Mistler,
-	Tuberwaber,
-}
-
-impl ConceptSpecies {
-	pub const fn label(self) -> &'static str {
-		match self {
-			Self::Braidman => "braidman",
-			Self::Brenal => "brenal",
-			Self::Caole => "caole",
-			Self::Epiphant => "epiphant",
-			Self::Hars => "hars",
-			Self::Yilter => "ylter",
-			Self::Sonyak => "sonyak",
-			Self::Claber => "claber",
-			Self::Croconot => "croconot",
-			Self::Brodler => "brodler",
-			Self::Mygr => "mygr",
-			Self::Dui => "dui",
-			Self::Lidder => "lidder",
-			Self::Chupri => "chupri",
-			Self::Brokker => "brokker",
-			Self::Tipple => "tipple",
-			Self::Topple => "topple",
-			Self::Kispar => "kispar",
-			Self::Tapp => "tapp",
-			Self::Kaller => "kaller",
-			Self::Kappler => "kappler",
-			Self::Wumbus => "wumbus",
-			Self::Lero => "lero",
-			Self::Spibmom => "spibmom",
-			Self::Grener => "grener",
-			Self::Thumplus => "thumplus",
-			Self::Mistler => "mistler",
-			Self::Tuberwaber => "tuberwaber",
-		}
-	}
-}
-
-impl ListValues for ConceptSpecies {
-	fn values() -> &'static [Self] {
-		&[
-			// Humanoids
-			Self::Braidman,
-			Self::Brodler,
-			Self::Mygr,
-			Self::Dui,
-			Self::Wumbus,
-			Self::Lero,
-			Self::Spibmom,
-			Self::Tuberwaber,
-			// Quadrupeds
-			Self::Brenal,
-			Self::Caole,
-			Self::Epiphant,
-			Self::Hars,
-			Self::Yilter,
-			Self::Sonyak,
-			Self::Claber,
-			Self::Croconot,
-			// Birds
-			Self::Lidder,
-			Self::Chupri,
-			Self::Brokker,
-			Self::Tipple,
-			Self::Topple,
-			Self::Kispar,
-			Self::Tapp,
-			Self::Kaller,
-			Self::Kappler,
-			// Aquatic
-			Self::Grener,
-			Self::Thumplus,
-			Self::Mistler,
-		]
-	}
-}
-
-impl ConceptSpecies {
-	pub const HUMANOIDS: &'static [Self] = &[
-		Self::Braidman,
-		Self::Brodler,
-		Self::Mygr,
-		Self::Dui,
-		Self::Wumbus,
-		Self::Lero,
-		Self::Spibmom,
-		Self::Tuberwaber,
-	];
-
-	pub const fn is_humanoid(self) -> bool {
-		matches!(
-			self,
-			Self::Braidman
-				| Self::Brodler
-				| Self::Mygr | Self::Dui
-				| Self::Wumbus
-				| Self::Lero | Self::Spibmom
-				| Self::Tuberwaber
-		)
-	}
-
-	/// Body-rig family used to expand and aim whole-body preview framing.
-	pub const fn skeleton_kind(self) -> characters::RigSkeletonKind {
-		use characters::RigSkeletonKind;
-		match self {
-			Self::Brenal
-			| Self::Caole
-			| Self::Epiphant
-			| Self::Hars
-			| Self::Yilter
-			| Self::Sonyak
-			| Self::Claber
-			| Self::Croconot => RigSkeletonKind::Quadruped,
-			Self::Grener | Self::Thumplus | Self::Mistler => RigSkeletonKind::Forelimbed,
-			_ => RigSkeletonKind::Humanoid,
-		}
-	}
-
-	/// Whole-body preview framing from a rest-pose hull (no per-species offsets).
-	pub fn body_preview_focus(self, hull: characters::LocomotionCapsule) -> CameraFocus {
-		let kind = self.skeleton_kind();
-		CameraFocus::fit_preview_bounds(
-			hull.preview_aabb_for(kind),
-			CameraFocus::BODY_PREVIEW_FOV,
-			kind.preview_view_direction(),
-		)
-	}
-}
-
-impl LabelOption for ConceptSpecies {
-	fn label(&self) -> &'static str {
-		match *self {
-			Self::Braidman => "braidman",
-			Self::Brenal => "brenal",
-			Self::Caole => "caole",
-			Self::Epiphant => "epiphant",
-			Self::Hars => "hars",
-			Self::Yilter => "ylter",
-			Self::Sonyak => "sonyak",
-			Self::Claber => "claber",
-			Self::Croconot => "croconot",
-			Self::Brodler => "brodler",
-			Self::Mygr => "mygr",
-			Self::Dui => "dui",
-			Self::Lidder => "lidder",
-			Self::Chupri => "chupri",
-			Self::Brokker => "brokker",
-			Self::Tipple => "tipple",
-			Self::Topple => "topple",
-			Self::Kispar => "kispar",
-			Self::Tapp => "tapp",
-			Self::Kaller => "kaller",
-			Self::Kappler => "kappler",
-			Self::Wumbus => "wumbus",
-			Self::Lero => "lero",
-			Self::Spibmom => "spibmom",
-			Self::Grener => "grener",
-			Self::Thumplus => "thumplus",
-			Self::Mistler => "mistler",
-			Self::Tuberwaber => "tuberwaber",
-		}
-	}
-}
+pub use characters::ConceptSpecies;
 
 /// Hard cap for the character display name.
 pub const CHARACTER_NAME_MAX_LEN: usize = 16;
@@ -295,30 +102,10 @@ impl CharacterMenu {
 	}
 
 	pub fn for_saved(name: String, appearance: &CharacterAppearance, inventory: Inventory) -> Self {
-		let mut menu = match appearance {
-			CharacterAppearance::Braidman(config) => {
-				Self::from_braidman(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Brodler(config) => {
-				Self::from_brodler(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Mygr(config) => {
-				Self::from_mygr(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Dui(config) => Self::from_dui(config, ConceptAnimation::default()),
-			CharacterAppearance::Wumbus(config) => {
-				Self::from_wumbus(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Lero(config) => {
-				Self::from_lero(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Spibmom(config) => {
-				Self::from_spibmom(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Tuberwaber(config) => {
-				Self::from_tuberwaber(config, ConceptAnimation::default())
-			}
-		};
+		let mut menu = Self::from_species_config(
+			&ConceptSpeciesConfig::from(appearance.clone()),
+			ConceptAnimation::default(),
+		);
 		menu.name = name;
 		menu.set_inventory(inventory);
 		menu.appearance_locked = true;
@@ -352,17 +139,10 @@ impl CharacterMenu {
 	}
 
 	pub fn appearance(&self) -> CharacterAppearance {
-		let mut appearance = match self.species.value {
-			ConceptSpecies::Braidman => CharacterAppearance::Braidman(self.braidman_config()),
-			ConceptSpecies::Brodler => CharacterAppearance::Brodler(self.brodler_config()),
-			ConceptSpecies::Mygr => CharacterAppearance::Mygr(self.mygr_config()),
-			ConceptSpecies::Dui => CharacterAppearance::Dui(self.dui_config()),
-			ConceptSpecies::Wumbus => CharacterAppearance::Wumbus(self.wumbus_config()),
-			ConceptSpecies::Lero => CharacterAppearance::Lero(self.lero_config()),
-			ConceptSpecies::Spibmom => CharacterAppearance::Spibmom(self.spibmom_config()),
-			ConceptSpecies::Tuberwaber => CharacterAppearance::Tuberwaber(self.tuberwaber_config()),
-			_ => CharacterAppearance::Braidman(self.braidman_config()),
-		};
+		let mut appearance = self
+			.species_config()
+			.appearance()
+			.unwrap_or_else(|| CharacterAppearance::Braidman(self.braidman_config()));
 		appearance.strip_clothing();
 		appearance
 	}
@@ -405,13 +185,14 @@ impl CharacterMenu {
 		self.tuberwaber.clothing.value = clothing;
 	}
 
-	pub fn from_braidman(config: &BraidmanConfig, animation: ConceptAnimation) -> Self {
+	/// Shared inactive-menu baseline. Initializes fields directly; must not call [`Default`].
+	fn base_menus() -> Self {
 		Self {
 			name: String::new(),
 			inventory: None,
 			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Braidman),
-			braidman: BraidmanMenu::from(config).with_animation(animation),
+			braidman: BraidmanMenu::default(),
 			brenal: BrenalMenu::default(),
 			caole: CaoleMenu::default(),
 			epiphant: EpiphantMenu::default(),
@@ -439,1005 +220,263 @@ impl CharacterMenu {
 			thumplus: ThumplusMenu::default(),
 			mistler: MistlerMenu::default(),
 			tuberwaber: TuberwaberMenu::default(),
+		}
+	}
+
+	pub fn from_braidman(config: &BraidmanConfig, animation: ConceptAnimation) -> Self {
+		Self {
+			species: SingleSelect::new(ConceptSpecies::Braidman),
+			braidman: BraidmanMenu::from(config).with_animation(animation),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_brenal(config: &BrenalConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Brenal),
-			braidman: BraidmanMenu::default(),
 			brenal: BrenalMenu::from(config).with_animation(animation),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_caole(config: &CaoleConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Caole),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
 			caole: CaoleMenu::from(config).with_animation(animation),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			claber: ClaberMenu::default(),
-			croconot: CroconotMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_epiphant(config: &EpiphantConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Epiphant),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
 			epiphant: EpiphantMenu::from(config).with_animation(animation),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			claber: ClaberMenu::default(),
-			croconot: CroconotMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_hars(config: &HarsConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Hars),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
 			hars: HarsMenu::from(config).with_animation(animation),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			claber: ClaberMenu::default(),
-			croconot: CroconotMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_ylter(config: &YilterConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Yilter),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
 			ylter: YilterMenu::from(config).with_animation(animation),
-			sonyak: SonyakMenu::default(),
-			claber: ClaberMenu::default(),
-			croconot: CroconotMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_sonyak(config: &SonyakConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Sonyak),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
 			sonyak: SonyakMenu::from(config).with_animation(animation),
-			claber: ClaberMenu::default(),
-			croconot: CroconotMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_croconot(config: &CroconotConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Croconot),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
 			croconot: CroconotMenu::from(config).with_animation(animation),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_claber(config: &ClaberConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Claber),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
 			claber: ClaberMenu::from(config).with_animation(animation),
-			croconot: CroconotMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_brodler(config: &BrodlerConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Brodler),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
 			brodler: BrodlerMenu::from(config).with_animation(animation),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_mygr(config: &MygrConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Mygr),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
 			mygr: MygrMenu::from(config).with_animation(animation),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_dui(config: &DuiConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Dui),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
 			dui: DuiMenu::from(config).with_animation(animation),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_lidder(config: &LidderConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Lidder),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
 			lidder: LidderMenu::from(config).with_animation(animation),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_chupri(config: &ChupriConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Chupri),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
 			chupri: ChupriMenu::from(config).with_animation(animation),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_brokker(config: &BrokkerConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Brokker),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
 			brokker: BrokkerMenu::from(config).with_animation(animation),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_tipple(config: &TippleConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Tipple),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
 			tipple: TippleMenu::from(config).with_animation(animation),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_topple(config: &ToppleConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Topple),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
 			topple: ToppleMenu::from(config).with_animation(animation),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_kispar(config: &KisparConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Kispar),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
 			kispar: KisparMenu::from(config).with_animation(animation),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_tapp(config: &TappConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Tapp),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
 			tapp: TappMenu::from(config).with_animation(animation),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_kaller(config: &KallerConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Kaller),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
 			kaller: KallerMenu::from(config).with_animation(animation),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_kappler(config: &KapplerConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Kappler),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
 			kappler: KapplerMenu::from(config).with_animation(animation),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_wumbus(config: &WumbusConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Wumbus),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
 			wumbus: WumbusMenu::from(config).with_animation(animation),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_lero(config: &LeroConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Lero),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
 			lero: LeroMenu::from(config).with_animation(animation),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_spibmom(config: &SpibmomConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Spibmom),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
 			spibmom: SpibmomMenu::from(config).with_animation(animation),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_grener(config: &GrenerConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Grener),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
 			grener: GrenerMenu::from(config).with_animation(animation),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_thumplus(config: &ThumplusConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Thumplus),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
 			thumplus: ThumplusMenu::from(config).with_animation(animation),
-			mistler: MistlerMenu::default(),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_mistler(config: &MistlerConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Mistler),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
 			mistler: MistlerMenu::from(config).with_animation(animation),
-			tuberwaber: TuberwaberMenu::default(),
+			..Self::base_menus()
 		}
 	}
 
 	pub fn from_tuberwaber(config: &TuberwaberConfig, animation: ConceptAnimation) -> Self {
 		Self {
-			name: String::new(),
-			inventory: None,
-			appearance_locked: false,
 			species: SingleSelect::new(ConceptSpecies::Tuberwaber),
-			braidman: BraidmanMenu::default(),
-			brenal: BrenalMenu::default(),
-			caole: CaoleMenu::default(),
-			epiphant: EpiphantMenu::default(),
-			hars: HarsMenu::default(),
-			ylter: YilterMenu::default(),
-			sonyak: SonyakMenu::default(),
-			croconot: CroconotMenu::default(),
-			claber: ClaberMenu::default(),
-			brodler: BrodlerMenu::default(),
-			mygr: MygrMenu::default(),
-			dui: DuiMenu::default(),
-			lidder: LidderMenu::default(),
-			chupri: ChupriMenu::default(),
-			brokker: BrokkerMenu::default(),
-			tipple: TippleMenu::default(),
-			topple: ToppleMenu::default(),
-			kispar: KisparMenu::default(),
-			tapp: TappMenu::default(),
-			kaller: KallerMenu::default(),
-			kappler: KapplerMenu::default(),
-			wumbus: WumbusMenu::default(),
-			lero: LeroMenu::default(),
-			spibmom: SpibmomMenu::default(),
-			grener: GrenerMenu::default(),
-			thumplus: ThumplusMenu::default(),
-			mistler: MistlerMenu::default(),
 			tuberwaber: TuberwaberMenu::from(config).with_animation(animation),
+			..Self::base_menus()
+		}
+	}
+
+	pub fn from_species_config(config: &ConceptSpeciesConfig, animation: ConceptAnimation) -> Self {
+		match config {
+			ConceptSpeciesConfig::Braidman(config) => Self::from_braidman(config, animation),
+			ConceptSpeciesConfig::Brenal(config) => Self::from_brenal(config, animation),
+			ConceptSpeciesConfig::Caole(config) => Self::from_caole(config, animation),
+			ConceptSpeciesConfig::Epiphant(config) => Self::from_epiphant(config, animation),
+			ConceptSpeciesConfig::Hars(config) => Self::from_hars(config, animation),
+			ConceptSpeciesConfig::Yilter(config) => Self::from_ylter(config, animation),
+			ConceptSpeciesConfig::Sonyak(config) => Self::from_sonyak(config, animation),
+			ConceptSpeciesConfig::Claber(config) => Self::from_claber(config, animation),
+			ConceptSpeciesConfig::Croconot(config) => Self::from_croconot(config, animation),
+			ConceptSpeciesConfig::Brodler(config) => Self::from_brodler(config, animation),
+			ConceptSpeciesConfig::Mygr(config) => Self::from_mygr(config, animation),
+			ConceptSpeciesConfig::Dui(config) => Self::from_dui(config, animation),
+			ConceptSpeciesConfig::Lidder(config) => Self::from_lidder(config, animation),
+			ConceptSpeciesConfig::Chupri(config) => Self::from_chupri(config, animation),
+			ConceptSpeciesConfig::Brokker(config) => Self::from_brokker(config, animation),
+			ConceptSpeciesConfig::Tipple(config) => Self::from_tipple(config, animation),
+			ConceptSpeciesConfig::Topple(config) => Self::from_topple(config, animation),
+			ConceptSpeciesConfig::Kispar(config) => Self::from_kispar(config, animation),
+			ConceptSpeciesConfig::Tapp(config) => Self::from_tapp(config, animation),
+			ConceptSpeciesConfig::Kaller(config) => Self::from_kaller(config, animation),
+			ConceptSpeciesConfig::Kappler(config) => Self::from_kappler(config, animation),
+			ConceptSpeciesConfig::Wumbus(config) => Self::from_wumbus(config, animation),
+			ConceptSpeciesConfig::Lero(config) => Self::from_lero(config, animation),
+			ConceptSpeciesConfig::Spibmom(config) => Self::from_spibmom(config, animation),
+			ConceptSpeciesConfig::Grener(config) => Self::from_grener(config, animation),
+			ConceptSpeciesConfig::Thumplus(config) => Self::from_thumplus(config, animation),
+			ConceptSpeciesConfig::Mistler(config) => Self::from_mistler(config, animation),
+			ConceptSpeciesConfig::Tuberwaber(config) => Self::from_tuberwaber(config, animation),
 		}
 	}
 
@@ -1512,6 +551,41 @@ impl CharacterMenu {
 			ConceptSpecies::Thumplus => self.thumplus.animation(),
 			ConceptSpecies::Mistler => self.mistler.animation(),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.animation(),
+		}
+	}
+
+	pub fn species_config(&self) -> ConceptSpeciesConfig {
+		match self.species.value {
+			ConceptSpecies::Braidman => ConceptSpeciesConfig::Braidman(self.braidman_config()),
+			ConceptSpecies::Brenal => ConceptSpeciesConfig::Brenal(self.brenal_config()),
+			ConceptSpecies::Caole => ConceptSpeciesConfig::Caole(self.caole_config()),
+			ConceptSpecies::Epiphant => ConceptSpeciesConfig::Epiphant(self.epiphant_config()),
+			ConceptSpecies::Hars => ConceptSpeciesConfig::Hars(self.hars_config()),
+			ConceptSpecies::Yilter => ConceptSpeciesConfig::Yilter(self.ylter_config()),
+			ConceptSpecies::Sonyak => ConceptSpeciesConfig::Sonyak(self.sonyak_config()),
+			ConceptSpecies::Claber => ConceptSpeciesConfig::Claber(self.claber_config()),
+			ConceptSpecies::Croconot => ConceptSpeciesConfig::Croconot(self.croconot_config()),
+			ConceptSpecies::Brodler => ConceptSpeciesConfig::Brodler(self.brodler_config()),
+			ConceptSpecies::Mygr => ConceptSpeciesConfig::Mygr(self.mygr_config()),
+			ConceptSpecies::Dui => ConceptSpeciesConfig::Dui(self.dui_config()),
+			ConceptSpecies::Lidder => ConceptSpeciesConfig::Lidder(self.lidder_config()),
+			ConceptSpecies::Chupri => ConceptSpeciesConfig::Chupri(self.chupri_config()),
+			ConceptSpecies::Brokker => ConceptSpeciesConfig::Brokker(self.brokker_config()),
+			ConceptSpecies::Tipple => ConceptSpeciesConfig::Tipple(self.tipple_config()),
+			ConceptSpecies::Topple => ConceptSpeciesConfig::Topple(self.topple_config()),
+			ConceptSpecies::Kispar => ConceptSpeciesConfig::Kispar(self.kispar_config()),
+			ConceptSpecies::Tapp => ConceptSpeciesConfig::Tapp(self.tapp_config()),
+			ConceptSpecies::Kaller => ConceptSpeciesConfig::Kaller(self.kaller_config()),
+			ConceptSpecies::Kappler => ConceptSpeciesConfig::Kappler(self.kappler_config()),
+			ConceptSpecies::Wumbus => ConceptSpeciesConfig::Wumbus(self.wumbus_config()),
+			ConceptSpecies::Lero => ConceptSpeciesConfig::Lero(self.lero_config()),
+			ConceptSpecies::Spibmom => ConceptSpeciesConfig::Spibmom(self.spibmom_config()),
+			ConceptSpecies::Grener => ConceptSpeciesConfig::Grener(self.grener_config()),
+			ConceptSpecies::Thumplus => ConceptSpeciesConfig::Thumplus(self.thumplus_config()),
+			ConceptSpecies::Mistler => ConceptSpeciesConfig::Mistler(self.mistler_config()),
+			ConceptSpecies::Tuberwaber => {
+				ConceptSpeciesConfig::Tuberwaber(self.tuberwaber_config())
+			}
 		}
 	}
 
@@ -1695,37 +769,7 @@ impl CharacterMenu {
 	}
 
 	pub fn locomotion_capsule(&self) -> characters::LocomotionCapsule {
-		use characters::CharacterRecipe;
-		match self.species.value {
-			ConceptSpecies::Braidman => self.braidman_config().locomotion_capsule(),
-			ConceptSpecies::Brenal => self.brenal_config().locomotion_capsule(),
-			ConceptSpecies::Caole => self.caole_config().locomotion_capsule(),
-			ConceptSpecies::Epiphant => self.epiphant_config().locomotion_capsule(),
-			ConceptSpecies::Hars => self.hars_config().locomotion_capsule(),
-			ConceptSpecies::Yilter => self.ylter_config().locomotion_capsule(),
-			ConceptSpecies::Sonyak => self.sonyak_config().locomotion_capsule(),
-			ConceptSpecies::Claber => self.claber_config().locomotion_capsule(),
-			ConceptSpecies::Croconot => self.croconot_config().locomotion_capsule(),
-			ConceptSpecies::Brodler => self.brodler_config().locomotion_capsule(),
-			ConceptSpecies::Mygr => self.mygr_config().locomotion_capsule(),
-			ConceptSpecies::Dui => self.dui_config().locomotion_capsule(),
-			ConceptSpecies::Lidder => self.lidder_config().locomotion_capsule(),
-			ConceptSpecies::Chupri => self.chupri_config().locomotion_capsule(),
-			ConceptSpecies::Brokker => self.brokker_config().locomotion_capsule(),
-			ConceptSpecies::Tipple => self.tipple_config().locomotion_capsule(),
-			ConceptSpecies::Topple => self.topple_config().locomotion_capsule(),
-			ConceptSpecies::Kispar => self.kispar_config().locomotion_capsule(),
-			ConceptSpecies::Tapp => self.tapp_config().locomotion_capsule(),
-			ConceptSpecies::Kaller => self.kaller_config().locomotion_capsule(),
-			ConceptSpecies::Kappler => self.kappler_config().locomotion_capsule(),
-			ConceptSpecies::Wumbus => self.wumbus_config().locomotion_capsule(),
-			ConceptSpecies::Lero => self.lero_config().locomotion_capsule(),
-			ConceptSpecies::Spibmom => self.spibmom_config().locomotion_capsule(),
-			ConceptSpecies::Grener => self.grener_config().locomotion_capsule(),
-			ConceptSpecies::Thumplus => self.thumplus_config().locomotion_capsule(),
-			ConceptSpecies::Mistler => self.mistler_config().locomotion_capsule(),
-			ConceptSpecies::Tuberwaber => self.tuberwaber_config().locomotion_capsule(),
-		}
+		self.species_config().locomotion_capsule()
 	}
 
 	/// Rest-pose envelope used to frame the live preview for the selected species.
@@ -3663,362 +2707,182 @@ fn omit_clothing_child(node: MenuNode<MenuEvent>) -> Option<MenuNode<MenuEvent>>
 	}
 }
 
-fn apply_brenal_slider(menu: &mut BrenalMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_body_proportion_slider {
+	($body:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::ShoulderWidth => {
+				$body.shoulder_width = $body.shoulder_width.apply_delta($delta);
+				true
+			}
+			CharacterField::HipWidth => {
+				$body.hip_width = $body.hip_width.apply_delta($delta);
+				true
+			}
+			CharacterField::ChestThickness => {
+				$body.chest_thickness = $body.chest_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::HipThickness => {
+				$body.hip_thickness = $body.hip_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::LegThickness => {
+				$body.leg_thickness = $body.leg_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::ButtocksThickness => {
+				$body.buttocks_thickness = $body.buttocks_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::WaistThickness => {
+				$body.waist_thickness = $body.waist_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::LowerTrunkThickness => {
+				$body.lower_trunk_thickness = $body.lower_trunk_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::ArmLength => {
+				$body.arm_length = $body.arm_length.apply_delta($delta);
+				true
+			}
+			CharacterField::ArmThickness => {
+				$body.arm_thickness = $body.arm_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::LegLength => {
+				$body.leg_length = $body.leg_length.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_caole_slider(menu: &mut CaoleMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_eye_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::EyeWidth => {
+				$face.eye_width = $face.eye_width.apply_delta($delta);
+				true
+			}
+			CharacterField::EyeHeight => {
+				$face.eye_height = $face.eye_height.apply_delta($delta);
+				true
+			}
+			CharacterField::EyeTilt => {
+				$face.eye_tilt = $face.eye_tilt.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_epiphant_slider(menu: &mut EpiphantMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_ear_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::EarWidth => {
+				$face.ear_width = $face.ear_width.apply_delta($delta);
+				true
+			}
+			CharacterField::EarHeight => {
+				$face.ear_height = $face.ear_height.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_hars_slider(menu: &mut HarsMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_nose_mouth_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::NoseWidth => {
+				$face.nose_width = $face.nose_width.apply_delta($delta);
+				true
+			}
+			CharacterField::NoseHeight => {
+				$face.nose_height = $face.nose_height.apply_delta($delta);
+				true
+			}
+			CharacterField::MouthWidth => {
+				$face.mouth_width = $face.mouth_width.apply_delta($delta);
+				true
+			}
+			CharacterField::MouthHeight => {
+				$face.mouth_height = $face.mouth_height.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_ylter_slider(menu: &mut YilterMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_snout_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::SnoutLength => {
+				$face.snout_length = $face.snout_length.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_sonyak_slider(menu: &mut SonyakMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_eye_ear_body_menu_slider {
+	($name:ident, $menu:ty) => {
+		fn $name(menu: &mut $menu, field: CharacterField, delta: f32) -> bool {
+			let body = &mut menu.body.value.sliders;
+			let face = &mut menu.head_features.value.feature_sliders;
+			apply_body_proportion_slider!(body, field, delta)
+				|| apply_eye_slider!(face, field, delta)
+				|| apply_ear_slider!(face, field, delta)
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
+
+apply_eye_ear_body_menu_slider!(apply_brenal_slider, BrenalMenu);
+apply_eye_ear_body_menu_slider!(apply_caole_slider, CaoleMenu);
+apply_eye_ear_body_menu_slider!(apply_epiphant_slider, EpiphantMenu);
+apply_eye_ear_body_menu_slider!(apply_hars_slider, HarsMenu);
+apply_eye_ear_body_menu_slider!(apply_ylter_slider, YilterMenu);
+apply_eye_ear_body_menu_slider!(apply_sonyak_slider, SonyakMenu);
 
 fn apply_croconot_slider(menu: &mut CroconotMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		CharacterField::SnoutLength => face.snout_length = face.snout_length.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_ear_slider!(face, field, delta)
+		|| apply_snout_slider!(face, field, delta)
 }
 
 fn apply_claber_slider(menu: &mut ClaberMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		CharacterField::SnoutLength => face.snout_length = face.snout_length.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_ear_slider!(face, field, delta)
+		|| apply_snout_slider!(face, field, delta)
 }
 
 fn apply_braidman_slider(menu: &mut BraidmanMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::NoseWidth => face.nose_width = face.nose_width.apply_delta(delta),
-		CharacterField::NoseHeight => face.nose_height = face.nose_height.apply_delta(delta),
-		CharacterField::MouthWidth => face.mouth_width = face.mouth_width.apply_delta(delta),
-		CharacterField::MouthHeight => face.mouth_height = face.mouth_height.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_ear_slider!(face, field, delta)
+		|| apply_nose_mouth_slider!(face, field, delta)
 }
 
 fn apply_tuberwaber_slider(menu: &mut TuberwaberMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::NoseWidth => face.nose_width = face.nose_width.apply_delta(delta),
-		CharacterField::NoseHeight => face.nose_height = face.nose_height.apply_delta(delta),
-		CharacterField::MouthWidth => face.mouth_width = face.mouth_width.apply_delta(delta),
-		CharacterField::MouthHeight => face.mouth_height = face.mouth_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_nose_mouth_slider!(face, field, delta)
 }
 
 impl Default for CharacterMenu {

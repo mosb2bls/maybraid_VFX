@@ -77,7 +77,7 @@ use crate::{
 		},
 		ylter::{YilterBodyMesh, YilterMouthMesh},
 	},
-	ConceptAnimation,
+	ConceptAnimation, ConceptSpecies,
 };
 
 macro_rules! impl_menu_identity {
@@ -115,6 +115,7 @@ impl_menu_identity!(
 	EarMesh,
 	HairMesh,
 	ConceptAnimation,
+	ConceptSpecies,
 	BrodlerSkinColor,
 	BrodlerEyeColor,
 	BrodlerHornColor,

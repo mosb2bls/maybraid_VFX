@@ -24,6 +24,7 @@ pub mod appearance;
 pub mod assembly;
 pub mod assets;
 pub mod components;
+pub mod concept_species;
 pub mod concepts;
 pub mod fixed;
 pub mod hosts;
@@ -43,10 +44,10 @@ pub mod species;
 pub mod terrain_pitch;
 
 pub use anim::{
-	apply_anim_mailbox, prepare_anim_mailbox, tick_anim_mailbox, AnimBone, AnimClip, AnimId,
-	AnimClipCues, AnimCueKind, AnimCueSheet, AnimMailbox, AnimProgress, AnimRef, AnimRefRoot,
-	JabParams, JumpParams, PowerStrafeParams, ThinkAgainParams, TuckParams, TuckedFlipParams,
-	TwoFootedTuckedFlipParams, cue_sheet,
+	apply_anim_mailbox, cue_sheet, prepare_anim_mailbox, tick_anim_mailbox, AnimBone, AnimClip,
+	AnimClipCues, AnimCueKind, AnimCueSheet, AnimId, AnimMailbox, AnimProgress, AnimRef,
+	AnimRefRoot, JabParams, JumpParams, PowerStrafeParams, ThinkAgainParams, TuckParams,
+	TuckedFlipParams, TwoFootedTuckedFlipParams,
 };
 pub use appearance::CharacterAppearance;
 pub use assembly::CharacterPartSlot;
@@ -63,6 +64,9 @@ pub use character_shaders::CharacterShadersPlugin;
 pub use components::{
 	character_bounds, clothing_layers, CharacterComponents, CharacterRecipe, Clothed,
 	ClothingLayer, ComponentsOnly, HeadCapsule, HitCapsule, LocomotionCapsule,
+};
+pub use concept_species::{
+	ConceptSpecies, ConceptSpeciesConfig, ConceptSpeciesFamily, QUADRUPED_CONCEPT_ANIMATIONS,
 };
 pub use concepts::ConceptAnimation;
 pub use fixed::{
