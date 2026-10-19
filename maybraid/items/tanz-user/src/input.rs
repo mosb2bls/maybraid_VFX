@@ -216,101 +216,61 @@ impl TanzRecognizer {
 	}
 }
 
-/// Resting fill for the mode bar: Laufer (Standard) = 0, Tanzer = 1.
-#[inline]
-pub fn mode_charge_rest(mode: ControlMode) -> f32 {
-	match mode {
-		ControlMode::Standard => 0.0,
-		ControlMode::Tanzer => 1.0,
-	}
-}
-
-/// Fill target while LB+RB is held before the latch fires.
-#[inline]
-pub fn mode_charge_hold_target(mode: ControlMode) -> f32 {
-	match mode {
-		ControlMode::Standard => 1.0,
-		ControlMode::Tanzer => 0.0,
-	}
-}
-
-/// Advance [`ModeToggle::progress`] toward `target` by at most `rate` (0..1 units).
-#[inline]
-pub fn mode_charge_step_toward(progress: f32, target: f32, rate: f32) -> f32 {
-	if progress < target {
-		(progress + rate).min(target)
-	} else if progress > target {
-		(progress - rate).max(target)
-	} else {
-		progress
-	}
-}
-
-/// Pure LB+RB charge step. Returns `true` on the frame the mode should flip.
-pub fn advance_mode_charge(
-	progress: f32,
-	fired: bool,
-	dt: f32,
-	chord: bool,
-	charge_secs: f32,
-	mode: ControlMode,
-) -> (f32, bool, bool) {
-	let dt = dt.max(0.0);
-	let rate = if charge_secs > 0.0 { dt / charge_secs } else { 1.0 };
-	let rest = mode_charge_rest(mode);
-	let hold = mode_charge_hold_target(mode);
-	let mut fired = if chord { fired } else { false };
-	if chord && fired {
-		return (rest, true, false);
-	}
-	let target = if chord { hold } else { rest };
-	let mut progress = mode_charge_step_toward(progress, target, rate);
-	let toggled = if chord && charge_threshold_met(progress, hold, rest) {
-		progress = hold;
-		fired = true;
-		true
-	} else {
-		false
-	};
-	(progress, fired, toggled)
-}
-
-#[inline]
-fn charge_threshold_met(progress: f32, hold: f32, rest: f32) -> bool {
-	const EPS: f32 = 1e-5;
-	if hold > rest {
-		progress + EPS >= hold
-	} else {
-		progress <= hold + EPS
-	}
-}
-
 /// Latch for the LB+RB mode chord: one toggle per hold, then both must release.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModeToggle {
-	/// 0 = Laufer rest, 1 = Tanzer rest. Moves while charging or cancelling.
-	pub progress: f32,
+	/// Normalized charge toward the single toggle threshold (`0` rest, `1` fire).
+	charge: f32,
+	/// True after this hold has already fired; both bumpers must release to rearm.
 	pub fired: bool,
 }
 
 impl Default for ModeToggle {
 	fn default() -> Self {
-		Self { progress: 0.0, fired: false }
+		Self { charge: 0.0, fired: false }
 	}
 }
 
 impl ModeToggle {
-	pub fn reset_for_mode(&mut self, mode: ControlMode) {
-		self.progress = mode_charge_rest(mode);
+	pub fn reset_for_mode(&mut self, _mode: ControlMode) {
+		self.charge = 0.0;
 		self.fired = false;
 	}
 
-	pub fn sample(&mut self, dt: f32, chord: bool, charge_secs: f32, mode: ControlMode) -> bool {
-		let (progress, fired, toggled) =
-			advance_mode_charge(self.progress, self.fired, dt, chord, charge_secs, mode);
-		self.progress = progress;
-		self.fired = fired;
-		toggled
+	/// Displayed Standard=0 / Tanzer=1 bar.
+	///
+	/// Charge grows toward the threshold while the chord is held. After the
+	/// latch fires and the chord is still held, charge parks at rest (`0`), so
+	/// Standard reads `charge` and Tanzer reads `1 - charge`.
+	pub fn bar(&self, mode: ControlMode) -> f32 {
+		match mode {
+			ControlMode::Standard => self.charge,
+			ControlMode::Tanzer => 1.0 - self.charge,
+		}
+	}
+
+	/// Advance charge for one frame. Returns `true` on the frame the mode should flip.
+	pub fn sample(&mut self, dt: f32, chord: bool, charge_secs: f32, _mode: ControlMode) -> bool {
+		let dt = dt.max(0.0);
+		let rate = if charge_secs > 0.0 { dt / charge_secs } else { 1.0 };
+		if !chord {
+			self.fired = false;
+			self.charge = (self.charge - rate).max(0.0);
+			return false;
+		}
+		if self.fired {
+			self.charge = 0.0;
+			return false;
+		}
+		self.charge = (self.charge + rate).min(1.0);
+		const EPS: f32 = 1e-5;
+		if self.charge + EPS >= 1.0 {
+			self.charge = 1.0;
+			self.fired = true;
+			true
+		} else {
+			false
+		}
 	}
 }
 
@@ -559,54 +519,33 @@ mod tests {
 	#[test]
 	fn mode_charge_reaches_tanzer_in_sixty_steps_at_sixty_hz() -> anyhow::Result<()> {
 		let dt = 1.0 / 60.0;
-		let mut progress = 0.0;
-		let mut fired = false;
+		let mut toggle = ModeToggle::default();
 		let mut toggled = false;
 		for step in 0..60 {
-			let (next, next_fired, flip) = advance_mode_charge(
-				progress,
-				fired,
-				dt,
-				true,
-				TANZ_TOGGLE_SECS,
-				ControlMode::Standard,
-			);
-			progress = next;
-			fired = next_fired;
-			if flip {
+			if toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Standard) {
 				toggled = true;
 				assert_eq!(step, 59);
 			}
 		}
 		assert!(toggled);
-		assert_eq!(progress, 1.0);
+		assert_eq!(toggle.bar(ControlMode::Standard), 1.0);
 		Ok(())
 	}
 
 	#[test]
 	fn mode_charge_returns_to_laufer_from_tanzer() -> anyhow::Result<()> {
 		let dt = 1.0 / 60.0;
-		let mut progress = 1.0;
-		let mut fired = false;
+		let mut toggle = ModeToggle::default();
+		toggle.reset_for_mode(ControlMode::Tanzer);
 		let mut toggled = false;
 		for step in 0..60 {
-			let (next, next_fired, flip) = advance_mode_charge(
-				progress,
-				fired,
-				dt,
-				true,
-				TANZ_TOGGLE_SECS,
-				ControlMode::Tanzer,
-			);
-			progress = next;
-			fired = next_fired;
-			if flip {
+			if toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Tanzer) {
 				toggled = true;
 				assert_eq!(step, 59);
 			}
 		}
 		assert!(toggled);
-		assert_eq!(progress, 0.0);
+		assert_eq!(toggle.bar(ControlMode::Tanzer), 0.0);
 		Ok(())
 	}
 
@@ -617,11 +556,12 @@ mod tests {
 		for _ in 0..30 {
 			assert!(!toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Standard));
 		}
-		assert!(toggle.progress > 0.4 && toggle.progress < 0.6);
+		let bar = toggle.bar(ControlMode::Standard);
+		assert!(bar > 0.4 && bar < 0.6);
 		for _ in 0..60 {
 			assert!(!toggle.sample(dt, false, TANZ_TOGGLE_SECS, ControlMode::Standard));
 		}
-		assert_eq!(toggle.progress, 0.0);
+		assert_eq!(toggle.bar(ControlMode::Standard), 0.0);
 		Ok(())
 	}
 
@@ -647,6 +587,225 @@ mod tests {
 		}
 		assert_eq!(slow_flips, 1);
 		assert_eq!(fast_flips, 1);
+		Ok(())
+	}
+
+	/// Legacy Standard=0 / Tanzer=1 bar. Kept only to compare against [`ModeToggle::bar`].
+	fn mode_charge_rest(mode: ControlMode) -> f32 {
+		match mode {
+			ControlMode::Standard => 0.0,
+			ControlMode::Tanzer => 1.0,
+		}
+	}
+
+	fn mode_charge_hold_target(mode: ControlMode) -> f32 {
+		match mode {
+			ControlMode::Standard => 1.0,
+			ControlMode::Tanzer => 0.0,
+		}
+	}
+
+	fn mode_charge_step_toward(progress: f32, target: f32, rate: f32) -> f32 {
+		if progress < target {
+			(progress + rate).min(target)
+		} else if progress > target {
+			(progress - rate).max(target)
+		} else {
+			progress
+		}
+	}
+
+	fn charge_threshold_met(progress: f32, hold: f32, rest: f32) -> bool {
+		const EPS: f32 = 1e-5;
+		if hold > rest {
+			progress + EPS >= hold
+		} else {
+			progress <= hold + EPS
+		}
+	}
+
+	fn advance_mode_charge(
+		progress: f32,
+		fired: bool,
+		dt: f32,
+		chord: bool,
+		charge_secs: f32,
+		mode: ControlMode,
+	) -> (f32, bool, bool) {
+		let dt = dt.max(0.0);
+		let rate = if charge_secs > 0.0 { dt / charge_secs } else { 1.0 };
+		let rest = mode_charge_rest(mode);
+		let hold = mode_charge_hold_target(mode);
+		let mut fired = if chord { fired } else { false };
+		if chord && fired {
+			return (rest, true, false);
+		}
+		let target = if chord { hold } else { rest };
+		let mut progress = mode_charge_step_toward(progress, target, rate);
+		let toggled = if chord && charge_threshold_met(progress, hold, rest) {
+			progress = hold;
+			fired = true;
+			true
+		} else {
+			false
+		};
+		(progress, fired, toggled)
+	}
+
+	#[derive(Clone, Copy)]
+	struct ChargeFrame {
+		dt: f32,
+		chord: bool,
+		charge_secs: f32,
+	}
+
+	fn hold_release(hold: usize, release: usize, dt: f32, charge_secs: f32) -> Vec<ChargeFrame> {
+		let mut frames = Vec::with_capacity(hold + release);
+		frames.extend(std::iter::repeat_n(ChargeFrame { dt, chord: true, charge_secs }, hold));
+		frames.extend(std::iter::repeat_n(ChargeFrame { dt, chord: false, charge_secs }, release));
+		frames
+	}
+
+	fn drive_old_bar(
+		mode: ControlMode,
+		start_bar: f32,
+		start_fired: bool,
+		frames: &[ChargeFrame],
+	) -> Vec<(f32, bool, bool)> {
+		let mut progress = start_bar;
+		let mut fired = start_fired;
+		let mut out = Vec::with_capacity(frames.len());
+		for frame in frames {
+			let (next, next_fired, toggled) = advance_mode_charge(
+				progress,
+				fired,
+				frame.dt,
+				frame.chord,
+				frame.charge_secs,
+				mode,
+			);
+			progress = next;
+			fired = next_fired;
+			out.push((next, next_fired, toggled));
+		}
+		out
+	}
+
+	fn drive_new_bar(
+		mode: ControlMode,
+		start_bar: f32,
+		start_fired: bool,
+		frames: &[ChargeFrame],
+	) -> Vec<(f32, bool, bool)> {
+		let charge = match mode {
+			ControlMode::Standard => start_bar,
+			ControlMode::Tanzer => 1.0 - start_bar,
+		};
+		let mut toggle = ModeToggle { charge, fired: start_fired };
+		let mut out = Vec::with_capacity(frames.len());
+		for frame in frames {
+			let toggled = toggle.sample(frame.dt, frame.chord, frame.charge_secs, mode);
+			out.push((toggle.bar(mode), toggle.fired, toggled));
+		}
+		out
+	}
+
+	fn assert_old_matches_new(
+		mode: ControlMode,
+		start_bar: f32,
+		start_fired: bool,
+		frames: &[ChargeFrame],
+	) -> anyhow::Result<()> {
+		let old = drive_old_bar(mode, start_bar, start_fired, frames);
+		let new = drive_new_bar(mode, start_bar, start_fired, frames);
+		if old.len() != new.len() {
+			anyhow::bail!("old produced {} frames, new produced {}", old.len(), new.len());
+		}
+		for (i, (old_frame, new_frame)) in old.iter().zip(new.iter()).enumerate() {
+			let (old_bar, old_fired, old_toggled) = *old_frame;
+			let (new_bar, new_fired, new_toggled) = *new_frame;
+			if (old_bar - new_bar).abs() > 1e-6 {
+				anyhow::bail!("frame {i} {mode:?}: old bar {old_bar} != new bar {new_bar}");
+			}
+			if old_fired != new_fired || old_toggled != new_toggled {
+				anyhow::bail!(
+					"frame {i} {mode:?}: old latch ({old_fired}, {old_toggled}) != new ({new_fired}, {new_toggled})"
+				);
+			}
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn old_and_new_bars_match_scripted_holds_in_both_modes() -> anyhow::Result<()> {
+		let dt = 1.0 / 60.0;
+		let modes = [ControlMode::Standard, ControlMode::Tanzer];
+		for mode in modes {
+			let rest = mode_charge_rest(mode);
+			// Full charge, latched extra hold, then release / rearm.
+			assert_old_matches_new(mode, rest, false, &hold_release(65, 10, dt, TANZ_TOGGLE_SECS))?;
+			// Partial hold then full decay back to rest.
+			assert_old_matches_new(mode, rest, false, &hold_release(30, 60, dt, TANZ_TOGGLE_SECS))?;
+			// Partial release, then resume through the threshold.
+			let mut resume = hold_release(24, 12, dt, TANZ_TOGGLE_SECS);
+			resume.extend(hold_release(50, 4, dt, TANZ_TOGGLE_SECS));
+			assert_old_matches_new(mode, rest, false, &resume)?;
+			// Zero-duration: completed bar and fire on the first hold frame.
+			assert_old_matches_new(mode, rest, false, &hold_release(3, 2, dt, 0.0))?;
+			// One oversized dt completes immediately without overshooting the bar.
+			assert_old_matches_new(
+				mode,
+				rest,
+				false,
+				&[ChargeFrame { dt: 2.0, chord: true, charge_secs: TANZ_TOGGLE_SECS }],
+			)?;
+			// Zero dt must not advance or fire.
+			assert_old_matches_new(
+				mode,
+				rest,
+				false,
+				&[ChargeFrame { dt: 0.0, chord: true, charge_secs: TANZ_TOGGLE_SECS }; 8],
+			)?;
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn old_and_new_bars_match_after_apply_toggle_reset() -> anyhow::Result<()> {
+		let dt = 1.0 / 60.0;
+		let frames = hold_release(60, 0, dt, TANZ_TOGGLE_SECS);
+		for start in [ControlMode::Standard, ControlMode::Tanzer] {
+			let rest = mode_charge_rest(start);
+			let old = drive_old_bar(start, rest, false, &frames);
+			let new = drive_new_bar(start, rest, false, &frames);
+			let last_old = old.last().ok_or_else(|| anyhow::anyhow!("old empty"))?;
+			let last_new = new.last().ok_or_else(|| anyhow::anyhow!("new empty"))?;
+			if !last_old.2 || !last_new.2 {
+				anyhow::bail!("{start:?}: expected a toggle on the completing frame");
+			}
+			let flipped = start.toggle();
+			let old_reset_bar = mode_charge_rest(flipped);
+			let mut toggle = ModeToggle {
+				charge: match start {
+					ControlMode::Standard => last_new.0,
+					ControlMode::Tanzer => 1.0 - last_new.0,
+				},
+				fired: last_new.1,
+			};
+			toggle.reset_for_mode(flipped);
+			if (toggle.bar(flipped) - old_reset_bar).abs() > 1e-6 {
+				anyhow::bail!(
+					"{start:?}: reset bar {} != old rest {old_reset_bar}",
+					toggle.bar(flipped)
+				);
+			}
+			assert_old_matches_new(
+				flipped,
+				toggle.bar(flipped),
+				toggle.fired,
+				&hold_release(20, 4, dt, TANZ_TOGGLE_SECS),
+			)?;
+		}
 		Ok(())
 	}
 }
