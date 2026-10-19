@@ -18,7 +18,7 @@ const STAND_RUN_EXIT: f32 = 7.1;
 
 /// Hysteresis band for humanoid stand locomotion clips (still / walk / run).
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct StandLocomotionGait {
+pub struct StandLocomotionGait {
 	band: StandLocomotionBand,
 }
 
@@ -125,11 +125,7 @@ pub fn drive_player_locomotion(
 				&& stance.squat_settled()
 				&& matches!(stance.kind, StanceKind::Stand)
 			{
-				let band = gait
-					.get(member)
-					.map(|g| g.band)
-					.unwrap_or_default()
-					.advance(speed);
+				let band = gait.get(member).map(|g| g.band).unwrap_or_default().advance(speed);
 				commands.entity(member).insert(StandLocomotionGait { band });
 				Some(band)
 			} else {
@@ -356,7 +352,8 @@ mod tests {
 		let mut last: Option<AnimId> = None;
 		for &speed in speeds {
 			band = band.advance(speed);
-			let id = locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, speed, Some(band)).id();
+			let id =
+				locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, speed, Some(band)).id();
 			if last != Some(id) {
 				changes += 1;
 				last = Some(id);
