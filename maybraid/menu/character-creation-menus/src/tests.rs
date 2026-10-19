@@ -1031,3 +1031,32 @@ fn switching_species_keeps_per_species_edits() {
 	assert_eq!(menu.braidman.body.value.sliders.shoulder_width.value, braidman_after);
 	assert_eq!(menu.brenal.body.value.sliders.shoulder_width.value, brenal_after);
 }
+
+#[test]
+fn slider_delta_clamps_and_rejects_unsupported_fields() {
+	use crate::CharacterField;
+
+	let mut menu = CharacterMenu::default();
+	let shoulder = menu.braidman.body.value.sliders.shoulder_width;
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::ShoulderWidth, 10.0)));
+	assert_eq!(menu.braidman.body.value.sliders.shoulder_width.value, shoulder.max);
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::ShoulderWidth, -10.0)));
+	assert_eq!(menu.braidman.body.value.sliders.shoulder_width.value, shoulder.min);
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::NoseWidth, 0.05)));
+	assert!(!menu.apply(MenuEvent::SliderDelta(CharacterField::SnoutLength, 0.1)));
+
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Brenal)));
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::EarWidth, 0.05)));
+	assert!(!menu.apply(MenuEvent::SliderDelta(CharacterField::NoseWidth, 0.1)));
+	assert!(!menu.apply(MenuEvent::SliderDelta(CharacterField::SnoutLength, 0.1)));
+
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Croconot)));
+	let snout_before = menu.croconot.head_features.value.feature_sliders.snout_length.value;
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::SnoutLength, 0.1)));
+	assert_ne!(menu.croconot.head_features.value.feature_sliders.snout_length.value, snout_before);
+
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Tuberwaber)));
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::NoseWidth, 0.05)));
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::MouthHeight, 0.05)));
+	assert!(!menu.apply(MenuEvent::SliderDelta(CharacterField::EarWidth, 0.1)));
+}

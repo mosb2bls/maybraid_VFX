@@ -2707,362 +2707,182 @@ fn omit_clothing_child(node: MenuNode<MenuEvent>) -> Option<MenuNode<MenuEvent>>
 	}
 }
 
-fn apply_brenal_slider(menu: &mut BrenalMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_body_proportion_slider {
+	($body:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::ShoulderWidth => {
+				$body.shoulder_width = $body.shoulder_width.apply_delta($delta);
+				true
+			}
+			CharacterField::HipWidth => {
+				$body.hip_width = $body.hip_width.apply_delta($delta);
+				true
+			}
+			CharacterField::ChestThickness => {
+				$body.chest_thickness = $body.chest_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::HipThickness => {
+				$body.hip_thickness = $body.hip_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::LegThickness => {
+				$body.leg_thickness = $body.leg_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::ButtocksThickness => {
+				$body.buttocks_thickness = $body.buttocks_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::WaistThickness => {
+				$body.waist_thickness = $body.waist_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::LowerTrunkThickness => {
+				$body.lower_trunk_thickness = $body.lower_trunk_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::ArmLength => {
+				$body.arm_length = $body.arm_length.apply_delta($delta);
+				true
+			}
+			CharacterField::ArmThickness => {
+				$body.arm_thickness = $body.arm_thickness.apply_delta($delta);
+				true
+			}
+			CharacterField::LegLength => {
+				$body.leg_length = $body.leg_length.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_caole_slider(menu: &mut CaoleMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_eye_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::EyeWidth => {
+				$face.eye_width = $face.eye_width.apply_delta($delta);
+				true
+			}
+			CharacterField::EyeHeight => {
+				$face.eye_height = $face.eye_height.apply_delta($delta);
+				true
+			}
+			CharacterField::EyeTilt => {
+				$face.eye_tilt = $face.eye_tilt.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_epiphant_slider(menu: &mut EpiphantMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_ear_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::EarWidth => {
+				$face.ear_width = $face.ear_width.apply_delta($delta);
+				true
+			}
+			CharacterField::EarHeight => {
+				$face.ear_height = $face.ear_height.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_hars_slider(menu: &mut HarsMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_nose_mouth_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::NoseWidth => {
+				$face.nose_width = $face.nose_width.apply_delta($delta);
+				true
+			}
+			CharacterField::NoseHeight => {
+				$face.nose_height = $face.nose_height.apply_delta($delta);
+				true
+			}
+			CharacterField::MouthWidth => {
+				$face.mouth_width = $face.mouth_width.apply_delta($delta);
+				true
+			}
+			CharacterField::MouthHeight => {
+				$face.mouth_height = $face.mouth_height.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_ylter_slider(menu: &mut YilterMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_snout_slider {
+	($face:expr, $field:expr, $delta:expr) => {
+		match $field {
+			CharacterField::SnoutLength => {
+				$face.snout_length = $face.snout_length.apply_delta($delta);
+				true
+			}
+			_ => false,
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
 
-fn apply_sonyak_slider(menu: &mut SonyakMenu, field: CharacterField, delta: f32) -> bool {
-	let body = &mut menu.body.value.sliders;
-	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
+macro_rules! apply_eye_ear_body_menu_slider {
+	($name:ident, $menu:ty) => {
+		fn $name(menu: &mut $menu, field: CharacterField, delta: f32) -> bool {
+			let body = &mut menu.body.value.sliders;
+			let face = &mut menu.head_features.value.feature_sliders;
+			apply_body_proportion_slider!(body, field, delta)
+				|| apply_eye_slider!(face, field, delta)
+				|| apply_ear_slider!(face, field, delta)
 		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	};
 }
+
+apply_eye_ear_body_menu_slider!(apply_brenal_slider, BrenalMenu);
+apply_eye_ear_body_menu_slider!(apply_caole_slider, CaoleMenu);
+apply_eye_ear_body_menu_slider!(apply_epiphant_slider, EpiphantMenu);
+apply_eye_ear_body_menu_slider!(apply_hars_slider, HarsMenu);
+apply_eye_ear_body_menu_slider!(apply_ylter_slider, YilterMenu);
+apply_eye_ear_body_menu_slider!(apply_sonyak_slider, SonyakMenu);
 
 fn apply_croconot_slider(menu: &mut CroconotMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		CharacterField::SnoutLength => face.snout_length = face.snout_length.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_ear_slider!(face, field, delta)
+		|| apply_snout_slider!(face, field, delta)
 }
 
 fn apply_claber_slider(menu: &mut ClaberMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		CharacterField::SnoutLength => face.snout_length = face.snout_length.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_ear_slider!(face, field, delta)
+		|| apply_snout_slider!(face, field, delta)
 }
 
 fn apply_braidman_slider(menu: &mut BraidmanMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::NoseWidth => face.nose_width = face.nose_width.apply_delta(delta),
-		CharacterField::NoseHeight => face.nose_height = face.nose_height.apply_delta(delta),
-		CharacterField::MouthWidth => face.mouth_width = face.mouth_width.apply_delta(delta),
-		CharacterField::MouthHeight => face.mouth_height = face.mouth_height.apply_delta(delta),
-		CharacterField::EarWidth => face.ear_width = face.ear_width.apply_delta(delta),
-		CharacterField::EarHeight => face.ear_height = face.ear_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_ear_slider!(face, field, delta)
+		|| apply_nose_mouth_slider!(face, field, delta)
 }
 
 fn apply_tuberwaber_slider(menu: &mut TuberwaberMenu, field: CharacterField, delta: f32) -> bool {
 	let body = &mut menu.body.value.sliders;
 	let face = &mut menu.head_features.value.feature_sliders;
-	match field {
-		CharacterField::ShoulderWidth => {
-			body.shoulder_width = body.shoulder_width.apply_delta(delta)
-		}
-		CharacterField::HipWidth => body.hip_width = body.hip_width.apply_delta(delta),
-		CharacterField::ChestThickness => {
-			body.chest_thickness = body.chest_thickness.apply_delta(delta)
-		}
-		CharacterField::HipThickness => body.hip_thickness = body.hip_thickness.apply_delta(delta),
-		CharacterField::LegThickness => body.leg_thickness = body.leg_thickness.apply_delta(delta),
-		CharacterField::ButtocksThickness => {
-			body.buttocks_thickness = body.buttocks_thickness.apply_delta(delta)
-		}
-		CharacterField::WaistThickness => {
-			body.waist_thickness = body.waist_thickness.apply_delta(delta)
-		}
-		CharacterField::LowerTrunkThickness => {
-			body.lower_trunk_thickness = body.lower_trunk_thickness.apply_delta(delta)
-		}
-		CharacterField::ArmLength => body.arm_length = body.arm_length.apply_delta(delta),
-		CharacterField::ArmThickness => body.arm_thickness = body.arm_thickness.apply_delta(delta),
-		CharacterField::LegLength => body.leg_length = body.leg_length.apply_delta(delta),
-		CharacterField::EyeWidth => face.eye_width = face.eye_width.apply_delta(delta),
-		CharacterField::EyeHeight => face.eye_height = face.eye_height.apply_delta(delta),
-		CharacterField::EyeTilt => face.eye_tilt = face.eye_tilt.apply_delta(delta),
-		CharacterField::NoseWidth => face.nose_width = face.nose_width.apply_delta(delta),
-		CharacterField::NoseHeight => face.nose_height = face.nose_height.apply_delta(delta),
-		CharacterField::MouthWidth => face.mouth_width = face.mouth_width.apply_delta(delta),
-		CharacterField::MouthHeight => face.mouth_height = face.mouth_height.apply_delta(delta),
-		_ => return false,
-	}
-	true
+	apply_body_proportion_slider!(body, field, delta)
+		|| apply_eye_slider!(face, field, delta)
+		|| apply_nose_mouth_slider!(face, field, delta)
 }
 
 impl Default for CharacterMenu {
