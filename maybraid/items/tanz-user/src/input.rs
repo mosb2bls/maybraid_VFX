@@ -9,6 +9,8 @@ use std::collections::VecDeque;
 use bevy::prelude::*;
 use maybraid_input::{PadButton, VirtualPad};
 
+use crate::ControlMode;
+
 /// Observation window used for mean / coherence integrals.
 pub const TANZ_WINDOW_SECS: f32 = 0.250;
 /// Minimum time a qualifying direction must be held before it commits.
@@ -17,7 +19,7 @@ pub const TANZ_MIN_MAGNITUDE: f32 = 0.55;
 pub const TANZ_MIN_COHERENCE: f32 = 0.80;
 pub const TANZ_REARM: f32 = 0.25;
 pub const TANZ_B_HOLD_SECS: f32 = 0.300;
-pub const TANZ_TOGGLE_SECS: f32 = 0.300;
+pub const TANZ_TOGGLE_SECS: f32 = 1.0;
 pub const TANZ_DIR_CHANGE: f32 = std::f32::consts::FRAC_PI_4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -214,30 +216,101 @@ impl TanzRecognizer {
 	}
 }
 
+/// Resting fill for the mode bar: Laufer (Standard) = 0, Tanzer = 1.
+#[inline]
+pub fn mode_charge_rest(mode: ControlMode) -> f32 {
+	match mode {
+		ControlMode::Standard => 0.0,
+		ControlMode::Tanzer => 1.0,
+	}
+}
+
+/// Fill target while LB+RB is held before the latch fires.
+#[inline]
+pub fn mode_charge_hold_target(mode: ControlMode) -> f32 {
+	match mode {
+		ControlMode::Standard => 1.0,
+		ControlMode::Tanzer => 0.0,
+	}
+}
+
+/// Advance [`ModeToggle::progress`] toward `target` by at most `rate` (0..1 units).
+#[inline]
+pub fn mode_charge_step_toward(progress: f32, target: f32, rate: f32) -> f32 {
+	if progress < target {
+		(progress + rate).min(target)
+	} else if progress > target {
+		(progress - rate).max(target)
+	} else {
+		progress
+	}
+}
+
+/// Pure LB+RB charge step. Returns `true` on the frame the mode should flip.
+pub fn advance_mode_charge(
+	progress: f32,
+	fired: bool,
+	dt: f32,
+	chord: bool,
+	charge_secs: f32,
+	mode: ControlMode,
+) -> (f32, bool, bool) {
+	let dt = dt.max(0.0);
+	let rate = if charge_secs > 0.0 { dt / charge_secs } else { 1.0 };
+	let rest = mode_charge_rest(mode);
+	let hold = mode_charge_hold_target(mode);
+	let mut fired = if chord { fired } else { false };
+	if chord && fired {
+		return (rest, true, false);
+	}
+	let target = if chord { hold } else { rest };
+	let mut progress = mode_charge_step_toward(progress, target, rate);
+	let toggled = if chord && charge_threshold_met(progress, hold, rest) {
+		progress = hold;
+		fired = true;
+		true
+	} else {
+		false
+	};
+	(progress, fired, toggled)
+}
+
+#[inline]
+fn charge_threshold_met(progress: f32, hold: f32, rest: f32) -> bool {
+	const EPS: f32 = 1e-5;
+	if hold > rest {
+		progress + EPS >= hold
+	} else {
+		progress <= hold + EPS
+	}
+}
+
 /// Latch for the LB+RB mode chord: one toggle per hold, then both must release.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ModeToggle {
-	pub held_secs: f32,
+	/// 0 = Laufer rest, 1 = Tanzer rest. Moves while charging or cancelling.
+	pub progress: f32,
 	pub fired: bool,
 }
 
+impl Default for ModeToggle {
+	fn default() -> Self {
+		Self { progress: 0.0, fired: false }
+	}
+}
+
 impl ModeToggle {
-	pub fn reset(&mut self) {
-		self.held_secs = 0.0;
+	pub fn reset_for_mode(&mut self, mode: ControlMode) {
+		self.progress = mode_charge_rest(mode);
 		self.fired = false;
 	}
 
-	pub fn sample(&mut self, dt: f32, chord: bool, threshold: f32) -> bool {
-		if !chord {
-			self.reset();
-			return false;
-		}
-		self.held_secs += dt.max(0.0);
-		if !self.fired && self.held_secs >= threshold {
-			self.fired = true;
-			return true;
-		}
-		false
+	pub fn sample(&mut self, dt: f32, chord: bool, charge_secs: f32, mode: ControlMode) -> bool {
+		let (progress, fired, toggled) =
+			advance_mode_charge(self.progress, self.fired, dt, chord, charge_secs, mode);
+		self.progress = progress;
+		self.fired = fired;
+		toggled
 	}
 }
 
@@ -467,12 +540,113 @@ mod tests {
 
 	#[test]
 	fn mode_toggle_fires_once_until_release() -> anyhow::Result<()> {
+		let dt = 1.0 / 60.0;
 		let mut toggle = ModeToggle::default();
-		assert!(!toggle.sample(0.16, true, TANZ_TOGGLE_SECS));
-		assert!(toggle.sample(0.16, true, TANZ_TOGGLE_SECS));
-		assert!(!toggle.sample(0.16, true, TANZ_TOGGLE_SECS));
-		assert!(!toggle.sample(0.16, false, TANZ_TOGGLE_SECS));
-		assert!(toggle.sample(0.32, true, TANZ_TOGGLE_SECS));
+		for _ in 0..59 {
+			assert!(!toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		}
+		assert!(toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		assert!(!toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		assert!(!toggle.sample(dt, false, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		toggle.reset_for_mode(ControlMode::Tanzer);
+		for _ in 0..59 {
+			assert!(!toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Tanzer));
+		}
+		assert!(toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Tanzer));
+		Ok(())
+	}
+
+	#[test]
+	fn mode_charge_reaches_tanzer_in_sixty_steps_at_sixty_hz() -> anyhow::Result<()> {
+		let dt = 1.0 / 60.0;
+		let mut progress = 0.0;
+		let mut fired = false;
+		let mut toggled = false;
+		for step in 0..60 {
+			let (next, next_fired, flip) = advance_mode_charge(
+				progress,
+				fired,
+				dt,
+				true,
+				TANZ_TOGGLE_SECS,
+				ControlMode::Standard,
+			);
+			progress = next;
+			fired = next_fired;
+			if flip {
+				toggled = true;
+				assert_eq!(step, 59);
+			}
+		}
+		assert!(toggled);
+		assert_eq!(progress, 1.0);
+		Ok(())
+	}
+
+	#[test]
+	fn mode_charge_returns_to_laufer_from_tanzer() -> anyhow::Result<()> {
+		let dt = 1.0 / 60.0;
+		let mut progress = 1.0;
+		let mut fired = false;
+		let mut toggled = false;
+		for step in 0..60 {
+			let (next, next_fired, flip) = advance_mode_charge(
+				progress,
+				fired,
+				dt,
+				true,
+				TANZ_TOGGLE_SECS,
+				ControlMode::Tanzer,
+			);
+			progress = next;
+			fired = next_fired;
+			if flip {
+				toggled = true;
+				assert_eq!(step, 59);
+			}
+		}
+		assert!(toggled);
+		assert_eq!(progress, 0.0);
+		Ok(())
+	}
+
+	#[test]
+	fn early_release_drains_charge_back_to_laufer_rest() -> anyhow::Result<()> {
+		let dt = 1.0 / 60.0;
+		let mut toggle = ModeToggle::default();
+		for _ in 0..30 {
+			assert!(!toggle.sample(dt, true, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		}
+		assert!(toggle.progress > 0.4 && toggle.progress < 0.6);
+		for _ in 0..60 {
+			assert!(!toggle.sample(dt, false, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		}
+		assert_eq!(toggle.progress, 0.0);
+		Ok(())
+	}
+
+	#[test]
+	fn mode_charge_is_frame_rate_independent() -> anyhow::Result<()> {
+		let mut slow = ModeToggle::default();
+		let mut fast = ModeToggle::default();
+		let mut slow_flips = 0;
+		let mut fast_flips = 0;
+		let mut t = 0.0;
+		while t < 1.05 {
+			if slow.sample(1.0 / 30.0, true, TANZ_TOGGLE_SECS, ControlMode::Standard) {
+				slow_flips += 1;
+			}
+			t += 1.0 / 30.0;
+		}
+		t = 0.0;
+		while t < 1.05 {
+			if fast.sample(1.0 / 120.0, true, TANZ_TOGGLE_SECS, ControlMode::Standard) {
+				fast_flips += 1;
+			}
+			t += 1.0 / 120.0;
+		}
+		assert_eq!(slow_flips, 1);
+		assert_eq!(fast_flips, 1);
 		Ok(())
 	}
 }

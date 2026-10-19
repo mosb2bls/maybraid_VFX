@@ -11405,6 +11405,7 @@ dependencies = [
  "maybraid-character-controller",
  "maybraid-input",
  "maybraid-skill-map",
+ "menu-components",
  "player",
  "screen-capture",
 ]

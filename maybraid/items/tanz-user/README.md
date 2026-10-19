@@ -1,6 +1,12 @@
 # Tanz user
 
-Tanzer control mode, starter Tanz definitions, and the STANDARD / TANZER HUD.
+Tanzer control mode, starter Tanz definitions, and the Laufer / Tanzer charge HUD.
+
+Hold LB+RB for one second to switch between **Laufer** (ordinary locomotion) and
+**Tanzer**. A corner plate shows the active mode and a Maybraid-style charge bar
+(0 = Laufer, 1 = Tanzer). Releasing the chord before the bar completes drains or
+fills back to the current mode's rest at the same rate. Both bumpers must
+release before another toggle.
 
 When a Tanz is executed, a top-center callout shows that Tanz's generated
 silhouette and display name, then fades over 1.25s. A newer trigger replaces

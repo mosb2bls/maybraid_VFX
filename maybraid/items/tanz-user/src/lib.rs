@@ -11,6 +11,7 @@ mod stack;
 
 use bevy::prelude::*;
 use characters::CharacterMotionSystems;
+use menu_components::sync_loading_bar_fill;
 use damage::Downed;
 use maybraid_character_controller::{CharacterControlSystems, OrdinaryLocomotionEnabled};
 use maybraid_input::VirtualPad;
@@ -28,6 +29,7 @@ pub use execute::{
 	ActiveTanz, BufferedTanz, TanzExecution, TanzPhase,
 };
 pub use input::{
+	advance_mode_charge, mode_charge_hold_target, mode_charge_rest, mode_charge_step_toward,
 	CommittedGesture, ModeToggle, TanzButton, TanzInput, TanzRecognizer, TanzRecognizerConfig,
 	TANZ_B_HOLD_SECS, TANZ_TOGGLE_SECS,
 };
@@ -67,6 +69,14 @@ impl ControlMode {
 			_ => None,
 		}
 	}
+
+	/// User-facing mode label (`Laufer` / `Tanzer`).
+	pub fn mode_label(self) -> &'static str {
+		match self {
+			Self::Standard => "Laufer",
+			Self::Tanzer => "Tanzer",
+		}
+	}
 }
 
 /// Per-character Tanz ownership. Mode, settings, and the temporal recognizer
@@ -93,7 +103,7 @@ impl Default for TanzUser {
 impl TanzUser {
 	pub fn reset_input(&mut self) {
 		self.recognizer.reset();
-		self.toggle.reset();
+		self.toggle.reset_for_mode(self.mode);
 	}
 
 	/// Hold both bumpers long enough to flip modes. Clears recognizer, execution,
@@ -105,11 +115,12 @@ impl TanzUser {
 		execution: &mut TanzExecution,
 		wish: &mut MoveWish,
 	) -> bool {
-		if !self.toggle.sample(dt, chord, self.settings.toggle_secs) {
+		if !self.toggle.sample(dt, chord, self.settings.toggle_secs, self.mode) {
 			return false;
 		}
 		self.mode = self.mode.toggle();
 		self.recognizer.reset();
+		self.toggle.reset_for_mode(self.mode);
 		execution.clear();
 		wish.0 = Vec3::ZERO;
 		info!("tanz control mode -> {:?}", self.mode);
@@ -128,7 +139,7 @@ impl TanzUser {
 		}
 		self.mode = mode;
 		self.recognizer.reset();
-		self.toggle.reset();
+		self.toggle.reset_for_mode(self.mode);
 		execution.clear();
 		wish.0 = Vec3::ZERO;
 		info!("tanz control mode -> {:?}", self.mode);
@@ -219,6 +230,7 @@ impl Plugin for TanzUserPlugin {
 			.add_systems(Update, drive_tanz_animation.in_set(TanzUserSystems::Animate))
 			.init_resource::<TanzCallout>()
 			.add_systems(Startup, (hud::spawn_tanz_mode_hud, hud::spawn_tanz_callout_hud))
+			.add_systems(Update, sync_loading_bar_fill)
 			.add_systems(Update, hud::sync_tanz_mode_hud.after(TanzUserSystems::Toggle))
 			.add_systems(
 				Update,
@@ -359,16 +371,22 @@ mod tests {
 
 	#[test]
 	fn bumper_chord_toggles_once_per_hold() -> anyhow::Result<()> {
+		let dt = 1.0 / 60.0;
 		let mut user = TanzUser::default();
 		let mut execution = TanzExecution::default();
 		let mut wish = MoveWish::default();
-		assert!(!user.apply_toggle(0.16, true, &mut execution, &mut wish));
+		for _ in 0..59 {
+			assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
+		}
 		assert_eq!(user.mode, ControlMode::Standard);
-		assert!(user.apply_toggle(0.16, true, &mut execution, &mut wish));
+		assert!(user.apply_toggle(dt, true, &mut execution, &mut wish));
 		assert_eq!(user.mode, ControlMode::Tanzer);
-		assert!(!user.apply_toggle(0.16, true, &mut execution, &mut wish));
-		assert!(!user.apply_toggle(0.16, false, &mut execution, &mut wish));
-		assert!(user.apply_toggle(0.32, true, &mut execution, &mut wish));
+		assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
+		assert!(!user.apply_toggle(dt, false, &mut execution, &mut wish));
+		for _ in 0..59 {
+			assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
+		}
+		assert!(user.apply_toggle(dt, true, &mut execution, &mut wish));
 		assert_eq!(user.mode, ControlMode::Standard);
 		Ok(())
 	}
@@ -376,10 +394,15 @@ mod tests {
 	#[test]
 	fn mode_change_clears_execution_and_wishes() -> anyhow::Result<()> {
 		let mut user = TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() };
+		user.toggle.reset_for_mode(ControlMode::Tanzer);
 		let mut execution = TanzExecution::default();
 		execution.begin(TanzId::LeftStrafe, Vec2::NEG_X, 0.0);
 		let mut wish = MoveWish(Vec3::X);
-		assert!(user.apply_toggle(0.32, true, &mut execution, &mut wish));
+		let dt = 1.0 / 60.0;
+		for _ in 0..59 {
+			assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
+		}
+		assert!(user.apply_toggle(dt, true, &mut execution, &mut wish));
 		assert_eq!(user.mode, ControlMode::Standard);
 		assert!(execution.active.is_none());
 		assert_eq!(wish.0, Vec3::ZERO);

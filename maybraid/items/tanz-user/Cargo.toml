@@ -16,6 +16,7 @@ damage = { workspace = true }
 item-icons = { workspace = true }
 maybraid-character-controller = { workspace = true }
 maybraid-input = { workspace = true }
+menu-components = { workspace = true }
 maybraid-skill-map = { workspace = true }
 player = { workspace = true }
 screen-capture = { workspace = true }

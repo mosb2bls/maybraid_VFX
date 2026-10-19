@@ -1,7 +1,8 @@
-//! Minimal Standard / Tanzer mode indicator and Tanz trigger callout.
+//! Laufer / Tanzer mode plate: label plus Maybraid loading-track charge bar.
 
 use bevy::prelude::*;
 use item_icons::ItemIconCache;
+use menu_components::{LoadingBarFill, TEXT_YELLOW, TEXT_YELLOW_FAINT};
 use screen_capture::CaptureSubject;
 
 use crate::callout::TanzCallout;
@@ -10,12 +11,18 @@ use crate::{ControlMode, TanzUser};
 const PANEL: Color = Color::srgba(0.05, 0.05, 0.08, 0.55);
 const INK: Color = Color::srgb(0.92, 0.9, 0.82);
 const ICON_PX: f32 = 40.0;
+/// Same proportions as the loading screen track, scaled for the corner HUD.
+const MODE_BAR_WIDTH: f32 = 168.0;
+const MODE_BAR_HEIGHT: f32 = 4.0;
 
 #[derive(Component)]
 pub struct TanzModeHud;
 
 #[derive(Component)]
 pub struct TanzModeHudLabel;
+
+#[derive(Component)]
+pub struct TanzModeHudBarFill;
 
 #[derive(Component)]
 pub struct TanzCalloutHud;
@@ -38,7 +45,9 @@ pub fn spawn_tanz_mode_hud(mut commands: Commands) {
 				position_type: PositionType::Absolute,
 				top: Val::Px(18.0),
 				right: Val::Px(18.0),
-				padding: UiRect::axes(Val::Px(10.0), Val::Px(6.0)),
+				flex_direction: FlexDirection::Column,
+				row_gap: Val::Px(6.0),
+				padding: UiRect::axes(Val::Px(10.0), Val::Px(8.0)),
 				..default()
 			},
 			BackgroundColor(PANEL),
@@ -49,11 +58,36 @@ pub fn spawn_tanz_mode_hud(mut commands: Commands) {
 		.with_children(|parent| {
 			parent.spawn((
 				TanzModeHudLabel,
-				Text::new("STANDARD"),
+				Text::new(ControlMode::Standard.mode_label()),
 				TextFont { font_size: FontSize::Px(14.0), ..default() },
 				TextColor(INK),
 				Pickable::IGNORE,
 			));
+			parent
+				.spawn((
+					Node {
+						width: Val::Px(MODE_BAR_WIDTH),
+						height: Val::Px(MODE_BAR_HEIGHT),
+						flex_shrink: 0.0,
+						overflow: Overflow::clip(),
+						..default()
+					},
+					BackgroundColor(TEXT_YELLOW_FAINT),
+					Pickable::IGNORE,
+				))
+				.with_children(|track| {
+					track.spawn((
+						TanzModeHudBarFill,
+						LoadingBarFill::new(0.0),
+						Node {
+							width: Val::Percent(0.0),
+							height: Val::Percent(100.0),
+							..default()
+						},
+						BackgroundColor(TEXT_YELLOW),
+						Pickable::IGNORE,
+					));
+				});
 		});
 }
 
@@ -118,22 +152,23 @@ pub fn sync_tanz_mode_hud(
 	users: Query<&TanzUser>,
 	mut roots: Query<&mut Visibility, With<TanzModeHud>>,
 	mut labels: Query<&mut Text, With<TanzModeHudLabel>>,
+	mut fills: Query<&mut LoadingBarFill, With<TanzModeHudBarFill>>,
 ) {
-	let mode = users.iter().next().map(|user| user.mode);
+	let user = users.iter().next();
 	for mut visibility in &mut roots {
-		*visibility = if mode.is_some() { Visibility::Visible } else { Visibility::Hidden };
+		*visibility = if user.is_some() { Visibility::Visible } else { Visibility::Hidden };
 	}
-	let Some(mode) = mode else {
+	let Some(user) = user else {
 		return;
 	};
-	let label = match mode {
-		ControlMode::Standard => "STANDARD",
-		ControlMode::Tanzer => "TANZER",
-	};
+	let label = user.mode.mode_label();
 	for mut text in &mut labels {
 		if text.0 != label {
 			text.0 = String::from(label);
 		}
+	}
+	for mut fill in &mut fills {
+		fill.progress = user.toggle.progress;
 	}
 }
 
