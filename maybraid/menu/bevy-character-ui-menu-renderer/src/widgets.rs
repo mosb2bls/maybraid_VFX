@@ -46,36 +46,37 @@ pub fn render_button<E: Copy + Send + Sync + 'static>(
 pub fn render_asset_button<E: Copy + Send + Sync + 'static>(
 	parent: &mut ChildSpawnerCommands,
 	label: &str,
-	event: E,
+	event: Option<E>,
 	active: bool,
 	thumbnail: Option<Handle<Image>>,
 ) {
-	parent
-		.spawn((
-			Button,
-			Node {
-				min_width: Val::Px(72.0),
-				min_height: Val::Px(54.0),
-				padding: UiRect::axes(Val::Px(5.0), Val::Px(6.0)),
-				flex_direction: FlexDirection::Column,
-				justify_content: JustifyContent::Center,
-				align_items: AlignItems::Center,
-				row_gap: Val::Px(MENU_VERTICAL_GAP),
-				..default()
-			},
-			BackgroundColor(if active { ACTIVE } else { INACTIVE }),
-			MenuButton(event),
-		))
-		.with_children(|button| {
-			if let Some(thumbnail) = thumbnail {
-				button.spawn((
-					ImageNode::new(thumbnail),
-					Node { width: Val::Px(54.0), height: Val::Px(54.0), ..default() },
-					Pickable::IGNORE,
-				));
-			}
-			text(button, label, 9.0, Color::WHITE);
-		});
+	let mut tile = parent.spawn((
+		Button,
+		Node {
+			min_width: Val::Px(72.0),
+			min_height: Val::Px(54.0),
+			padding: UiRect::axes(Val::Px(5.0), Val::Px(6.0)),
+			flex_direction: FlexDirection::Column,
+			justify_content: JustifyContent::Center,
+			align_items: AlignItems::Center,
+			row_gap: Val::Px(MENU_VERTICAL_GAP),
+			..default()
+		},
+		BackgroundColor(if active { ACTIVE } else { INACTIVE }),
+	));
+	if let Some(event) = event {
+		tile.insert(MenuButton(event));
+	}
+	tile.with_children(|button| {
+		if let Some(thumbnail) = thumbnail {
+			button.spawn((
+				ImageNode::new(thumbnail),
+				Node { width: Val::Px(54.0), height: Val::Px(54.0), ..default() },
+				Pickable::IGNORE,
+			));
+		}
+		text(button, label, 9.0, Color::WHITE);
+	});
 }
 
 pub fn text(parent: &mut ChildSpawnerCommands, value: &str, size: f32, color: Color) {

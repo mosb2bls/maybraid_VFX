@@ -29,15 +29,7 @@ pub(crate) fn fulfill_scene_ref_roots(
 		return;
 	}
 	let mut scan = FulfillInspectScan::new(*cursor, budget.inspect_per_frame);
-	for (entity, root) in &query {
-		match scan.visit() {
-			InspectVisit::Skip => continue,
-			InspectVisit::Stop => break,
-			InspectVisit::Probe => {}
-		}
-		if remaining == 0 {
-			break;
-		}
+	let mut admit = |(entity, root): (Entity, &SceneRefRoot)| {
 		if let Some(handle) = handles.try_resolve(
 			&root.0,
 			&asset_server,
@@ -47,30 +39,14 @@ pub(crate) fn fulfill_scene_ref_roots(
 		) {
 			// Restamp / LOD teardown can retire the root before apply.
 			commands.entity(entity).try_insert(WorldAssetRoot(handle));
-			remaining -= 1;
+			true
+		} else {
+			false
 		}
-	}
+	};
+	scan.run_primary_pass(&query, &mut remaining, &mut admit);
 	if scan.should_wrap() {
-		for (entity, root) in &query {
-			match scan.visit_wrap() {
-				InspectVisit::Skip => continue,
-				InspectVisit::Stop => break,
-				InspectVisit::Probe => {}
-			}
-			if remaining == 0 {
-				break;
-			}
-			if let Some(handle) = handles.try_resolve(
-				&root.0,
-				&asset_server,
-				&mut world_assets,
-				&mut meshes,
-				&type_registry,
-			) {
-				commands.entity(entity).try_insert(WorldAssetRoot(handle));
-				remaining -= 1;
-			}
-		}
+		scan.run_wrap_pass(&query, &mut remaining, &mut admit);
 	}
 	*cursor = scan.next_cursor();
 }
@@ -94,15 +70,7 @@ pub(crate) fn fulfill_multi_scene_merge_roots(
 		return;
 	}
 	let mut scan = FulfillInspectScan::new(*cursor, budget.inspect_per_frame);
-	for (entity, root) in &query {
-		match scan.visit() {
-			InspectVisit::Skip => continue,
-			InspectVisit::Stop => break,
-			InspectVisit::Probe => {}
-		}
-		if remaining == 0 {
-			break;
-		}
+	let mut admit = |(entity, root): (Entity, &MultiSceneMergeRoot)| {
 		if let Some(handle) = merge_handles.try_resolve(
 			&root.0,
 			&mut scene_handles,
@@ -114,33 +82,14 @@ pub(crate) fn fulfill_multi_scene_merge_roots(
 			&mut miss_budget,
 		) {
 			commands.entity(entity).try_insert(WorldAssetRoot(handle));
-			remaining -= 1;
+			true
+		} else {
+			false
 		}
-	}
+	};
+	scan.run_primary_pass(&query, &mut remaining, &mut admit);
 	if scan.should_wrap() {
-		for (entity, root) in &query {
-			match scan.visit_wrap() {
-				InspectVisit::Skip => continue,
-				InspectVisit::Stop => break,
-				InspectVisit::Probe => {}
-			}
-			if remaining == 0 {
-				break;
-			}
-			if let Some(handle) = merge_handles.try_resolve(
-				&root.0,
-				&mut scene_handles,
-				&asset_server,
-				&mut world_assets,
-				&mut meshes,
-				&mut materials,
-				&type_registry,
-				&mut miss_budget,
-			) {
-				commands.entity(entity).try_insert(WorldAssetRoot(handle));
-				remaining -= 1;
-			}
-		}
+		scan.run_wrap_pass(&query, &mut remaining, &mut admit);
 	}
 	*cursor = scan.next_cursor();
 }
@@ -214,6 +163,50 @@ impl FulfillInspectScan {
 			self.next
 		}
 	}
+
+	/// Primary inspect pass: [`Self::visit`] over `items` in order.
+	fn run_primary_pass<'a, I, T, F>(&mut self, items: I, remaining: &mut u32, admit: &mut F)
+	where
+		I: IntoIterator<Item = T>,
+		I::IntoIter: 'a,
+		F: FnMut(T) -> bool,
+	{
+		for item in items {
+			match self.visit() {
+				InspectVisit::Skip => continue,
+				InspectVisit::Stop => break,
+				InspectVisit::Probe => {}
+			}
+			if *remaining == 0 {
+				break;
+			}
+			if admit(item) {
+				*remaining -= 1;
+			}
+		}
+	}
+
+	/// Wrap inspect pass: [`Self::visit_wrap`] over `items` from the start.
+	fn run_wrap_pass<'a, I, T, F>(&mut self, items: I, remaining: &mut u32, admit: &mut F)
+	where
+		I: IntoIterator<Item = T>,
+		I::IntoIter: 'a,
+		F: FnMut(T) -> bool,
+	{
+		for item in items {
+			match self.visit_wrap() {
+				InspectVisit::Skip => continue,
+				InspectVisit::Stop => break,
+				InspectVisit::Probe => {}
+			}
+			if *remaining == 0 {
+				break;
+			}
+			if admit(item) {
+				*remaining -= 1;
+			}
+		}
+	}
 }
 
 #[cfg(test)]
@@ -223,21 +216,16 @@ mod tests {
 	fn take(start: u32, len: u32, inspect: u32) -> (Vec<u32>, u32) {
 		let mut scan = FulfillInspectScan::new(start, inspect);
 		let mut visited = Vec::new();
-		for i in 0..len {
-			match scan.visit() {
-				InspectVisit::Skip => {}
-				InspectVisit::Probe => visited.push(i),
-				InspectVisit::Stop => break,
-			}
-		}
+		let mut remaining = u32::MAX;
+		scan.run_primary_pass(0..len, &mut remaining, &mut |i| {
+			visited.push(i);
+			false
+		});
 		if scan.should_wrap() {
-			for i in 0..len {
-				match scan.visit_wrap() {
-					InspectVisit::Skip => {}
-					InspectVisit::Probe => visited.push(i),
-					InspectVisit::Stop => break,
-				}
-			}
+			scan.run_wrap_pass(0..len, &mut remaining, &mut |i| {
+				visited.push(i);
+				false
+			});
 		}
 		(visited, scan.next_cursor())
 	}

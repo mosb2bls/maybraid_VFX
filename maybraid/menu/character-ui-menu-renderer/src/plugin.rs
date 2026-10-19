@@ -1,12 +1,14 @@
 use bevy::prelude::*;
-use menu_components::{restore_short_text_editing, MenuComponentsPlugin, TextMenuSystems};
+use menu_components::{
+	restore_short_text_editing, MenuComponentsPlugin, MenuModalSystems, TextMenuSystems,
+};
 use std::marker::PhantomData;
 
 use crate::event::CharacterMenuEvent;
 use crate::input::{
-	emit_hud_activate_on_click, emit_hud_activate_on_enter, emit_hud_activate_on_nav,
-	emit_hud_focus, emit_overlay_close_on_click, emit_overlay_close_on_escape,
-	emit_overlay_close_on_nav, emit_overlay_open_on_click,
+	close_overlay_on_modal_dismiss, emit_hud_activate_on_click, emit_hud_activate_on_enter,
+	emit_hud_activate_on_nav, emit_hud_focus, emit_overlay_close_on_click,
+	emit_overlay_open_on_click,
 };
 
 /// Keyboard / observer input, then host UI rebuild.
@@ -50,10 +52,10 @@ where
 		.add_observer(emit_hud_activate_on_nav::<E>)
 		.add_observer(emit_overlay_open_on_click)
 		.add_observer(emit_overlay_close_on_click)
-		.add_observer(emit_overlay_close_on_nav)
+		.add_systems(Update, close_overlay_on_modal_dismiss.in_set(MenuModalSystems::Apply))
 		.add_systems(
 			Update,
-			(emit_hud_focus::<E>, emit_hud_activate_on_enter::<E>, emit_overlay_close_on_escape)
+			(emit_hud_focus::<E>, emit_hud_activate_on_enter::<E>)
 				.in_set(CharacterHudSystems::Input),
 		)
 		.add_systems(Update, restore_short_text_editing.after(CharacterHudSystems::Sync));

@@ -18,15 +18,16 @@ use layer_stack::ActiveGenerationMode;
 use maybraid_game_mode_discover::{streams_terrain, Discovery};
 use maybraid_world::{
 	Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, TerrainStreaming,
-	WorldGameplayEnabled, WorldSceneryVisible, SKY_CLEAR,
+	WorldGameplayEnabled, WorldMenuShell, WorldSceneryVisible, SKY_CLEAR,
 };
 use menu_components::MENU_CLEAR;
 use menu_playground::{
-	CharacterEditorReturn, CharacterPreviewLight, CharacterPreviewRoot, CharacterScreen,
+	end_character_editor, CharacterEditorReturn, CharacterPreviewLight, CharacterPreviewRoot,
+	CharacterScreen,
 };
 use menu_screens::{
-	despawn_menu_screens, request_show_gallery, request_show_home, request_show_in_game,
-	request_show_loading, MenuScreen,
+	request_show_gallery, request_show_home, request_show_in_game, request_show_loading,
+	MenuScreens,
 };
 
 /// World camera pose stashed while the pause character editor uses the preview eye.
@@ -60,7 +61,7 @@ pub(crate) fn despawn_loading_backdrop(
 	cameras: Query<Entity, With<LoadingBackdropCamera>>,
 ) {
 	for entity in &cameras {
-		commands.entity(entity).despawn();
+		commands.entity(entity).try_despawn();
 	}
 }
 
@@ -72,30 +73,32 @@ pub(crate) fn enter_characters(mut commands: Commands) {
 	request_show_gallery(&mut commands);
 }
 
-pub(crate) fn enter_loading_world(
-	mut commands: Commands,
-	screens: Query<Entity, With<MenuScreen>>,
-) {
-	despawn_menu_screens(&mut commands, screens);
+pub(crate) fn enter_loading_world(mut commands: Commands, screens: MenuScreens) {
+	screens.clear(&mut commands);
 	request_show_loading(&mut commands);
 }
 
-pub(crate) fn enter_world(mut commands: Commands, screens: Query<Entity, With<MenuScreen>>) {
-	despawn_menu_screens(&mut commands, screens);
+pub(crate) fn enter_world(mut commands: Commands, screens: MenuScreens) {
+	screens.clear(&mut commands);
 }
 
 pub(crate) fn enter_world_menu(mut commands: Commands) {
 	request_show_in_game(&mut commands);
 }
 
+/// Leaving pause drops every pause screen and any show request still queued,
+/// so nothing from the pause stack spawns over live play.
 pub(crate) fn exit_world_menu(
 	mut commands: Commands,
 	mut inventory_follow: ResMut<InventoryEditCameraFollow>,
-	overlay: Query<Entity, With<MenuScreen>>,
+	screens: MenuScreens,
+	editing: Option<Res<CharacterEditorReturn>>,
 ) {
-	despawn_menu_screens(&mut commands, overlay);
+	screens.clear(&mut commands);
 	inventory_follow.0 = false;
-	commands.remove_resource::<menu_playground::CharacterEditorReturn>();
+	if editing.is_some() {
+		end_character_editor(&mut commands);
+	}
 }
 
 pub(crate) fn restore_stashed_world_camera(
@@ -211,6 +214,7 @@ pub(crate) fn apply_shell_look(
 	mut physics: ResMut<PlayerPhysicsEnabled>,
 	mut streaming: ResMut<TerrainStreaming<Durham>>,
 	mut scenery: ResMut<WorldSceneryVisible>,
+	mut menu_shell: ResMut<WorldMenuShell>,
 ) {
 	let flow = *flow.get();
 	let loading = flow == GameFlow::LoadingWorld;
@@ -237,6 +241,7 @@ pub(crate) fn apply_shell_look(
 	let playing = world_session_playing(flow, *session, pause.as_deref());
 	gameplay.0 = playing;
 	physics.0 = playing;
+	menu_shell.0 = matches!(flow, GameFlow::Home | GameFlow::Characters);
 }
 
 fn camera_render_layers(flow: GameFlow) -> RenderLayers {
@@ -283,7 +288,7 @@ pub(crate) fn stamp_preview_render_layers(
 	for root in preview_roots.iter().chain(preview_lights.iter()) {
 		for entity in std::iter::once(root).chain(children.iter_descendants(root)) {
 			if !layered.contains(entity) {
-				commands.entity(entity).insert(preview.clone());
+				commands.entity(entity).try_insert(preview.clone());
 			}
 		}
 	}
@@ -303,7 +308,8 @@ mod tests {
 	use layer_stack::ActiveGenerationMode;
 	use maybraid_game_mode_discover::Discovery;
 	use maybraid_world::{
-		Durham, PlayerPhysicsEnabled, TerrainStreaming, WorldGameplayEnabled, WorldSceneryVisible,
+		Durham, PlayerPhysicsEnabled, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
+		WorldSceneryVisible,
 	};
 	use menu_components::MENU_CLEAR;
 
@@ -351,6 +357,7 @@ mod tests {
 			world.insert_resource(PlayerPhysicsEnabled(false));
 			world.insert_resource(TerrainStreaming::<Durham>::new(false));
 			world.insert_resource(WorldSceneryVisible(false));
+			world.insert_resource(WorldMenuShell(false));
 			world
 				.run_system_once(apply_shell_look)
 				.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -375,6 +382,7 @@ mod tests {
 		world.insert_resource(PlayerPhysicsEnabled(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(false));
 		world.insert_resource(WorldSceneryVisible(false));
+		world.insert_resource(WorldMenuShell(false));
 		world
 			.run_system_once(apply_shell_look)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -420,6 +428,35 @@ mod tests {
 		let layers = world.get::<RenderLayers>(camera).ok_or_else(|| anyhow::anyhow!("layers"))?;
 		assert!(layers.intersects(&RenderLayers::layer(WORLD_RENDER_LAYER)));
 		assert!(!layers.intersects(&RenderLayers::layer(PREVIEW_RENDER_LAYER)));
+		Ok(())
+	}
+
+	#[test]
+	fn unpausing_drops_queued_pause_screens() -> anyhow::Result<()> {
+		use maybraid_world::InventoryEditCameraFollow;
+		use menu_playground::{CharacterEditorReturn, CharacterScreen};
+		use menu_screens::{request_show_in_game, MenuScreen, MenuShowRequest};
+
+		use super::exit_world_menu;
+
+		let mut world = World::new();
+		world.insert_resource(InventoryEditCameraFollow(true));
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.spawn((CharacterScreen, MenuScreen));
+		world
+			.run_system_once(|mut commands: Commands| request_show_in_game(&mut commands))
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(exit_world_menu)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+
+		anyhow::ensure!(world.query::<&MenuScreen>().iter(&world).count() == 0);
+		anyhow::ensure!(
+			world.query::<&MenuShowRequest>().iter(&world).count() == 0,
+			"a pause screen queued before unpause must not spawn over play"
+		);
+		anyhow::ensure!(!world.resource::<InventoryEditCameraFollow>().0);
 		Ok(())
 	}
 

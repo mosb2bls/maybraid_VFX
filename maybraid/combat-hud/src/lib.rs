@@ -25,7 +25,9 @@ use score::{ingest_combat_score, spawn_combat_score, sync_combat_score};
 use vitals::{spawn_player_vitals, sync_player_vitals, vitals_fonts};
 
 pub use continuous_health::{HealthFill, HealthTrail};
-pub use cycle_cue::CombatHudInventoryCycleCategory;
+pub use cycle_cue::{
+	idle_cycle_outline, CombatHudCyclePanel, CombatHudInventoryCycleCategory, CYCLE_ACTIVE_TEAL,
+};
 pub use lubikan_charge::LubikanChargeFlyTarget;
 pub use score::{CombatScore, LiveEnemies};
 pub use screen_pin::ScreenPin;
@@ -93,6 +95,9 @@ impl Plugin for CombatHudPlugin {
 		if !any {
 			return;
 		}
+		if self.player_vitals || self.lubikan_charge {
+			app.add_message::<lubikans::LubikanActivationFinished>();
+		}
 		app.insert_resource(CombatHudConfig(*self))
 			.init_resource::<CombatHudVisible>()
 			.init_resource::<CombatHudInventoryCycleCategory>();
@@ -106,7 +111,11 @@ impl Plugin for CombatHudPlugin {
 				.after(LubikanSystems::Award),
 		)
 		.add_systems(Startup, spawn_combat_hud)
-		.add_systems(Update, sync_combat_hud_root_visibility);
+		.add_systems(Update, sync_combat_hud_root_visibility)
+		.add_systems(
+			PostUpdate,
+			cycle_cue::sync_cycle_panel_highlight.in_set(CombatHudSystems::Health),
+		);
 
 		if self.player_vitals {
 			configure_health_content(app);
@@ -132,9 +141,7 @@ impl Plugin for CombatHudPlugin {
 
 /// Shared meter content for the persistent player health widget.
 fn configure_health_content(app: &mut App) {
-	app.init_resource::<ContinuousHealthConfig>()
-		.add_message::<lubikans::LubikanActivationFinished>()
-		.add_systems(
+	app.init_resource::<ContinuousHealthConfig>().add_systems(
 			PostUpdate,
 			(update_continuous_health_bar_content, trigger_completion_flash)
 				.chain()
@@ -861,6 +868,68 @@ mod tests {
 		);
 	}
 
+	#[test]
+	fn plugin_moves_the_teal_outline_with_dpad_category() -> anyhow::Result<()> {
+		use crate::cycle_cue::{idle_cycle_outline, CYCLE_ACTIVE_TEAL};
+
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins).add_message::<DamageApplied>().add_plugins(
+			CombatHudPlugin {
+				hit_markers: true,
+				directional_damage: false,
+				player_vitals: false,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
+				score: false,
+			},
+		);
+		for category in CombatHudInventoryCycleCategory::ALL {
+			app.world_mut().spawn((CombatHudCyclePanel(category), idle_cycle_outline()));
+		}
+		for expected in CombatHudInventoryCycleCategory::ALL {
+			app.world_mut().insert_resource(expected);
+			app.update();
+			let live: Vec<_> = app
+				.world_mut()
+				.query::<(&CombatHudCyclePanel, &Outline)>()
+				.iter(app.world())
+				.filter(|(_, outline)| outline.color == CYCLE_ACTIVE_TEAL)
+				.map(|(panel, _)| panel.0)
+				.collect();
+			assert_eq!(live, vec![expected]);
+		}
+		app.world_mut().insert_resource(CombatHudInventoryCycleCategory::Lubikans);
+		app.update();
+		let still: Vec<_> = app
+			.world_mut()
+			.query::<(&CombatHudCyclePanel, &Outline)>()
+			.iter(app.world())
+			.filter(|(_, outline)| outline.color == CYCLE_ACTIVE_TEAL)
+			.map(|(panel, _)| panel.0)
+			.collect();
+		assert_eq!(
+			still,
+			vec![CombatHudInventoryCycleCategory::Lubikans],
+			"Y cycling leaves the HUD category, so the teal outline stays"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn lubikan_charge_carries_the_cycle_panel_marker() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let world = app.world_mut();
+		let panel = world
+			.query_filtered::<&CombatHudCyclePanel, With<lubikan_charge::LubikanChargeRoot>>()
+			.iter(world)
+			.next()
+			.copied()
+			.ok_or_else(|| anyhow::anyhow!("lubikan cycle panel"))?;
+		assert_eq!(panel, CombatHudCyclePanel(CombatHudInventoryCycleCategory::Lubikans));
+		Ok(())
+	}
+
 	fn lubikan_app() -> App {
 		let mut app = App::new();
 		lubikans::fixtures::install_interface(&mut app);
@@ -917,6 +986,44 @@ mod tests {
 			.map(|ledger| ledger.equipped().charge().current());
 		assert_eq!(stored, Some(80.0));
 		assert!(world.query::<&Text>().iter(world).any(|text| text.0 == "80"));
+		Ok(())
+	}
+
+	#[test]
+	fn lubikan_charge_catches_up_after_hud_was_hidden() -> anyhow::Result<()> {
+		let mut app = lubikan_app();
+		app.update();
+		let owner = lubikans::fixtures::spawn_self_owner(app.world_mut());
+		app.world_mut().entity_mut(owner).insert((Player, Health::default()));
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			ledger.apply_to_equipped(12.0);
+		}
+		app.world_mut().insert_resource(CombatHudVisible(false));
+		app.update();
+		{
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow::anyhow!("ledger"))?;
+			ledger.apply_to_equipped(33.0);
+		}
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		app.update();
+		let world = app.world_mut();
+		assert_eq!(
+			world
+				.get::<lubikans::LubikanLedger>(owner)
+				.map(|ledger| ledger.equipped().charge().current()),
+			Some(45.0)
+		);
+		assert!(
+			world.query::<&Text>().iter(world).any(|text| text.0 == "45"),
+			"charge plate must reflect awards applied while the HUD was hidden"
+		);
 		Ok(())
 	}
 

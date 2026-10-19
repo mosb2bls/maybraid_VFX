@@ -177,7 +177,8 @@ pub struct GridCatalogChoice<E> {
 	/// 1-based slot rank when this item is queued (weapons). Clothing leaves
 	/// this `None` and uses the Maybraid son for selection.
 	pub rank: Option<u8>,
-	pub event: E,
+	/// Activate / drop action. `None` is a read-only catalog tile (Lubikan).
+	pub event: Option<E>,
 }
 
 /// Plus / minus / read-only tone for a loadout or catalog value.

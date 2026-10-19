@@ -5,8 +5,12 @@ use bevy::prelude::*;
 use character_inventory_user::InventoryUser;
 use character_items::{GrenadeStats, Inventory, InventoryItem};
 use characters::{CharacterHeading, CharacterRoot};
+use damage::Downed;
 use firearm_user::WeaponSwap;
-use grenades::{spawn_thrown_grenade, GrenadeEffect, GrenadeMaterial, GrenadeSounds};
+use grenades::{
+	spawn_thrown_grenade, DropLiveGrenade, GrenadeDetonated, GrenadeEffect, GrenadeMaterial,
+	GrenadeSounds,
+};
 use maybraid_audio::{Audio, AudioClip, Mixer};
 use maybraid_character_controller::CharacterIntent;
 use player::{look_forward, PlayerLook};
@@ -29,17 +33,35 @@ impl GrenadeUser {
 	}
 }
 
-/// Mutable throw / latch state. Kept off [`GrenadeUser`] because relationships are immutable.
+/// Mutable throw / latch / cook state. Kept off [`GrenadeUser`] because relationships are immutable.
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct GrenadeThrow {
 	pub phase: GrenadePhase,
 	/// True while use stays held after a throw so recharge cannot auto-fire.
 	pub use_latched: bool,
+	/// Remaining fuse while the pin is pulled ([`GrenadePhase::Cooking`] / [`GrenadePhase::Windup`]).
+	pub fuse: f32,
 }
 
 impl GrenadeThrow {
 	pub fn busy(&self) -> bool {
 		!matches!(self.phase, GrenadePhase::Ready)
+	}
+
+	pub fn cooking(&self) -> bool {
+		matches!(self.phase, GrenadePhase::Cooking { .. })
+	}
+
+	/// Follow-through blocks a swap. Cooking drops the live charge instead.
+	pub fn blocks_swap(&self) -> bool {
+		matches!(self.phase, GrenadePhase::Windup { .. } | GrenadePhase::Recovery { .. })
+	}
+
+	pub fn live_fuse(&self) -> Option<f32> {
+		match self.phase {
+			GrenadePhase::Cooking { .. } | GrenadePhase::Windup { .. } => Some(self.fuse),
+			GrenadePhase::Ready | GrenadePhase::Recovery { .. } => None,
+		}
 	}
 }
 
@@ -60,12 +82,23 @@ impl Default for GrenadeUserSettings {
 pub enum GrenadePhase {
 	#[default]
 	Ready,
+	/// Pin pulled, use still held. Fuse ticks; the arm holds a cocked pose.
+	Cooking {
+		age: f32,
+	},
+	/// Use released before [`GrenadeStats::release_at`]. Same throw window as a tap.
 	Windup {
 		age: f32,
 	},
 	Recovery {
 		age: f32,
 	},
+}
+
+/// Schedule point so death / loot teardown can run after a live drop.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GrenadeUserSystems {
+	Interrupt,
 }
 
 /// One-shot: play the throw jingle, then remove.
@@ -102,7 +135,15 @@ pub fn apply_throw_intents(
 		if !ready {
 			continue;
 		}
-		throw.phase = GrenadePhase::Windup { age: 0.0 };
+		let fuse = carriers
+			.get(entity)
+			.ok()
+			.and_then(|carrier| bags.get(carrier.bag).ok())
+			.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_stats))
+			.map(|stats| stats.fuse)
+			.unwrap_or_else(|| GrenadeStats::standard().fuse);
+		throw.phase = GrenadePhase::Cooking { age: 0.0 };
+		throw.fuse = fuse;
 		throw.use_latched = true;
 		commands.entity(entity).try_insert(ThrowJingleDue);
 	}
@@ -141,6 +182,7 @@ pub fn advance_throw(
 	mut commands: Commands,
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut materials: ResMut<Assets<GrenadeMaterial>>,
+	mut detonations: MessageWriter<GrenadeDetonated>,
 	looks: Query<&PlayerLook>,
 	velocities: Query<&LinearVelocity>,
 	headings: Query<(&CharacterHeading, &ChildOf), With<CharacterRoot>>,
@@ -158,12 +200,72 @@ pub fn advance_throw(
 			.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_stats));
 		match throw.phase {
 			GrenadePhase::Ready => {}
+			GrenadePhase::Cooking { age } => {
+				let Some(stats) = stats else {
+					reset_throw(&mut throw);
+					continue;
+				};
+				let next_age = age + dt;
+				let next_fuse = throw.fuse - dt;
+				if next_fuse <= 0.0 {
+					detonate_in_hand(
+						&mut detonations,
+						&carriers,
+						&mut bags,
+						&mut held,
+						user_entity,
+						user.held,
+						stats,
+					);
+					reset_throw(&mut throw);
+					continue;
+				}
+				throw.fuse = next_fuse;
+				if throw.use_latched {
+					throw.phase = GrenadePhase::Cooking { age: next_age };
+				} else if next_age >= stats.release_at {
+					release_grenade(
+						&mut commands,
+						&mut meshes,
+						&mut materials,
+						&looks,
+						&velocities,
+						&headings,
+						&carriers,
+						&mut bags,
+						&mut held,
+						user_entity,
+						user.held,
+						stats,
+						next_fuse,
+					);
+					throw.phase = GrenadePhase::Recovery { age: stats.release_at };
+					throw.fuse = 0.0;
+				} else {
+					throw.phase = GrenadePhase::Windup { age: next_age };
+				}
+			}
 			GrenadePhase::Windup { age } => {
 				let Some(stats) = stats else {
-					throw.phase = GrenadePhase::Ready;
+					reset_throw(&mut throw);
 					continue;
 				};
 				let next = age + dt;
+				let next_fuse = throw.fuse - dt;
+				if next_fuse <= 0.0 {
+					detonate_in_hand(
+						&mut detonations,
+						&carriers,
+						&mut bags,
+						&mut held,
+						user_entity,
+						user.held,
+						stats,
+					);
+					reset_throw(&mut throw);
+					continue;
+				}
+				throw.fuse = next_fuse;
 				if age < stats.release_at && next >= stats.release_at {
 					release_grenade(
 						&mut commands,
@@ -178,12 +280,14 @@ pub fn advance_throw(
 						user_entity,
 						user.held,
 						stats,
+						next_fuse,
 					);
 				}
 				if next >= stats.throw_secs {
-					throw.phase = GrenadePhase::Ready;
+					reset_throw(&mut throw);
 				} else if next >= stats.release_at {
 					throw.phase = GrenadePhase::Recovery { age: next };
+					throw.fuse = 0.0;
 				} else {
 					throw.phase = GrenadePhase::Windup { age: next };
 				}
@@ -194,12 +298,65 @@ pub fn advance_throw(
 					.unwrap_or(GrenadeStats::standard().throw_secs);
 				let next = age + dt;
 				if next >= throw_secs {
-					throw.phase = GrenadePhase::Ready;
+					reset_throw(&mut throw);
 				} else {
 					throw.phase = GrenadePhase::Recovery { age: next };
 				}
 			}
 		}
+	}
+}
+
+/// Drop a pin-pulled charge when the holder dies or starts a swap.
+pub fn interrupt_live_cooks(
+	mut drops: MessageWriter<DropLiveGrenade>,
+	velocities: Query<&LinearVelocity>,
+	carriers: Query<&InventoryUser>,
+	mut bags: Query<&mut Inventory>,
+	held: Query<&Transform, With<HeldGrenade>>,
+	mut users: Query<
+		(Entity, &GrenadeUser, &mut GrenadeThrow, Option<&Transform>, Option<&GlobalTransform>),
+		Or<(With<Downed>, With<WeaponSwap>)>,
+	>,
+) {
+	for (user_entity, user, mut throw, local, global) in &mut users {
+		let Some(fuse) = throw.live_fuse().filter(|fuse| *fuse > 0.0) else {
+			continue;
+		};
+		let Some(stats) = carriers
+			.get(user_entity)
+			.ok()
+			.and_then(|carrier| bags.get(carrier.bag).ok())
+			.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_stats))
+		else {
+			reset_throw(&mut throw);
+			continue;
+		};
+		let spec = carriers
+			.get(user_entity)
+			.ok()
+			.and_then(|carrier| bags.get(carrier.bag).ok())
+			.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_spec))
+			.unwrap_or_default();
+		let origin = held
+			.get(user.held)
+			.ok()
+			.map(|pose| pose.translation)
+			.or_else(|| global.map(GlobalTransform::translation))
+			.or_else(|| local.map(|transform| transform.translation))
+			.unwrap_or(Vec3::ZERO);
+		let inherit = velocities.get(user_entity).map(|velocity| velocity.0).unwrap_or(Vec3::ZERO);
+		start_primary_recharge(&carriers, &mut bags, user_entity);
+		drops.write(DropLiveGrenade {
+			origin,
+			velocity: inherit * stats.inherit_velocity,
+			spec,
+			stats,
+			effect: GrenadeEffect::from_stats(&stats),
+			fuse,
+			source: user_entity,
+		});
+		reset_throw(&mut throw);
 	}
 }
 
@@ -216,6 +373,7 @@ fn release_grenade(
 	user_entity: Entity,
 	held_entity: Entity,
 	stats: GrenadeStats,
+	fuse_remaining: f32,
 ) {
 	let look = looks.get(user_entity).copied().unwrap_or_default();
 	let inherit = velocities.get(user_entity).map(|v| v.0).unwrap_or(Vec3::ZERO);
@@ -236,13 +394,7 @@ fn release_grenade(
 		.and_then(|carrier| bags.get(carrier.bag).ok())
 		.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_spec))
 		.unwrap_or_default();
-	if let Ok(carrier) = carriers.get(user_entity) {
-		if let Ok(mut bag) = bags.get_mut(carrier.bag) {
-			if let Some(InventoryItem::Grenade { recharge, stats, .. }) = bag.primary_weapon_mut() {
-				recharge.start(stats.recharge);
-			}
-		}
-	}
+	start_primary_recharge(carriers, bags, user_entity);
 	spawn_thrown_grenade(
 		commands,
 		meshes,
@@ -253,7 +405,50 @@ fn release_grenade(
 		stats,
 		GrenadeEffect::from_stats(&stats),
 		user_entity,
+		fuse_remaining,
 	);
+}
+
+fn detonate_in_hand(
+	detonations: &mut MessageWriter<GrenadeDetonated>,
+	carriers: &Query<&InventoryUser>,
+	bags: &mut Query<&mut Inventory>,
+	held: &mut Query<(&Transform, &mut Visibility), With<HeldGrenade>>,
+	user_entity: Entity,
+	held_entity: Entity,
+	stats: GrenadeStats,
+) {
+	let position = held.get(held_entity).map(|(pose, _)| pose.translation).unwrap_or(Vec3::ZERO);
+	if let Ok((_, mut visibility)) = held.get_mut(held_entity) {
+		*visibility = Visibility::Hidden;
+	}
+	start_primary_recharge(carriers, bags, user_entity);
+	detonations.write(GrenadeDetonated {
+		position,
+		source: user_entity,
+		effect: GrenadeEffect::from_stats(&stats),
+		radius: stats.blast_radius,
+		damage: stats.blast_damage,
+	});
+}
+
+fn start_primary_recharge(
+	carriers: &Query<&InventoryUser>,
+	bags: &mut Query<&mut Inventory>,
+	user_entity: Entity,
+) {
+	if let Ok(carrier) = carriers.get(user_entity) {
+		if let Ok(mut bag) = bags.get_mut(carrier.bag) {
+			if let Some(InventoryItem::Grenade { recharge, stats, .. }) = bag.primary_weapon_mut() {
+				recharge.start(stats.recharge);
+			}
+		}
+	}
+}
+
+fn reset_throw(throw: &mut GrenadeThrow) {
+	throw.phase = GrenadePhase::Ready;
+	throw.fuse = 0.0;
 }
 
 /// Camera `-Z` with the same yaw×pitch product as the follow camera.
@@ -265,9 +460,29 @@ pub fn throw_aim(facing: Vec3, look: &PlayerLook) -> Vec3 {
 	Vec3::new(facing.x, 0.0, facing.z).normalize_or(Vec3::Z)
 }
 
+/// Avian default |g|. Thrown grenades use unit gravity scale and no linear damping.
+pub const THROW_GRAVITY: f32 = 9.81;
+
+/// Chest hold (`1.28 + hold_up`) plus the release toss offset (`0.12`).
+pub const STANDING_RELEASE_HEIGHT: f32 = 1.43;
+
 pub fn launch_velocity(aim: Vec3, stats: &GrenadeStats, inherit: Vec3) -> Vec3 {
 	let tossed = (aim + Vec3::Y * stats.upward_bias).normalize_or(Vec3::Y);
 	tossed * stats.launch_speed + inherit * stats.inherit_velocity
+}
+
+/// Seconds until a vacuum throw from `height` returns to y = 0.
+pub fn landing_time(height: f32, vy: f32, gravity: f32) -> f32 {
+	if gravity <= 1e-6 {
+		return 0.0;
+	}
+	let disc = vy * vy + 2.0 * gravity * height.max(0.0);
+	(vy + disc.sqrt()) / gravity
+}
+
+/// Horizontal meters a vacuum throw covers before y = 0.
+pub fn landing_range(height: f32, velocity: Vec3, gravity: f32) -> f32 {
+	Vec2::new(velocity.x, velocity.z).length() * landing_time(height, velocity.y, gravity)
 }
 
 #[cfg(test)]
@@ -289,7 +504,13 @@ mod tests {
 				skills: Vec::new(),
 			})
 			.id();
-		let held = world.spawn_empty().id();
+		let held = world
+			.spawn((
+				Transform::from_xyz(0.0, 1.4, 0.4),
+				Visibility::Visible,
+				HeldGrenade { scale: 0.2 },
+			))
+			.id();
 		world
 			.spawn((
 				InventoryUser::carrying(bag),
@@ -297,6 +518,22 @@ mod tests {
 				GrenadeThrow::default(),
 			))
 			.id()
+	}
+
+	fn advance_time(world: &mut World, dt: f32) {
+		let mut time = Time::<()>::default();
+		time.advance_by(std::time::Duration::from_secs_f32(dt));
+		world.insert_resource(time);
+	}
+
+	fn run_advance(world: &mut World) -> anyhow::Result<()> {
+		world.init_resource::<Messages<GrenadeDetonated>>();
+		world.init_resource::<Assets<Mesh>>();
+		world.init_resource::<Assets<GrenadeMaterial>>();
+		world
+			.run_system_once(advance_throw)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		Ok(())
 	}
 
 	fn apply_use_item(world: &mut World) -> anyhow::Result<()> {
@@ -309,12 +546,13 @@ mod tests {
 	}
 
 	#[test]
-	fn use_item_starts_windup_without_mouse() -> anyhow::Result<()> {
+	fn use_item_starts_cooking_without_mouse() -> anyhow::Result<()> {
 		let mut world = World::new();
 		let user = spawn_ready_user(&mut world);
 		apply_use_item(&mut world)?;
 		let throw = world.get::<GrenadeThrow>(user).expect("throw");
-		assert!(matches!(throw.phase, GrenadePhase::Windup { age: 0.0 }));
+		assert!(matches!(throw.phase, GrenadePhase::Cooking { age: 0.0 }));
+		assert!((throw.fuse - GrenadeStats::standard().fuse).abs() < 1e-4);
 		assert!(throw.use_latched);
 		assert!(world.get::<ThrowJingleDue>(user).is_some());
 		Ok(())
@@ -327,7 +565,7 @@ mod tests {
 		apply_use_item(&mut world)?;
 		assert!(matches!(
 			world.get::<GrenadeThrow>(user).expect("throw").phase,
-			GrenadePhase::Windup { .. }
+			GrenadePhase::Cooking { .. }
 		));
 		Ok(())
 	}
@@ -342,7 +580,7 @@ mod tests {
 			.run_system_once(apply_throw_intents)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let throw = world.get::<GrenadeThrow>(user).expect("throw");
-		assert!(matches!(throw.phase, GrenadePhase::Windup { age: 0.0 }));
+		assert!(matches!(throw.phase, GrenadePhase::Cooking { age: 0.0 }));
 		assert!(throw.use_latched);
 		Ok(())
 	}
@@ -432,8 +670,220 @@ mod tests {
 	fn launch_is_a_brisk_lob() {
 		let stats = GrenadeStats::standard();
 		let velocity = launch_velocity(Vec3::Z, &stats, Vec3::ZERO);
-		assert!(stats.launch_speed > 8.0 && stats.launch_speed < 12.0);
-		assert!(velocity.length() > 8.0 && velocity.length() < 12.0);
+		assert!(stats.launch_speed > 21.0 && stats.launch_speed < 23.0);
+		assert!(velocity.length() > 21.0 && velocity.length() < 23.0);
 		assert!(velocity.y > velocity.z * 0.18);
+	}
+
+	fn standing_third_person_velocity(stats: &GrenadeStats) -> Vec3 {
+		let look = PlayerLook::default();
+		let aim = throw_aim(Vec3::Z, &look);
+		launch_velocity(aim, stats, Vec3::ZERO)
+	}
+
+	#[test]
+	fn standing_third_person_lob_lands_around_thirty_meters() {
+		let stats = GrenadeStats::standard();
+		let velocity = standing_third_person_velocity(&stats);
+		let range = landing_range(STANDING_RELEASE_HEIGHT, velocity, THROW_GRAVITY);
+		let airtime = landing_time(STANDING_RELEASE_HEIGHT, velocity.y, THROW_GRAVITY);
+		assert!(
+			range > 28.0 && range < 32.0,
+			"median 22 m/s standing lob should land around 30 m, got {range:.1} m"
+		);
+		assert!(
+			airtime < stats.fuse,
+			"fuse {:.1}s must outlast the {airtime:.2}s lob so it lands before detonation",
+			stats.fuse
+		);
+	}
+
+	#[test]
+	fn faster_catalog_throw_lands_further() {
+		let stats = GrenadeStats::standard();
+		let mut boosted = stats;
+		boosted.launch_speed *= 1.5;
+		let base = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&stats),
+			THROW_GRAVITY,
+		);
+		let extra = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&boosted),
+			THROW_GRAVITY,
+		);
+		assert!(
+			extra > base * 1.4,
+			"launch_speed modifiers must stack on the base lob ({base:.1} m → {extra:.1} m)"
+		);
+	}
+
+	#[test]
+	fn rolled_launch_band_still_lands_inside_fuse() {
+		let mut floor = GrenadeStats::standard();
+		floor.launch_speed = 15.0;
+		let mut ceiling = GrenadeStats::standard();
+		ceiling.launch_speed = 30.0;
+		for stats in [floor, ceiling] {
+			let velocity = standing_third_person_velocity(&stats);
+			let airtime = landing_time(STANDING_RELEASE_HEIGHT, velocity.y, THROW_GRAVITY);
+			assert!(
+				airtime < stats.fuse,
+				"{} m/s lob airtime {airtime:.2}s must stay inside fuse {:.1}s",
+				stats.launch_speed,
+				stats.fuse
+			);
+		}
+		let floor_range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&floor),
+			THROW_GRAVITY,
+		);
+		let ceiling_range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&ceiling),
+			THROW_GRAVITY,
+		);
+		assert!(
+			floor_range > 15.0,
+			"15 m/s floor should still land past 15 m, got {floor_range:.1} m"
+		);
+		assert!(
+			ceiling_range > 50.0,
+			"30 m/s ceiling should land past 50 m, got {ceiling_range:.1} m"
+		);
+	}
+
+	#[test]
+	fn ten_meter_launch_used_to_land_around_ten_meters() {
+		let mut old = GrenadeStats::standard();
+		old.launch_speed = 10.0;
+		let range = landing_range(
+			STANDING_RELEASE_HEIGHT,
+			standing_third_person_velocity(&old),
+			THROW_GRAVITY,
+		);
+		assert!(
+			range > 7.0 && range < 12.0,
+			"the previous 10 m/s catalog throw should reconstruct the ~10 m lob, got {range:.1} m"
+		);
+	}
+
+	#[test]
+	fn quick_tap_throws_at_release_like_today() -> anyhow::Result<()> {
+		let mut world = World::new();
+		let user = spawn_ready_user(&mut world);
+		apply_use_item(&mut world)?;
+		let _ = world.resource_mut::<Messages<CharacterIntent>>().drain().count();
+		world
+			.run_system_once(apply_throw_intents)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let stats = GrenadeStats::standard();
+		advance_time(&mut world, stats.release_at);
+		run_advance(&mut world)?;
+		let throw = world.get::<GrenadeThrow>(user).expect("throw");
+		assert!(
+			matches!(throw.phase, GrenadePhase::Recovery { .. }),
+			"quick tap must still release at release_at, got {:?}",
+			throw.phase
+		);
+		let fuse = world
+			.query::<&grenades::GrenadeFuse>()
+			.iter(&world)
+			.next()
+			.map(|fuse| fuse.remaining)
+			.ok_or_else(|| anyhow::anyhow!("thrown grenade"))?;
+		assert!(
+			(fuse - (stats.fuse - stats.release_at)).abs() < 1e-3,
+			"tap fuse must be full fuse minus the throw window, got {fuse}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn release_after_cook_keeps_remaining_fuse() -> anyhow::Result<()> {
+		let mut world = World::new();
+		let user = spawn_ready_user(&mut world);
+		apply_use_item(&mut world)?;
+		let stats = GrenadeStats::standard();
+		let cook = 1.0;
+		advance_time(&mut world, cook);
+		run_advance(&mut world)?;
+		let throw = world.get::<GrenadeThrow>(user).expect("throw");
+		assert!(matches!(throw.phase, GrenadePhase::Cooking { .. }));
+		assert!((throw.fuse - (stats.fuse - cook)).abs() < 1e-3);
+		assert!(world.query::<&grenades::ThrownGrenade>().iter(&world).next().is_none());
+		let _ = world.resource_mut::<Messages<CharacterIntent>>().drain().count();
+		world
+			.run_system_once(apply_throw_intents)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		advance_time(&mut world, 1.0 / 60.0);
+		run_advance(&mut world)?;
+		let fuse = world
+			.query::<&grenades::GrenadeFuse>()
+			.iter(&world)
+			.next()
+			.map(|fuse| fuse.remaining)
+			.ok_or_else(|| anyhow::anyhow!("thrown grenade"))?;
+		let expected = stats.fuse - cook - 1.0 / 60.0;
+		assert!(
+			(fuse - expected).abs() < 1e-3,
+			"remaining fuse after a 1s cook must carry to the thrown body, got {fuse} want {expected}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn overcook_detonates_in_hand() -> anyhow::Result<()> {
+		let mut world = World::new();
+		let user = spawn_ready_user(&mut world);
+		apply_use_item(&mut world)?;
+		let stats = GrenadeStats::standard();
+		advance_time(&mut world, stats.fuse);
+		run_advance(&mut world)?;
+		let throw = world.get::<GrenadeThrow>(user).expect("throw");
+		assert_eq!(throw.phase, GrenadePhase::Ready);
+		assert!(world.query::<&grenades::ThrownGrenade>().iter(&world).next().is_none());
+		let blasts = world.resource_mut::<Messages<GrenadeDetonated>>().drain().count();
+		assert_eq!(blasts, 1, "overcook must detonate in hand");
+		let bag = world
+			.query::<&Inventory>()
+			.single(&world)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let InventoryItem::Grenade { recharge, .. } = &bag.items[0] else {
+			anyhow::bail!("expected grenade");
+		};
+		assert!(recharge.remaining > 0.0, "in-hand detonation starts recharge");
+		Ok(())
+	}
+
+	#[test]
+	fn interrupt_while_cooking_drops_live() -> anyhow::Result<()> {
+		use damage::Downed;
+
+		let mut world = World::new();
+		world.init_resource::<Messages<DropLiveGrenade>>();
+		let user = spawn_ready_user(&mut world);
+		apply_use_item(&mut world)?;
+		advance_time(&mut world, 0.8);
+		run_advance(&mut world)?;
+		let remaining = world.get::<GrenadeThrow>(user).expect("throw").fuse;
+		world
+			.entity_mut(user)
+			.insert(Downed { source: None, point: Vec3::ZERO, at: 0.0 });
+		world
+			.run_system_once(interrupt_live_cooks)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let throw = world.get::<GrenadeThrow>(user).expect("throw");
+		assert_eq!(throw.phase, GrenadePhase::Ready);
+		let drop = world
+			.resource_mut::<Messages<DropLiveGrenade>>()
+			.drain()
+			.next()
+			.ok_or_else(|| anyhow::anyhow!("live drop"))?;
+		assert!((drop.fuse - remaining).abs() < 1e-4);
+		assert_eq!(drop.source, user);
+		Ok(())
 	}
 }

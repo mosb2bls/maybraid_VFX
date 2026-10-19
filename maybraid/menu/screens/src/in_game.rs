@@ -1,22 +1,23 @@
 //! In-game pause menu: centered actions plus upper-left brand / mode.
 
 use bevy::prelude::*;
-use bevy::scene::prelude::{bsn, Scene};
+use bevy::scene::prelude::{bsn, template_value, Scene};
 use maybraid_menu_controller::MenuController;
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
-	set_brand_mode_title, BrandModeLine, BrandModeTitle, TextColumnAlign, TextColumnAnchor,
-	TextCursorRow, TextMenuPlugin,
+	menu_list_panel_node, menu_region_wash, set_brand_mode_title, BrandModeLine, BrandModeTitle,
+	TextColumnAlign, TextColumnAnchor, TextCursorRow, TextMenuPlugin,
 };
 
 use crate::input::add_menu_input;
 use crate::settings::InGameSettingsPlugin;
-use crate::show::take_menu_show_request;
+use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
 use crate::{GameMode, MenuScreen};
 
 /// Queue an in-game menu spawn (despawns any existing menu screen first).
 #[derive(Component, Debug, Clone, PartialEq, Eq)]
+#[require(MenuShowRequest = MenuShowRequest::next())]
 pub struct RequestShowInGame {
 	pub mode: Option<String>,
 	/// Row under the cursor when the menu opens. `None` is the first row.
@@ -70,14 +71,21 @@ impl InGameScreen {
 		let selected = selected
 			.and_then(|selected| rows.iter().position(|row| row.action == selected))
 			.unwrap_or(0);
+		let panel = menu_list_panel_node(AlignItems::Center);
+		let list: Vec<Box<dyn Scene>> = vec![Box::new(
+			TextCursorColumn::untitled_rows(rows)
+				.anchored(TextColumnAnchor::Center)
+				.aligned(TextColumnAlign::Center)
+				.with_selected(selected)
+				.scene(),
+		)];
 		let children: Vec<Box<dyn Scene>> = vec![
-			Box::new(
-				TextCursorColumn::untitled_rows(rows)
-					.anchored(TextColumnAnchor::Center)
-					.aligned(TextColumnAlign::Center)
-					.with_selected(selected)
-					.scene(),
-			),
+			Box::new(bsn! {
+				template_value(panel)
+				BackgroundColor(menu_region_wash())
+				Pickable::IGNORE
+				Children [ {list} ]
+			}),
 			Box::new(BrandModeLine::new(mode.label.clone()).scene()),
 		];
 		bsn! {
@@ -118,28 +126,27 @@ impl Plugin for InGameScreenPlugin {
 		app.init_resource::<GameMode>()
 			.add_plugins(TextMenuPlugin::<InGameMenuChoice>::default())
 			.add_plugins(InGameSettingsPlugin)
-			.add_systems(Update, (apply_show_in_game, sync_in_game_brand));
+			.add_systems(Update, sync_in_game_brand);
+		add_menu_show_systems(app, apply_show_in_game);
 	}
 }
 
 fn apply_show_in_game(
 	mut commands: Commands,
-	requests: Query<(Entity, &RequestShowInGame)>,
-	existing: Query<Entity, With<MenuScreen>>,
+	requests: Query<&RequestShowInGame>,
+	screens: MenuScreens,
 	mut mode: ResMut<GameMode>,
 ) {
-	let Some((_, request)) = requests.iter().last() else {
+	let Some(request) = screens.take(&mut commands, &requests) else {
+		return;
+	};
+	let Ok(request) = requests.get(request) else {
 		return;
 	};
 	if let Some(label) = request.mode.as_ref() {
 		mode.label.clone_from(label);
 	}
-	let selected = request.selected;
-	if !take_menu_show_request(&mut commands, requests.iter().map(|(entity, _)| entity), &existing)
-	{
-		return;
-	}
-	commands.spawn_scene(InGameScreen::scene(&mode, selected));
+	commands.spawn_scene(InGameScreen::scene(&mode, request.selected));
 }
 
 fn sync_in_game_brand(

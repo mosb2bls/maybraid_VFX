@@ -23,6 +23,15 @@ maybraid --start-at=0,0 \
 `MAYBRAID_AGENT_QUIT` are the env equivalents. With none of those set the
 plugin is not added.
 
+Playback starts when Discovery surface is ready, when the Home / Characters
+shell has been up for two seconds (terrain streaming off), or when the 90 s
+ready timeout fires. A leaked `WorldGameplayEnabled` default must not block
+Home-first scripts. A leading `start` / `--start-at` still boots Discovery and
+skips the first-life picker. Home-first scripts (leave + pick another
+character) must omit both so the shell stays on Home. Use
+`MAYBRAID_NO_START_AT=1` with [`profiling/tracy-flight.sh`](../../profiling/tracy-flight.sh)
+so the flight wrapper does not latch `PlayerSpawnXz`.
+
 `{"cmd":"console","line":"player down"}` is handled only by the agent plugin
 (a lethal self-`Hit`). It is **not** a Playground `/` command and is not
 registered in the game shell. Death-picker scripts use it so production
@@ -46,7 +55,7 @@ with `"cmd"`.
 | `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
-| `visual_style` | `style` (`impressionist`, `watercolor`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) | instant; `started` is receipt, `finished` includes resolved `WIDTHxHEIGHT` |
+| `visual_style` | `style` (`native`, `sharp`, `impressionist`, `watercolor`, `retro`, `antediluvian`, `pre_post_modern`) | instant; `started` is receipt, `finished` includes resolved `WIDTHxHEIGHT` |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
 | `quit` | | request process exit |
 
@@ -61,7 +70,8 @@ See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
 [`scripts/crowd-16.jsonl`](scripts/crowd-16.jsonl),
 [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl),
 and the spawn-height scripts (`origin-first-spawn`, `origin-picker`,
-`dusk-spawn`, `death-picker`, `mob-spawns`).
+`dusk-spawn`, `death-picker`, `character-switch-spawn`, `poi-picker-cycle`,
+`mob-spawns`).
 
 Profile scripts mark a `*-warmup` scenario (stream-in / first steps) and then
 the measure window. `goto.look` holds the look stick while steering so a
@@ -83,8 +93,11 @@ That replaces `--start-at` (and `MAYBRAID_START_AT`), so the player spawns
 there and terrain streams in there — no origin load followed by a teleport.
 The game logs `script start X,Z replaces --start-at`. A `start` after the
 first duration command, or one sent over `--agent-pipe`, behaves like
-`teleport`. Without a `start`, the script runs from `--start-at` (the flight
-scripts pass `0,0`). See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl).
+`teleport`. Without a `start`, the script runs from `--start-at` when that
+flag is set (the flight scripts pass `0,0`). Omit both to stay on Home and
+drive Discovery through the menu — needed to reproduce leave + pick another
+character. See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl)
+and [`scripts/character-switch-spawn.jsonl`](scripts/character-switch-spawn.jsonl).
 
 ## Script API version
 
@@ -98,6 +111,7 @@ published outside the repo (Traces releases) state the version they target.
 | 2 | `start` — script-chosen spawn point |
 | 3 | `visual_style` — set presentation mode (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) |
 | 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
+| 5 | `visual_style` adds `native` (direct window). `sharp` is now untreated 1080p offscreen (height-fit); v4 `sharp` was today's Native |
 
 ## Events
 

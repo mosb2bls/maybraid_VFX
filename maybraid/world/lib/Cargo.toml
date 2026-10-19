@@ -93,6 +93,7 @@ vegetation-layer-model = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+lubikans = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 
 [lints]
