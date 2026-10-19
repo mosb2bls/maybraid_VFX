@@ -389,6 +389,29 @@ mod tests {
 	}
 
 	#[test]
+	fn sync_hands_honors_mailbox_apply_set() -> anyhow::Result<()> {
+		use std::collections::HashSet;
+
+		let mut world = hold_world()?;
+		let body = world
+			.query_filtered::<Entity, With<HoldingArms>>()
+			.single(&world)
+			.map_err(|_| anyhow::anyhow!("missing body"))?;
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = Some(HashSet::new());
+		anyhow::ensure!(
+			!mailbox_apply_allows(world.get_resource::<MailboxApplySet>(), body),
+			"firearm overlay must skip when host is not in MailboxApplySet"
+		);
+		world.resource_mut::<MailboxApplySet>().only = Some(HashSet::from([body]));
+		anyhow::ensure!(
+			mailbox_apply_allows(world.get_resource::<MailboxApplySet>(), body),
+			"firearm overlay must run when host is selected"
+		);
+		Ok(())
+	}
+
+	#[test]
 	fn sync_hands_queries_are_disjoint() -> Result<(), bevy::ecs::system::RunSystemError> {
 		let mut world = World::new();
 		world.run_system_once(sync_hands_to_firearm)?;

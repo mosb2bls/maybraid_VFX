@@ -141,7 +141,12 @@ impl AnimMailbox {
 		}
 	}
 
-	/// Authoritative base animation pose (crossfaded while transitioning). Overlays read this.
+	/// Authoritative base animation pose (crossfaded while transitioning).
+	///
+	/// **Readers (production):** firearm/grenade holds via [`Self::base_pose`]; bone writes in
+	/// [`apply_anim_mailbox`]. Do not read `output` directly outside this module.
+	///
+	/// **Writers:** [`publish_pose`] / [`apply_anim_mailbox`] only. Overlays must not write here.
 	pub fn base_pose(&self) -> &PoseBuffer {
 		&self.output
 	}
@@ -1953,6 +1958,262 @@ mod tests {
 		Ok(())
 	}
 
+	#[test]
+	fn selected_skipped_selected_resumes_advancing_base() -> anyhow::Result<()> {
+		use std::collections::HashSet;
+
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.2);
+		let mut selected = HashSet::new();
+		selected.insert(host);
+		world.resource_mut::<MailboxApplySet>().only = Some(selected);
+		step_mailbox(&mut world, host, BLEND_DURATION + 0.02)?;
+		let first = world.get::<AnimMailbox>(host).unwrap().output.clone();
+		world.resource_mut::<MailboxApplySet>().only = Some(HashSet::new());
+		step_mailbox(&mut world, host, 1.0 / 60.0)?;
+		let held = world.get::<AnimMailbox>(host).unwrap().output.clone();
+		anyhow::ensure!(first.local == held.local, "skipped frame must hold pose");
+		world.resource_mut::<MailboxApplySet>().only = Some(HashSet::from([host]));
+		step_mailbox(&mut world, host, 1.0 / 60.0)?;
+		let resumed = world.get::<AnimMailbox>(host).unwrap().output.clone();
+		anyhow::ensure!(
+			resumed.local != held.local,
+			"re-selected host must resume advancing published base"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn effects_only_then_bones_resumes_without_stale_base() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = None;
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.3);
+		step_mailbox(&mut world, host, BLEND_DURATION + 0.02)?;
+		let with_bones = world.get::<AnimMailbox>(host).unwrap().output.clone();
+		world.entity_mut(host).remove::<AnimateBones>();
+		step_mailbox(&mut world, host, 1.0 / 60.0)?;
+		world.entity_mut(host).insert(AnimateBones);
+		step_mailbox(&mut world, host, 1.0 / 60.0)?;
+		let restored = world.get::<AnimMailbox>(host).unwrap().output.clone();
+		anyhow::ensure!(
+			restored.local != with_bones.local,
+			"restored bone apply must sample forward, not freeze on effects-only snapshot"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn suspend_animation_freezes_clock_then_resumes_without_stale_capture() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = None;
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.25);
+		step_mailbox(&mut world, host, 1.0 / 60.0)?;
+		let progress_before = world.get::<AnimMailbox>(host).unwrap().clip_progress;
+		let base_before = world.get::<AnimMailbox>(host).unwrap().output.clone();
+		world.entity_mut(host).insert(SuspendAnimation);
+		step_mailbox(&mut world, host, 0.5)?;
+		let progress_suspended = world.get::<AnimMailbox>(host).unwrap().clip_progress;
+		anyhow::ensure!(
+			(progress_suspended - progress_before).abs() < 1e-5,
+			"suspend must freeze clip clock"
+		);
+		world.entity_mut(host).remove::<SuspendAnimation>();
+		step_mailbox(&mut world, host, 1.0 / 60.0)?;
+		let progress_after = world.get::<AnimMailbox>(host).unwrap().clip_progress;
+		anyhow::ensure!(
+			progress_after > progress_before,
+			"resume must advance clip clock"
+		);
+		let base_after = world.get::<AnimMailbox>(host).unwrap().output.clone();
+		anyhow::ensure!(
+			base_after.local != base_before.local,
+			"resume must publish fresh base, not replay suspended snapshot"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn interrupting_crossfade_preserves_armature_effects_continuity() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = None;
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.1);
+		world.entity_mut(host).insert(AnimRefRoot(AnimRef::new(AnimClip::leap())));
+		step_mailbox(&mut world, host, BLEND_DURATION * 0.35)?;
+		let mid_effects = world.get::<AnimMailbox>(host).unwrap().displayed_offset;
+		world.entity_mut(host).insert(AnimRefRoot(AnimRef::new(AnimClip::still())));
+		step_mailbox(&mut world, host, 0.0)?;
+		let at_restart = world.get::<AnimMailbox>(host).unwrap().displayed_offset;
+		anyhow::ensure!(
+			at_restart == mid_effects,
+			"replacement transition must start armature effects from last displayed blend"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn weapon_overlay_sequence_restores_current_base_pose() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = None;
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.22);
+		step_mailbox(&mut world, host, BLEND_DURATION + 0.02)?;
+		let base = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
+		{
+			let mut rig = world.get_mut::<HumanoidV0Rig>(host).unwrap();
+			rig.pose.copy_from(&base);
+			apply_test_torso_yaw(&mut rig, -0.84);
+			stretch_test_forearm(&mut rig, 1.15);
+		}
+		{
+			let base_restore = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
+			world.get_mut::<HumanoidV0Rig>(host).unwrap().pose.copy_from(&base_restore);
+		}
+		let lumbar = world.get::<HumanoidV0Rig>(host).unwrap().posed_angle("lumbar");
+		let base_lumbar = base_angle(&base, "lumbar");
+		anyhow::ensure!(
+			(lumbar - base_lumbar).abs() < 1e-4,
+			"unarmed/base restore must drop firing twist, got {lumbar} vs {base_lumbar}"
+		);
+		Ok(())
+	}
+
+	fn base_angle(base: &PoseBuffer, name: &str) -> f32 {
+		let definition = humanoid_v0_definition();
+		let index = definition.names.iter().position(|n| *n == name).unwrap_or(0);
+		base.local[index].rotation.to_euler(EulerRot::XYZ).1
+	}
+
+	fn stretch_test_forearm(rig: &mut HumanoidV0Rig, scale: f32) {
+		let Some(id) = rig.binding.definition.id("forearm.R") else {
+			return;
+		};
+		if let Some(slot) = rig.pose.local.get_mut(id.index()) {
+			slot.translation *= scale;
+		}
+	}
+
+	fn verify_steady_base_pose_refreshes(
+		publish_fn: fn(&mut AnimMailbox, &PoseBuffer, f32),
+	) -> anyhow::Result<()> {
+		use crate::clip_cache::RigVariantId;
+
+		let cache = AnimClipCache::default();
+		let prepared = cache
+			.prepare(AnimClip::walk(), RigVariantId::HUMANOID_V0, cache.settings.sampling)
+			.expect("walk");
+		let mut rig = HumanoidV0Rig::imported();
+		let mut mailbox = AnimMailbox::with_bones(Transform::IDENTITY, rig.pose.len());
+		sample_humanoid_prepared(
+			AnimClip::walk(),
+			&mut rig,
+			0.2,
+			true,
+			false,
+			Some(&cache),
+			Some(&prepared),
+		);
+		publish_fn(&mut mailbox, &rig.pose, 1.0);
+		let before = mailbox.output.clone();
+		sample_humanoid_prepared(
+			AnimClip::walk(),
+			&mut rig,
+			0.21,
+			true,
+			false,
+			Some(&cache),
+			Some(&prepared),
+		);
+		publish_fn(&mut mailbox, &rig.pose, 1.0);
+		if before.local == mailbox.output.local {
+			anyhow::bail!("steady base pose did not advance between walk samples");
+		}
+		Ok(())
+	}
+
+	fn verify_crossfade_ignores_overlay_on_rig(
+		capture_from_rig: bool,
+	) -> anyhow::Result<()> {
+		use character_animations::animations::{Run, Walk};
+		use character_animations::Animation;
+
+		let mut rig = HumanoidV0Rig::imported();
+		Walk::default().apply_for(&mut rig, 0.35);
+		let mut mailbox = AnimMailbox::with_bones(Transform::IDENTITY, rig.pose.len());
+		mailbox.posed = true;
+		publish_pose(&mut mailbox, &rig.pose, 1.0);
+		let base_before_overlay = mailbox.output.clone();
+		apply_test_torso_yaw(&mut rig, -0.84);
+		if capture_from_rig {
+			if mailbox.posed {
+				mailbox.from_pose.copy_from(&rig.pose);
+			}
+		} else if mailbox.posed {
+			mailbox.from_pose.copy_from(&mailbox.output);
+		}
+		Run::default().apply_for(&mut rig, 0.1);
+		publish_pose(&mut mailbox, &rig.pose, 0.0);
+		let polluted = mailbox.output.local != base_before_overlay.local;
+		if capture_from_rig {
+			if polluted {
+				Ok(())
+			} else {
+				anyhow::bail!("rig capture should pollute crossfade with overlay twist")
+			}
+		} else if polluted {
+			anyhow::bail!("base capture must not pollute crossfade with overlay twist")
+		} else {
+			Ok(())
+		}
+	}
+
+	#[test]
+	fn regression_pr1321_steady_skip_stales_base_pose() {
+		let err = verify_steady_base_pose_refreshes(publish_pose_pr1321_steady_skip);
+		assert!(
+			err.is_err(),
+			"PR #1321 steady skip must stale output (cmd: cargo test -p character-motion regression_pr1321_steady_skip_stales_base_pose)"
+		);
+	}
+
+	#[test]
+	fn regression_pr1321_rig_capture_feeds_overlay_into_crossfade() {
+		assert!(
+			verify_crossfade_ignores_overlay_on_rig(true).is_ok(),
+			"PR #1321 rig capture must pollute crossfade (cmd: cargo test -p character-motion regression_pr1321_rig_capture_feeds_overlay_into_crossfade)"
+		);
+	}
+
+	#[test]
+	fn regression_pr1321_rig_capture_fails_on_fixed_contract() {
+		assert!(
+			verify_crossfade_ignores_overlay_on_rig(false).is_ok(),
+			"fixed contract must keep crossfade on published base (cmd: cargo test -p character-motion regression_pr1321_rig_capture_fails_on_fixed_contract)"
+		);
+	}
+
+	#[test]
+	fn regression_steady_playback_would_fail_if_pr1321_publish_used() {
+		let err = verify_steady_base_pose_refreshes(publish_pose);
+		assert!(
+			err.is_ok(),
+			"publish_pose must advance base; PR #1321 skip fails via regression_pr1321_steady_skip_stales_base_pose"
+		);
+	}
+
 	fn apply_test_torso_yaw(rig: &mut HumanoidV0Rig, yaw: f32) {
 		for (name, weight) in [("lumbar", 0.05), ("midback", 0.20), ("upper_back", 0.75)] {
 			let Some(bone) = rig.binding.definition.id(name) else {
@@ -2061,31 +2322,173 @@ mod tests {
 
 	fn report_mailbox_apply_bench(label: &str, run_ns: &[u128]) {
 		let min = *run_ns.first().expect("run");
+		let max = *run_ns.last().expect("run");
 		let median = run_ns[run_ns.len() / 2];
+		let mean = run_ns.iter().sum::<u128>() / run_ns.len() as u128;
 		eprintln!(
-			"mailbox_apply_microbench {label}: runs={runs:?} min={min} median={median} ns/character-frame",
+			"mailbox_pose_microbench {label}: runs={runs:?} min={min} median={median} mean={mean} max={max} spread={spread} ns/character-frame",
 			runs = run_ns,
+			spread = max - min,
 		);
 	}
 
-	/// `cargo test -p character-motion mailbox_apply_microbench --release -- --ignored --nocapture`
+	fn bench_firearm_overlay_consume(publish_pr1321_skip: bool) -> Vec<u128> {
+		use crate::clip_cache::RigVariantId;
+
+		const FRAMES: u32 = 5_000;
+		const CHARACTERS: u32 = 32;
+		const RUNS: u32 = 5;
+		let cache = AnimClipCache::default();
+		let prepared = cache
+			.prepare(AnimClip::walk(), RigVariantId::HUMANOID_V0, cache.settings.sampling)
+			.expect("walk");
+		let mut rigs: Vec<HumanoidV0Rig> =
+			(0..CHARACTERS).map(|_| HumanoidV0Rig::imported()).collect();
+		let mut mailboxes: Vec<AnimMailbox> = (0..CHARACTERS)
+			.map(|_| AnimMailbox::with_bones(Transform::IDENTITY, rigs[0].pose.len()))
+			.collect();
+		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
+		for _ in 0..RUNS {
+			let start = Instant::now();
+			for frame in 0..FRAMES {
+				let frame = black_box(frame);
+				for (index, rig) in rigs.iter_mut().enumerate() {
+					let progress = black_box((frame as f32 * 0.013 + index as f32 * 0.02).rem_euclid(1.0));
+					sample_humanoid_prepared(
+						AnimClip::walk(),
+						rig,
+						progress,
+						true,
+						false,
+						Some(&cache),
+						Some(&prepared),
+					);
+					let mailbox = &mut mailboxes[index as usize];
+					if publish_pr1321_skip {
+						publish_pose_pr1321_steady_skip(mailbox, &rig.pose, 1.0);
+					} else {
+						publish_pose(mailbox, &rig.pose, 1.0);
+					}
+					rig.pose.copy_from(mailbox.base_pose());
+					apply_test_torso_yaw(rig, -0.84);
+					black_box(rig.posed_angle("lumbar"));
+				}
+			}
+			let samples = FRAMES as u64 * CHARACTERS as u64;
+			run_ns.push(start.elapsed().as_nanos() / samples as u128);
+		}
+		run_ns.sort_unstable();
+		run_ns
+	}
+
+	fn bench_interrupted_crossfade(publish_pr1321_skip: bool) -> Vec<u128> {
+		use crate::clip_cache::RigVariantId;
+
+		const FRAMES: u32 = 5_000;
+		const CHARACTERS: u32 = 32;
+		const RUNS: u32 = 5;
+		let clips = [AnimClip::walk(), AnimClip::run(), AnimClip::still()];
+		let cache = AnimClipCache::default();
+		let prepared: Vec<Option<PreparedClip>> = clips
+			.iter()
+			.map(|clip| cache.prepare(*clip, RigVariantId::HUMANOID_V0, cache.settings.sampling))
+			.collect();
+		let mut rigs: Vec<HumanoidV0Rig> =
+			(0..CHARACTERS).map(|_| HumanoidV0Rig::imported()).collect();
+		let mut mailboxes: Vec<AnimMailbox> = (0..CHARACTERS)
+			.map(|_| AnimMailbox::with_bones(Transform::IDENTITY, rigs[0].pose.len()))
+			.collect();
+		let mut clip_indices = vec![0usize; CHARACTERS as usize];
+		let mut run_ns: Vec<u128> = Vec::with_capacity(RUNS as usize);
+		for _ in 0..RUNS {
+			let start = Instant::now();
+			for frame in 0..FRAMES {
+				let frame = black_box(frame);
+				for index in 0..CHARACTERS as usize {
+					if frame % 37 == 0 {
+						clip_indices[index] = (clip_indices[index] + 1) % clips.len();
+						let mailbox = &mut mailboxes[index];
+						if mailbox.posed {
+							mailbox.from_pose.copy_from(&mailbox.output);
+						}
+						mailbox.blend_progress = 0.0;
+					}
+					let clip_index = clip_indices[index];
+					let clip = clips[clip_index];
+					let progress =
+						black_box((frame as f32 * 0.011 + index as f32 * 0.03).rem_euclid(1.0));
+					let rig = &mut rigs[index];
+					let effects = sample_humanoid_prepared(
+						clip,
+						rig,
+						progress,
+						true,
+						true,
+						Some(&cache),
+						prepared[clip_index].as_ref(),
+					);
+					let mailbox = &mut mailboxes[index];
+					mailbox.blend_progress =
+						(mailbox.blend_progress + 1.0 / 60.0 / BLEND_DURATION).min(1.0);
+					let weight = clip_crossfade_weight(mailbox.blend_progress);
+					if publish_pr1321_skip {
+						publish_pose_pr1321_steady_skip(mailbox, &rig.pose, weight);
+					} else {
+						publish_pose(mailbox, &rig.pose, weight);
+					}
+					black_box(blend_mailbox_effects(
+						mailbox.from_offset,
+						effects,
+						mailbox.blend_progress,
+					));
+					rig.pose.copy_from(mailbox.base_pose());
+					black_box(rig.posed_angle("lumbar"));
+				}
+			}
+			let samples = FRAMES as u64 * CHARACTERS as u64;
+			run_ns.push(start.elapsed().as_nanos() / samples as u128);
+		}
+		run_ns.sort_unstable();
+		run_ns
+	}
+
+	/// `cargo test -p character-motion mailbox_pose_microbench --release -- --ignored --nocapture`
 	#[test]
 	#[ignore]
-	fn mailbox_apply_microbench() {
+	fn mailbox_pose_microbench() {
 		eprintln!(
-			"32 characters × 5000 frames × 5 runs; Still/Walk/Run prepared + Jump live; sample + publish_pose + effects"
+			"build: release; 32 characters × 5000 frames × 5 runs; prepared Still/Walk/Run + live Jump; includes publish + overlay consume where noted"
+		);
+		eprintln!(
+			"pre-#1321 (004fbfc7) publish path matches publish_base (always copy output); main post-#1321 matches pr1321_steady_skip"
 		);
 		for blend_progress in [1.0, 0.35] {
-			let label = if blend_progress >= 1.0 { "steady blend=1.0" } else { "mid crossfade" };
+			let label = if blend_progress >= 1.0 { "steady" } else { "mid_crossfade" };
 			report_mailbox_apply_bench(
-				&format!("{label} publish_base"),
+				&format!("{label} publish_base (fix + pre-1321)"),
 				&bench_mailbox_sample_publish_effects(false, blend_progress),
 			);
 			report_mailbox_apply_bench(
-				&format!("{label} pr1321_steady_skip"),
+				&format!("{label} pr1321_steady_skip (main)"),
 				&bench_mailbox_sample_publish_effects(true, blend_progress),
 			);
 		}
+		report_mailbox_apply_bench(
+			"firearm_overlay publish_base",
+			&bench_firearm_overlay_consume(false),
+		);
+		report_mailbox_apply_bench(
+			"firearm_overlay pr1321_steady_skip",
+			&bench_firearm_overlay_consume(true),
+		);
+		report_mailbox_apply_bench(
+			"interrupted_crossfade publish_base",
+			&bench_interrupted_crossfade(false),
+		);
+		report_mailbox_apply_bench(
+			"interrupted_crossfade pr1321_steady_skip",
+			&bench_interrupted_crossfade(true),
+		);
 	}
 
 	#[test]

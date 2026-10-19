@@ -432,6 +432,8 @@ fn write_throw_bones(
 
 #[cfg(test)]
 mod tests {
+	use std::collections::HashMap;
+
 	use bevy::ecs::system::RunSystemOnce;
 
 	use super::*;
@@ -451,6 +453,40 @@ mod tests {
 		world
 			.run_system_once(sync_throw_arm)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		Ok(())
+	}
+
+	#[test]
+	fn sync_throw_arm_honors_mailbox_apply_set() -> anyhow::Result<()> {
+		use std::collections::HashSet;
+
+		let mut world = World::new();
+		world.init_resource::<MailboxApplySet>();
+		let mut rig = HumanoidV0Rig::imported();
+		let mut mailbox = AnimMailbox::new(Transform::IDENTITY);
+		mailbox.posed = true;
+		mailbox.output = rig.pose.clone();
+		let body = world
+			.spawn((
+				HoldingGrenade,
+				AnimateBones,
+				rig,
+				mailbox,
+				BoneMap { by_name: HashMap::new() },
+			))
+			.id();
+		world.resource_mut::<MailboxApplySet>().only = Some(HashSet::new());
+		anyhow::ensure!(
+			!mailbox_apply_allows(world.get_resource::<MailboxApplySet>(), body),
+			"grenade overlay must skip when host is not in MailboxApplySet"
+		);
+		let mut selected = HashSet::new();
+		selected.insert(body);
+		world.resource_mut::<MailboxApplySet>().only = Some(selected);
+		anyhow::ensure!(
+			mailbox_apply_allows(world.get_resource::<MailboxApplySet>(), body),
+			"grenade overlay must run when host is selected"
+		);
 		Ok(())
 	}
 

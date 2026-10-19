@@ -335,21 +335,77 @@ mod tests {
 		);
 	}
 
-	#[test]
-	fn stand_gait_hysteresis_dampens_still_walk_flutter() {
+	/// Counts clip-id changes when speed samples cross the direct `WALK_SPEED` threshold.
+	fn direct_stand_clip_changes(speeds: &[f32]) -> usize {
+		let mut changes = 0usize;
+		let mut last: Option<AnimId> = None;
+		for &speed in speeds {
+			let id = stand_locomotion_clip_direct(speed).id();
+			if last != Some(id) {
+				changes += 1;
+				last = Some(id);
+			}
+		}
+		changes
+	}
+
+	fn gait_stand_clip_changes(speeds: &[f32]) -> usize {
+		let mut band = StandLocomotionBand::Still;
 		let stance = CharacterStance::settled(StanceKind::Stand);
-		let walk = StandLocomotionBand::Still.advance(1.05);
-		assert_eq!(walk, StandLocomotionBand::Still);
-		let walk = walk.advance(1.2);
-		assert_eq!(walk, StandLocomotionBand::Walk);
-		assert_eq!(
-			locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, 1.05, Some(walk)).id(),
-			AnimId::Walk
+		let mut changes = 0usize;
+		let mut last: Option<AnimId> = None;
+		for &speed in speeds {
+			band = band.advance(speed);
+			let id = locomotion_clip(RigSkeletonKind::Humanoid, None, &stance, speed, Some(band)).id();
+			if last != Some(id) {
+				changes += 1;
+				last = Some(id);
+			}
+		}
+		changes
+	}
+
+	#[test]
+	fn direct_stand_threshold_noise_restarts_still_walk_transitions() {
+		let noise = [0.99, 1.01, 0.99, 1.01, 0.99, 1.01];
+		let changes = direct_stand_clip_changes(&noise);
+		assert!(
+			changes >= 5,
+			"direct thresholds at WALK_SPEED=1.0 should restart still/walk on ±0.01 m/s noise, got {changes} changes"
 		);
-		let still = walk.advance(0.95);
-		assert_eq!(still, StandLocomotionBand::Walk);
-		let still = still.advance(0.8);
-		assert_eq!(still, StandLocomotionBand::Still);
+	}
+
+	#[test]
+	fn gait_hysteresis_suppresses_still_walk_noise_restarts() {
+		let noise = [1.05, 0.95, 1.05, 0.95, 1.05, 0.95];
+		let changes = gait_stand_clip_changes(&noise);
+		assert_eq!(
+			changes, 1,
+			"hysteresis should hold still/walk across ±0.05 m/s flutter around 1.0 m/s"
+		);
+	}
+
+	#[test]
+	fn gait_still_crosses_to_walk_on_intentional_speed() {
+		let speeds = [0.5, 0.5, 1.25, 1.25];
+		let changes = gait_stand_clip_changes(&speeds);
+		assert_eq!(changes, 2, "intentional crossing should still switch still→walk promptly");
+	}
+
+	#[test]
+	fn direct_run_walk_boundary_can_chatter_at_leap_speed() {
+		let noise = [7.49, 7.51, 7.49, 7.51, 7.49, 7.51];
+		let changes = direct_stand_clip_changes(&noise);
+		assert!(
+			changes >= 5,
+			"direct thresholds at LEAP_SPEED=7.5 can restart walk/run on ±0.01 m/s noise"
+		);
+	}
+
+	#[test]
+	fn typical_jog_and_sprint_speeds_stay_off_run_walk_boundary() {
+		assert_eq!(stand_locomotion_clip_direct(JOG_SPEED).id(), AnimId::Walk);
+		assert_eq!(stand_locomotion_clip_direct(MOVE_SPEED).id(), AnimId::Run);
 	}
 
 	#[test]
