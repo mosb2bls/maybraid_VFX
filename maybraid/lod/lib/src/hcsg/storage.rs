@@ -3,7 +3,7 @@
 mod diagnostics;
 mod eviction;
 mod reads;
-mod store;
+pub(in crate::hcsg) mod store;
 mod writes;
 
 use std::sync::Arc;
@@ -36,9 +36,10 @@ pub struct Busy;
 ///
 /// Blocking reads ([`Self::get`], [`Self::entry`], [`Self::overlapping`],
 /// [`Self::membership_revision`], [`Self::contains`]) are for the generation
-/// worker and for tests. Outside `lod` they are only available with the
-/// `test-support` feature. [`Self::clear`] and [`Self::remove`] follow the same
-/// rule: production code clears stores only through session restart
-/// ([`Self::clear_derived`]); the worker evicts through internal sweeps.
+/// worker and for tests that drive storage directly. Production frame code
+/// should still prefer the `try_*` methods. [`Self::clear`] and
+/// [`Self::remove`] are test and setup helpers; production clears stores
+/// through session restart ([`Self::clear_derived`]); the worker evicts
+/// through internal sweeps.
 #[derive(Resource, Clone, Default)]
 pub struct HcsgStorage(Arc<Registry>);

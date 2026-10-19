@@ -43,7 +43,9 @@ impl CapitalAuthoredExtents {
 	}
 }
 
-pub fn authored_extents(ratios: DoricColumnRatios) -> (PlinthAuthoredExtents, ShaftAuthoredExtents, CapitalAuthoredExtents) {
+pub fn authored_extents(
+	ratios: DoricColumnRatios,
+) -> (PlinthAuthoredExtents, ShaftAuthoredExtents, CapitalAuthoredExtents) {
 	let plinth = PlinthAuthoredExtents {
 		height_d: ratios.plinth_height_d,
 		half_side_d: ratios.plinth_side_d * 0.5,
@@ -103,11 +105,9 @@ mod tests {
 		let d = uniform_placement_scale(&spec);
 		let scale = Vec3::splat(d);
 
-		for (label, p) in [
-			("pedestal", &parts.pedestal),
-			("shaft", &parts.shaft),
-			("capital", &parts.capital),
-		] {
+		for (label, p) in
+			[("pedestal", &parts.pedestal), ("shaft", &parts.shaft), ("capital", &parts.capital)]
+		{
 			assert!(
 				(p.scale - scale).length() < 1e-4,
 				"{label} must use uniform scale D only (got {:?})",
@@ -115,20 +115,25 @@ mod tests {
 			);
 		}
 
-		assert!((world_top_y(&parts.pedestal, plinth.height_d) - layout.plinth.height).abs() < 1e-3);
+		assert!(
+			(world_top_y(&parts.pedestal, plinth.height_d) - layout.plinth.height).abs() < 1e-3
+		);
 		assert!((world_top_y(&parts.shaft, shaft.height_d) - layout.shaft_top_y()).abs() < 1e-3);
 		assert!(
 			(world_top_y(&parts.capital, capital.height_d()) - layout.total_height()).abs() < 1e-3
 		);
 
 		assert!(
-			(anchors.get(names::PEDESTAL_TOP).unwrap().translation.y - layout.plinth.height).abs() < 1e-3
+			(anchors.get(names::PEDESTAL_TOP).unwrap().translation.y - layout.plinth.height).abs()
+				< 1e-3
 		);
 		assert!(
-			(anchors.get(names::SHAFT_TOP).unwrap().translation.y - layout.shaft_top_y()).abs() < 1e-3
+			(anchors.get(names::SHAFT_TOP).unwrap().translation.y - layout.shaft_top_y()).abs()
+				< 1e-3
 		);
 		assert!(
-			(anchors.get(names::CAPITAL_TOP).unwrap().translation.y - layout.total_height()).abs() < 1e-3
+			(anchors.get(names::CAPITAL_TOP).unwrap().translation.y - layout.total_height()).abs()
+				< 1e-3
 		);
 
 		assert!((cover_max.y - layout.total_height()).abs() < 1e-3);
@@ -143,14 +148,13 @@ mod tests {
 
 	#[test]
 	fn summon_uniform_scale_still_single_d_factor() {
-		let spec = DoricColumnSpec {
-			scale: Vec3::splat(0.85),
-			..DoricColumnSpec::default()
-		};
+		let spec = DoricColumnSpec { scale: Vec3::splat(0.85), ..DoricColumnSpec::default() };
 		let parts = part_placements(&spec);
 		let d = uniform_placement_scale(&spec);
 		assert!((parts.shaft.scale.x - d).abs() < 1e-4);
 		let shaft = authored_extents(spec.dims.ratios).1;
-		assert!((world_top_y(&parts.shaft, shaft.height_d) - spec.layout().shaft_top_y()).abs() < 1e-3);
+		assert!(
+			(world_top_y(&parts.shaft, shaft.height_d) - spec.layout().shaft_top_y()).abs() < 1e-3
+		);
 	}
 }

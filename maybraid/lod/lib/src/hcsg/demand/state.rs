@@ -31,10 +31,7 @@ pub(super) fn discover<T: GenerationScheme>(cx: &mut GenerationContext, region: 
 }
 
 pub(crate) fn generate<T: GenerationScheme>(cx: &mut GenerationContext, id: Id) -> bool {
-	if cx.has_stored::<T>(id) {
-		return true;
-	}
-	cx.get_or_generate::<T>(id).is_some()
+	cx.generate_cached::<T>(id)
 }
 
 pub(super) struct Subscription {

@@ -124,6 +124,12 @@ pub enum AgentEventBody {
 		#[serde(default, skip_serializing_if = "Option::is_none")]
 		item: Option<String>,
 	},
+	/// Tanzer mode and/or the Tanz that just became active.
+	Tanz {
+		mode: String,
+		#[serde(default, skip_serializing_if = "Option::is_none")]
+		id: Option<String>,
+	},
 	Quit,
 }
 
@@ -185,6 +191,10 @@ impl AgentEvent {
 			AgentEventBody::Equipped { category, item } => {
 				Some(format!("agent.equipped {category} {}", item.as_deref().unwrap_or("none")))
 			}
+			AgentEventBody::Tanz { mode, id } => Some(match id {
+				Some(id) => format!("agent.tanz mode={mode} id={id}"),
+				None => format!("agent.tanz mode={mode}"),
+			}),
 			_ => None,
 		}
 	}
@@ -310,6 +320,29 @@ mod tests {
 			assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, event);
 			assert!(event.tracy_message().is_some(), "{line}");
 		}
+		Ok(())
+	}
+
+	#[test]
+	fn tanz_roundtrip_and_tracy_message() -> anyhow::Result<()> {
+		let mode = AgentEvent {
+			t: 4.0,
+			frame: 240,
+			body: AgentEventBody::Tanz { mode: "tanzer".into(), id: None },
+		};
+		let line = mode.to_line().map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert!(line.contains(r#""kind":"tanz""#));
+		assert_eq!(AgentEvent::parse_line(&line).map_err(|e| anyhow::anyhow!("{e}"))?, mode);
+		assert_eq!(mode.tracy_message().as_deref(), Some("agent.tanz mode=tanzer"));
+		let active = AgentEvent {
+			t: 4.2,
+			frame: 252,
+			body: AgentEventBody::Tanz { mode: "tanzer".into(), id: Some("left_strafe".into()) },
+		};
+		assert_eq!(
+			active.tracy_message().as_deref(),
+			Some("agent.tanz mode=tanzer id=left_strafe")
+		);
 		Ok(())
 	}
 

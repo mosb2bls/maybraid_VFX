@@ -59,6 +59,9 @@ with `"cmd"`.
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
 | `visual_style` | `style` (`native`, `sharp`, `impressionist`, `watercolor`, `retro`, `antediluvian`, `pre_post_modern`) | instant; `started` is receipt, `finished` includes resolved `WIDTHxHEIGHT` |
+| `tanz_mode` | `mode` (`tanzer`, `standard`, `toggle`) | instant; sets Tanzer without the LB+RB chord |
+| `tanz` | `id` (`healing_salute`, `left_strafe`, `right_strafe`, `forward_dash`) | instant; enters Tanzer if needed and submits the Tanz |
+| `screenshot` | `path` | instant start; `finished` after GPU readback writes the PNG (`detail` has mean luma) |
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
 | `quit` | | request process exit |
 
@@ -150,7 +153,7 @@ published outside the repo (Traces releases) state the version they target.
 | 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
 | 5 | `visual_style` adds `native` (direct window). `sharp` is now untreated 1080p offscreen (height-fit); v4 `sharp` was today's Native |
 | 6 | Menu playtests: Home boot ready (`detail: "menu"`), `confirm` / `back` / `start` aliases, `press.buttons` chords, `wait_for` / `expect` / `mash` (including `focus_row` / `focus_label`), and `screen` / `modal` / `focus` / `flow` / `invariant` events |
-| 7 | Inventory cycling: `wait_for` / `expect` also match `cycle_category` / `weapon` / `skill_map` / `lubikan`; `cycle` and `equipped` events; per-frame cycling invariants (Y vs category, D-pad vs item, queue membership) |
+| 7 | Inventory cycling: `wait_for` / `expect` also match `cycle_category` / `weapon` / `skill_map` / `lubikan`; `cycle` and `equipped` events; per-frame cycling invariants (Y vs category, D-pad vs item, queue membership). Also `tanz_mode`, `tanz`, and `screenshot` (GPU readback of the presented 3D surface); Tanz mode / active Tanz emit `kind: tanz` events |
 
 ## Events
 
@@ -175,6 +178,7 @@ and `frame`.
 | `invariant` | a menu or cycling invariant broke — always a playtest failure |
 | `cycle` | D-pad-selected inventory category (`weapons`, `skill_maps`, `lubikans`) |
 | `equipped` | active item in a cycle category changed (`category`, optional `item`) |
+| `tanz` | Tanzer mode change and/or the Tanz that just became active (`mode`, optional `id`) |
 | `quit` | process is exiting |
 
 Scenario / command / waypoint / ready also emit Tracy messages when the

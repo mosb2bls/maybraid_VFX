@@ -8,7 +8,7 @@ use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 
 use crate::lod_ref::{
-	collect_node_snapshots, LodNode, LodNodeBounds, LodNodePose, LodNodeSnapshot,
+	collect_node_snapshots_into, LodNode, LodNodeBounds, LodNodePose, LodNodeSnapshot,
 };
 use crate::scene::region_index::LodSceneHostIndex;
 
@@ -67,7 +67,7 @@ pub fn fill_lod_cull_produce_cache<I>(
 	if regions.is_empty() {
 		return;
 	}
-	cache.snapshots = collect_node_snapshots(&nodes);
+	collect_node_snapshots_into(&nodes, &mut cache.snapshots);
 	if cache.snapshots.is_empty() {
 		return;
 	}
@@ -78,7 +78,7 @@ pub fn fill_lod_cull_produce_cache<I>(
 			continue;
 		}
 		cache.seen_regions.push(msg.region);
-		cache.hit_entities.extend(index.hosts_in_region(msg.region));
+		index.extend_hosts_in_region(msg.region, &mut cache.hit_entities);
 	}
 }
 

@@ -126,6 +126,7 @@ mod tests {
 		"menu-pause-back.jsonl",
 		"inventory-cycle-categories.jsonl",
 		"inventory-cycle-mash-42.jsonl",
+		"tanz-playtest.jsonl",
 	];
 
 	#[test]

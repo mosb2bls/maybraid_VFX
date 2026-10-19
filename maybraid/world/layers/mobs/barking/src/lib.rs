@@ -9,7 +9,6 @@ pub mod hcsg;
 mod index;
 mod plugin;
 mod present;
-mod sample;
 
 pub use config::BarkingConfig;
 pub use generation::{

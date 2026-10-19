@@ -1,8 +1,9 @@
 //! Slim world-playground commands. Forest + terrain extents are baked in.
 
 use bevy::prelude::*;
-use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 use world_player::commands::{RequestMeshStats, RequestModeCharacter, RequestModeFree};
+
+use crate::screenshot::RequestGameplayScreenshot;
 use world_player::{CharacterSpecies, RequestFpsToggle, RequestSetCharacter};
 
 use clap::{Parser, Subcommand};
@@ -257,7 +258,7 @@ impl PlaygroundCommand {
 			PlaygroundCommand::Render(render) => render.react(commands, console),
 			PlaygroundCommand::Mobs(mobs) => mobs.react(commands, console),
 			PlaygroundCommand::Screenshot { path } => {
-				commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path.clone()));
+				commands.spawn(RequestGameplayScreenshot { path: path.clone(), command_id: None });
 				*console = format!("screenshot {}: pending", path.display());
 			}
 			#[cfg(feature = "debug-commands")]

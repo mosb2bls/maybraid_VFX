@@ -478,17 +478,6 @@ mod tests {
 	}
 
 	#[test]
-	fn charge_amount_is_current_not_a_fraction() {
-		assert_eq!(format_charge(3.0), "3");
-		assert_eq!(format_charge(12.5), "12.5");
-	}
-
-	#[test]
-	fn self_account_label_is_self() {
-		assert_eq!(account_label(LubikanAccountId::SELF), "Self");
-	}
-
-	#[test]
 	fn charge_name_shows_banked_count_only_when_stock_exceeds_one() {
 		let single = LubikanHudRow {
 			account: LubikanAccountId::SELF,

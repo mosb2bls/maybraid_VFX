@@ -24,13 +24,7 @@ pub fn draw_debug(
 	}
 	for (root, spec) in &columns {
 		let layout = spec.layout();
-		draw_cover_box(
-			&mut gizmos,
-			root,
-			0.0,
-			layout.plinth.height,
-			layout.plinth.half_side,
-		);
+		draw_cover_box(&mut gizmos, root, 0.0, layout.plinth.height, layout.plinth.half_side);
 		draw_cover_cylinder(
 			&mut gizmos,
 			root,
@@ -68,12 +62,7 @@ fn draw_cover_box(
 	height: f32,
 	half: f32,
 ) {
-	let corners = [
-		(-half, -half),
-		(half, -half),
-		(half, half),
-		(-half, half),
-	];
+	let corners = [(-half, -half), (half, -half), (half, half), (-half, half)];
 	for y in [base_y, base_y + height] {
 		for i in 0..4 {
 			let (x0, z0) = corners[i];

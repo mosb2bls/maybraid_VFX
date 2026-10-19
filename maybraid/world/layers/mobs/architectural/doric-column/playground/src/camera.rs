@@ -47,19 +47,11 @@ pub fn setup_camera(mut commands: Commands) {
 		CameraController { speed: 10.0, sensitivity: 0.003, yaw, pitch },
 	));
 	commands.spawn((
-		DirectionalLight {
-			illuminance: 28_000.0,
-			shadow_maps_enabled: true,
-			..default()
-		},
+		DirectionalLight { illuminance: 28_000.0, shadow_maps_enabled: true, ..default() },
 		Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.65, 0.55, 0.0)),
 	));
 	commands.spawn((
-		DirectionalLight {
-			illuminance: 8_000.0,
-			shadow_maps_enabled: false,
-			..default()
-		},
+		DirectionalLight { illuminance: 8_000.0, shadow_maps_enabled: false, ..default() },
 		Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.35, -2.1, 0.0)),
 	));
 }

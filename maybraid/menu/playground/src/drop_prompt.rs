@@ -765,6 +765,7 @@ mod tests {
 			clothing: vec![0],
 			weapons: Vec::new(),
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		};
 		let mut menu = CharacterMenuState::for_create(mixed_editor_bag().items.clone()).0;
 		let mut baseline = CharacterEditBaseline::capture(&menu);

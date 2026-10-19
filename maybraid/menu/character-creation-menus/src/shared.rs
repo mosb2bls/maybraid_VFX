@@ -252,6 +252,7 @@ pub(crate) fn inventory_overlay_key(key: &str) -> bool {
 			| "Clothing"
 			| "Weapons"
 			| "Tools" | "Skill Maps"
+			| "Tanzes"
 			| "Lubikan"
 			| "Loadout"
 	)

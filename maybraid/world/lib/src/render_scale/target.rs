@@ -28,7 +28,7 @@ pub const PRESENT_RENDER_LAYER: usize = 29;
 const WINDOW_STABLE_DELTA: u32 = 32;
 
 #[derive(Resource, Default)]
-pub(super) struct AppliedRenderScale {
+pub(crate) struct AppliedRenderScale {
 	image: Option<Handle<Image>>,
 	blit_mesh: Option<Handle<Mesh>>,
 	last_offscreen: bool,
@@ -39,6 +39,20 @@ pub(super) struct AppliedRenderScale {
 	last_style: Option<VisualStyle>,
 	last_treatment: Option<PresentationTreatment>,
 	source: Option<(Entity, SourceTarget)>,
+}
+
+impl AppliedRenderScale {
+	/// Offscreen 3D target actually written this frame, when the blit path is up.
+	pub(crate) fn capture_source(&self) -> Option<(Handle<Image>, UVec2)> {
+		if !self.last_offscreen {
+			return None;
+		}
+		let handle = self.image.clone()?;
+		if self.last_size.x == 0 || self.last_size.y == 0 {
+			return None;
+		}
+		Some((handle, self.last_size))
+	}
 }
 
 /// What the follow camera last rendered into.

@@ -173,6 +173,7 @@ mod tests {
 			clothing: vec![0],
 			weapons: Vec::new(),
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		};
 		let appearance = CharacterAppearance::default().with_inventory_clothing(&inventory);
 		let CharacterAppearance::Braidman(config) = appearance else {

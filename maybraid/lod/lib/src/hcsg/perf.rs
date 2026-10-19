@@ -218,26 +218,30 @@ impl GenerationScheme for PerfCell {
 #[test]
 #[ignore]
 fn perf_worker_generate_cache_hits() {
+	use super::demand::QUANTUM_IDS;
+
 	const ENTRIES: usize = 8_000;
-	const ROUNDS: usize = 400;
+	const QUANTA: usize = 25_000;
 	let storage = HcsgStorage::default();
 	let ids: Vec<Id> = (0..ENTRIES).map(|i| Id::from_cell(cell(i as f32 * 64.0))).collect();
 	for &id in &ids {
 		let bounds = id.origin_cell_bounds().unwrap_or(cell(0.0));
 		storage.publish(id, Arc::new(PerfCell(0)), bounds);
 	}
-	let mut cx = GenerationContext::new(&storage);
 
 	let started = Instant::now();
-	for _ in 0..ROUNDS {
-		for &id in &ids {
+	for quantum in 0..QUANTA {
+		let mut cx = GenerationContext::new(&storage);
+		let start = (quantum * QUANTUM_IDS) % ENTRIES;
+		for offset in 0..QUANTUM_IDS {
+			let id = ids[(start + offset) % ENTRIES];
 			assert!(generate::<PerfCell>(&mut cx, id));
 		}
 	}
 	let elapsed = started.elapsed();
-	let calls = ROUNDS * ENTRIES;
+	let calls = QUANTA * QUANTUM_IDS;
 	eprintln!(
-		"perf_worker_generate_cache_hits: {} generate calls ({} cached ids) → {:?} ({:.2?} per call)",
+		"perf_worker_generate_cache_hits: {} generate calls ({} cached ids, fresh context per quantum) → {:?} ({:.2?} per call)",
 		calls,
 		ENTRIES,
 		elapsed,

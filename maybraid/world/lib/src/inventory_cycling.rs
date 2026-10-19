@@ -61,7 +61,7 @@ pub(crate) fn gameplay_cycling_allowed(
 	text_focus: &TextEntryFocus,
 	map: Option<&WorldMapView>,
 ) -> bool {
-	gameplay.0 && !text_focus.0 && !map.is_some_and(|map| map.open)
+	gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open))
 }
 
 pub(crate) fn apply_inventory_category_selection(
@@ -71,7 +71,7 @@ pub(crate) fn apply_inventory_category_selection(
 	mut category: ResMut<ActiveInventoryCyclingCategory>,
 	mut intents: MessageReader<CharacterIntent>,
 ) {
-	if !gameplay_cycling_allowed(&gameplay, &text_focus, map.as_deref()) {
+	if !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open)) {
 		return;
 	}
 	for intent in intents.read() {
@@ -93,7 +93,7 @@ pub(crate) fn cycle_equipped_inventory_queues(
 	mut bags: Query<&mut Inventory>,
 	mut ledgers: Query<&mut LubikanLedger, With<LubikanOwner>>,
 ) {
-	if !gameplay_cycling_allowed(&gameplay, &text_focus, map.as_deref()) {
+	if !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open)) {
 		return;
 	}
 	let mut dir = None;
@@ -137,7 +137,7 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		let changed = match slot {
 			InventorySlot::Weapons => false,
 			InventorySlot::Skills => bag.cycle_skills(dir),
-			InventorySlot::Clothing => false,
+			InventorySlot::Clothing | InventorySlot::Tanzes => false,
 		};
 		if !changed {
 			continue;
@@ -145,7 +145,9 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		let snapshot = bag.clone();
 		if let Some(loadout) = loadout.as_deref_mut() {
 			loadout.retarget_inventory(snapshot.clone());
-			commands.entity(player).insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
+			commands
+				.entity(player)
+				.insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
 		}
 	}
 }
@@ -225,6 +227,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: Vec::new(),
 			skills: vec![0, 1],
+			tanzes: Vec::new(),
 		};
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
@@ -266,6 +269,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: Vec::new(),
 			skills: vec![0, 1],
+			tanzes: Vec::new(),
 		};
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
@@ -306,11 +310,18 @@ mod tests {
 		let extra_id = ledger.ensure_owned(extra);
 		let _ = ledger.apply_to_equipped(5.0);
 		assert!(ledger.select(Some(extra_id)));
-		let extra_charge = ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_charge = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert!(cycle_ledger_selection(&mut ledger, 1));
 		assert_eq!(ledger.selection(), LubikanSelection::default());
-		let extra_after =
-			ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_after = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert_eq!(extra_charge, extra_after);
 		Ok(())
 	}
