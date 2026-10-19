@@ -11,7 +11,7 @@ mod swap;
 mod weapon;
 
 use bevy::prelude::*;
-use characters::CharacterMotionSystems;
+use characters::{CharacterMotionSystems, CharacterPoseOverlay};
 use damage::DamageSystems;
 use firearms::{add_firearm_components_host, FirearmWeaponSystems};
 use maybraid_audio::AudioSystems;
@@ -131,7 +131,7 @@ impl Plugin for FirearmUserPlugin {
 			.add_systems(
 				Update,
 				hold::sync_hands_to_firearm
-					.in_set(PlayerPoseSystems::Overlay)
+					.in_set(CharacterPoseOverlay::Firearm)
 					.after(CharacterMotionSystems::Anim),
 			)
 			.add_systems(

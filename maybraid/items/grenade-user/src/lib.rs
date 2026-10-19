@@ -8,7 +8,7 @@ mod throw;
 use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
 use character_items::{Inventory, InventoryItem};
-use characters::CharacterMotionSystems;
+use characters::{CharacterMotionSystems, CharacterPoseOverlay, CharacterPoseSystems};
 use maybraid_spatial_rumble::{SpatialRumblePlugin, SpatialRumbleSystems};
 use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 
@@ -50,16 +50,16 @@ impl Plugin for GrenadeUserPlugin {
 			.add_systems(
 				Update,
 				hold::sync_throw_arm
-					.in_set(PlayerPoseSystems::Overlay)
+					.in_set(CharacterPoseOverlay::Grenade)
 					.after(CharacterMotionSystems::Anim),
 			)
 			.add_systems(
 				Update,
 				throw::play_throw_jingles
-					.after(PlayerPoseSystems::Overlay)
+					.after(CharacterPoseSystems::Overlay)
 					.before(throw::advance_throw),
 			)
-			.add_systems(Update, throw::advance_throw.after(PlayerPoseSystems::Overlay))
+			.add_systems(Update, throw::advance_throw.after(CharacterPoseSystems::Overlay))
 			.add_systems(Update, throw::interrupt_live_cooks.in_set(GrenadeUserSystems::Interrupt))
 			.add_systems(
 				PostUpdate,

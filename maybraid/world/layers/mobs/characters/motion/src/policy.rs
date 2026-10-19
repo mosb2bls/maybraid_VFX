@@ -62,7 +62,8 @@ pub fn motion_policy(level: LodSceneLevel) -> MotionPolicy {
 /// Missing lod is Near (local player).
 ///
 /// Character `LodScene` stays High — this is not a scene cull. Effects go with
-/// bones so [`crate::apply_anim_mailbox`] does not keep the expensive path.
+/// bones so [`crate::apply_anim_mailbox`] / [`crate::publish_anim_mailbox`] do not
+/// keep the expensive path.
 ///
 /// `presenting` is the look-frustum / focus grant. Combat / Evade may still
 /// promote thinking [`IntelligenceBand::Near`]; they must not be the only way

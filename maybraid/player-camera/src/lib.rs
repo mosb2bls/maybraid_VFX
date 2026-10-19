@@ -5,6 +5,7 @@ mod look;
 
 use bevy::prelude::*;
 use bevy::window::WindowFocused;
+use characters::CharacterPoseSystems;
 use maybraid_character_controller::CharacterControlSystems;
 use maybraid_spatial_rumble::{SpatialRumbleListener, SpatialRumblePlugin, SpatialRumbleSystems};
 use player::{PlayerPlugin, PlayerPoseSystems, PlayerSystems};
@@ -105,7 +106,9 @@ impl Plugin for PlayerCameraPlugin {
 					PlayerCameraSystems::Body
 						.after(PlayerCameraSystems::Look)
 						.before(PlayerPoseSystems::Item),
-					PlayerCameraSystems::Aim.after(PlayerPoseSystems::Overlay),
+					PlayerCameraSystems::Aim
+						.after(PlayerPoseSystems::Overlay)
+						.after(CharacterPoseSystems::FinalCorrections),
 					PlayerCameraSystems::Follow.after(PlayerCameraSystems::Aim),
 					PlayerCameraSystems::Apply.after(PlayerCameraSystems::Follow),
 					// Present is the only camera-offset writer; follow pose is rest.

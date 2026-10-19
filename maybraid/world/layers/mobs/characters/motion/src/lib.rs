@@ -46,15 +46,17 @@ pub use elevation::{
 	DrawTerrainPitchProbes,
 };
 pub use mailbox::{
-	apply_anim_mailbox, fingerprint_humanoid_clip, mailbox_apply_allows, prepare_anim_mailbox,
-	select_mailbox_applies, tick_anim_mailbox, AnimBone, AnimMailbox, AnimProgress,
-	MailboxApplyLimits, MailboxApplySet,
+	apply_anim_mailbox, fingerprint_humanoid_clip, init_working_pose, mailbox_apply_allows,
+	prepare_anim_mailbox, publish_anim_mailbox, select_mailbox_applies, tick_anim_mailbox, AnimBone,
+	AnimMailbox, AnimProgress, MailboxApplyLimits, MailboxApplySet,
 };
 pub use markers::{
 	AnimateBones, AnimateEffects, ApplyTerrainPitch, SuspendAnimation, SuspendTerrainPitch,
 };
 pub use pitch::{CharacterHeading, TerrainPitch};
-pub use plugin::{CharacterMotionPlugin, CharacterMotionSystems};
+pub use plugin::{
+	CharacterMotionPlugin, CharacterMotionSystems, CharacterPoseOverlay, CharacterPoseSystems,
+};
 pub use policy::{clamp_intelligence, motion_policy, MotionPolicy};
 pub use rig::{
 	bone_map_ready, missing_landmark_bones, BoneMap, CharacterRig, CharacterRigRole,

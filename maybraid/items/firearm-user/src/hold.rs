@@ -2,24 +2,44 @@
 
 use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
-use character_rigs::articulation::{
-	compose_parent_rotation, rotation_along_with_roll, TwoBoneAim, BONE_LENGTH_AXIS,
-};
-use character_rigs::authoring::humanoid_bone_axis;
-use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use character_rigs::Side;
+use character_rigs::articulation::{
+	BONE_LENGTH_AXIS, TwoBoneAim, compose_parent_rotation, rotation_along_with_roll,
+};
+use character_rigs::authoring::{humanoid_bone_axis, humanoid_write_mask};
+use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use characters::{
 	AnimBone, AnimMailbox, AnimateBones, BoneMap, CharacterMembers, CharacterRoot, MailboxApplySet,
 	SuspendAnimation, mailbox_apply_allows,
 };
 use firearms::{FirearmMembers, FirearmRoot};
 
-use crate::pose::HeldFirearm;
 use crate::FirearmUser;
+use crate::pose::HeldFirearm;
 
 /// Body-rig marker: after locomotion, apply the firearm hold.
 #[derive(Component, Clone, Copy, Default)]
 pub struct HoldingArms;
+
+impl HoldingArms {
+	/// Bones this overlay writes. Same [`humanoid_write_mask`] family as clip
+	/// write masks and jab-guard arm isolation — not a second mask system.
+	pub const AFFECTED_BONES: &'static [&'static str] = &[
+		"lumbar",
+		"midback",
+		"upper_back",
+		"shoulder.L",
+		"humerus.L",
+		"forearm.L",
+		"shoulder.R",
+		"humerus.R",
+		"forearm.R",
+	];
+
+	pub fn write_mask() -> u32 {
+		humanoid_write_mask(Self::AFFECTED_BONES)
+	}
+}
 
 /// Point the trigger hand at `trigger_point` and the support hand at the grip socket.
 pub fn sync_hands_to_firearm(
@@ -73,7 +93,6 @@ pub fn sync_hands_to_firearm(
 			});
 			drop(current);
 			let mut bones = transforms.p1();
-			rig.pose.copy_from(mailbox.base_pose());
 			pose_firing_torso(&mut rig, settings.firing_torso_yaw);
 			let right = arm_reach(&rig, Side::Right, right_target, settings.right_pole, 1.0);
 			let left = arm_reach(
@@ -340,17 +359,7 @@ fn write_hold_bones(
 	map: &BoneMap,
 	bones: &mut Query<(&AnimBone, &mut Transform), (Without<AnimMailbox>, Without<CharacterRoot>)>,
 ) {
-	for name in [
-		"lumbar",
-		"midback",
-		"upper_back",
-		"shoulder.L",
-		"humerus.L",
-		"forearm.L",
-		"shoulder.R",
-		"humerus.R",
-		"forearm.R",
-	] {
+	for name in HoldingArms::AFFECTED_BONES {
 		write_bone(rig, map, bones, name);
 	}
 }
@@ -562,6 +571,55 @@ mod tests {
 		assert!(yaw("lumbar") > 0.0);
 		assert!(yaw("midback") > yaw("lumbar"));
 		assert!(yaw("upper_back") > yaw("midback"));
+		Ok(())
+	}
+
+	#[test]
+	fn hold_mask_reuses_humanoid_write_bits() {
+		let mask = HoldingArms::write_mask();
+		assert_ne!(mask, 0);
+		assert_eq!(mask, humanoid_write_mask(HoldingArms::AFFECTED_BONES));
+	}
+
+	#[test]
+	fn hold_from_working_pose_matches_legacy_copy_from_base() -> anyhow::Result<()> {
+		let mut mailbox = AnimMailbox::new(Transform::IDENTITY);
+		let mut rig = HumanoidV0Rig::imported();
+		mailbox.output = rig.pose.clone();
+		mailbox.posed = true;
+		let mut legacy = rig.clone();
+		legacy.pose.copy_from(mailbox.base_pose());
+		pose_firing_torso(&mut legacy, settings().firing_torso_yaw);
+		mailbox.init_working_pose(&mut rig.pose);
+		pose_firing_torso(&mut rig, settings().firing_torso_yaw);
+		anyhow::ensure!(
+			legacy.pose.local == rig.pose.local,
+			"InitWorking then overlay must match copy_from(base) then overlay"
+		);
+		anyhow::ensure!(
+			mailbox.base_pose().local != rig.pose.local,
+			"hold overlay must change the working pose"
+		);
+		anyhow::ensure!(
+			mailbox.output.local == mailbox.base_pose().local,
+			"hold overlay must not write mailbox output"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn sync_hands_does_not_contaminate_mailbox_base() -> anyhow::Result<()> {
+		let mut world = hold_world()?;
+		let body = world
+			.query_filtered::<Entity, With<HoldingArms>>()
+			.single(&world)
+			.map_err(|_| anyhow::anyhow!("missing body"))?;
+		let before = world.get::<AnimMailbox>(body).expect("mailbox").output.clone();
+		world
+			.run_system_once(sync_hands_to_firearm)
+			.map_err(|err| anyhow::anyhow!("{err}"))?;
+		let after = world.get::<AnimMailbox>(body).expect("mailbox").output.clone();
+		anyhow::ensure!(before.local == after.local, "firearm overlay must not write cached base");
 		Ok(())
 	}
 
