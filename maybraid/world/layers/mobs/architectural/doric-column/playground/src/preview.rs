@@ -4,7 +4,13 @@ use doric_column::{spawn_doric_column_encounter, spawn_doric_column_summon, Dori
 #[derive(Component)]
 pub struct PreviewRoot;
 
+#[derive(Component)]
+pub struct CaptureKitColumn;
+
 pub fn spawn_preview(mut commands: Commands) {
+	if crate::capture::CaptureSession::from_env().is_some() {
+		return;
+	}
 	let encounter = DoricColumnSpec::default();
 	spawn_doric_column_encounter(
 		&mut commands,

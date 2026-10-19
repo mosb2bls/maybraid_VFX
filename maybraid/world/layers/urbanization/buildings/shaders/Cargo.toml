@@ -13,5 +13,8 @@ rust-version = { workspace = true }
 bevy = { workspace = true }
 material-ref = { workspace = true }
 
+[dev-dependencies]
+anyhow = { workspace = true }
+
 [lints]
 workspace = true

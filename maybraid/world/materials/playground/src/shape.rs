@@ -24,6 +24,10 @@ pub enum PreviewShape {
 	Cards,
 	/// Core + shell + ring stacked at one origin.
 	Blast,
+	/// Open Doric shaft (UV / tangent contract for column POM).
+	Cylinder,
+	/// Open tapered Doric shaft (authored D = 1, #1144 `DoricColumnRatios`).
+	Taper,
 }
 
 impl PreviewShape {
@@ -36,6 +40,8 @@ impl PreviewShape {
 			Self::Ring => "ring",
 			Self::Cards => "cards",
 			Self::Blast => "blast",
+			Self::Cylinder => "cylinder",
+			Self::Taper => "taper",
 		}
 	}
 
@@ -73,6 +79,8 @@ pub struct PlaygroundMeshes {
 	pub shell: Handle<Mesh>,
 	pub ring: Handle<Mesh>,
 	pub card: Handle<Mesh>,
+	pub cylinder: Handle<Mesh>,
+	pub taper: Handle<Mesh>,
 }
 
 impl PlaygroundMeshes {
@@ -91,6 +99,8 @@ impl PlaygroundMeshes {
 			shell: meshes.add(Sphere::new(SHELL_R).mesh().ico(2).expect("shell ico")),
 			ring: meshes.add(Annulus::new(RING_INNER, RING_OUTER).mesh().resolution(48)),
 			card: meshes.add(Rectangle::new(CARD_W, CARD_H)),
+			cylinder: meshes.add(building_shaders::placeholder_shaft_mesh()),
+			taper: meshes.add(building_shaders::placeholder_tapered_shaft_mesh()),
 		}
 	}
 
@@ -101,6 +111,8 @@ impl PlaygroundMeshes {
 			PreviewShape::Core => Some(self.core.clone()),
 			PreviewShape::Shell => Some(self.shell.clone()),
 			PreviewShape::Ring => Some(self.ring.clone()),
+			PreviewShape::Cylinder => Some(self.cylinder.clone()),
+			PreviewShape::Taper => Some(self.taper.clone()),
 			PreviewShape::Cards | PreviewShape::Blast => None,
 		}
 	}
