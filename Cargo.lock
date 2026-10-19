@@ -7017,7 +7017,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-spatial-rumble"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -9029,6 +9029,7 @@ dependencies = [
  "characters",
  "lod",
  "maybraid-character-controller",
+ "maybraid-spatial-rumble",
  "player",
 ]
 
@@ -10927,7 +10928,7 @@ dependencies = [
 
 [[package]]
 name = "spatial-rumble-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "maybraid-input",
