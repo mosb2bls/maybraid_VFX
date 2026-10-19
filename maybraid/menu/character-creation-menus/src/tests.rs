@@ -949,3 +949,85 @@ fn saved_menu_can_drop_after_appearance_lock() -> anyhow::Result<()> {
 	assert_eq!(inventory.clothing, vec![0]);
 	Ok(())
 }
+
+#[test]
+fn default_character_menu_uses_braidman_preview_without_recursing() {
+	use characters::ConceptAnimation;
+
+	let from_default = CharacterMenu::default();
+	let explicit = CharacterMenu::from_braidman(
+		&BraidmanConfig::default_preview(),
+		ConceptAnimation::default(),
+	);
+	assert_eq!(from_default, explicit);
+	assert_eq!(from_default.species.value, ConceptSpecies::Braidman);
+	assert!(from_default.name.is_empty());
+	assert!(from_default.inventory.is_none());
+	assert!(!from_default.appearance_locked);
+}
+
+#[test]
+fn from_species_constructors_set_selected_and_keep_inactive_defaults() {
+	use characters::{
+		presets::GenderPreset,
+		species::{
+			brenal::{BrenalConfig, BrenalHornMesh},
+			grener::{GrenerBodyColor, GrenerConfig},
+			tuberwaber::TuberwaberConfig,
+		},
+		ConceptAnimation,
+	};
+
+	use crate::characters::brenal::BrenalMenu;
+
+	let mut brenal_config = BrenalConfig::default_preview();
+	brenal_config.horns = BrenalHornMesh::HarrowedCrown;
+	let menu = CharacterMenu::from_brenal(&brenal_config, ConceptAnimation::Run);
+	assert_eq!(menu.species.value, ConceptSpecies::Brenal);
+	assert_eq!(menu.brenal_config().horns, BrenalHornMesh::HarrowedCrown);
+	assert_eq!(menu.animation(), ConceptAnimation::Run);
+	assert_eq!(menu.braidman, BraidmanMenu::default());
+	assert_eq!(menu.tuberwaber, TuberwaberMenu::default());
+	assert!(menu.name.is_empty());
+	assert!(menu.inventory.is_none());
+	assert!(!menu.appearance_locked);
+
+	let mut tuber = TuberwaberConfig::default_preview();
+	tuber.gender = GenderPreset::Male;
+	let menu = CharacterMenu::from_tuberwaber(&tuber, ConceptAnimation::Walk);
+	assert_eq!(menu.species.value, ConceptSpecies::Tuberwaber);
+	assert_eq!(menu.tuberwaber_config().gender, GenderPreset::Male);
+	assert_eq!(menu.animation(), ConceptAnimation::Walk);
+	assert_eq!(menu.braidman, BraidmanMenu::default());
+	assert_eq!(menu.brenal, BrenalMenu::default());
+
+	let mut grener = GrenerConfig::default_preview();
+	grener.colors.body = GrenerBodyColor::Steel;
+	let menu = CharacterMenu::from_grener(&grener, ConceptAnimation::Still);
+	assert_eq!(menu.species.value, ConceptSpecies::Grener);
+	assert_eq!(menu.grener_config().colors.body, GrenerBodyColor::Steel);
+	assert_eq!(menu.braidman, BraidmanMenu::default());
+	assert_eq!(menu.brenal, BrenalMenu::default());
+}
+
+#[test]
+fn switching_species_keeps_per_species_edits() {
+	use crate::CharacterField;
+
+	let mut menu = CharacterMenu::default();
+	let braidman_before = menu.braidman.body.value.sliders.shoulder_width.value;
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::ShoulderWidth, 0.15)));
+	let braidman_after = menu.braidman.body.value.sliders.shoulder_width.value;
+	assert_ne!(braidman_before, braidman_after);
+
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Brenal)));
+	assert_eq!(menu.braidman.body.value.sliders.shoulder_width.value, braidman_after);
+	let brenal_before = menu.brenal.body.value.sliders.shoulder_width.value;
+	assert!(menu.apply(MenuEvent::SliderDelta(CharacterField::ShoulderWidth, 0.1)));
+	let brenal_after = menu.brenal.body.value.sliders.shoulder_width.value;
+	assert_ne!(brenal_before, brenal_after);
+
+	assert!(menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Braidman)));
+	assert_eq!(menu.braidman.body.value.sliders.shoulder_width.value, braidman_after);
+	assert_eq!(menu.brenal.body.value.sliders.shoulder_width.value, brenal_after);
+}
