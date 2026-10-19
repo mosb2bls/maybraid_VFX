@@ -7081,6 +7081,7 @@ dependencies = [
  "maybraid-sky",
  "maybraid-vfx",
  "maybraid-weather",
+ "maybraid-world-controller",
  "meandering-intelligence",
  "menu-components",
  "mob-characters",
@@ -7113,6 +7114,14 @@ dependencies = [
  "vegetation-layer-model",
  "world-materials",
  "world-player",
+]
+
+[[package]]
+name = "maybraid-world-controller"
+version = "0.1.3"
+dependencies = [
+ "anyhow",
+ "bevy",
 ]
 
 [[package]]
