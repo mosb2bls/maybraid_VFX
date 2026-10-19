@@ -10,10 +10,10 @@ use characters::{
 use damage::Health;
 use player::{MoveSpeedCap, MoveWish, PlayerLook};
 
-use crate::actions::{TanzAction, dash_ground_speed};
+use crate::actions::{dash_ground_speed, TanzAction};
 use crate::input::TanzInput;
 use crate::stack::{TanzId, TanzStack};
-use crate::{ControlMode, TanzUser, look_wish, look_yaw};
+use crate::{look_wish, look_yaw, ControlMode, TanzDefinitionExt, TanzUser};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TanzPhase {
@@ -283,9 +283,9 @@ pub fn drive_tanz_animation(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::TanzUser;
 	use crate::actions::TanzAction;
 	use crate::input::TanzButton;
+	use crate::TanzUser;
 
 	fn input(user: Entity, direction: Vec2, button: TanzButton) -> TanzInput {
 		TanzInput { user, direction, magnitude: 0.9, coherence: 1.0, button }
@@ -350,11 +350,10 @@ mod tests {
 			.id();
 		app.world_mut().write_message(input(user, Vec2::ZERO, TanzButton::APress));
 		app.update();
-		assert!(
-			app.world()
-				.get::<TanzExecution>(user)
-				.is_some_and(|execution| execution.active.is_none())
-		);
+		assert!(app
+			.world()
+			.get::<TanzExecution>(user)
+			.is_some_and(|execution| execution.active.is_none()));
 		Ok(())
 	}
 

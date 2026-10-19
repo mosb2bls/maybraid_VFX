@@ -156,7 +156,9 @@ pub fn sync_tanz_callout_hud(
 	for mut color in &mut panels {
 		color.0 = Color::srgba(0.05, 0.05, 0.08, 0.55 * alpha);
 	}
-	let handle = icons.as_ref().and_then(|cache| cache.silhouette(&view.id.capture_id()));
+	let handle = icons
+		.as_ref()
+		.and_then(|cache| cache.silhouette(&crate::TanzPose(view.id).capture_id()));
 	for (mut image, mut node) in &mut image_nodes {
 		if let Some(handle) = handle.clone() {
 			image.image = handle;
@@ -178,13 +180,14 @@ pub fn sync_tanz_callout_hud(
 #[cfg(test)]
 mod tests {
 	use crate::stack::TanzId;
+	use crate::TanzPose;
 	use item_icons::ItemIconCache;
 	use screen_capture::{CaptureId, CaptureMode, CaptureSubject};
 
 	#[test]
 	fn callout_icon_stays_hidden_until_the_cache_has_a_handle() {
 		let cache = ItemIconCache::default();
-		assert!(cache.silhouette(&TanzId::ForwardDash.capture_id()).is_none());
+		assert!(cache.silhouette(&TanzPose(TanzId::ForwardDash).capture_id()).is_none());
 		assert!(!cache.failed(&CaptureId::new("unused"), CaptureMode::Silhouette));
 	}
 }

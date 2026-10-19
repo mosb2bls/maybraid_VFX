@@ -137,7 +137,7 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		let changed = match slot {
 			InventorySlot::Weapons => false,
 			InventorySlot::Skills => bag.cycle_skills(dir),
-			InventorySlot::Clothing => false,
+			InventorySlot::Clothing | InventorySlot::Tanzes => false,
 		};
 		if !changed {
 			continue;
@@ -227,6 +227,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: Vec::new(),
 			skills: vec![0, 1],
+			tanzes: Vec::new(),
 		};
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
@@ -268,6 +269,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: Vec::new(),
 			skills: vec![0, 1],
+			tanzes: Vec::new(),
 		};
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();

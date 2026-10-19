@@ -93,6 +93,12 @@ impl ItemIconCache {
 		self.silhouette_by_key.get(&key).cloned()
 	}
 
+	/// Catalog tiles prefer a shaded still and fall back to a silhouette
+	/// (Self Lubikan and Tanz pose icons).
+	pub fn catalog_for_key(&self, key: u64) -> Option<Handle<Image>> {
+		self.shaded_for_key(key).or_else(|| self.silhouette_for_key(key))
+	}
+
 	pub fn silhouette_for_item(&self, item: &InventoryItem) -> Option<Handle<Image>> {
 		self.silhouette(&CaptureId::new(item.capture_id_label()?))
 	}
@@ -241,6 +247,7 @@ impl InventoryItemSubject {
 				scene: CaptureScene::image(Handle::default()),
 				view: CaptureView::unused(),
 			}),
+			InventoryItem::Tanz { .. } => None,
 		}
 	}
 }
@@ -414,7 +421,7 @@ pub fn pending_inventory_icons(
 			continue;
 		}
 		remember_item(subjects, item);
-		if matches!(item, InventoryItem::SkillMap { .. }) {
+		if matches!(item, InventoryItem::SkillMap { .. } | InventoryItem::Tanz { .. }) {
 			continue;
 		}
 		out.extend(item_icon_requests(item, lighting, revision));

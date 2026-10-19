@@ -503,7 +503,7 @@ fn spawn_item_host(
 			pin_capture_host(commands, entity, root);
 			true
 		}
-		InventoryItem::SkillMap { .. } => false,
+		InventoryItem::SkillMap { .. } | InventoryItem::Tanz { .. } => false,
 	}
 }
 

@@ -94,7 +94,7 @@ mod tests {
 	use super::*;
 	use crate::input::TanzButton;
 	use crate::stack::TanzStack;
-	use crate::{match_tanz_inputs, ControlMode, TanzInput, TanzUser};
+	use crate::{match_tanz_inputs, ControlMode, TanzDefinitionExt, TanzInput, TanzUser};
 
 	fn matching_input(user: Entity, id: TanzId) -> TanzInput {
 		let definition = id.definition();

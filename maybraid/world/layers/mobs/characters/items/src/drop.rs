@@ -21,9 +21,12 @@
 //!    mutation and remain delete-only. Tab still explodes the whole bag
 //!    through the stash module.
 //! 2. **Undroppable items.** Lubikans are not bag items (ledger + charge live
-//!    elsewhere). Starter items have no durable flag. Default allows equipped
-//!    items and an empty leftover bag. Flip [`InventoryDropPolicy::allow_equipped`]
-//!    or [`InventoryDropPolicy::allow_empty_bag`] when those rules exist.
+//!    elsewhere). Tanzes are ordinary bag items in the Tanzes slot and follow
+//!    this same placeholder policy (equipped drops are allowed; no extra
+//!    undroppable flag). Starter items have no durable flag. Default allows
+//!    equipped items and an empty leftover bag. Flip
+//!    [`InventoryDropPolicy::allow_equipped`] or
+//!    [`InventoryDropPolicy::allow_empty_bag`] when those rules exist.
 //! 3. **Confirm.** Default `require_confirm` is `true`. The domain does not
 //!    prompt; UI reads the flag. In-game pause edits skip the card because
 //!    the world pile is recoverable. Gallery / create still confirm.
@@ -236,6 +239,7 @@ mod tests {
 			clothing: vec![0],
 			weapons: vec![1, 2, 3],
 			skills: vec![4, 5],
+			tanzes: Vec::new(),
 		}
 	}
 
@@ -348,6 +352,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		};
 		let keep_last =
 			InventoryDropPolicy { allow_empty_bag: false, ..InventoryDropPolicy::PLACEHOLDER };

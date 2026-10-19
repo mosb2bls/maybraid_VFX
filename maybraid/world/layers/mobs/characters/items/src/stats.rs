@@ -513,6 +513,7 @@ mod tests {
 			clothing: vec![0],
 			weapons: vec![1],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		};
 		let sheet = CharacterSheet::from_inventory(&inventory);
 		assert_eq!(sheet.health, BASE_HEALTH + clothing_stats.health);

@@ -167,6 +167,7 @@ fn roll_crate_bag(finish_seed: u64) -> Inventory {
 		clothing: Vec::new(),
 		weapons: Vec::new(),
 		skills: Vec::new(),
+		tanzes: Vec::new(),
 	};
 	// Queue the firearm so the ground pile renders. Claim absorb ignores the queue.
 	let _ = bag.toggle(0);

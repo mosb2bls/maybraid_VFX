@@ -589,6 +589,7 @@ fn create_menu_skill_maps_is_ranked_grid_catalog() -> anyhow::Result<()> {
 	assert_eq!(choices[0].image_key, expected_key);
 	assert!(menu.overlay_editable("Inventory"));
 	assert!(menu.overlay_editable("Skill Maps"));
+	assert!(menu.overlay_editable("Tanzes"));
 	assert!(menu.apply(MenuEvent::ToggleInventory(0)));
 	let inventory = menu.inventory.as_ref().expect("create inventory");
 	assert_eq!(inventory.skills, vec![1]);
@@ -621,7 +622,7 @@ fn create_menu_inventory_is_one_section_with_four_headers() -> anyhow::Result<()
 			_ => None,
 		})
 		.collect();
-	assert_eq!(labels, ["Clothing", "Tools", "Skill Maps", "Lubikan"]);
+	assert_eq!(labels, ["Clothing", "Tools", "Skill Maps", "Tanzes", "Lubikan"]);
 	assert!(nodes
 		.iter()
 		.all(|node| !matches!(node, MenuNode::Section { label: "Weapons" | "Skill Maps", .. })));
@@ -772,6 +773,7 @@ fn saved_menu_locks_body_and_keeps_inventory() -> anyhow::Result<()> {
 	assert!(menu.overlay_editable("Clothing"));
 	assert!(menu.overlay_editable("Tools"));
 	assert!(menu.overlay_editable("Skill Maps"));
+	assert!(menu.overlay_editable("Tanzes"));
 	assert!(menu.overlay_editable("Lubikan"));
 	assert!(menu.overlay_editable("Loadout"));
 	assert!(!menu.apply(MenuEvent::SetSpecies(ConceptSpecies::Brodler)));

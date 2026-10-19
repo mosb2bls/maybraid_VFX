@@ -11,6 +11,7 @@ rust-version = { workspace = true }
 
 [dependencies]
 bevy = { workspace = true }
+character-items = { workspace = true }
 characters = { workspace = true }
 damage = { workspace = true }
 item-icons = { workspace = true }

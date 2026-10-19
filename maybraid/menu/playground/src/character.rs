@@ -9,7 +9,7 @@ use character_items::{self_lubikan_catalog_key, Inventory};
 use character_ui_menu::{AssetThumbnailDisplay, MenuComponent};
 use item_icons::{
 	request_inventory_icons, request_self_lubikan_icon, CaptureClient, ItemCaptureSubjects,
-	ItemIconCache, ItemIconDiscovery, ItemIconPlugin, ItemIconSystems,
+	ItemIconCache, ItemIconDiscovery, ItemIconPlugin, ItemIconSystems, PoseCaptureSubjects,
 };
 use maybraid_character_ui_menu_renderer::{
 	fill_inventory_layout, fill_inventory_loading, find_overlay_node, overlay_closes_on_pick,
@@ -34,6 +34,7 @@ use menu_screens::{
 	add_menu_show_systems, MenuScreen, MenuScreens, MenuShowRequest, SpinRevealItems,
 };
 use std::time::Duration;
+use tanz_user::request_inventory_tanz_icons;
 
 use crate::drop_prompt::CharacterDropPromptPlugin;
 use crate::leave_prompt::CharacterLeavePromptPlugin;
@@ -161,12 +162,7 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 	}
 
 	fn image_for_key(&mut self, key: u64) -> Option<Handle<Image>> {
-		let cache = self.icons?;
-		if key == self_lubikan_catalog_key() {
-			cache.silhouette_for_key(key)
-		} else {
-			cache.shaded_for_key(key)
-		}
+		self.icons?.catalog_for_key(key)
 	}
 
 	fn tint_for_key(&mut self, key: u64) -> Color {
@@ -683,15 +679,18 @@ fn discover_menu_item_icons(
 	spin_items: Option<Res<SpinRevealItems>>,
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut subjects: ResMut<ItemCaptureSubjects>,
+	mut poses: ResMut<PoseCaptureSubjects>,
 	mut client: CaptureClient,
 ) {
 	request_self_lubikan_icon(&mut discovery, &mut client);
 	if let Some(inventory) = menu_state.0.inventory.as_ref() {
 		request_inventory_icons(inventory, &mut discovery, &mut subjects, &mut client);
+		request_inventory_tanz_icons(inventory, &mut discovery, &mut poses, &mut client);
 	}
 	if let Some(spin) = spin_items.as_deref() {
 		let bag = Inventory { items: spin.0.clone(), ..Inventory::default() };
 		request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client);
+		request_inventory_tanz_icons(&bag, &mut discovery, &mut poses, &mut client);
 	}
 }
 

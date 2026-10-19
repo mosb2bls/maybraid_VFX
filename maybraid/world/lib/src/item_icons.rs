@@ -1,11 +1,13 @@
 //! World first-encounter: request icons when [`WorldPlayerLoadout`] changes.
 
 use bevy::prelude::*;
+use character_inventory_user::InventoryUser;
+use character_items::Inventory;
 use item_icons::{
-	request_inventory_icons, request_pose_icon, request_self_lubikan_icon, CaptureClient,
-	ItemCaptureSubjects, ItemIconDiscovery, ItemIconSystems, PoseCaptureSubjects,
+	request_inventory_icons, request_self_lubikan_icon, CaptureClient, ItemCaptureSubjects,
+	ItemIconDiscovery, ItemIconSystems, PoseCaptureSubjects,
 };
-use tanz_user::{TanzId, TanzStack};
+use tanz_user::request_inventory_tanz_icons;
 
 use crate::weapon::WorldPlayerLoadout;
 
@@ -46,31 +48,20 @@ fn discover_loadout_items(
 }
 
 fn discover_tanz_icons(
-	stacks: Query<&TanzStack>,
+	loadout: Option<Res<WorldPlayerLoadout>>,
+	users: Query<&InventoryUser>,
+	bags: Query<&Inventory>,
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut poses: ResMut<PoseCaptureSubjects>,
 	mut client: CaptureClient,
 ) {
-	for id in TanzId::STARTER {
-		request_pose_icon(
-			&id,
-			id.definition().clip,
-			id.definition().clip.representative_progress(),
-			&mut discovery,
-			&mut poses,
-			&mut client,
-		);
+	if let Some(loadout) = loadout.as_deref() {
+		request_inventory_tanz_icons(&loadout.inventory, &mut discovery, &mut poses, &mut client);
 	}
-	for stack in &stacks {
-		for id in stack.equipped.iter().copied() {
-			request_pose_icon(
-				&id,
-				id.definition().clip,
-				id.definition().clip.representative_progress(),
-				&mut discovery,
-				&mut poses,
-				&mut client,
-			);
-		}
+	for user in &users {
+		let Ok(bag) = bags.get(user.bag) else {
+			continue;
+		};
+		request_inventory_tanz_icons(bag, &mut discovery, &mut poses, &mut client);
 	}
 }

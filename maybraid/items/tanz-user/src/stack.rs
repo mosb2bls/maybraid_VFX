@@ -8,53 +8,20 @@ use characters::AnimClip;
 use crate::actions::{forward_dash, healing_salute, left_strafe, right_strafe};
 use crate::input::{TanzButton, TanzInput};
 
-/// Starter Tanz identities. Priority is equipment order, not this enum order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TanzId {
-	HealingSalute,
-	LeftStrafe,
-	RightStrafe,
-	ForwardDash,
+pub use character_items::TanzId;
+
+/// Gameplay interpretation of the shared [`TanzId`].
+pub trait TanzDefinitionExt {
+	fn definition(self) -> TanzDefinition;
 }
 
-impl TanzId {
-	pub const STARTER: [Self; 4] =
-		[Self::HealingSalute, Self::LeftStrafe, Self::RightStrafe, Self::ForwardDash];
-
-	pub fn definition(self) -> TanzDefinition {
+impl TanzDefinitionExt for TanzId {
+	fn definition(self) -> TanzDefinition {
 		match self {
 			Self::HealingSalute => healing_salute(),
 			Self::LeftStrafe => left_strafe(),
 			Self::RightStrafe => right_strafe(),
 			Self::ForwardDash => forward_dash(),
-		}
-	}
-
-	pub fn script_id(self) -> &'static str {
-		match self {
-			Self::HealingSalute => "healing_salute",
-			Self::LeftStrafe => "left_strafe",
-			Self::RightStrafe => "right_strafe",
-			Self::ForwardDash => "forward_dash",
-		}
-	}
-
-	pub fn from_script_id(raw: &str) -> Option<Self> {
-		match raw.trim().to_ascii_lowercase().as_str() {
-			"healing_salute" | "salute" => Some(Self::HealingSalute),
-			"left_strafe" | "left" => Some(Self::LeftStrafe),
-			"right_strafe" | "right" => Some(Self::RightStrafe),
-			"forward_dash" | "dash" | "forward" => Some(Self::ForwardDash),
-			_ => None,
-		}
-	}
-
-	pub fn display_name(self) -> &'static str {
-		match self {
-			Self::HealingSalute => "Healing Salute",
-			Self::LeftStrafe => "Left Strafe",
-			Self::RightStrafe => "Right Strafe",
-			Self::ForwardDash => "Forward Dash",
 		}
 	}
 }
@@ -122,7 +89,7 @@ pub struct TanzDefinition {
 	pub clip: AnimClip,
 }
 
-/// Equipped Tanzes, highest priority first.
+/// Equipped Tanzes, highest priority first. Derived from inventory at runtime.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct TanzStack {
 	pub equipped: Vec<TanzId>,
