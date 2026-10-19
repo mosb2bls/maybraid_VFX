@@ -38,7 +38,7 @@ pub use elevation::{
 };
 pub use mailbox::{
 	apply_anim_mailbox, prepare_anim_mailbox, select_mailbox_applies, tick_anim_mailbox, AnimBone,
-	AnimMailbox, AnimProgress, MailboxApplyLimits, MailboxApplySet,
+	AnimMailbox, AnimProgress, MailboxApplyLimits, MailboxApplySet, mailbox_apply_allows,
 };
 pub use markers::{
 	AnimateBones, AnimateEffects, ApplyTerrainPitch, SuspendAnimation, SuspendTerrainPitch,

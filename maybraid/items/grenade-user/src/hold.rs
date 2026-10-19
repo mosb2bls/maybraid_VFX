@@ -13,7 +13,8 @@ use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use character_rigs::Side;
 use characters::{
 	AnimBone, AnimMailbox, AnimateBones, BoneMap, CharacterHeading, CharacterMembers, CharacterRig,
-	CharacterRigRole, CharacterRoot, RigSkeletonKind, SuspendAnimation,
+	CharacterRigRole, CharacterRoot, MailboxApplySet, RigSkeletonKind, SuspendAnimation,
+	mailbox_apply_allows,
 };
 use firearm_user::{HoldingArms, WeaponSwap};
 use grenades::{grenade_material, grenade_mesh, GrenadeMaterial};
@@ -141,6 +142,7 @@ pub fn apply_grenade_swap_pose(
 }
 
 pub fn sync_throw_arm(
+	set: Option<Res<MailboxApplySet>>,
 	users: Query<(&GrenadeUser, &GrenadeThrow, Has<WeaponSwap>)>,
 	carriers: Query<&InventoryUser>,
 	bags: Query<&Inventory>,
@@ -149,7 +151,7 @@ pub fn sync_throw_arm(
 		(With<CharacterRoot>, Without<AnimBone>),
 	>,
 	mut rigs: Query<
-		(&mut HumanoidV0Rig, &BoneMap, &AnimMailbox),
+		(Entity, &mut HumanoidV0Rig, &BoneMap, &AnimMailbox),
 		(With<HoldingGrenade>, With<AnimateBones>, Without<SuspendAnimation>),
 	>,
 	mut transforms: ParamSet<(
@@ -180,14 +182,17 @@ pub fn sync_throw_arm(
 		let target = OverhandThrow::reach_at(t);
 		let pole = OverhandThrow::pole();
 		for member in members.iter() {
-			let Ok((mut rig, map, mailbox)) = rigs.get_mut(member) else {
+			if !mailbox_apply_allows(set.as_deref(), member) {
+				continue;
+			}
+			let Ok((_entity, mut rig, map, mailbox)) = rigs.get_mut(member) else {
 				continue;
 			};
 			if !mailbox.posed {
 				continue;
 			}
 			let mut bones = transforms.p1();
-			rig.pose.copy_from(&mailbox.output);
+			rig.pose.copy_from(mailbox.base_pose());
 			if let Some(reach) = throw_arm_reach(&rig, Side::Right, target, pole) {
 				reset_arm_to_rest(&mut rig, map, &bones, Side::Right);
 				pose_throw_arm(&mut rig, Side::Right, reach);
@@ -427,6 +432,8 @@ fn write_throw_bones(
 
 #[cfg(test)]
 mod tests {
+	use std::collections::HashMap;
+
 	use bevy::ecs::system::RunSystemOnce;
 
 	use super::*;
@@ -446,6 +453,40 @@ mod tests {
 		world
 			.run_system_once(sync_throw_arm)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		Ok(())
+	}
+
+	#[test]
+	fn sync_throw_arm_honors_mailbox_apply_set() -> anyhow::Result<()> {
+		use std::collections::HashSet;
+
+		let mut world = World::new();
+		world.init_resource::<MailboxApplySet>();
+		let mut rig = HumanoidV0Rig::imported();
+		let mut mailbox = AnimMailbox::new(Transform::IDENTITY);
+		mailbox.posed = true;
+		mailbox.output = rig.pose.clone();
+		let body = world
+			.spawn((
+				HoldingGrenade,
+				AnimateBones,
+				rig,
+				mailbox,
+				BoneMap { by_name: HashMap::new() },
+			))
+			.id();
+		world.resource_mut::<MailboxApplySet>().only = Some(HashSet::new());
+		anyhow::ensure!(
+			!mailbox_apply_allows(world.get_resource::<MailboxApplySet>(), body),
+			"grenade overlay must skip when host is not in MailboxApplySet"
+		);
+		let mut selected = HashSet::new();
+		selected.insert(body);
+		world.resource_mut::<MailboxApplySet>().only = Some(selected);
+		anyhow::ensure!(
+			mailbox_apply_allows(world.get_resource::<MailboxApplySet>(), body),
+			"grenade overlay must run when host is selected"
+		);
 		Ok(())
 	}
 
