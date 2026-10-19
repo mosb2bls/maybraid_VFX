@@ -1,8 +1,10 @@
 //! Environment-weighted group selection over 400 m generation bounds.
 
+use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use mob_characters::FromMobNumber;
 use mob_scenes::{MobKind, MobScene};
+use urbanization_cells::UrbanizationKind;
 
 pub const DEFAULT_GROUP_EXTENT: f32 = 400.0;
 /// Same agent disk as High fulfill / death replace ([#738](https://github.com/ramate-io/maybraid/issues/738)).
@@ -15,11 +17,66 @@ pub struct MobEnvironmentSample {
 	pub vegetation: f32,
 }
 
+impl MobEnvironmentSample {
+	/// 0–1 urbanization intensity used when sampling mobs at a point.
+	pub(crate) fn urbanization_weight(kind: UrbanizationKind) -> f32 {
+		match kind {
+			UrbanizationKind::None => 0.0,
+			UrbanizationKind::RuralLife => 0.2,
+			UrbanizationKind::Frontier => 0.4,
+			UrbanizationKind::Townships => 0.55,
+			UrbanizationKind::Colony => 0.7,
+			UrbanizationKind::MixedAgeCity => 0.85,
+			UrbanizationKind::ModernCity => 1.0,
+		}
+	}
+}
+
 /// Type-erased plant anchor. World supplies building / urban-leaf disks.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MobPlantHost {
 	pub xz: Vec2,
 	pub arrival_radius: f32,
+}
+
+impl MobPlantHost {
+	/// Host at the XZ center of an urban leaf, with the leaf's arrival disk.
+	pub(crate) fn from_bounds(bounds: Aabb3d) -> Self {
+		Self {
+			xz: Vec2::new((bounds.min.x + bounds.max.x) * 0.5, (bounds.min.z + bounds.max.z) * 0.5),
+			arrival_radius: Self::arrival_radius_for_bounds(bounds),
+		}
+	}
+
+	pub(crate) fn arrival_radius_for_bounds(bounds: Aabb3d) -> f32 {
+		((bounds.max.x - bounds.min.x).min(bounds.max.z - bounds.min.z) * 0.25).clamp(8.0, 128.0)
+	}
+
+	/// Hosts a group of `extent` around `origin` can reach.
+	pub(crate) fn near(hosts: &[Self], origin: Vec2, extent: f32) -> Vec<Self> {
+		let half = extent * 0.5;
+		hosts
+			.iter()
+			.copied()
+			.filter(|host| {
+				(host.xz.x - origin.x).abs() <= half + host.arrival_radius
+					&& (host.xz.y - origin.y).abs() <= half + host.arrival_radius
+			})
+			.collect()
+	}
+
+	fn pick<'a>(hosts: &'a [Self], rng: &mut GroupRng) -> Option<&'a Self> {
+		if hosts.is_empty() {
+			return None;
+		}
+		Some(&hosts[rng.next() as usize % hosts.len()])
+	}
+
+	fn jittered_xz(self, rng: &mut GroupRng) -> Vec2 {
+		let angle = rng.unit() * std::f32::consts::TAU;
+		let radius = self.arrival_radius.max(0.0) * rng.unit().sqrt();
+		self.xz + Vec2::from_angle(angle) * radius
+	}
 }
 
 /// Runtime adapter seam for Richmond development and Chico vegetation models.
@@ -54,12 +111,83 @@ impl GroupKind {
 		matches!(self, Self::Frontier | Self::Warfront | Self::Dystopian)
 	}
 
+	/// Group thrown from an urbanization kind and the cell's group seed.
+	pub fn from_urbanization(kind: UrbanizationKind, seed: u64) -> Self {
+		match kind {
+			UrbanizationKind::None => Self::Wild,
+			UrbanizationKind::RuralLife => Self::Peaceful,
+			UrbanizationKind::Townships | UrbanizationKind::Frontier => Self::Frontier,
+			UrbanizationKind::Colony => Self::Warfront,
+			UrbanizationKind::MixedAgeCity => {
+				if crate::index::mixed(seed) & 1 == 0 {
+					Self::Warfront
+				} else {
+					Self::Dystopian
+				}
+			}
+			UrbanizationKind::ModernCity => Self::Dystopian,
+		}
+	}
+
 	pub const fn count_range(self) -> (usize, usize) {
 		match self {
 			Self::Wild => (2, 8),
 			Self::Peaceful | Self::Frontier | Self::Warfront | Self::Dystopian => (2, 12),
 			Self::Placed => (0, 0),
 		}
+	}
+
+	fn plants_on_urban_host(self, kind: MobKind) -> bool {
+		self.needs_plant_hosts()
+			&& matches!(kind, MobKind::Guard | MobKind::Brawler | MobKind::Pleb)
+	}
+
+	fn choose_mob(self, sample: MobEnvironmentSample, rng: &mut GroupRng) -> MobKind {
+		let urban = sample.urbanization.clamp(0.0, 1.0);
+		let vegetation = sample.vegetation.clamp(0.0, 1.0);
+		let weights: &[(MobKind, f32)] = match self {
+			Self::Peaceful => &[
+				(MobKind::Pleb, 0.2 + urban * 4.0),
+				(MobKind::Herd, 0.2 + vegetation * 4.0),
+				(MobKind::Rambles, 0.35),
+			],
+			Self::Wild => &[
+				(MobKind::Raider, 0.7 + urban),
+				(MobKind::Herd, 0.7 + vegetation),
+				(MobKind::Pack, 0.65 + vegetation),
+				(MobKind::Rambles, 0.7),
+			],
+			Self::Frontier => &[
+				(MobKind::Guard, 0.2 + urban * 2.2),
+				(MobKind::Raider, 0.2 + urban * 1.8),
+				(MobKind::Brawler, 0.15 + urban * 1.5),
+				(MobKind::Herd, 0.2 + vegetation * 2.0),
+				(MobKind::Pack, 0.15 + vegetation * 1.4),
+			],
+			Self::Warfront => &[
+				(MobKind::Guard, 0.2 + urban * 2.0),
+				(MobKind::Raider, 0.2 + urban * 2.0),
+				(MobKind::Pleb, 0.2 + urban),
+				(MobKind::Brawler, 0.2 + urban * 1.5),
+				(MobKind::Herd, 0.15 + vegetation),
+				(MobKind::Pack, 0.2 + vegetation * 1.5),
+			],
+			Self::Dystopian => &[
+				(MobKind::Guard, 0.25 + urban * 3.0),
+				(MobKind::Pleb, 0.25 + urban * 2.2),
+				(MobKind::Herd, 0.15 + vegetation * 2.0),
+			],
+			Self::Placed => &[(MobKind::Brawler, 1.0)],
+		};
+		let total: f32 = weights.iter().map(|(_, weight)| *weight).sum();
+		let mut throw = rng.unit() * total;
+		for (kind, weight) in weights {
+			if throw <= *weight {
+				return *kind;
+			}
+			throw -= *weight;
+		}
+		weights.last().map(|(kind, _)| *kind).unwrap_or(MobKind::Rambles)
 	}
 }
 
@@ -113,10 +241,10 @@ impl MobGroup {
 			let Some(mut elevation) = environment.elevation else {
 				continue;
 			};
-			let mob_kind = choose_mob(kind, environment, &mut rng);
-			if plants_on_urban_host(kind, mob_kind) {
-				if let Some(host) = pick_host(&hosts, &mut rng) {
-					xz = jitter_on_host(host, &mut rng);
+			let mob_kind = kind.choose_mob(environment, &mut rng);
+			if kind.plants_on_urban_host(mob_kind) {
+				if let Some(host) = MobPlantHost::pick(&hosts, &mut rng) {
+					xz = host.jittered_xz(&mut rng);
 					environment = world.sample_mobs(xz);
 					elevation = environment.elevation.unwrap_or(elevation);
 				}
@@ -142,71 +270,6 @@ impl MobGroup {
 			.map(|placed| placed.scene.spawn(commands, placed.transform))
 			.collect()
 	}
-}
-
-fn choose_mob(group: GroupKind, sample: MobEnvironmentSample, rng: &mut GroupRng) -> MobKind {
-	let urban = sample.urbanization.clamp(0.0, 1.0);
-	let vegetation = sample.vegetation.clamp(0.0, 1.0);
-	let weights: &[(MobKind, f32)] = match group {
-		GroupKind::Peaceful => &[
-			(MobKind::Pleb, 0.2 + urban * 4.0),
-			(MobKind::Herd, 0.2 + vegetation * 4.0),
-			(MobKind::Rambles, 0.35),
-		],
-		GroupKind::Wild => &[
-			(MobKind::Raider, 0.7 + urban),
-			(MobKind::Herd, 0.7 + vegetation),
-			(MobKind::Pack, 0.65 + vegetation),
-			(MobKind::Rambles, 0.7),
-		],
-		GroupKind::Frontier => &[
-			(MobKind::Guard, 0.2 + urban * 2.2),
-			(MobKind::Raider, 0.2 + urban * 1.8),
-			(MobKind::Brawler, 0.15 + urban * 1.5),
-			(MobKind::Herd, 0.2 + vegetation * 2.0),
-			(MobKind::Pack, 0.15 + vegetation * 1.4),
-		],
-		GroupKind::Warfront => &[
-			(MobKind::Guard, 0.2 + urban * 2.0),
-			(MobKind::Raider, 0.2 + urban * 2.0),
-			(MobKind::Pleb, 0.2 + urban),
-			(MobKind::Brawler, 0.2 + urban * 1.5),
-			(MobKind::Herd, 0.15 + vegetation),
-			(MobKind::Pack, 0.2 + vegetation * 1.5),
-		],
-		GroupKind::Dystopian => &[
-			(MobKind::Guard, 0.25 + urban * 3.0),
-			(MobKind::Pleb, 0.25 + urban * 2.2),
-			(MobKind::Herd, 0.15 + vegetation * 2.0),
-		],
-		GroupKind::Placed => &[(MobKind::Brawler, 1.0)],
-	};
-	let total: f32 = weights.iter().map(|(_, weight)| *weight).sum();
-	let mut throw = rng.unit() * total;
-	for (kind, weight) in weights {
-		if throw <= *weight {
-			return *kind;
-		}
-		throw -= *weight;
-	}
-	weights.last().map(|(kind, _)| *kind).unwrap_or(MobKind::Rambles)
-}
-
-fn plants_on_urban_host(group: GroupKind, kind: MobKind) -> bool {
-	group.needs_plant_hosts() && matches!(kind, MobKind::Guard | MobKind::Brawler | MobKind::Pleb)
-}
-
-fn pick_host<'a>(hosts: &'a [MobPlantHost], rng: &mut GroupRng) -> Option<&'a MobPlantHost> {
-	if hosts.is_empty() {
-		return None;
-	}
-	Some(&hosts[rng.next() as usize % hosts.len()])
-}
-
-fn jitter_on_host(host: &MobPlantHost, rng: &mut GroupRng) -> Vec2 {
-	let angle = rng.unit() * std::f32::consts::TAU;
-	let radius = host.arrival_radius.max(0.0) * rng.unit().sqrt();
-	host.xz + Vec2::from_angle(angle) * radius
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -269,15 +332,7 @@ mod tests {
 
 	impl MobWorldHosts for HostedWorld {
 		fn plant_hosts(&self, origin: Vec2, extent: f32) -> Vec<MobPlantHost> {
-			let half = extent * 0.5;
-			self.hosts
-				.iter()
-				.copied()
-				.filter(|host| {
-					(host.xz.x - origin.x).abs() <= half + host.arrival_radius
-						&& (host.xz.y - origin.y).abs() <= half + host.arrival_radius
-				})
-				.collect()
+			MobPlantHost::near(&self.hosts, origin, extent)
 		}
 	}
 
@@ -351,6 +406,39 @@ mod tests {
 		assert!(!GroupKind::Peaceful.needs_plant_hosts());
 		assert!(!GroupKind::Wild.needs_plant_hosts());
 		assert!(!GroupKind::Placed.needs_plant_hosts());
+	}
+
+	#[test]
+	fn group_kind_follows_urbanization() {
+		assert_eq!(GroupKind::from_urbanization(UrbanizationKind::None, 1), GroupKind::Wild);
+		assert_eq!(
+			GroupKind::from_urbanization(UrbanizationKind::RuralLife, 1),
+			GroupKind::Peaceful
+		);
+		assert_eq!(
+			GroupKind::from_urbanization(UrbanizationKind::Townships, 1),
+			GroupKind::Frontier
+		);
+		assert_eq!(
+			GroupKind::from_urbanization(UrbanizationKind::Frontier, 1),
+			GroupKind::Frontier
+		);
+		assert_eq!(GroupKind::from_urbanization(UrbanizationKind::Colony, 1), GroupKind::Warfront);
+		assert_eq!(
+			GroupKind::from_urbanization(UrbanizationKind::ModernCity, 1),
+			GroupKind::Dystopian
+		);
+		for seed in [0u64, 1, 2, 42] {
+			let expected = if crate::index::mixed(seed) & 1 == 0 {
+				GroupKind::Warfront
+			} else {
+				GroupKind::Dystopian
+			};
+			assert_eq!(
+				GroupKind::from_urbanization(UrbanizationKind::MixedAgeCity, seed),
+				expected
+			);
+		}
 	}
 
 	#[test]

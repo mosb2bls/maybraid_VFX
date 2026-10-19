@@ -27,11 +27,10 @@ use urbanization_cells::{
 use urbanization_layer_model::Urbanization;
 
 use crate::generation::{
-	MobEnvironmentSample, MobGroup, MobPlantHost, MobWorldHosts, MobWorldSample,
+	GroupKind, MobEnvironmentSample, MobGroup, MobPlantHost, MobWorldHosts, MobWorldSample,
 };
-use crate::index::{group_kind, hosts_near, urbanization_weight, MOB_CELL_EXTENT};
+use crate::index::MOB_CELL_EXTENT;
 use crate::present::{install_mob_scenes, MobCellRoot, MobGroupRoot};
-use crate::sample::{chico_layers_at, host_at};
 use crate::{MobCell, MobCellExtent};
 
 /// Present / generate rings the world stream used (1 km / 3 km).
@@ -61,7 +60,7 @@ where
 					.filter(|leaf| {
 						leaf.kind != UrbanDevelopmentKind::Empty && region.intersects(&leaf.bounds)
 					})
-					.map(|leaf| host_at(leaf.bounds)),
+					.map(|leaf| MobPlantHost::from_bounds(leaf.bounds)),
 			);
 		}
 		for built in cx.get_or_generate_in::<Built<T>>(region) {
@@ -93,6 +92,17 @@ impl<G: ForestGround> CellWorld<G> {
 	fn kind_at(&self, xz: Vec2) -> UrbanizationKind {
 		self.urban.kind_at(xz)
 	}
+
+	fn vegetation_at(&self, xz: Vec2) -> f32 {
+		let position = Vec3::new(xz.x, 0.0, xz.y);
+		let (ix, iz) = chico::ForestExtent::cell_index_containing(position);
+		let layers = self.forest.layers_for(chico::ForestExtent::from_cell_index(ix, iz));
+		[layers.tufts, layers.understory, layers.lower_canopy, layers.upper_canopy]
+			.into_iter()
+			.filter(Option::is_some)
+			.count() as f32
+			/ 4.0
+	}
 }
 
 /// Off the surface there is no elevation, so no mob stands there.
@@ -100,15 +110,15 @@ impl<G: ForestGround> MobWorldSample for CellWorld<G> {
 	fn sample_mobs(&self, xz: Vec2) -> MobEnvironmentSample {
 		MobEnvironmentSample {
 			elevation: self.surface.height(xz.x, xz.y),
-			urbanization: urbanization_weight(self.kind_at(xz)),
-			vegetation: chico_layers_at(self.forest.noise, self.forest.layering, xz) as f32 / 4.0,
+			urbanization: MobEnvironmentSample::urbanization_weight(self.kind_at(xz)),
+			vegetation: self.vegetation_at(xz),
 		}
 	}
 }
 
 impl<G: ForestGround> MobWorldHosts for CellWorld<G> {
 	fn plant_hosts(&self, origin: Vec2, extent: f32) -> Vec<MobPlantHost> {
-		hosts_near(&self.hosts, origin, extent)
+		MobPlantHost::near(&self.hosts, origin, extent)
 	}
 }
 
@@ -139,7 +149,7 @@ impl<G: MobGround> hcsg::GenerationScheme for PlacedMobCell<G> {
 			Vec3::from(column.max) + Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 		);
 		let origin = extent.center().xz();
-		let kind = group_kind(urban.kind_at(origin), seed);
+		let kind = GroupKind::from_urbanization(urban.kind_at(origin), seed);
 		let hosts = if kind.needs_plant_hosts() { G::plant_hosts(cx, reach) } else { Vec::new() };
 		let world = CellWorld { forest, urban, surface, hosts };
 		let group = MobGroup::generate(kind, seed, origin, &world);
@@ -290,7 +300,6 @@ mod tests {
 	use terrain_layer_model::OnTerrain;
 
 	use super::*;
-	use crate::GroupKind;
 
 	type Ground = OnTerrain<Durham>;
 	type Urban = Urbanization<Richmond<Ground>>;
@@ -588,14 +597,14 @@ mod tests {
 			let urban = cx.get::<UrbanizationSelection>(Id::Universal)?;
 			let column = column_bounds(extent.aabb());
 			let surface = GroundSurface::<Urban>::generate(cx, column);
-			let footprint = surface.footprint()?;
+			let _footprint = surface.footprint()?;
 			let reach = Aabb3d::from_min_max(
 				Vec3::from(column.min) - Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 				Vec3::from(column.max) + Vec3::new(HOST_REACH, 0.0, HOST_REACH),
 			);
 			let world = CellWorld { forest, urban, surface, hosts: Urban::plant_hosts(cx, reach) };
 			let origin = extent.center().xz();
-			let kind = group_kind(world.kind_at(origin), seed);
+			let kind = GroupKind::from_urbanization(world.kind_at(origin), seed);
 			let group = MobGroup::generate(kind, seed, origin, &world);
 			let cell = MobCell { extent, groups: vec![group] };
 			Some(PlacedMobCell { cell, _ground: PhantomData })
