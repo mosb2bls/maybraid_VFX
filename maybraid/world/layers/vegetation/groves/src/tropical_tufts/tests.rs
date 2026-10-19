@@ -1,5 +1,5 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveCellOutcome, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
 use gimme_gen::Cell;
@@ -84,15 +84,12 @@ fn first_fit_from_placed_bucket_places_variant() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(20.0, 1.0, 20.0));
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.15 };
-	assert_eq!(grove.populate(&extent, &terrain), grove.populate(&extent, &terrain));
+		GroveExtent::new(Vec3::ZERO, Vec3::new(20.0, 1.0, 20.0)),
+		&FlatTerrainSample { elevation: 0.35, steepness: 0.15 },
+	)?;
 	Ok(())
 }
 

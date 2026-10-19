@@ -21,6 +21,8 @@ mod sampling;
 mod terrain;
 mod tuft_patch;
 
+#[cfg(test)]
+pub(crate) mod populate_checks;
 #[cfg(feature = "render")]
 mod preview;
 #[cfg(feature = "render")]
