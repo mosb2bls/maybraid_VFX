@@ -29,7 +29,7 @@ pub use device_tier::{
 	VisualStyleSignals, DEVICE_TIER_ENV, UNIFIED_MEMORY_NATIVE_BYTES,
 };
 pub use target::{map_render_to_window, map_window_to_render};
-pub use visual_style::{PresentationTreatment, VisualStyle, VisualStylePlan};
+pub use visual_style::{PresentationTreatment, VisualStyle, VisualStyleIdentity, VisualStylePlan};
 
 /// `MAYBRAID_VISUAL_STYLE=retro` (or `native` by default) at process start.
 /// Wins over the first-run host heuristic and any saved preference.
