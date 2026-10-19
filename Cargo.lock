@@ -5397,6 +5397,7 @@ dependencies = [
  "maybraid-audio",
  "maybraid-character-controller",
  "maybraid-input",
+ "maybraid-spatial-rumble",
  "player",
  "player-camera",
 ]

@@ -39,26 +39,46 @@ impl RumbleEnvelope {
 	}
 }
 
+/// How [`RumbleFalloff::sample`] interpolates the inner→outer band.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum RumbleFalloffCurve {
+	/// `(1 - t)²` across the band. Bray / landing presets use this.
+	#[default]
+	Squared,
+	/// Linear `(1 - t)` across the band.
+	Linear,
+}
+
 /// Full intensity inside `inner_radius`, zero at and beyond `outer_radius`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RumbleFalloff {
 	pub inner_radius: f32,
 	pub outer_radius: f32,
+	pub curve: RumbleFalloffCurve,
 }
 
 impl Default for RumbleFalloff {
 	fn default() -> Self {
-		Self { inner_radius: 2.0, outer_radius: 24.0 }
+		Self { inner_radius: 2.0, outer_radius: 24.0, curve: RumbleFalloffCurve::Squared }
 	}
 }
 
 impl RumbleFalloff {
 	pub fn new(inner_radius: f32, outer_radius: f32) -> Self {
 		let inner = inner_radius.max(0.0);
-		Self { inner_radius: inner, outer_radius: outer_radius.max(inner) }
+		Self {
+			inner_radius: inner,
+			outer_radius: outer_radius.max(inner),
+			curve: RumbleFalloffCurve::Squared,
+		}
 	}
 
-	/// Squared smoothstep between the inner and outer radii.
+	/// Linear `(1 - t)` band. Inner / outer still clamp like [`Self::new`].
+	pub fn linear(inner_radius: f32, outer_radius: f32) -> Self {
+		Self { curve: RumbleFalloffCurve::Linear, ..Self::new(inner_radius, outer_radius) }
+	}
+
+	/// Interpolate between the inner and outer radii.
 	pub fn sample(self, distance: f32) -> f32 {
 		if !(distance.is_finite()) || distance >= self.outer_radius {
 			return 0.0;
@@ -71,7 +91,11 @@ impl RumbleFalloff {
 			return 0.0;
 		}
 		let t = ((distance - self.inner_radius) / span).clamp(0.0, 1.0);
-		(1.0 - t) * (1.0 - t)
+		let remain = (1.0 - t).clamp(0.0, 1.0);
+		match self.curve {
+			RumbleFalloffCurve::Squared => remain * remain,
+			RumbleFalloffCurve::Linear => remain,
+		}
 	}
 }
 
@@ -126,6 +150,15 @@ mod tests {
 		assert!((falloff.outer_radius - 10.0).abs() < 1e-5);
 		assert!((falloff.sample(1.0) - 1.0).abs() < 1e-5);
 		assert!(falloff.sample(10.0).abs() < 1e-5);
+	}
+
+	#[test]
+	fn linear_band_matches_one_minus_normalized_distance() {
+		let falloff = RumbleFalloff::linear(0.0, 10.0);
+		assert!((falloff.sample(0.0) - 1.0).abs() < 1e-5);
+		assert!((falloff.sample(4.0) - 0.6).abs() < 1e-5);
+		assert!(falloff.sample(10.0).abs() < 1e-5);
+		assert!(falloff.sample(4.0) > RumbleFalloff::new(0.0, 10.0).sample(4.0));
 	}
 
 	#[test]
