@@ -22,9 +22,6 @@ mod terrain;
 mod tuft_patch;
 
 #[cfg(feature = "render")]
-#[allow(dead_code)]
-mod placed_host;
-#[cfg(feature = "render")]
 mod preview;
 #[cfg(feature = "render")]
 mod quantized;
