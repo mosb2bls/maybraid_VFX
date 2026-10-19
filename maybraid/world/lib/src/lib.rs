@@ -21,6 +21,7 @@ mod inventory_cycling;
 mod inventory_drop;
 mod item_icons;
 mod map_view;
+mod occupancy;
 pub mod world_lubikan;
 
 #[cfg(feature = "debug-commands")]
@@ -74,6 +75,7 @@ pub use item_icons::{
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
+pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use maybraid_sky::{
 	ShadowQuality, SkyClock, SkyCommand, SKY_BLUE, SKY_CLEAR, SKY_HORIZON, SKY_NADIR, SKY_ZENITH,
 	SUN_COLOR, SUN_ILLUMINANCE,
@@ -235,6 +237,7 @@ impl Plugin for WorldPlugin {
 			.add_plugins(world_lubikan::WorldLubikanPlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
+			.add_plugins(WorldOccupancyPlugin)
 			.add_plugins(WorldMapViewPlugin)
 			.add_plugins(WorldPlayerLifecyclePlugin)
 			.add_plugins(WorldStashPlugin)

@@ -76,6 +76,7 @@ movement-intelligence = { workspace = true }
 movement-intelligence-avian = { workspace = true }
 movement-realization = { workspace = true }
 npc-intelligence = { workspace = true }
+occupancy-rewards = { workspace = true }
 poi-intelligence = { workspace = true }
 world-player = { workspace = true }
 richmond = { workspace = true }

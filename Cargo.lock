@@ -7142,6 +7142,7 @@ dependencies = [
  "movement-intelligence-avian",
  "movement-realization",
  "npc-intelligence",
+ "occupancy-rewards",
  "player",
  "player-camera",
  "poi-intelligence",
@@ -8635,6 +8636,16 @@ dependencies = [
  "log",
  "rdst",
  "static_assertions",
+]
+
+[[package]]
+name = "occupancy-rewards"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "gimme-core",
+ "lubikans",
 ]
 
 [[package]]

@@ -118,6 +118,7 @@ members = [
   "maybraid/movement-realization",
   "maybraid/projectiles",
   "maybraid/damage",
+  "maybraid/occupancy-rewards",
   "maybraid/attacks",
   "maybraid/attacks/playground",
   "maybraid/items/firearms-components",
@@ -383,6 +384,7 @@ player-camera = { path = "maybraid/player-camera" }
 movement-realization = { path = "maybraid/movement-realization" }
 projectiles = { path = "maybraid/projectiles" }
 damage = { path = "maybraid/damage" }
+occupancy-rewards = { path = "maybraid/occupancy-rewards" }
 attacks = { path = "maybraid/attacks" }
 attacks-playground = { path = "maybraid/attacks/playground" }
 firearms-components = { path = "maybraid/items/firearms-components" }
