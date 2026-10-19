@@ -15,7 +15,7 @@ mod spawn;
 mod stance;
 
 use bevy::prelude::*;
-use characters::CharacterMotionSystems;
+use characters::{CharacterMotionSystems, CharacterPoseSystems};
 use maybraid_character_controller::CharacterControlSystems;
 
 pub use body::{
@@ -72,7 +72,10 @@ impl Plugin for PlayerPresentationPlugin {
 			Update,
 			(
 				PlayerPoseSystems::Item.after(CharacterMotionSystems::Elevation),
-				PlayerPoseSystems::Overlay.after(PlayerPoseSystems::Item),
+				CharacterPoseSystems::Overlay.after(PlayerPoseSystems::Item),
+				PlayerPoseSystems::Overlay
+					.after(PlayerPoseSystems::Item)
+					.in_set(CharacterPoseSystems::Overlay),
 			),
 		);
 	}
@@ -166,6 +169,23 @@ mod tests {
 					note_overlay.in_set(PlayerPoseSystems::Overlay),
 				),
 			);
+		app.update();
+		assert_eq!(app.world().resource::<PresentationOrder>().0, ["elevation", "item", "overlay"]);
+	}
+
+	#[test]
+	fn pose_overlay_stays_after_item_and_elevation() {
+		let mut app = App::new();
+		app.init_resource::<PresentationOrder>();
+		CharacterPoseSystems::configure(&mut app);
+		app.add_plugins(PlayerPresentationPlugin).add_systems(
+			Update,
+			(
+				note_elevation.in_set(CharacterMotionSystems::Elevation),
+				note_item.in_set(PlayerPoseSystems::Item),
+				note_overlay.in_set(CharacterPoseSystems::Overlay),
+			),
+		);
 		app.update();
 		assert_eq!(app.world().resource::<PresentationOrder>().0, ["elevation", "item", "overlay"]);
 	}

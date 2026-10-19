@@ -19,7 +19,9 @@ use crate::{
 pub struct HumanoidV0Rig {
 	pub bones: BoneTable,
 	pub binding: RigBinding,
-	/// Last resolved local pose. Sampling always starts from [`Self::binding`] rest.
+	/// Shared working pose: mailbox InitWorking copies the immutable base here
+	/// once per apply; item overlays mutate it; Publish writes it to scene bones.
+	/// Sampling itself always starts from [`Self::binding`] rest.
 	pub pose: PoseBuffer,
 	pub scratch: PoseScratch,
 	pub segment_lengths: LegSegmentLengths,

@@ -1,7 +1,11 @@
 //! Latest-wins mailbox that transitions from the last visible pose and armature offset.
 //!
-//! [`tick_anim_mailbox`] advances clip time for every body host. [`apply_anim_mailbox`]
-//! samples and writes only hosts with [`AnimateBones`] and/or [`AnimateEffects`].
+//! [`tick_anim_mailbox`] advances clip time for every body host. Pose work is split
+//! across [`crate::CharacterPoseSystems`]: [`apply_anim_mailbox`] samples/crossfades
+//! the **immutable base** and armature offset, [`init_working_pose`] copies that
+//! base into the typed rig's working pose once, and [`publish_anim_mailbox`] writes
+//! working-pose bones. Item overlays mutate the working pose afterward and must
+//! not write [`AnimMailbox::output`].
 //! [`select_mailbox_applies`] rank-fills a count budget among on-screen marked
 //! bodies; off-screen Near holds the last pose. Visible High Mid/Far plants
 //! keep [`AnimateBones`] from sync, so they compete here too. No published look
@@ -11,32 +15,32 @@ use bevy::ecs::batching::BatchingStrategy;
 use bevy::ecs::query::{Has, Or};
 use bevy::prelude::*;
 use character_animations::{
+	Animation, Effects,
 	animations::{
 		Idle, Jab, PowerStrafe, Prone, QuadrupedIdle, QuadrupedLeap, QuadrupedRun, Squat,
-		SquatDescent, ThinkAgain, Tuck, TwoFootedTuckedFlip, UprightLeap, UprightPowerDash,
-		THINK_AGAIN_DURATION,
+		SquatDescent, THINK_AGAIN_DURATION, ThinkAgain, Tuck, TwoFootedTuckedFlip, UprightLeap,
+		UprightPowerDash,
 	},
-	Animation, Effects,
 };
 use character_rigs::{
+	Name as RigName,
 	authoring::{
-		forelimbed_v0_definition, humanoid_v0_definition, quadruped_v0_definition, ArmatureOffset,
-		BlendCurve, PoseBuffer, RigBinding, RigDefinition,
+		ArmatureOffset, BlendCurve, PoseBuffer, RigBinding, RigDefinition,
+		forelimbed_v0_definition, humanoid_v0_definition, quadruped_v0_definition,
 	},
 	rigs::{
 		forelimbed_v0::ForelimbedV0Rig, humanoid_v0::HumanoidV0Rig, quadruped_v0::QuadrupedV0Rig,
 	},
-	Name as RigName,
 };
 use intelligence_lod::{
-	look_applies, IntelligenceFocus, IntelligenceLod, IntelligenceLookFrame, IntelligencePriority,
+	IntelligenceFocus, IntelligenceLod, IntelligenceLookFrame, IntelligencePriority, look_applies,
 };
 
 use crate::clip::{AnimClip, AnimId, AnimRefRoot};
-use crate::clip_cache::{apply_evaluated_sample, AnimClipCache, PreparedClip};
+use crate::clip_cache::{AnimClipCache, PreparedClip, apply_evaluated_sample};
 use crate::markers::{AnimateBones, AnimateEffects, SuspendAnimation};
 use crate::plant::plant_lod_entity;
-use crate::rig::{bone_map_ready, BoneMap, CharacterRig, CharacterRigRole, RigSkeletonKind};
+use crate::rig::{BoneMap, CharacterRig, CharacterRigRole, RigSkeletonKind, bone_map_ready};
 use rigs::PoseSkipRotation;
 use std::collections::HashSet;
 
@@ -153,12 +157,21 @@ impl AnimMailbox {
 
 	/// Authoritative base animation pose (crossfaded while transitioning).
 	///
-	/// **Readers (production):** firearm/grenade holds via [`Self::base_pose`]; bone writes in
-	/// [`apply_anim_mailbox`]. Do not read `output` directly outside this module.
+	/// **Readers (production):** [`init_working_pose`]; tests. Overlays seed from the
+	/// working pose, not from this buffer. Do not read `output` directly outside
+	/// this module.
 	///
 	/// **Writers:** [`publish_pose`] / [`apply_anim_mailbox`] only. Overlays must not write here.
 	pub fn base_pose(&self) -> &PoseBuffer {
 		&self.output
+	}
+
+	/// Copy the immutable base into the shared working pose (typed rig `pose`).
+	///
+	/// Call once per apply after [`apply_anim_mailbox`]. Overlays mutate `working`
+	/// and must not write [`Self::output`].
+	pub fn init_working_pose(&self, working: &mut PoseBuffer) {
+		working.copy_from(self.base_pose());
 	}
 
 	fn blending(&self) -> bool {
@@ -418,7 +431,10 @@ pub fn tick_anim_mailbox(
 	}
 }
 
-/// Sample clips in parallel; write bone transforms serially (shared bone query).
+/// Sample clips in parallel and publish the immutable base + armature offset.
+///
+/// Bone `Transform`s are written later by [`publish_anim_mailbox`] from the
+/// working pose. Overlays must not write [`AnimMailbox::output`].
 pub fn apply_anim_mailbox(
 	set: Option<Res<MailboxApplySet>>,
 	cache: Option<Res<AnimClipCache>>,
@@ -444,7 +460,6 @@ pub fn apply_anim_mailbox(
 		),
 	>,
 	bones: Query<&AnimBone, Without<AnimMailbox>>,
-	mut bone_tfs: Query<&mut Transform, (With<AnimBone>, Without<AnimMailbox>)>,
 ) {
 	let only = set.as_ref().and_then(|set| set.only.as_ref());
 	let cache = cache.as_deref();
@@ -541,27 +556,104 @@ pub fn apply_anim_mailbox(
 			}
 		},
 	);
+}
 
-	for (entity, _, mailbox, bone_map, character_rig, _, write_bones, _, _, _, _) in &hosts {
+/// Copy the immutable base into each typed rig's working pose once per apply.
+pub fn init_working_pose(
+	set: Option<Res<MailboxApplySet>>,
+	mut hosts: Query<
+		(
+			Entity,
+			&AnimMailbox,
+			Option<&mut HumanoidV0Rig>,
+			Option<&mut QuadrupedV0Rig>,
+			Option<&mut ForelimbedV0Rig>,
+		),
+		(With<AnimMailbox>, With<AnimateBones>, Without<AnimBone>, Without<SuspendAnimation>),
+	>,
+) {
+	let only = set.as_ref().and_then(|set| set.only.as_ref());
+	for (entity, mailbox, humanoid, quadruped, forelimbed) in &mut hosts {
+		if !allows_only(only, entity) {
+			continue;
+		}
+		if !mailbox.posed {
+			continue;
+		}
+		if let Some(mut rig) = humanoid {
+			mailbox.init_working_pose(&mut rig.pose);
+		} else if let Some(mut rig) = quadruped {
+			mailbox.init_working_pose(&mut rig.pose);
+		} else if let Some(mut rig) = forelimbed {
+			mailbox.init_working_pose(&mut rig.pose);
+		}
+	}
+}
+
+/// Write working-pose locals onto scene bones. Skipped hosts keep last-frame bones
+/// (including overlay patches) until they apply again.
+pub fn publish_anim_mailbox(
+	set: Option<Res<MailboxApplySet>>,
+	hosts: Query<
+		(
+			Entity,
+			&AnimMailbox,
+			&BoneMap,
+			&CharacterRig,
+			Has<AnimateBones>,
+			Option<&HumanoidV0Rig>,
+			Option<&QuadrupedV0Rig>,
+			Option<&ForelimbedV0Rig>,
+		),
+		(With<AnimMailbox>, Without<AnimBone>, Without<SuspendAnimation>),
+	>,
+	mut bone_tfs: Query<&mut Transform, (With<AnimBone>, Without<AnimMailbox>)>,
+) {
+	let only = set.as_ref().and_then(|set| set.only.as_ref());
+	for (entity, mailbox, bone_map, character_rig, write_bones, humanoid, quadruped, forelimbed) in
+		&hosts
+	{
 		if !write_bones || character_rig.role != CharacterRigRole::Body {
 			continue;
 		}
 		if !allows_only(only, entity) {
 			continue;
 		}
+		if !mailbox.posed {
+			continue;
+		}
+		let Some(pose) = working_pose(humanoid, quadruped, forelimbed) else {
+			continue;
+		};
 		let names = match character_rig.skeleton {
 			RigSkeletonKind::Humanoid => &humanoid_v0_definition().names,
 			RigSkeletonKind::Quadruped => &quadruped_v0_definition().names,
 			RigSkeletonKind::Forelimbed => &forelimbed_v0_definition().names,
 			RigSkeletonKind::Neck => continue,
 		};
-		let pose = mailbox.base_pose();
 		if indexed_cache_valid(&mailbox.bone_entities, pose.local.len(), &bone_tfs) {
 			write_pose_indexed(pose, &mailbox.bone_entities, &mut bone_tfs);
 		} else {
 			write_pose_by_name(pose, names, bone_map, &mut bone_tfs);
 		}
 	}
+}
+
+fn working_pose<'a>(
+	humanoid: Option<&'a HumanoidV0Rig>,
+	quadruped: Option<&'a QuadrupedV0Rig>,
+	forelimbed: Option<&'a ForelimbedV0Rig>,
+) -> Option<&'a PoseBuffer> {
+	if let Some(rig) = humanoid {
+		return Some(&rig.pose);
+	}
+	if let Some(rig) = quadruped {
+		return Some(&rig.pose);
+	}
+	if let Some(rig) = forelimbed {
+		return Some(&rig.pose);
+	}
+	None
 }
 
 /// True when prepare-time bone entities still align with the sampled pose length and exist.
@@ -584,11 +676,7 @@ fn clip_progress(clip: AnimClip, clip_progress: f32, entity: Entity) -> f32 {
 
 /// Smooth-stepped crossfade weight for mailbox clip transitions.
 fn clip_crossfade_weight(blend_progress: f32) -> f32 {
-	if blend_progress >= 1.0 {
-		1.0
-	} else {
-		BlendCurve::SmoothStep.sample(blend_progress)
-	}
+	if blend_progress >= 1.0 { 1.0 } else { BlendCurve::SmoothStep.sample(blend_progress) }
 }
 
 /// Blend sampled armature effects against the pose captured at the last clip change.
@@ -790,11 +878,7 @@ where
 	if write_bones {
 		anim.apply_for(rig, progress);
 	}
-	if write_effects {
-		anim.effects_for(rig, progress)
-	} else {
-		Effects::IDENTITY
-	}
+	if write_effects { anim.effects_for(rig, progress) } else { Effects::IDENTITY }
 }
 
 /// Hash the resolved humanoid still at `progress`. Capture ids use this so a
@@ -1995,8 +2079,8 @@ mod tests {
 
 	#[test]
 	fn clip_change_crossfade_captures_published_base_not_overlay_rig() -> anyhow::Result<()> {
-		use character_animations::animations::{Run, Walk};
 		use character_animations::Animation;
+		use character_animations::animations::{Run, Walk};
 
 		let mut rig = HumanoidV0Rig::imported();
 		Walk::default().apply_for(&mut rig, 0.35);
@@ -2196,19 +2280,175 @@ mod tests {
 		let base = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
 		{
 			let mut rig = world.get_mut::<HumanoidV0Rig>(host).unwrap();
-			rig.pose.copy_from(&base);
 			apply_test_torso_yaw(&mut rig, -0.84);
 			stretch_test_forearm(&mut rig, 1.15);
 		}
-		{
-			let base_restore = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
-			world.get_mut::<HumanoidV0Rig>(host).unwrap().pose.copy_from(&base_restore);
-		}
+		world.run_system_once(init_working_pose).expect("init_working_pose");
 		let lumbar = world.get::<HumanoidV0Rig>(host).unwrap().posed_angle("lumbar");
 		let base_lumbar = base_angle(&base, "lumbar");
 		anyhow::ensure!(
 			(lumbar - base_lumbar).abs() < 1e-4,
 			"unarmed/base restore must drop firing twist, got {lumbar} vs {base_lumbar}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn base_only_publish_matches_working_pose_and_leaves_base_immutable() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = None;
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.18);
+		step_mailbox(&mut world, host, BLEND_DURATION + 0.02)?;
+		let base = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
+		let working = world.get::<HumanoidV0Rig>(host).unwrap().pose.clone();
+		anyhow::ensure!(
+			base.local == working.local,
+			"InitWorking must copy the published base into the shared working pose"
+		);
+		let bone_entities = world.get::<AnimMailbox>(host).unwrap().bone_entities.clone();
+		for (index, entity) in bone_entities.iter().enumerate() {
+			let written = world.get::<Transform>(*entity).expect("bone");
+			anyhow::ensure!(
+				*written == base.local[index],
+				"base-only publish must write working pose, which equals base"
+			);
+		}
+		{
+			let mut rig = world.get_mut::<HumanoidV0Rig>(host).unwrap();
+			apply_test_torso_yaw(&mut rig, -0.84);
+		}
+		let after = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
+		anyhow::ensure!(
+			after.local == base.local,
+			"overlay mutation of working pose must not contaminate cached base"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn init_working_matches_legacy_copy_from_base() -> anyhow::Result<()> {
+		let mut mailbox = AnimMailbox::with_bones(Transform::IDENTITY, 4);
+		mailbox.posed = true;
+		mailbox.output.local[1].rotation = Quat::from_rotation_y(0.3);
+		let mut legacy = PoseBuffer::identity(4);
+		legacy.copy_from(mailbox.base_pose());
+		let mut pipeline = PoseBuffer::identity(4);
+		pipeline.local[0].translation.x = 9.0;
+		mailbox.init_working_pose(&mut pipeline);
+		anyhow::ensure!(legacy.local == pipeline.local, "InitWorking must match copy_from(base)");
+		Ok(())
+	}
+
+	#[test]
+	fn overlapping_overlays_use_masks_and_keep_base() -> anyhow::Result<()> {
+		use character_rigs::authoring::{humanoid_v0_definition, humanoid_write_mask};
+
+		let firearm_mask = humanoid_write_mask(&[
+			"lumbar",
+			"midback",
+			"upper_back",
+			"shoulder.L",
+			"humerus.L",
+			"forearm.L",
+			"shoulder.R",
+			"humerus.R",
+			"forearm.R",
+		]);
+		let grenade_mask = humanoid_write_mask(&["shoulder.R", "humerus.R", "forearm.R"]);
+		anyhow::ensure!(
+			grenade_mask & !firearm_mask == 0,
+			"grenade throw arm is a subset of the firearm hold mask"
+		);
+
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = None;
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.2);
+		step_mailbox(&mut world, host, BLEND_DURATION + 0.02)?;
+		let base = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
+		let definition = humanoid_v0_definition();
+		let lumbar = definition
+			.id("lumbar")
+			.ok_or_else(|| anyhow::anyhow!("missing lumbar"))?
+			.index();
+		let left = definition
+			.id("humerus.L")
+			.ok_or_else(|| anyhow::anyhow!("missing humerus.L"))?
+			.index();
+		let right = definition
+			.id("humerus.R")
+			.ok_or_else(|| anyhow::anyhow!("missing humerus.R"))?
+			.index();
+
+		{
+			let mut rig = world.get_mut::<HumanoidV0Rig>(host).unwrap();
+			apply_test_torso_yaw(&mut rig, -0.84);
+			stretch_test_forearm(&mut rig, 1.15);
+		}
+		let after_firearm = world.get::<HumanoidV0Rig>(host).unwrap().pose.clone();
+		{
+			let mut rig = world.get_mut::<HumanoidV0Rig>(host).unwrap();
+			if let Some(slot) = rig.pose.local.get_mut(right) {
+				slot.rotation = Quat::from_rotation_x(0.55);
+			}
+		}
+		let after_both = world.get::<HumanoidV0Rig>(host).unwrap().pose.clone();
+		let still_base = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
+
+		anyhow::ensure!(
+			still_base.local == base.local,
+			"overlapping overlays must not write the cached base"
+		);
+		anyhow::ensure!(
+			after_both.local[lumbar] == after_firearm.local[lumbar],
+			"grenade mask must leave firearm torso"
+		);
+		anyhow::ensure!(
+			after_both.local[left] == after_firearm.local[left],
+			"grenade mask must leave the support arm"
+		);
+		anyhow::ensure!(
+			after_both.local[right] != after_firearm.local[right],
+			"later grenade overlay wins the throw arm"
+		);
+		anyhow::ensure!(
+			after_firearm.local[lumbar] != base.local[lumbar],
+			"firearm overlay must still twist the torso relative to base"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn transition_init_working_uses_blended_base_not_destination_sample() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.init_resource::<Time>();
+		world.init_resource::<AnimClipCache>();
+		world.init_resource::<MailboxApplySet>();
+		world.resource_mut::<MailboxApplySet>().only = None;
+		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.1);
+		world.entity_mut(host).insert(AnimRefRoot(AnimRef::new(AnimClip::run())));
+		ensure_task_pools();
+		world
+			.resource_mut::<Time>()
+			.advance_by(std::time::Duration::from_secs_f32(BLEND_DURATION * 0.4));
+		world.run_system_once(tick_anim_mailbox).expect("tick");
+		world.run_system_once(apply_anim_mailbox).expect("sample");
+		let sampled = world.get::<HumanoidV0Rig>(host).unwrap().pose.clone();
+		let blended = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
+		anyhow::ensure!(
+			sampled.local != blended.local,
+			"mid-crossfade sample must differ from blended base"
+		);
+		world.run_system_once(init_working_pose).expect("init");
+		let working = world.get::<HumanoidV0Rig>(host).unwrap().pose.clone();
+		anyhow::ensure!(
+			working.local == blended.local,
+			"InitWorking must seed overlays from the blended base, not the destination sample"
 		);
 		Ok(())
 	}
@@ -2267,8 +2507,8 @@ mod tests {
 	}
 
 	fn verify_crossfade_ignores_overlay_on_rig(capture_from_rig: bool) -> anyhow::Result<()> {
-		use character_animations::animations::{Run, Walk};
 		use character_animations::Animation;
+		use character_animations::animations::{Run, Walk};
 
 		let mut rig = HumanoidV0Rig::imported();
 		Walk::default().apply_for(&mut rig, 0.35);
@@ -2357,6 +2597,8 @@ mod tests {
 		world.resource_mut::<Time>().advance_by(Duration::from_secs_f32(dt));
 		world.run_system_once(tick_anim_mailbox).expect("tick_anim_mailbox");
 		world.run_system_once(apply_anim_mailbox).expect("apply_anim_mailbox");
+		world.run_system_once(init_working_pose).expect("init_working_pose");
+		world.run_system_once(publish_anim_mailbox).expect("publish_anim_mailbox");
 		let _ = host;
 		Ok(())
 	}

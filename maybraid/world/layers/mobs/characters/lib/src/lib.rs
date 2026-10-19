@@ -53,8 +53,9 @@ pub use assembly::CharacterPartSlot;
 pub use assets::{AssetFacing, AssetNormalization, AssetPath, AuthoredAnchor};
 pub use character_motion::{
 	apply_terrain_pitch, clamp_intelligence, draw_terrain_pitch_probes, fingerprint_humanoid_clip,
-	mailbox_apply_allows, motion_policy, sync_motion_markers, AnimateBones, AnimateEffects,
-	ApplyTerrainPitch, CharacterHeading, CharacterMotionPlugin, CharacterMotionSystems,
+	init_working_pose, mailbox_apply_allows, motion_policy, publish_anim_mailbox,
+	sync_motion_markers, AnimateBones, AnimateEffects, ApplyTerrainPitch, CharacterHeading,
+	CharacterMotionPlugin, CharacterMotionSystems, CharacterPoseOverlay, CharacterPoseSystems,
 	DrawTerrainPitchProbes, MailboxApplySet, MotionPolicy, SuspendAnimation, SuspendTerrainPitch,
 };
 pub use character_rigs::{BoneRotation, BoneScale, ResolvedRigPose, RigPoseLayer};
