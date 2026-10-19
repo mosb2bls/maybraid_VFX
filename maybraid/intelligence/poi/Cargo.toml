@@ -13,6 +13,7 @@ rust-version = { workspace = true }
 bevy = { workspace = true }
 gimme-core = { workspace = true }
 intelligence-lod = { workspace = true }
+lod = { workspace = true }
 movement-intelligence = { workspace = true }
 routing-intelligence = { workspace = true }
 

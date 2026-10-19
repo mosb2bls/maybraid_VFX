@@ -32,6 +32,9 @@ menu-playground = { workspace = true }
 menu-screens = { workspace = true }
 character-persist = { workspace = true }
 
+[features]
+debug-commands = ["maybraid-world/debug-commands"]
+
 [dev-dependencies]
 anyhow = { workspace = true }
 character-items = { workspace = true }

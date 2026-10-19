@@ -1,5 +1,5 @@
 //! Publication, removal, and session clears.
-
+#[cfg(any(test, feature = "test-support"))]
 use std::any::TypeId;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -9,6 +9,7 @@ use bevy::math::bounding::Aabb3d;
 use crate::gen::{Id, Version};
 
 use super::super::node_store::StoredEntry;
+#[cfg(any(test, feature = "test-support"))]
 use super::eviction::forget_evictions_of;
 use super::store::{read, write, ErasedStore};
 use super::{HcsgStorage, HcsgValue};
@@ -50,7 +51,13 @@ impl HcsgStorage {
 		self.publish(Id::Universal, Arc::new(value), bounds)
 	}
 
+	#[cfg(any(test, feature = "test-support"))]
 	pub fn remove<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
+		self.remove_impl::<T>(id)
+	}
+
+	#[cfg(any(test, feature = "test-support"))]
+	fn remove_impl<T: HcsgValue>(&self, id: Id) -> Option<Arc<T>> {
 		let stamp = self.stamp();
 		let store = self.store::<T>()?;
 		let removed = write(&store.nodes).remove(id, stamp).map(|entry| entry.value);
@@ -58,10 +65,15 @@ impl HcsgStorage {
 	}
 
 	/// Drops every value of `T`.
+	#[cfg(any(test, feature = "test-support"))]
 	pub fn clear<T: HcsgValue>(&self) {
+		self.clear_impl::<T>()
+	}
+
+	#[cfg(any(test, feature = "test-support"))]
+	fn clear_impl<T: HcsgValue>(&self) {
 		let stamp = self.stamp();
-		let store = read(&self.0.stores).get(&TypeId::of::<T>()).cloned();
-		if let Some(store) = store {
+		if let Some(store) = read(&self.0.stores).get(&TypeId::of::<T>()).cloned() {
 			store.reset(stamp);
 		}
 		forget_evictions_of(self, TypeId::of::<T>());

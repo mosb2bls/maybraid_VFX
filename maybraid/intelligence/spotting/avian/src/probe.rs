@@ -15,14 +15,14 @@ pub(super) fn probe_candidate_visibility(
 	observer: Vec3,
 	discovery_sample_cursor: usize,
 	candidates: &BTreeMap<Entity, ProbeCandidate>,
-	ranked: Vec<SpotCandidate>,
-	grants: Vec<usize>,
+	ranked: &[SpotCandidate],
+	grants: &[usize],
 	spatial: &SpatialQuery,
 	fixed_filter: &SpatialQueryFilter,
 	subjects: &Query<(Entity, &SpotSubject, Option<&LinearVelocity>)>,
 	transforms: &TransformHelper,
 ) {
-	for (candidate, sample_budget) in ranked.into_iter().zip(grants) {
+	for (candidate, &sample_budget) in ranked.iter().zip(grants.iter()) {
 		if sample_budget == 0 {
 			continue;
 		}

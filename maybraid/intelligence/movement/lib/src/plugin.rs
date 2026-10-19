@@ -6,7 +6,9 @@ use bevy::ecs::system::{StaticSystemParam, SystemParam};
 use bevy::prelude::*;
 use player::MoveWish;
 
-use intelligence_lod::{due_by_rank, IntelligenceBand, IntelligenceLod, IntelligencePriority};
+use intelligence_lod::{
+	IntelligenceBand, IntelligenceDueEntities, IntelligenceLod, IntelligencePriority,
+};
 
 use crate::ability::MovementSheet;
 use crate::configure_movement_intelligence_sets;
@@ -61,6 +63,7 @@ pub fn replan_movement<S, I, A>(
 		With<ReplanMovement>,
 	>,
 	mut commands: Commands,
+	mut due_entities: Local<IntelligenceDueEntities>,
 ) where
 	S: SystemParam + 'static,
 	for<'w, 's> S::Item<'w, 's>: MovementIntelligenceSurface<I, A>,
@@ -70,8 +73,11 @@ pub fn replan_movement<S, I, A>(
 	let mut surface = surface.into_inner();
 	let mut remaining = limits.max_replans_per_frame;
 	let mut probes = WalkProbeBudget::new(limits.max_walk_probes_per_frame);
-	let mut due: Vec<Entity> = movers.iter_mut().map(|(entity, ..)| entity).collect();
-	due_by_rank(&mut due, &priority);
+	due_entities.clear();
+	for (entity, ..) in movers.iter_mut() {
+		due_entities.push(entity);
+	}
+	let due = due_entities.finish(&priority);
 	let fair = due.iter().copied().find(|entity| {
 		movers.get_mut(*entity).is_ok_and(|(_, _, _, lod)| {
 			lod.as_deref().is_some_and(|lod| {
@@ -80,7 +86,7 @@ pub fn replan_movement<S, I, A>(
 		})
 	});
 
-	for entity in due {
+	for &entity in due {
 		if remaining == 0 || probes.is_exhausted() {
 			break;
 		}

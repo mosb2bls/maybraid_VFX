@@ -11,6 +11,7 @@ rust-version = { workspace = true }
 
 [dependencies]
 bevy = { workspace = true }
+procedural-common = { workspace = true }
 png = "0.17"
 scene-ref = { workspace = true }
 thiserror = { workspace = true }

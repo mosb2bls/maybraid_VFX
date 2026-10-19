@@ -11,19 +11,20 @@ use bevy::prelude::*;
 use bevy::text::{Justify, LineBreak, LineHeight, TextSpan};
 use bevy::window::{Ime, PrimaryWindow};
 
-use crate::icons::AnimatedIcon;
-use crate::single_select::{KeyboardMenuNav, MenuBackConsumed, TextCursorSlot, TextMenuInputLock};
+use crate::modal::{MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer, MenuModalStack};
+use crate::single_select::{KeyboardMenuNav, TextMenuInputLock};
 use crate::theme::{
-	HEADER_FONT_SIZE, PANEL_CHIP_GAP, PANEL_CURSOR_ICON_GAP, PANEL_HEADER_CURSOR_ICON_SIZE,
+	menu_list_panel_node, menu_region_wash, HEADER_FONT_SIZE, PANEL_CHIP_GAP,
 	PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_ROW_GAP, PANEL_VALUE_FONT_SIZE,
-	TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_HOVER,
+	TEXT_DEEP_BLUE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use maybraid_input::{MenuNav, MenuNavImpulse, PadButton, VirtualPad};
 
 use super::button::spawn_text_button;
 use super::display::menu_display_name;
+use super::focus::{first_focus_tag, paint_focus_tag, spawn_focus_tag, FocusTag};
 use super::hud_menu::{HudMenu, HudMenuIgnoresLock, HudMenuItem, HudOverlayMenu};
-use super::text::{spawn_cursor_slot_sized, spawn_hud_text};
+use super::text::spawn_hud_text;
 use super::HudFonts;
 
 /// IR / host key for a short-text field.
@@ -148,14 +149,14 @@ pub fn spawn_short_text_button(
 				flex_direction: FlexDirection::Row,
 				justify_content: justify,
 				align_items: AlignItems::Center,
-				column_gap: Val::Px(PANEL_CURSOR_ICON_GAP),
 				..default()
 			},
 			BackgroundColor(Color::NONE),
 		))
 		.with_children(|row| {
-			spawn_cursor_slot_sized(row, fonts, editing, PANEL_HEADER_CURSOR_ICON_SIZE);
-			spawn_short_text_line(row, fonts, label, value);
+			spawn_focus_tag(row, TEXT_YELLOW, editing, |tag| {
+				spawn_short_text_line(tag, fonts, label, value, editing);
+			});
 		});
 }
 
@@ -164,12 +165,15 @@ fn spawn_short_text_line(
 	fonts: &HudFonts,
 	label: &str,
 	value: &str,
+	editing: bool,
 ) {
+	let face = if editing { TEXT_DEEP_BLUE } else { TEXT_YELLOW };
+	let value_face = if editing { TEXT_DEEP_BLUE } else { TEXT_YELLOW_FAINT };
 	parent
 		.spawn((
 			Text::new(menu_display_name(label)),
 			fonts.header(PANEL_HEADER_FONT_SIZE),
-			TextColor(TEXT_YELLOW),
+			TextColor(face),
 			TextLayout::new(Justify::Left, LineBreak::NoWrap),
 			LineHeight::RelativeToFont(1.0),
 			Pickable::IGNORE,
@@ -179,7 +183,7 @@ fn spawn_short_text_line(
 				ShortTextValue,
 				TextSpan::new(row_value_display(value)),
 				fonts.body(PANEL_HEADER_FONT_SIZE),
-				TextColor(TEXT_YELLOW_FAINT),
+				TextColor(value_face),
 				LineHeight::RelativeToFont(1.0),
 			));
 		});
@@ -203,6 +207,7 @@ pub fn open_short_text_modal(
 	field: &mut ShortTextField,
 	active: &mut ActiveShortText,
 	modal: &mut ShortTextModal,
+	stack: &mut MenuModalStack,
 	commands: &mut Commands,
 ) {
 	field.editing = true;
@@ -215,6 +220,7 @@ pub fn open_short_text_modal(
 		max_len: field.max_len,
 		shift: false,
 	});
+	stack.open(MenuModalLayer::SHORT_TEXT);
 	commands.trigger(ShortTextToggle { entity, key, editing: true });
 }
 
@@ -222,7 +228,7 @@ pub fn cancel_short_text_modal(
 	active: &mut ActiveShortText,
 	modal: &mut ShortTextModal,
 	fields: &mut Query<&mut ShortTextField>,
-	consumed: &mut MenuBackConsumed,
+	stack: &mut MenuModalStack,
 	roots: &Query<Entity, With<ShortTextModalRoot>>,
 	commands: &mut Commands,
 ) {
@@ -231,7 +237,8 @@ pub fn cancel_short_text_modal(
 	};
 	active.0 = None;
 	modal.dismissed = true;
-	consumed.0 = true;
+	stack.close(MenuModalId::SHORT_TEXT);
+	stack.mark_consumed();
 	if let Ok(mut field) = fields.get_mut(session.source) {
 		field.editing = false;
 	}
@@ -243,6 +250,7 @@ pub fn submit_short_text_modal(
 	active: &mut ActiveShortText,
 	modal: &mut ShortTextModal,
 	fields: &mut Query<&mut ShortTextField>,
+	stack: &mut MenuModalStack,
 	roots: &Query<Entity, With<ShortTextModalRoot>>,
 	commands: &mut Commands,
 ) {
@@ -251,6 +259,8 @@ pub fn submit_short_text_modal(
 	};
 	active.0 = None;
 	modal.dismissed = true;
+	stack.close(MenuModalId::SHORT_TEXT);
+	stack.mark_consumed();
 	if let Ok(mut field) = fields.get_mut(session.source) {
 		field.value.clone_from(&session.value);
 		field.editing = false;
@@ -281,6 +291,7 @@ pub fn emit_short_text_submit_on_confirm(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	if !modal.is_open() {
@@ -289,7 +300,14 @@ pub fn emit_short_text_submit_on_confirm(
 	if !keyboard.just_pressed(KeyCode::Enter) && !pad_start_submits(pad.as_deref()) {
 		return;
 	}
-	submit_short_text_modal(&mut active, &mut modal, &mut fields, &roots, &mut commands);
+	submit_short_text_modal(
+		&mut active,
+		&mut modal,
+		&mut fields,
+		&mut stack,
+		&roots,
+		&mut commands,
+	);
 }
 
 pub fn observe_short_text_submit_button(add: On<Add, ShortTextSubmit>, mut commands: Commands) {
@@ -302,9 +320,17 @@ fn on_short_text_submit_click(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
-	submit_short_text_modal(&mut active, &mut modal, &mut fields, &roots, &mut commands);
+	submit_short_text_modal(
+		&mut active,
+		&mut modal,
+		&mut fields,
+		&mut stack,
+		&roots,
+		&mut commands,
+	);
 }
 
 pub fn emit_short_text_toggle_on_click(
@@ -316,7 +342,7 @@ pub fn emit_short_text_toggle_on_click(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
-	mut consumed: ResMut<MenuBackConsumed>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	let target = pointer_target(&click, &child_of, |entity| keys.contains(entity));
@@ -326,7 +352,7 @@ pub fn emit_short_text_toggle_on_click(
 				&mut active,
 				&mut modal,
 				&mut fields,
-				&mut consumed,
+				&mut stack,
 				&roots,
 				&mut commands,
 			);
@@ -345,7 +371,15 @@ pub fn emit_short_text_toggle_on_click(
 	let Ok(mut field) = fields.get_mut(entity) else {
 		return;
 	};
-	open_short_text_modal(entity, key.0, &mut field, &mut active, &mut modal, &mut commands);
+	open_short_text_modal(
+		entity,
+		key.0,
+		&mut field,
+		&mut active,
+		&mut modal,
+		&mut stack,
+		&mut commands,
+	);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -359,6 +393,7 @@ pub fn emit_short_text_toggle_on_enter(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	if !keyboard_nav.is_enabled()
@@ -370,7 +405,15 @@ pub fn emit_short_text_toggle_on_enter(
 	{
 		return;
 	}
-	open_selected_short_text(&menus, &items, &mut fields, &mut active, &mut modal, &mut commands);
+	open_selected_short_text(
+		&menus,
+		&items,
+		&mut fields,
+		&mut active,
+		&mut modal,
+		&mut stack,
+		&mut commands,
+	);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -383,6 +426,7 @@ pub fn emit_short_text_toggle_on_nav(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	if lock.0
@@ -393,7 +437,15 @@ pub fn emit_short_text_toggle_on_nav(
 	{
 		return;
 	}
-	open_selected_short_text(&menus, &items, &mut fields, &mut active, &mut modal, &mut commands);
+	open_selected_short_text(
+		&menus,
+		&items,
+		&mut fields,
+		&mut active,
+		&mut modal,
+		&mut stack,
+		&mut commands,
+	);
 }
 
 fn open_selected_short_text(
@@ -402,6 +454,7 @@ fn open_selected_short_text(
 	fields: &mut Query<&mut ShortTextField>,
 	active: &mut ActiveShortText,
 	modal: &mut ShortTextModal,
+	stack: &mut MenuModalStack,
 	commands: &mut Commands,
 ) {
 	for (entity, item, key) in items.iter() {
@@ -414,7 +467,7 @@ fn open_selected_short_text(
 		let Ok(mut field) = fields.get_mut(entity) else {
 			continue;
 		};
-		open_short_text_modal(entity, key.0, &mut field, active, modal, commands);
+		open_short_text_modal(entity, key.0, &mut field, active, modal, stack, commands);
 		return;
 	}
 }
@@ -427,13 +480,21 @@ pub fn emit_short_text_submit_on_click(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	if pointer_target(&click, &child_of, |entity| submits.contains(entity)).is_none() {
 		return;
 	}
 	click.propagate(false);
-	submit_short_text_modal(&mut active, &mut modal, &mut fields, &roots, &mut commands);
+	submit_short_text_modal(
+		&mut active,
+		&mut modal,
+		&mut fields,
+		&mut stack,
+		&roots,
+		&mut commands,
+	);
 }
 
 pub fn emit_short_text_pad_on_click(
@@ -460,48 +521,37 @@ pub fn emit_short_text_pad_on_nav(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
-	mut consumed: ResMut<MenuBackConsumed>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	let Ok((pad, menu)) = pads.get(impulse.entity) else {
 		return;
 	};
-	match impulse.event().nav {
-		MenuNav::Back => {
-			impulse.propagate(false);
-			cancel_short_text_modal(
-				&mut active,
-				&mut modal,
-				&mut fields,
-				&mut consumed,
-				&roots,
-				&mut commands,
-			);
-		}
-		MenuNav::Select => {
-			impulse.propagate(false);
-			if pad_start_submits(pad_state.as_deref()) {
-				submit_short_text_modal(
-					&mut active,
-					&mut modal,
-					&mut fields,
-					&roots,
-					&mut commands,
-				);
-			} else {
-				activate_selected_pad_item(
-					pad,
-					menu,
-					&keys,
-					&mut fields,
-					&mut active,
-					&mut modal,
-					&roots,
-					&mut commands,
-				);
-			}
-		}
-		_ => {}
+	if impulse.event().nav != MenuNav::Select {
+		return;
+	}
+	impulse.propagate(false);
+	if pad_start_submits(pad_state.as_deref()) {
+		submit_short_text_modal(
+			&mut active,
+			&mut modal,
+			&mut fields,
+			&mut stack,
+			&roots,
+			&mut commands,
+		);
+	} else {
+		activate_selected_pad_item(
+			pad,
+			menu,
+			&keys,
+			&mut fields,
+			&mut active,
+			&mut modal,
+			&mut stack,
+			&roots,
+			&mut commands,
+		);
 	}
 }
 
@@ -552,6 +602,7 @@ fn activate_selected_pad_item(
 	fields: &mut Query<&mut ShortTextField>,
 	active: &mut ActiveShortText,
 	modal: &mut ShortTextModal,
+	stack: &mut MenuModalStack,
 	roots: &Query<Entity, With<ShortTextModalRoot>>,
 	commands: &mut Commands,
 ) {
@@ -563,7 +614,7 @@ fn activate_selected_pad_item(
 			apply_short_text_pad_key(*key, modal);
 		}
 		if submit.is_some() {
-			submit_short_text_modal(active, modal, fields, roots, commands);
+			submit_short_text_modal(active, modal, fields, stack, roots, commands);
 		}
 		return;
 	}
@@ -577,7 +628,7 @@ pub fn emit_short_text_cancel_on_click(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
-	mut consumed: ResMut<MenuBackConsumed>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	if pointer_target(&click, &child_of, |entity| cancels.contains(entity)).is_none() {
@@ -588,7 +639,7 @@ pub fn emit_short_text_cancel_on_click(
 		&mut active,
 		&mut modal,
 		&mut fields,
-		&mut consumed,
+		&mut stack,
 		&roots,
 		&mut commands,
 	);
@@ -602,7 +653,7 @@ pub fn capture_short_text_input(
 	mut fields: Query<&mut ShortTextField>,
 	mut active: ResMut<ActiveShortText>,
 	mut modal: ResMut<ShortTextModal>,
-	mut consumed: ResMut<MenuBackConsumed>,
+	mut stack: ResMut<MenuModalStack>,
 	mut commands: Commands,
 ) {
 	if !modal.is_open() {
@@ -616,7 +667,7 @@ pub fn capture_short_text_input(
 			&mut active,
 			&mut modal,
 			&mut fields,
-			&mut consumed,
+			&mut stack,
 			&roots,
 			&mut commands,
 		);
@@ -625,7 +676,14 @@ pub fn capture_short_text_input(
 		return;
 	}
 	if keyboard.just_pressed(KeyCode::Enter) {
-		submit_short_text_modal(&mut active, &mut modal, &mut fields, &roots, &mut commands);
+		submit_short_text_modal(
+			&mut active,
+			&mut modal,
+			&mut fields,
+			&mut stack,
+			&roots,
+			&mut commands,
+		);
 		reader.clear();
 		ime.clear();
 		return;
@@ -661,6 +719,28 @@ pub fn capture_short_text_input(
 			}
 		}
 	}
+}
+
+pub fn close_short_text_on_modal_dismiss(
+	mut dismiss: MessageReader<MenuModalDismiss>,
+	roots: Query<Entity, With<ShortTextModalRoot>>,
+	mut fields: Query<&mut ShortTextField>,
+	mut active: ResMut<ActiveShortText>,
+	mut modal: ResMut<ShortTextModal>,
+	mut stack: ResMut<MenuModalStack>,
+	mut commands: Commands,
+) {
+	if !dismiss.read().any(|event| event.is(MenuModalId::SHORT_TEXT)) {
+		return;
+	}
+	cancel_short_text_modal(
+		&mut active,
+		&mut modal,
+		&mut fields,
+		&mut stack,
+		&roots,
+		&mut commands,
+	);
 }
 
 pub fn sync_short_text_modal(
@@ -705,6 +785,7 @@ fn spawn_short_text_modal(commands: &mut Commands, fonts: &HudFonts, session: &S
 	commands
 		.spawn((
 			ShortTextModalRoot,
+			MenuModal::SHORT_TEXT,
 			Node {
 				position_type: PositionType::Absolute,
 				left: Val::Px(0.0),
@@ -731,49 +812,43 @@ fn spawn_short_text_modal(commands: &mut Commands, fonts: &HudFonts, session: &S
 					height: Val::Percent(100.0),
 					..default()
 				},
-				BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
+				BackgroundColor(menu_region_wash()),
 			));
-			root.spawn((
-				Node {
-					width: Val::Px(720.0),
-					max_width: Val::Percent(92.0),
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::FlexStart,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					..default()
-				},
-				Pickable::default(),
-			))
-			.with_children(|card| {
-				spawn_hud_text(
-					card,
-					fonts.header(HEADER_FONT_SIZE * 0.42),
-					session.key,
-					TEXT_YELLOW,
-					Justify::Left,
-				);
-				card.spawn((
-					ShortTextModalValue,
-					Text::new(modal_value_display(&session.value)),
-					fonts.header(HEADER_FONT_SIZE * 0.55),
-					TextColor(TEXT_YELLOW),
-					TextLayout::new(Justify::Left, LineBreak::NoWrap),
-					LineHeight::RelativeToFont(1.0),
-					Pickable::IGNORE,
-				));
-				if show_pad {
-					spawn_short_text_pad(card, fonts, session.shift);
-				} else {
-					spawn_text_button(card, fonts, "submit", ShortTextSubmit);
+			let mut card = menu_list_panel_node(AlignItems::FlexStart);
+			card.width = Val::Px(720.0);
+			card.max_width = Val::Percent(92.0);
+			card.row_gap = Val::Px(PANEL_ROW_GAP);
+			root.spawn((card, BackgroundColor(menu_region_wash()), Pickable::default()))
+				.with_children(|card| {
 					spawn_hud_text(
 						card,
-						fonts.body(PANEL_ITEM_FONT_SIZE),
-						"type to enter",
-						TEXT_YELLOW_FAINT,
+						fonts.header(HEADER_FONT_SIZE * 0.42),
+						session.key,
+						TEXT_YELLOW,
 						Justify::Left,
 					);
-				}
-			});
+					card.spawn((
+						ShortTextModalValue,
+						Text::new(modal_value_display(&session.value)),
+						fonts.header(HEADER_FONT_SIZE * 0.55),
+						TextColor(TEXT_YELLOW),
+						TextLayout::new(Justify::Left, LineBreak::NoWrap),
+						LineHeight::RelativeToFont(1.0),
+						Pickable::IGNORE,
+					));
+					if show_pad {
+						spawn_short_text_pad(card, fonts, session.shift);
+					} else {
+						spawn_text_button(card, fonts, "submit", ShortTextSubmit);
+						spawn_hud_text(
+							card,
+							fonts.body(PANEL_ITEM_FONT_SIZE),
+							"type to enter",
+							TEXT_YELLOW_FAINT,
+							Justify::Left,
+						);
+					}
+				});
 		});
 }
 
@@ -1056,6 +1131,7 @@ pub fn sync_short_text_pad_focus(
 	pads: Query<(Entity, &HudMenu), With<ShortTextPad>>,
 	items: Query<(Entity, &HudMenuItem)>,
 	mut outlines: Query<&mut Outline>,
+	mut backgrounds: Query<&mut BackgroundColor>,
 	mut colors: Query<&mut TextColor>,
 	children: Query<&Children>,
 ) {
@@ -1066,44 +1142,41 @@ pub fn sync_short_text_pad_focus(
 			}
 			let focused = item.index == menu.selected;
 			if let Ok(mut outline) = outlines.get_mut(entity) {
-				outline.color = if focused { TEXT_YELLOW } else { Color::NONE };
+				outline.color = if focused { TEXT_DEEP_BLUE } else { Color::NONE };
+			}
+			if let Ok(mut background) = backgrounds.get_mut(entity) {
+				background.0 = if focused { TEXT_YELLOW } else { Color::NONE };
 			}
 			let Ok(row_children) = children.get(entity) else {
 				continue;
 			};
 			for child in row_children {
 				if let Ok(mut color) = colors.get_mut(*child) {
-					color.0 = if focused { TEXT_YELLOW_HOVER } else { TEXT_YELLOW };
+					color.0 = if focused { TEXT_DEEP_BLUE } else { TEXT_YELLOW };
 				}
 			}
 		}
 	}
 }
 
-pub fn sync_short_text_cursors(
+pub fn sync_short_text_focus_tags(
 	fields: Query<(&ShortTextField, Option<&HudMenuItem>, &Children)>,
 	menus: Query<&HudMenu>,
-	slots: Query<(), With<TextCursorSlot>>,
+	tags: Query<(), With<FocusTag>>,
+	tag_idle: Query<&FocusTag>,
 	children: Query<&Children>,
-	mut icons: Query<&mut Visibility, With<AnimatedIcon>>,
+	mut backgrounds: Query<&mut BackgroundColor, With<FocusTag>>,
+	mut colors: Query<&mut TextColor>,
 ) {
 	for (field, item, row_children) in &fields {
 		let focused = item
 			.is_some_and(|item| menus.get(item.menu).is_ok_and(|menu| menu.selected == item.index));
 		let show = focused || field.editing;
-		for child in row_children {
-			if slots.get(*child).is_err() {
-				continue;
-			}
-			let Ok(slot_children) = children.get(*child) else {
-				continue;
-			};
-			for icon_entity in slot_children {
-				if let Ok(mut visibility) = icons.get_mut(*icon_entity) {
-					*visibility = if show { Visibility::Inherited } else { Visibility::Hidden };
-				}
-			}
-		}
+		let Some(tag) = first_focus_tag(row_children, &tags) else {
+			continue;
+		};
+		let idle = tag_idle.get(tag).map(|tag| tag.idle).unwrap_or(TEXT_YELLOW);
+		paint_focus_tag(tag, show, false, idle, &children, &mut backgrounds, &mut colors);
 	}
 }
 
@@ -1123,13 +1196,19 @@ pub fn sync_short_text_ime(
 #[cfg(test)]
 mod tests {
 	use super::{
-		apply_short_text_pad_key, cancel_short_text_modal, is_short_text_char, pad_letter_label,
-		push_short_text_char, submit_short_text_modal, ActiveShortText, ShortTextField,
-		ShortTextModal, ShortTextModalRoot, ShortTextPadKey, ShortTextSession,
+		apply_short_text_pad_key, cancel_short_text_modal, close_short_text_on_modal_dismiss,
+		is_short_text_char, pad_letter_label, push_short_text_char, submit_short_text_modal,
+		ActiveShortText, ShortTextField, ShortTextModal, ShortTextModalRoot, ShortTextPadKey,
+		ShortTextSession,
 	};
-	use crate::single_select::MenuBackConsumed;
+	use crate::modal::{
+		consume_menu_modal_back, consume_screen_back, MenuModalDismiss, MenuModalId,
+		MenuModalLayer, MenuModalStack,
+	};
+	use crate::single_select::text_cursor::ScreenBackPressed;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
+	use maybraid_input::{MenuNav, MenuNavPad};
 
 	#[test]
 	fn pad_letters_follow_shift() {
@@ -1173,6 +1252,9 @@ mod tests {
 	}
 
 	fn open_name_session(world: &mut World) -> Entity {
+		world.init_resource::<ActiveShortText>();
+		world.init_resource::<ShortTextModal>();
+		world.init_resource::<MenuModalStack>();
 		let source = world
 			.spawn(ShortTextField { value: String::from("Ada"), max_len: 16, editing: true })
 			.id();
@@ -1185,26 +1267,27 @@ mod tests {
 			shift: false,
 		});
 		world.resource_mut::<ActiveShortText>().0 = Some("Name");
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::SHORT_TEXT);
 		source
 	}
 
 	#[test]
 	fn submit_dismisses_and_keeps_the_committed_value() {
 		let mut world = World::new();
-		world.init_resource::<ActiveShortText>();
-		world.init_resource::<ShortTextModal>();
 		let source = open_name_session(&mut world);
 		world
 			.run_system_once(
 				|mut active: ResMut<ActiveShortText>,
 				 mut modal: ResMut<ShortTextModal>,
 				 mut fields: Query<&mut ShortTextField>,
+				 mut stack: ResMut<MenuModalStack>,
 				 roots: Query<Entity, With<ShortTextModalRoot>>,
 				 mut commands: Commands| {
 					submit_short_text_modal(
 						&mut active,
 						&mut modal,
 						&mut fields,
+						&mut stack,
 						&roots,
 						&mut commands,
 					);
@@ -1215,6 +1298,8 @@ mod tests {
 		assert!(!modal.is_open());
 		assert!(modal.dismissed);
 		assert!(world.resource::<ActiveShortText>().0.is_none());
+		assert!(!world.resource::<MenuModalStack>().contains(MenuModalId::SHORT_TEXT));
+		assert!(world.resource::<MenuModalStack>().consumed());
 		let field = world.get::<ShortTextField>(source).expect("field");
 		assert_eq!(field.value, "Mist");
 		assert!(!field.editing);
@@ -1223,23 +1308,20 @@ mod tests {
 	#[test]
 	fn cancel_dismisses_and_consumes_back() {
 		let mut world = World::new();
-		world.init_resource::<ActiveShortText>();
-		world.init_resource::<ShortTextModal>();
-		world.init_resource::<MenuBackConsumed>();
 		let source = open_name_session(&mut world);
 		world
 			.run_system_once(
 				|mut active: ResMut<ActiveShortText>,
 				 mut modal: ResMut<ShortTextModal>,
 				 mut fields: Query<&mut ShortTextField>,
-				 mut consumed: ResMut<MenuBackConsumed>,
+				 mut stack: ResMut<MenuModalStack>,
 				 roots: Query<Entity, With<ShortTextModalRoot>>,
 				 mut commands: Commands| {
 					cancel_short_text_modal(
 						&mut active,
 						&mut modal,
 						&mut fields,
-						&mut consumed,
+						&mut stack,
 						&roots,
 						&mut commands,
 					);
@@ -1249,9 +1331,73 @@ mod tests {
 		let modal = world.resource::<ShortTextModal>();
 		assert!(!modal.is_open());
 		assert!(modal.dismissed);
-		assert!(world.resource::<MenuBackConsumed>().0);
+		assert!(world.resource::<MenuModalStack>().consumed());
+		assert!(world.resource::<MenuModalStack>().blocks_screen_back());
 		let field = world.get::<ShortTextField>(source).expect("field");
 		assert_eq!(field.value, "Ada");
 		assert!(!field.editing);
+	}
+
+	fn press_back_on_open_keyboard() -> World {
+		let mut world = World::new();
+		open_name_session(&mut world);
+		world.init_resource::<MenuNavPad>();
+		world.init_resource::<ButtonInput<KeyCode>>();
+		world.init_resource::<Messages<MenuModalDismiss>>();
+		world.init_resource::<Messages<ScreenBackPressed>>();
+		world.resource_mut::<MenuNavPad>().events.push(MenuNav::Back);
+		world.run_system_once(consume_menu_modal_back).expect("consume");
+		world.run_system_once(close_short_text_on_modal_dismiss).expect("close");
+		world
+	}
+
+	#[test]
+	fn back_closes_the_keyboard_and_does_not_leave_the_screen() {
+		let mut world = press_back_on_open_keyboard();
+		assert!(!world.resource::<ShortTextModal>().is_open());
+		assert!(world.resource::<MenuModalStack>().blocks_screen_back());
+		let left = world
+			.run_system_once(
+				|nav: Res<MenuNavPad>,
+				 stack: Res<MenuModalStack>,
+				 mut backs: MessageReader<ScreenBackPressed>| {
+					consume_screen_back(&nav, &stack, &mut backs)
+				},
+			)
+			.expect("screen back");
+		assert!(!left);
+	}
+
+	#[test]
+	fn escape_closes_the_keyboard_without_a_keypad_entity() {
+		let mut world = World::new();
+		open_name_session(&mut world);
+		world.init_resource::<MenuNavPad>();
+		world.init_resource::<ButtonInput<KeyCode>>();
+		world.init_resource::<Messages<MenuModalDismiss>>();
+		world.init_resource::<Messages<ScreenBackPressed>>();
+		world.resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::Escape);
+		world.run_system_once(consume_menu_modal_back).expect("consume");
+		world.run_system_once(close_short_text_on_modal_dismiss).expect("close");
+		assert!(!world.resource::<ShortTextModal>().is_open());
+		assert!(world.resource::<MenuModalStack>().blocks_screen_back());
+	}
+
+	#[test]
+	fn backspace_edits_and_does_not_close_the_keyboard() {
+		let mut modal = ShortTextModal {
+			session: Some(ShortTextSession {
+				key: "Name",
+				source: Entity::PLACEHOLDER,
+				value: String::from("Mist"),
+				original: String::from("Ada"),
+				max_len: 16,
+				shift: false,
+			}),
+			dismissed: false,
+		};
+		apply_short_text_pad_key(ShortTextPadKey::Backspace, &mut modal);
+		assert_eq!(modal.session.as_ref().map(|session| session.value.as_str()), Some("Mis"));
+		assert!(modal.is_open());
 	}
 }

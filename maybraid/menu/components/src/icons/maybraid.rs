@@ -1,9 +1,7 @@
 //! Maybraid HUD mark, as a sized [`ImageNode`].
 
-pub mod animated;
 pub mod spinning;
 
-pub use animated::{blink_animated_icons, AnimatedIcon};
 pub use spinning::{spin_icons, SpinningIcon};
 
 use bevy::prelude::*;
@@ -11,7 +9,7 @@ use bevy::scene::prelude::{bsn, template_value, Scene};
 
 use crate::theme::{MAYBRAID_LOGO, TEXT_YELLOW};
 
-/// Static HUD icon. [`AnimatedIcon`] is the blinking variant.
+/// Static HUD icon (hints, equipped-tile marks). Loading uses [`SpinningIcon`].
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Icon {
 	pub size: f32,
