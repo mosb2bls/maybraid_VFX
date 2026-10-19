@@ -13,10 +13,16 @@ Captured from `character-concepts-playground` on the clothed Epiphant recipe (qu
 
 Capture hides the creator panel and command HUD (`CROZON_PREVIEW_HIDE_UI`), spawns a ground plane aligned each frame to the lowest **body-mesh** world Y (scaled foot contact, with Epiphant locomotion-capsule anchor before meshes load), frames the camera from live mesh bounds (centered, feet + ground in view), and draws the bray mouth-emit gizmo (cyan origin, yellow horizontal forward) when `CROZON_PREVIEW_DRAW_MOUTH_EMIT=1`.
 
-Regenerate:
+Regenerate stills:
 
 ```bash
 ./capture.sh
+```
+
+Full-sequence videos (ordinary + boss, 2 m scale reference visible on boss shots):
+
+```bash
+CROZON_CAPTURE_STILLS=0 CROZON_CAPTURE_VIDEOS=1 ./capture.sh
 ```
 
 Manual single frame (Liam):

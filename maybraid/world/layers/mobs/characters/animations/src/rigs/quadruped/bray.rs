@@ -30,6 +30,23 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn phase_boundaries_keep_imported_neck_pose_continuous() {
+		let bray = EpiphantBray::default();
+		let mut rig = QuadrupedV0Rig::for_clip_test();
+		for boundary in [0.22_f32, 0.42] {
+			let eps = 1e-4;
+			bray.apply_for(&mut rig, boundary - eps);
+			let before = rig.rotation("neck") * Vec3::Y;
+			bray.apply_for(&mut rig, boundary + eps);
+			let after = rig.rotation("neck") * Vec3::Y;
+			assert!(
+				(after - before).length() < 0.04,
+				"neck pop at {boundary}: {before:?} -> {after:?}"
+			);
+		}
+	}
+
+	#[test]
 	fn flick_moves_the_neck_on_the_imported_rig() {
 		let bray = EpiphantBray::default();
 		let mut rig = QuadrupedV0Rig::for_clip_test();
