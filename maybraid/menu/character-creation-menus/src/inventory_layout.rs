@@ -1,9 +1,10 @@
-//! Shared inventory layout: Clothing, Tools, Skill Maps, Lubikan.
+//! Shared inventory layout: Clothing, Tools, Skill Maps, Tanzes, Lubikan.
 //!
 //! Character generation and the character-menu Inventory modal lower to the
 //! same [`MenuNode`] tree. Generation is [`InventoryLayoutMode::ReadOnly`]
 //! (view + Continue). The modal is [`InventoryLayoutMode::Interactive`]
 //! (equip + drop). Tools is a UI grouping; the domain slot stays Weapons.
+//! Tanz tiles reuse pose-capture catalog keys from `tanz-user`.
 
 use character_items::{
 	icon_catalog_key_for_label, self_lubikan_catalog_key, Inventory, InventoryItem, InventorySlot,
@@ -11,6 +12,7 @@ use character_items::{
 };
 use character_ui_menu::{AssetOption, GridCatalogChoice, MenuNode, PreviewColor, ThumbnailCamera};
 use std::time::Duration;
+use tanz_user::TanzPose;
 
 use crate::event::MenuEvent;
 
@@ -126,7 +128,7 @@ impl InventoryLayout {
 		self.mode.allows(event)
 	}
 
-	/// Clothing / Tools / Skill Maps / Lubikan in that order.
+	/// Clothing / Tools / Skill Maps / Tanzes / Lubikan in that order.
 	pub fn section_labels(&self) -> Vec<&'static str> {
 		section_labels(&self.node)
 	}
@@ -136,6 +138,10 @@ fn required_captures_for(inventory: &Inventory) -> Vec<InventoryIconNeed> {
 	let mut needs = vec![InventoryIconNeed::silhouette(self_lubikan_catalog_key())];
 	for item in &inventory.items {
 		if matches!(item, InventoryItem::SkillMap { .. }) {
+			continue;
+		}
+		if let Some(id) = item.tanz_id() {
+			needs.push(InventoryIconNeed::silhouette(TanzPose(id).icon_catalog_key()));
 			continue;
 		}
 		if let Some(key) = item.icon_catalog_key() {
@@ -152,6 +158,7 @@ fn inventory_node(title: &'static str, inventory: &Inventory) -> MenuNode<MenuEv
 			MenuNode::section("Clothing", clothing_catalog(inventory)),
 			MenuNode::section(TOOLS_LABEL, tools_catalog(inventory)),
 			MenuNode::section("Skill Maps", skills_catalog(inventory)),
+			MenuNode::section(InventorySlot::Tanzes.label(), tanz_catalog(inventory)),
 			lubikan_section(),
 		]),
 	)
@@ -238,6 +245,28 @@ fn skills_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
 	)
 }
 
+fn tanz_catalog(inventory: &Inventory) -> MenuNode<MenuEvent> {
+	MenuNode::grid_catalog(
+		InventorySlot::Tanzes.label(),
+		InventorySlot::Tanzes.capacity(),
+		inventory.items.iter().enumerate().filter_map(|(index, item)| {
+			let id = item.tanz_id()?;
+			let rank = inventory.rank(index);
+			Some(GridCatalogChoice {
+				label: item.name(),
+				detail: item.catalog_detail(),
+				path: item.path(),
+				thumbnail_camera: ThumbnailCamera::DEFAULT,
+				preview: PreviewColor::WHITE,
+				image_key: Some(TanzPose(id).icon_catalog_key()),
+				selected: rank.is_some(),
+				rank,
+				event: catalog_event(index),
+			})
+		}),
+	)
+}
+
 fn lubikan_section() -> MenuNode<MenuEvent> {
 	MenuNode::section(
 		LUBIKAN_LABEL,
@@ -311,7 +340,10 @@ mod tests {
 		let items = sample_items();
 		let starter = InventoryLayout::starter_kit(items.clone());
 		let menu = InventoryLayout::character_menu(&Inventory::with_starter_outfit(items));
-		assert_eq!(starter.section_labels(), ["Clothing", "Tools", "Skill Maps", "Lubikan"]);
+		assert_eq!(
+			starter.section_labels(),
+			["Clothing", "Tools", "Skill Maps", "Tanzes", "Lubikan"]
+		);
 		assert_eq!(starter.section_labels(), menu.section_labels());
 		assert_eq!(starter.title, STARTER_KIT_LABEL);
 		assert_eq!(menu.title, "Inventory");
@@ -393,6 +425,50 @@ mod tests {
 		let layout = InventoryLayout::starter_kit(items);
 		assert_eq!(clothing_tile_count(&layout), STARTER_CLOTHING_COUNT);
 		assert_eq!(STARTER_CLOTHING_COUNT, 3);
+	}
+
+	#[test]
+	fn tanz_tiles_include_owned_unequipped_and_use_pose_catalog_keys() {
+		use character_items::TanzId;
+		use tanz_user::TanzPose;
+
+		let items = vec![
+			InventoryItem::tanz(TanzId::HealingSalute),
+			InventoryItem::tanz(TanzId::LeftStrafe),
+			InventoryItem::firearm(FirearmMesh::Bullpup),
+		];
+		let mut inventory = Inventory::with_starter_outfit(items);
+		assert!(inventory.toggle(
+			inventory
+				.items
+				.iter()
+				.position(|item| item.tanz_id() == Some(TanzId::HealingSalute))
+				.expect("salute")
+		));
+		let layout = InventoryLayout::character_menu(&inventory);
+		let MenuNode::Section { children, .. } = &layout.node else {
+			panic!("inventory must be a section");
+		};
+		let tanzes = children.iter().find_map(|child| match child {
+			MenuNode::Section { label: "Tanzes", children } => children.first(),
+			_ => None,
+		});
+		let Some(MenuNode::GridCatalog { choices, max_selected, .. }) = tanzes else {
+			panic!("Tanzes must be a catalog");
+		};
+		assert_eq!(*max_selected, 4);
+		assert_eq!(choices.len(), 2);
+		assert_eq!(choices[0].label, "Healing Salute");
+		assert_eq!(choices[0].detail, "A · Forward");
+		assert_eq!(choices[0].image_key, Some(TanzPose(TanzId::HealingSalute).icon_catalog_key()));
+		assert_eq!(choices[0].rank, Some(1));
+		assert!(choices[0].selected);
+		assert_eq!(choices[1].label, "Left Strafe");
+		assert!(!choices[1].selected);
+		assert_eq!(choices[1].rank, None);
+		assert!(layout.captures.iter().any(|need| {
+			need.silhouette && need.key == TanzPose(TanzId::LeftStrafe).icon_catalog_key()
+		}));
 	}
 
 	#[test]

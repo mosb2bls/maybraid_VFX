@@ -2776,6 +2776,7 @@ dependencies = [
  "character-items",
  "character-ui-menu",
  "characters",
+ "tanz-user",
 ]
 
 [[package]]
@@ -7217,6 +7218,7 @@ dependencies = [
  "menu-components",
  "menu-screens",
  "player",
+ "tanz-user",
 ]
 
 [[package]]
@@ -7239,6 +7241,7 @@ dependencies = [
  "menu-components",
  "serde",
  "serde_json",
+ "tanz-user",
  "tempfile",
 ]
 
@@ -11424,6 +11427,7 @@ dependencies = [
  "anyhow",
  "bevy",
  "character-animations",
+ "character-items",
  "characters",
  "damage",
  "item-icons",

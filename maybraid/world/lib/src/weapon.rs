@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use character_inventory_user::{spawn_bag, InventoryUser};
-use character_items::{CharacterSheet, Inventory, InventoryItem};
+use character_items::{CharacterSheet, Inventory, InventoryItem, TanzId};
 use characters::{CharacterAppearance, CharacterRoot};
 use damage::Health;
 use firearm_user::{
@@ -22,7 +22,7 @@ use player::{
 	apply_character_mobility, CameraFollow, Player as MaybraidPlayer, PlayerCameraAim, PlayerLook,
 	PlayerUse, PlayerVisual as MaybraidPlayerVisual, PlayerYawOwner,
 };
-use tanz_user::{spawn_tanz_user, TanzUser};
+use tanz_user::{spawn_tanz_user, TanzExecution, TanzStack, TanzUser, TanzUserSystems};
 use world_player::{
 	CharacterSpecies, Player as VegetationPlayer, PlayerVisual as VegetationPlayerVisual,
 	PlaygroundMode, RequestSetCharacter, RequestSetCharacterAppearance,
@@ -361,11 +361,42 @@ fn spawn_detonation_vfx(
 	}
 }
 
+fn equipped_tanzes(inventory: &Inventory) -> Vec<TanzId> {
+	inventory.equipped_tanzes()
+}
+
+/// Inventory is the authority; [`TanzStack`] is a derived matching view.
+///
+/// Runs before match/execute so bag edits affect the next input. A missing bag
+/// clears the stack. Active Tanzes and cooldowns stay; a buffered successor
+/// that is no longer equipped is discarded.
+fn sync_tanz_stack_from_inventory(
+	mut users: Query<(Option<&InventoryUser>, &mut TanzStack, &mut TanzExecution)>,
+	bags: Query<&Inventory>,
+) {
+	for (inventory_user, mut stack, mut execution) in &mut users {
+		let next = inventory_user
+			.and_then(|user| bags.get(user.bag).ok())
+			.map(equipped_tanzes)
+			.unwrap_or_default();
+		if stack.equipped != next {
+			stack.equipped = next;
+		}
+		if execution.buffered.is_some_and(|queued| !stack.contains(queued.id)) {
+			execution.buffered = None;
+		}
+	}
+}
+
 pub(crate) fn configure(app: &mut App) {
 	app.add_systems(Startup, spawn_world_reticle).add_systems(
 		Update,
 		(
 			arm_world_player,
+			sync_tanz_stack_from_inventory
+				.after(arm_world_player)
+				.before(TanzUserSystems::Match)
+				.before(TanzUserSystems::Execute),
 			(
 				begin_weapon_swap
 					.after(crate::inventory_cycling::InventoryCyclingCategorySystems)
@@ -393,7 +424,7 @@ mod tests {
 		ClothingMaterial, ClothingMesh, FirearmMesh, Inventory, InventoryItem, ItemColor,
 	};
 	use characters::{CharacterAppearance, CharacterRoot};
-	use tanz_user::{ControlMode, TanzUser};
+	use tanz_user::{BufferedTanz, ControlMode, TanzExecution, TanzId, TanzStack, TanzUser};
 	use world_player::{
 		Player as VegetationPlayer, PlayerVisual as VegetationPlayerVisual, PlaygroundMode,
 		RequestSetCharacterAppearance,
@@ -459,7 +490,69 @@ mod tests {
 			world.get::<TanzUser>(player).map(|user| user.mode),
 			Some(ControlMode::Standard)
 		);
+		assert_eq!(
+			world.get::<TanzStack>(player).map(|stack| stack.equipped.clone()),
+			Some(Vec::new()),
+			"runtime init must not grant a hidden starter stack"
+		);
 		assert_eq!(world.get::<Name>(player).map(Name::as_str), Some("Ada"));
+		Ok(())
+	}
+
+	#[test]
+	fn tanz_stack_projects_inventory_order_and_discards_unequipped_buffer() -> anyhow::Result<()> {
+		use crate::weapon::sync_tanz_stack_from_inventory;
+		use character_inventory_user::{spawn_bag, InventoryUser};
+
+		let mut world = World::new();
+		let mut bag = Inventory {
+			items: TanzId::STARTER.into_iter().map(InventoryItem::tanz).collect(),
+			clothing: Vec::new(),
+			weapons: Vec::new(),
+			skills: Vec::new(),
+			tanzes: vec![3, 1],
+		};
+		assert_eq!(bag.equipped_tanzes(), vec![TanzId::ForwardDash, TanzId::LeftStrafe]);
+		let player = world
+			.spawn((
+				TanzUser::default(),
+				TanzStack { equipped: vec![TanzId::HealingSalute] },
+				TanzExecution {
+					buffered: Some(BufferedTanz { id: TanzId::HealingSalute, age: 0.1 }),
+					..TanzExecution::default()
+				},
+			))
+			.id();
+		spawn_bag(&mut world.commands(), player, bag.clone());
+		world.flush();
+		world
+			.run_system_once(sync_tanz_stack_from_inventory)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(
+			world.get::<TanzStack>(player).map(|stack| stack.equipped.clone()),
+			Some(vec![TanzId::ForwardDash, TanzId::LeftStrafe])
+		);
+		assert!(world
+			.get::<TanzExecution>(player)
+			.is_some_and(|execution| execution.buffered.is_none()));
+
+		bag.tanzes.clear();
+		let user = world.get::<InventoryUser>(player).ok_or_else(|| anyhow::anyhow!("user"))?;
+		*world.get_mut::<Inventory>(user.bag).ok_or_else(|| anyhow::anyhow!("bag"))? = bag;
+		world
+			.get_mut::<TanzExecution>(player)
+			.ok_or_else(|| anyhow::anyhow!("execution"))?
+			.buffered = Some(BufferedTanz { id: TanzId::ForwardDash, age: 0.0 });
+		world
+			.run_system_once(sync_tanz_stack_from_inventory)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(
+			world.get::<TanzStack>(player).map(|stack| stack.equipped.clone()),
+			Some(Vec::new())
+		);
+		assert!(world
+			.get::<TanzExecution>(player)
+			.is_some_and(|execution| execution.buffered.is_none()));
 		Ok(())
 	}
 
@@ -493,6 +586,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0, 1],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		}
 	}
 
@@ -507,6 +601,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: Vec::new(),
 			skills: vec![0, 1],
+			tanzes: Vec::new(),
 		}
 	}
 
@@ -733,6 +828,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		};
 		let mut world = World::new();
 		let player = world.spawn(VegetationPlayer).id();
@@ -762,6 +858,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0, 1],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		};
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
@@ -811,6 +908,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0, 1],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		};
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();

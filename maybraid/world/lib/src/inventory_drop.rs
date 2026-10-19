@@ -234,6 +234,7 @@ fn visual_drop_bag(item: character_items::InventoryItem) -> Inventory {
 		clothing: Vec::new(),
 		weapons: Vec::new(),
 		skills: Vec::new(),
+		tanzes: Vec::new(),
 	};
 	let _ = bag.toggle(0);
 	bag
@@ -276,6 +277,7 @@ mod tests {
 			clothing: vec![0],
 			weapons: vec![1, 2],
 			skills: vec![3, 4],
+			tanzes: Vec::new(),
 		}
 	}
 
@@ -374,6 +376,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0, 1],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		}
 	}
 

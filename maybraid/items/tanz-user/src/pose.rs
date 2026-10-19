@@ -2,26 +2,59 @@
 
 use std::borrow::Cow;
 
+use character_items::{icon_catalog_key_for_label, Inventory, InventoryItem, TanzId};
 use characters::fingerprint_humanoid_clip;
-use screen_capture::RepresentativePose;
+use item_icons::{request_pose_icon, CaptureClient, ItemIconDiscovery, PoseCaptureSubjects};
+use screen_capture::{CaptureSubject, RepresentativePose};
 
-use crate::stack::TanzId;
+use crate::TanzDefinitionExt;
 
-impl RepresentativePose for TanzId {
+/// Local capture adapter. [`TanzId`] and [`RepresentativePose`] are both
+/// foreign to this crate once identity lives in `character-items`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TanzPose(pub TanzId);
+
+impl TanzPose {
+	pub fn icon_catalog_key(self) -> u64 {
+		icon_catalog_key_for_label(self.capture_id().as_str())
+	}
+}
+
+/// Pose-capture every owned Tanz, equipped or not.
+pub fn request_inventory_tanz_icons(
+	inventory: &Inventory,
+	discovery: &mut ItemIconDiscovery,
+	poses: &mut PoseCaptureSubjects,
+	client: &mut CaptureClient,
+) {
+	for id in inventory.items.iter().filter_map(InventoryItem::tanz_id) {
+		let pose = TanzPose(id);
+		request_pose_icon(
+			&pose,
+			id.definition().clip,
+			pose.clip_progress(),
+			discovery,
+			poses,
+			client,
+		);
+	}
+}
+
+impl RepresentativePose for TanzPose {
 	fn clip_key(&self) -> Cow<'static, str> {
-		Cow::Owned(self.definition().clip.capture_key())
+		Cow::Owned(self.0.definition().clip.capture_key())
 	}
 
 	fn clip_progress(&self) -> f32 {
-		self.definition().clip.representative_progress()
+		self.0.definition().clip.representative_progress()
 	}
 
 	fn pose_label(&self) -> Cow<'static, str> {
-		Cow::Borrowed(self.script_id())
+		Cow::Borrowed(self.0.script_id())
 	}
 
 	fn pose_revision(&self) -> u64 {
-		fingerprint_humanoid_clip(self.definition().clip, self.clip_progress())
+		fingerprint_humanoid_clip(self.0.definition().clip, self.clip_progress())
 	}
 }
 
@@ -35,34 +68,34 @@ mod tests {
 	#[test]
 	fn representative_progress_comes_from_the_live_clip() {
 		assert_eq!(
-			TanzId::ForwardDash.clip_progress(),
+			TanzPose(TanzId::ForwardDash).clip_progress(),
 			AnimClip::power_dash().representative_progress()
 		);
 		assert_eq!(
-			TanzId::LeftStrafe.clip_progress(),
+			TanzPose(TanzId::LeftStrafe).clip_progress(),
 			AnimClip::power_strafe_left().representative_progress()
 		);
 		assert_eq!(
-			TanzId::RightStrafe.clip_progress(),
+			TanzPose(TanzId::RightStrafe).clip_progress(),
 			AnimClip::power_strafe_right().representative_progress()
 		);
 		assert_eq!(
-			TanzId::HealingSalute.clip_progress(),
+			TanzPose(TanzId::HealingSalute).clip_progress(),
 			AnimClip::jab().representative_progress()
 		);
-		assert_eq!(TanzId::LeftStrafe.clip_key().as_ref(), "power-strafe-left");
-		assert_eq!(TanzId::RightStrafe.clip_key().as_ref(), "power-strafe-right");
-		assert_eq!(TanzId::ForwardDash.clip_key().as_ref(), "power-dash");
-		assert_eq!(TanzId::HealingSalute.clip_key().as_ref(), "jab");
+		assert_eq!(TanzPose(TanzId::LeftStrafe).clip_key().as_ref(), "power-strafe-left");
+		assert_eq!(TanzPose(TanzId::RightStrafe).clip_key().as_ref(), "power-strafe-right");
+		assert_eq!(TanzPose(TanzId::ForwardDash).clip_key().as_ref(), "power-dash");
+		assert_eq!(TanzPose(TanzId::HealingSalute).clip_key().as_ref(), "jab");
 	}
 
 	#[test]
 	fn capture_id_follows_the_sampled_pose() {
-		let dash = TanzId::ForwardDash;
-		let left = TanzId::LeftStrafe;
+		let dash = TanzPose(TanzId::ForwardDash);
+		let left = TanzPose(TanzId::LeftStrafe);
 		assert_eq!(
 			dash.pose_revision(),
-			fingerprint_humanoid_clip(dash.definition().clip, dash.clip_progress())
+			fingerprint_humanoid_clip(dash.0.definition().clip, dash.clip_progress())
 		);
 		assert_ne!(dash.capture_id(), left.capture_id());
 		assert!(matches!(
@@ -79,6 +112,9 @@ mod tests {
 
 	#[test]
 	fn mirrored_strafes_have_distinct_revisions() {
-		assert_ne!(TanzId::LeftStrafe.pose_revision(), TanzId::RightStrafe.pose_revision());
+		assert_ne!(
+			TanzPose(TanzId::LeftStrafe).pose_revision(),
+			TanzPose(TanzId::RightStrafe).pose_revision()
+		);
 	}
 }

@@ -147,6 +147,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		});
 		world
 			.run_system_once(tick_owned_recharge)
@@ -178,6 +179,7 @@ mod tests {
 				clothing: Vec::new(),
 				weapons: vec![0],
 				skills: Vec::new(),
+				tanzes: Vec::new(),
 			})
 			.id();
 		world.clear_trackers();
