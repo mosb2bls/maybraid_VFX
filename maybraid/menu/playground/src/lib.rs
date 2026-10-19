@@ -2,6 +2,7 @@
 
 pub mod character;
 pub mod commands;
+mod drop_prompt;
 mod leave_prompt;
 mod loading_demo;
 mod preview;
@@ -14,6 +15,7 @@ pub use character::{
 	CharacterScreenPlugin, RequestShowCharacter,
 };
 pub use commands::{PlaygroundCommand, PLAYGROUND_CLI_NAME};
+pub use drop_prompt::CharacterDropPrompt;
 pub use game_commands::command::PendingStartupCommand;
 pub use leave_prompt::CharacterLeavePrompt;
 pub use preview::{CharacterPreviewLight, CharacterPreviewPlugin, CharacterPreviewRoot};

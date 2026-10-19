@@ -11,20 +11,20 @@ use bevy::prelude::*;
 use bevy::text::{Justify, LineBreak, LineHeight, TextSpan};
 use bevy::window::{Ime, PrimaryWindow};
 
-use crate::icons::AnimatedIcon;
 use crate::modal::{MenuModal, MenuModalDismiss, MenuModalId, MenuModalLayer, MenuModalStack};
-use crate::single_select::{KeyboardMenuNav, TextCursorSlot, TextMenuInputLock};
+use crate::single_select::{KeyboardMenuNav, TextMenuInputLock};
 use crate::theme::{
-	HEADER_FONT_SIZE, PANEL_CHIP_GAP, PANEL_CURSOR_ICON_GAP, PANEL_HEADER_CURSOR_ICON_SIZE,
+	menu_list_panel_node, menu_region_wash, HEADER_FONT_SIZE, PANEL_CHIP_GAP,
 	PANEL_HEADER_FONT_SIZE, PANEL_ITEM_FONT_SIZE, PANEL_ROW_GAP, PANEL_VALUE_FONT_SIZE,
-	TEXT_YELLOW, TEXT_YELLOW_FAINT, TEXT_YELLOW_HOVER,
+	TEXT_DEEP_BLUE, TEXT_YELLOW, TEXT_YELLOW_FAINT,
 };
 use maybraid_input::{MenuNav, MenuNavImpulse, PadButton, VirtualPad};
 
 use super::button::spawn_text_button;
 use super::display::menu_display_name;
+use super::focus::{first_focus_tag, paint_focus_tag, spawn_focus_tag, FocusTag};
 use super::hud_menu::{HudMenu, HudMenuIgnoresLock, HudMenuItem, HudOverlayMenu};
-use super::text::{spawn_cursor_slot_sized, spawn_hud_text};
+use super::text::spawn_hud_text;
 use super::HudFonts;
 
 /// IR / host key for a short-text field.
@@ -149,14 +149,14 @@ pub fn spawn_short_text_button(
 				flex_direction: FlexDirection::Row,
 				justify_content: justify,
 				align_items: AlignItems::Center,
-				column_gap: Val::Px(PANEL_CURSOR_ICON_GAP),
 				..default()
 			},
 			BackgroundColor(Color::NONE),
 		))
 		.with_children(|row| {
-			spawn_cursor_slot_sized(row, fonts, editing, PANEL_HEADER_CURSOR_ICON_SIZE);
-			spawn_short_text_line(row, fonts, label, value);
+			spawn_focus_tag(row, TEXT_YELLOW, editing, |tag| {
+				spawn_short_text_line(tag, fonts, label, value, editing);
+			});
 		});
 }
 
@@ -165,12 +165,15 @@ fn spawn_short_text_line(
 	fonts: &HudFonts,
 	label: &str,
 	value: &str,
+	editing: bool,
 ) {
+	let face = if editing { TEXT_DEEP_BLUE } else { TEXT_YELLOW };
+	let value_face = if editing { TEXT_DEEP_BLUE } else { TEXT_YELLOW_FAINT };
 	parent
 		.spawn((
 			Text::new(menu_display_name(label)),
 			fonts.header(PANEL_HEADER_FONT_SIZE),
-			TextColor(TEXT_YELLOW),
+			TextColor(face),
 			TextLayout::new(Justify::Left, LineBreak::NoWrap),
 			LineHeight::RelativeToFont(1.0),
 			Pickable::IGNORE,
@@ -180,7 +183,7 @@ fn spawn_short_text_line(
 				ShortTextValue,
 				TextSpan::new(row_value_display(value)),
 				fonts.body(PANEL_HEADER_FONT_SIZE),
-				TextColor(TEXT_YELLOW_FAINT),
+				TextColor(value_face),
 				LineHeight::RelativeToFont(1.0),
 			));
 		});
@@ -809,49 +812,43 @@ fn spawn_short_text_modal(commands: &mut Commands, fonts: &HudFonts, session: &S
 					height: Val::Percent(100.0),
 					..default()
 				},
-				BackgroundColor(Color::srgba(0.04, 0.05, 0.07, 0.72)),
+				BackgroundColor(menu_region_wash()),
 			));
-			root.spawn((
-				Node {
-					width: Val::Px(720.0),
-					max_width: Val::Percent(92.0),
-					flex_direction: FlexDirection::Column,
-					align_items: AlignItems::FlexStart,
-					row_gap: Val::Px(PANEL_ROW_GAP),
-					..default()
-				},
-				Pickable::default(),
-			))
-			.with_children(|card| {
-				spawn_hud_text(
-					card,
-					fonts.header(HEADER_FONT_SIZE * 0.42),
-					session.key,
-					TEXT_YELLOW,
-					Justify::Left,
-				);
-				card.spawn((
-					ShortTextModalValue,
-					Text::new(modal_value_display(&session.value)),
-					fonts.header(HEADER_FONT_SIZE * 0.55),
-					TextColor(TEXT_YELLOW),
-					TextLayout::new(Justify::Left, LineBreak::NoWrap),
-					LineHeight::RelativeToFont(1.0),
-					Pickable::IGNORE,
-				));
-				if show_pad {
-					spawn_short_text_pad(card, fonts, session.shift);
-				} else {
-					spawn_text_button(card, fonts, "submit", ShortTextSubmit);
+			let mut card = menu_list_panel_node(AlignItems::FlexStart);
+			card.width = Val::Px(720.0);
+			card.max_width = Val::Percent(92.0);
+			card.row_gap = Val::Px(PANEL_ROW_GAP);
+			root.spawn((card, BackgroundColor(menu_region_wash()), Pickable::default()))
+				.with_children(|card| {
 					spawn_hud_text(
 						card,
-						fonts.body(PANEL_ITEM_FONT_SIZE),
-						"type to enter",
-						TEXT_YELLOW_FAINT,
+						fonts.header(HEADER_FONT_SIZE * 0.42),
+						session.key,
+						TEXT_YELLOW,
 						Justify::Left,
 					);
-				}
-			});
+					card.spawn((
+						ShortTextModalValue,
+						Text::new(modal_value_display(&session.value)),
+						fonts.header(HEADER_FONT_SIZE * 0.55),
+						TextColor(TEXT_YELLOW),
+						TextLayout::new(Justify::Left, LineBreak::NoWrap),
+						LineHeight::RelativeToFont(1.0),
+						Pickable::IGNORE,
+					));
+					if show_pad {
+						spawn_short_text_pad(card, fonts, session.shift);
+					} else {
+						spawn_text_button(card, fonts, "submit", ShortTextSubmit);
+						spawn_hud_text(
+							card,
+							fonts.body(PANEL_ITEM_FONT_SIZE),
+							"type to enter",
+							TEXT_YELLOW_FAINT,
+							Justify::Left,
+						);
+					}
+				});
 		});
 }
 
@@ -1134,6 +1131,7 @@ pub fn sync_short_text_pad_focus(
 	pads: Query<(Entity, &HudMenu), With<ShortTextPad>>,
 	items: Query<(Entity, &HudMenuItem)>,
 	mut outlines: Query<&mut Outline>,
+	mut backgrounds: Query<&mut BackgroundColor>,
 	mut colors: Query<&mut TextColor>,
 	children: Query<&Children>,
 ) {
@@ -1144,44 +1142,41 @@ pub fn sync_short_text_pad_focus(
 			}
 			let focused = item.index == menu.selected;
 			if let Ok(mut outline) = outlines.get_mut(entity) {
-				outline.color = if focused { TEXT_YELLOW } else { Color::NONE };
+				outline.color = if focused { TEXT_DEEP_BLUE } else { Color::NONE };
+			}
+			if let Ok(mut background) = backgrounds.get_mut(entity) {
+				background.0 = if focused { TEXT_YELLOW } else { Color::NONE };
 			}
 			let Ok(row_children) = children.get(entity) else {
 				continue;
 			};
 			for child in row_children {
 				if let Ok(mut color) = colors.get_mut(*child) {
-					color.0 = if focused { TEXT_YELLOW_HOVER } else { TEXT_YELLOW };
+					color.0 = if focused { TEXT_DEEP_BLUE } else { TEXT_YELLOW };
 				}
 			}
 		}
 	}
 }
 
-pub fn sync_short_text_cursors(
+pub fn sync_short_text_focus_tags(
 	fields: Query<(&ShortTextField, Option<&HudMenuItem>, &Children)>,
 	menus: Query<&HudMenu>,
-	slots: Query<(), With<TextCursorSlot>>,
+	tags: Query<(), With<FocusTag>>,
+	tag_idle: Query<&FocusTag>,
 	children: Query<&Children>,
-	mut icons: Query<&mut Visibility, With<AnimatedIcon>>,
+	mut backgrounds: Query<&mut BackgroundColor, With<FocusTag>>,
+	mut colors: Query<&mut TextColor>,
 ) {
 	for (field, item, row_children) in &fields {
 		let focused = item
 			.is_some_and(|item| menus.get(item.menu).is_ok_and(|menu| menu.selected == item.index));
 		let show = focused || field.editing;
-		for child in row_children {
-			if slots.get(*child).is_err() {
-				continue;
-			}
-			let Ok(slot_children) = children.get(*child) else {
-				continue;
-			};
-			for icon_entity in slot_children {
-				if let Ok(mut visibility) = icons.get_mut(*icon_entity) {
-					*visibility = if show { Visibility::Inherited } else { Visibility::Hidden };
-				}
-			}
-		}
+		let Some(tag) = first_focus_tag(row_children, &tags) else {
+			continue;
+		};
+		let idle = tag_idle.get(tag).map(|tag| tag.idle).unwrap_or(TEXT_YELLOW);
+		paint_focus_tag(tag, show, false, idle, &children, &mut backgrounds, &mut colors);
 	}
 }
 

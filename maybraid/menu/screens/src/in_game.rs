@@ -1,13 +1,13 @@
 //! In-game pause menu: centered actions plus upper-left brand / mode.
 
 use bevy::prelude::*;
-use bevy::scene::prelude::{bsn, Scene};
+use bevy::scene::prelude::{bsn, template_value, Scene};
 use maybraid_menu_controller::MenuController;
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
-	set_brand_mode_title, BrandModeLine, BrandModeTitle, TextColumnAlign, TextColumnAnchor,
-	TextCursorRow, TextMenuPlugin,
+	menu_list_panel_node, menu_region_wash, set_brand_mode_title, BrandModeLine, BrandModeTitle,
+	TextColumnAlign, TextColumnAnchor, TextCursorRow, TextMenuPlugin,
 };
 
 use crate::input::add_menu_input;
@@ -71,14 +71,21 @@ impl InGameScreen {
 		let selected = selected
 			.and_then(|selected| rows.iter().position(|row| row.action == selected))
 			.unwrap_or(0);
+		let panel = menu_list_panel_node(AlignItems::Center);
+		let list: Vec<Box<dyn Scene>> = vec![Box::new(
+			TextCursorColumn::untitled_rows(rows)
+				.anchored(TextColumnAnchor::Center)
+				.aligned(TextColumnAlign::Center)
+				.with_selected(selected)
+				.scene(),
+		)];
 		let children: Vec<Box<dyn Scene>> = vec![
-			Box::new(
-				TextCursorColumn::untitled_rows(rows)
-					.anchored(TextColumnAnchor::Center)
-					.aligned(TextColumnAlign::Center)
-					.with_selected(selected)
-					.scene(),
-			),
+			Box::new(bsn! {
+				template_value(panel)
+				BackgroundColor(menu_region_wash())
+				Pickable::IGNORE
+				Children [ {list} ]
+			}),
 			Box::new(BrandModeLine::new(mode.label.clone()).scene()),
 		];
 		bsn! {

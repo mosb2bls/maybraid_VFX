@@ -102,16 +102,32 @@ pub fn presentation<C, T>(
 		state.focus = latest.focus;
 		state.class = latest.class;
 	}
-	state.request(&demand);
+	if !state.request(&demand) {
+		return;
+	}
 	state.spawn(&storage, &demand, &mut commands);
 	state.retire(&mut commands);
 }
 
 impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
-	fn request(&mut self, demand: &HcsgDemand) {
+	/// `false` when demand is busy; defer the rest of the frame.
+	fn request(&mut self, demand: &HcsgDemand) -> bool {
+		let live = match self.subscription {
+			Some(subscription) => match demand.try_is_live(subscription) {
+				Ok(live) => live,
+				Err(Busy) => return false,
+			},
+			None => false,
+		};
 		let wants = !self.wanted.is_empty();
-		if self.wanted == self.requested && self.subscription.is_some() == wants {
-			return;
+		if self.wanted == self.requested && live == wants {
+			return true;
+		}
+		// Same transition as [`Self::spawn`] on `Ok(None)`: the id is gone after an epoch.
+		if self.subscription.is_some() && !live {
+			self.subscription = None;
+			self.session += 1;
+			self.sweep_pending = !self.hosts.is_empty();
 		}
 		self.requested = self.wanted.clone();
 		self.cursor = 0;
@@ -122,6 +138,7 @@ impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
 		} else if let Some(subscription) = self.subscription.take() {
 			demand.unsubscribe(subscription);
 		}
+		true
 	}
 
 	fn spawn(&mut self, storage: &HcsgStorage, demand: &HcsgDemand, commands: &mut Commands) {

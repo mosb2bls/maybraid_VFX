@@ -1,7 +1,7 @@
 //! [`GenerationScheme`]s and the [`GenerationContext`] they generate through.
 
 use std::any::TypeId;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use bevy::math::bounding::Aabb3d;
@@ -10,6 +10,7 @@ use bevy::math::DVec3;
 use crate::gen::{Id, OriginalId};
 
 use super::node_store::DEFAULT_BASE_SCALE;
+use super::storage::store::{read, ErasedStore, TypedStore};
 use super::storage::{HcsgStorage, HcsgValue};
 
 /// How one generated type is discovered and built.
@@ -36,6 +37,8 @@ pub trait GenerationScheme: HcsgValue + Sized {
 /// after its store is released, and recursion never holds a lock.
 pub struct GenerationContext<'a> {
 	storage: &'a HcsgStorage,
+	/// Resolved typed stores for this fill, avoiding registry reads on every lookup.
+	stores: HashMap<TypeId, Arc<dyn ErasedStore>>,
 	/// `(TypeId, Id)` pairs being built on this stack; a repeat is a cycle.
 	generating: HashSet<(TypeId, Id)>,
 	/// Types this fill read, hit or miss. The worker unions this into the
@@ -55,6 +58,7 @@ impl<'a> GenerationContext<'a> {
 	pub fn with_stale(storage: &'a HcsgStorage, stale: &'a (dyn Fn() -> bool + 'a)) -> Self {
 		Self {
 			storage,
+			stores: HashMap::new(),
 			generating: HashSet::new(),
 			reached: HashSet::new(),
 			nested_depth: 0,
@@ -70,10 +74,26 @@ impl<'a> GenerationContext<'a> {
 		self.reached.insert(TypeId::of::<T>());
 	}
 
+	fn typed_store<T: HcsgValue>(&mut self) -> Option<Arc<TypedStore<T>>> {
+		let type_id = TypeId::of::<T>();
+		if let Some(store) = self.stores.get(&type_id) {
+			return store.clone().into_any().downcast::<TypedStore<T>>().ok();
+		}
+		let store = self.storage.store::<T>()?;
+		self.stores.insert(type_id, store.clone());
+		Some(store)
+	}
+
+	fn stored<T: HcsgValue>(&mut self, id: Id) -> Option<Arc<T>> {
+		let store = self.typed_store::<T>()?;
+		let nodes = read(&store.nodes);
+		nodes.value(id).cloned()
+	}
+
 	/// Records `T` on reach and returns whether `id` is already stored.
 	pub(super) fn has_stored<T: HcsgValue>(&mut self, id: Id) -> bool {
 		self.touch::<T>();
-		self.storage.contains::<T>(id)
+		self.typed_store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
 	}
 
 	/// Types this context read since it was created.
@@ -84,12 +104,14 @@ impl<'a> GenerationContext<'a> {
 	/// Bounds of a value already stored for `id`, recording `T` on this fill's reach.
 	pub fn stored_bounds<T: HcsgValue>(&mut self, id: Id) -> Option<Aabb3d> {
 		self.touch::<T>();
-		self.storage.entry::<T>(id).map(|entry| entry.bounds)
+		let store = self.typed_store::<T>()?;
+		let nodes = read(&store.nodes);
+		nodes.entry(id).map(|entry| entry.bounds)
 	}
 
 	pub fn get<T: HcsgValue>(&mut self, id: Id) -> Option<Arc<T>> {
 		self.touch::<T>();
-		self.storage.get(id)
+		self.stored::<T>(id)
 	}
 
 	pub fn original_ids_for<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<OriginalId> {
@@ -101,9 +123,23 @@ impl<'a> GenerationContext<'a> {
 	/// once stale.
 	pub fn get_or_generate<T: GenerationScheme>(&mut self, id: Id) -> Option<Arc<T>> {
 		self.touch::<T>();
-		if let Some(value) = self.storage.get::<T>(id) {
+		if let Some(value) = self.stored::<T>(id) {
 			return Some(value);
 		}
+		self.generate_missing::<T>(id)
+	}
+
+	/// Worker path: one store lookup on cache hits, no redundant miss check.
+	pub(in crate::hcsg) fn generate_cached<T: GenerationScheme>(&mut self, id: Id) -> bool {
+		self.touch::<T>();
+		if self.stored::<T>(id).is_some() {
+			return true;
+		}
+		self.generate_missing::<T>(id).is_some()
+	}
+
+	/// Builds and publishes `id` when it is not already stored.
+	fn generate_missing<T: GenerationScheme>(&mut self, id: Id) -> Option<Arc<T>> {
 		let key = (TypeId::of::<T>(), id);
 		if self.is_stale() || !self.generating.insert(key) {
 			return None;
