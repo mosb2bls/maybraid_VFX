@@ -25,9 +25,9 @@ use super::{
 use crate::grove::vc_tuft::patch_variant_index;
 use crate::grove::{
 	canopy_ball_material_from_palette, canopy_proxy_rory, canopy_proxy_site,
-	frond_material_from_palette, grove_structural_footprint, lazy_flattened_plant_chunks,
-	nest_flattened_plant_chunk, placement_noise, remixed_bush_plant, remixed_sbs_plant,
-	stick_material_from_palette, CanopyProxySite, FlatTerrainSample, GroveCellVariant, GroveExtent,
+	frond_material_from_palette, grove_structural_footprint, nest_flattened_plant_chunk,
+	placement_noise, remixed_bush_plant, remixed_sbs_plant, stick_material_from_palette,
+	CanopyProxySite, FlatTerrainSample, FlattenedPlantList, GroveCellVariant, GroveExtent,
 	GrovePreviewParams,
 };
 
@@ -116,36 +116,15 @@ impl ForlornSavanna {
 	}
 
 	fn nest_plant_chunks(&self, lod_ref: &LodRef, level: LodSceneLevel) -> Vec<SceneChunk> {
-		if self.plants.is_empty() {
-			return Vec::new();
-		}
-		let n = self.plants.len();
-		let plants = Arc::clone(&self.plants);
-		let prev = *lod_ref.previous_transform;
-		let curr = *lod_ref.current_transform;
-		let bounds = *lod_ref.bounds;
-		let entity = lod_ref.entity;
-		let mut index = 0usize;
-		vec![lazy_flattened_plant_chunks(n, move || {
-			if index >= plants.len() {
-				return None;
-			}
-			let plant = &plants[index];
-			index += 1;
-			let plant_lod = LodRef {
-				entity,
-				previous_transform: &prev,
-				current_transform: &curr,
-				bounds: &bounds,
-			};
-			Some(match &plant.kind {
+		FlattenedPlantList::capture(&self.plants, lod_ref).nest_chunks(move |plant, plant_lod| {
+			match &plant.kind {
 				ForlornSavannaKind::Rory(t) => nest_flattened_plant_chunk(
 					Arc::clone(t),
 					plant.placement,
 					&plant.stick_material,
 					&plant.ball_material,
 					&plant.frond_material,
-					&plant_lod,
+					plant_lod,
 					level,
 				),
 				ForlornSavannaKind::Bush(t) => nest_flattened_plant_chunk(
@@ -154,7 +133,7 @@ impl ForlornSavanna {
 					&plant.stick_material,
 					&plant.ball_material,
 					&plant.frond_material,
-					&plant_lod,
+					plant_lod,
 					level,
 				),
 				ForlornSavannaKind::Storybook(t) => nest_flattened_plant_chunk(
@@ -163,11 +142,11 @@ impl ForlornSavanna {
 					&plant.stick_material,
 					&plant.ball_material,
 					&plant.frond_material,
-					&plant_lod,
+					plant_lod,
 					level,
 				),
-			})
-		})]
+			}
+		})
 	}
 
 	fn canopy_sites(&self) -> Vec<CanopyProxySite> {

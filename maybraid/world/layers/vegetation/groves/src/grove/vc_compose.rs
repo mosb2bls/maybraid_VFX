@@ -1,9 +1,11 @@
 //! Helpers for flattening nested tree/bush [`VegetationComponents`] into grove hosts.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bevy::ecs::template::template;
-use bevy::prelude::{Color, Vec3, Visibility};
+use bevy::math::bounding::Aabb3d;
+use bevy::prelude::{Color, Entity, Transform, Vec3, Visibility};
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use lod::lod_ref::LodRef;
 use lod::scene::{LodScene, LodSceneCulls, LodSceneLevel, LodSceneStatus};
@@ -544,6 +546,65 @@ pub fn lazy_flattened_plant_chunks(
 	SceneChunk::lazy(flattened_plant_lazy_weight(plant_count), plant_count, next)
 }
 
+/// Shared plant list plus captured driver pose for lazy kit production.
+///
+/// Begin is [`Arc::clone`] of `plants`. Drain reconstructs a [`LodRef`] and feeds
+/// each plant to a typed closure — grove code keeps only kind/material dispatch.
+/// Empty lists produce no chunks so a zero-count lazy producer does not charge
+/// weight 1.
+pub struct FlattenedPlantList<P> {
+	plants: Arc<[P]>,
+	previous_transform: Transform,
+	current_transform: Transform,
+	bounds: Aabb3d,
+	entity: Entity,
+	index: usize,
+}
+
+impl<P: Send + Sync + 'static> FlattenedPlantList<P> {
+	/// Capture [`LodRef`] fields so the lazy cursor outlives the original borrow.
+	pub fn capture(plants: &Arc<[P]>, lod_ref: &LodRef<'_>) -> Self {
+		Self {
+			plants: Arc::clone(plants),
+			previous_transform: *lod_ref.previous_transform,
+			current_transform: *lod_ref.current_transform,
+			bounds: *lod_ref.bounds,
+			entity: lod_ref.entity,
+			index: 0,
+		}
+	}
+
+	fn next_chunk(
+		&mut self,
+		next_plant: &mut impl FnMut(&P, &LodRef<'_>) -> SceneChunk,
+	) -> Option<SceneChunk> {
+		let index = self.index;
+		if index >= self.plants.len() {
+			return None;
+		}
+		self.index = index + 1;
+		let plant_lod = LodRef {
+			entity: self.entity,
+			previous_transform: &self.previous_transform,
+			current_transform: &self.current_transform,
+			bounds: &self.bounds,
+		};
+		Some(next_plant(&self.plants[index], &plant_lod))
+	}
+
+	/// One lazy flattened-kit producer. `next_plant` is per-kind/material dispatch.
+	pub fn nest_chunks(
+		mut self,
+		mut next_plant: impl FnMut(&P, &LodRef<'_>) -> SceneChunk + Send + Sync + 'static,
+	) -> Vec<SceneChunk> {
+		if self.plants.is_empty() {
+			return Vec::new();
+		}
+		let n = self.plants.len();
+		vec![lazy_flattened_plant_chunks(n, move || self.next_chunk(&mut next_plant))]
+	}
+}
+
 /// Weighted chunk wrapping [`nest_flattened_plant_host`].
 pub fn nest_flattened_plant_chunk<T>(
 	plant: T,
@@ -830,5 +891,125 @@ mod tests {
 		let tinted = frond_material_from_palette(Some(MIX), 3);
 		assert_eq!(tinted.name, MaterialId::named(FROND_MATERIAL));
 		assert_eq!(tinted.palette.len(), 1);
+	}
+
+	fn dummy_kit() -> SceneChunk {
+		SceneChunk::weighted(
+			FLATTENED_KIT_CHUNK_WEIGHT,
+			vegetation_components::scene_children(Vec::new()),
+		)
+	}
+
+	#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+	enum MixKind {
+		Oak,
+		Palm,
+		Bush,
+	}
+
+	#[test]
+	fn flattened_plant_list_empty_produces_no_chunks() {
+		let plants: Arc<[u8]> = Arc::from([]);
+		let camera = Transform::from_translation(Vec3::new(1.0, 2.0, 3.0));
+		let bounds = Aabb3d::from_min_max(Vec3::ZERO, Vec3::ONE);
+		let lod_ref = LodRef {
+			entity: Entity::PLACEHOLDER,
+			previous_transform: &camera,
+			current_transform: &camera,
+			bounds: &bounds,
+		};
+		let chunks = FlattenedPlantList::capture(&plants, &lod_ref)
+			.nest_chunks(|_, _| unreachable!("empty list must not drain"));
+		assert!(chunks.is_empty());
+	}
+
+	#[test]
+	fn flattened_plant_list_single_is_lazy_then_one_kit() {
+		use std::sync::Mutex;
+
+		let plants: Arc<[u8]> = Arc::from([7]);
+		let camera = Transform::from_translation(Vec3::new(4.0, 0.0, -2.0));
+		let bounds = Aabb3d::from_min_max(Vec3::ZERO, Vec3::ONE);
+		let lod_ref = LodRef {
+			entity: Entity::PLACEHOLDER,
+			previous_transform: &camera,
+			current_transform: &camera,
+			bounds: &bounds,
+		};
+		let seen = Arc::new(Mutex::new(Vec::new()));
+		let chunks = FlattenedPlantList::capture(&plants, &lod_ref).nest_chunks({
+			let seen = Arc::clone(&seen);
+			move |plant, plant_lod| {
+				seen.lock()
+					.unwrap()
+					.push((*plant, plant_lod.entity, *plant_lod.current_transform));
+				dummy_kit()
+			}
+		});
+		assert_eq!(chunks.len(), 1);
+		assert_eq!(chunks[0].total_primitives(), 1);
+		assert_eq!(chunks[0].total_weight(), flattened_plant_lazy_weight(1));
+		assert!(seen.lock().unwrap().is_empty(), "must not produce until drain");
+
+		let mut queue = chunks.into_iter().next().unwrap().into_fulfill_queue();
+		let (weight, _) = lod::scene::pull_payload(&mut queue).expect("one plant");
+		assert_eq!(weight, FLATTENED_KIT_CHUNK_WEIGHT);
+		assert_eq!(*seen.lock().unwrap(), [(7, Entity::PLACEHOLDER, camera)]);
+		assert!(lod::scene::pull_payload(&mut queue).is_none());
+	}
+
+	#[test]
+	fn flattened_plant_list_mixed_reconstructs_lod_ref() {
+		use std::sync::Mutex;
+
+		#[derive(Debug, PartialEq)]
+		struct Seen {
+			kind: MixKind,
+			entity: Entity,
+			prev: Transform,
+			curr: Transform,
+			bounds: Aabb3d,
+		}
+
+		let plants: Arc<[MixKind]> = Arc::from([MixKind::Oak, MixKind::Palm, MixKind::Bush]);
+		let prev = Transform::from_translation(Vec3::X);
+		let curr = Transform::from_translation(Vec3::Y * 4.0);
+		let bounds = Aabb3d::from_min_max(Vec3::splat(-1.0), Vec3::splat(2.0));
+		let lod_ref = LodRef {
+			entity: Entity::PLACEHOLDER,
+			previous_transform: &prev,
+			current_transform: &curr,
+			bounds: &bounds,
+		};
+		let seen = Arc::new(Mutex::new(Vec::new()));
+		let chunks = FlattenedPlantList::capture(&plants, &lod_ref).nest_chunks({
+			let seen = Arc::clone(&seen);
+			move |plant, plant_lod| {
+				seen.lock().unwrap().push(Seen {
+					kind: *plant,
+					entity: plant_lod.entity,
+					prev: *plant_lod.previous_transform,
+					curr: *plant_lod.current_transform,
+					bounds: *plant_lod.bounds,
+				});
+				dummy_kit()
+			}
+		});
+		assert_eq!(chunks.len(), 1);
+		assert_eq!(chunks[0].total_primitives(), 3);
+		assert_eq!(chunks[0].total_weight(), flattened_plant_lazy_weight(3));
+		assert!(seen.lock().unwrap().is_empty(), "must not produce until drain");
+
+		let produced = chunks.into_iter().next().unwrap().into_primitives();
+		assert_eq!(produced.len(), 3);
+		assert!(produced.iter().all(|(weight, _)| *weight == FLATTENED_KIT_CHUNK_WEIGHT));
+		assert_eq!(
+			*seen.lock().unwrap(),
+			[
+				Seen { kind: MixKind::Oak, entity: Entity::PLACEHOLDER, prev, curr, bounds },
+				Seen { kind: MixKind::Palm, entity: Entity::PLACEHOLDER, prev, curr, bounds },
+				Seen { kind: MixKind::Bush, entity: Entity::PLACEHOLDER, prev, curr, bounds },
+			]
+		);
 	}
 }
