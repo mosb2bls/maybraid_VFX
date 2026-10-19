@@ -211,4 +211,61 @@ mod tests {
 		assert_eq!(bars.len(), 1, "should have one player health bar");
 		assert_eq!(bars[0].target, player, "bar should target the player entity");
 	}
+
+	fn fill_percent(app: &mut App) -> f32 {
+		use crate::HealthFill;
+
+		let mut query = app.world_mut().query_filtered::<&Node, With<HealthFill>>();
+		match query.iter(app.world()).next().expect("HealthFill").width {
+			Val::Percent(percent) => percent,
+			other => panic!("fill should use percent width, got {other:?}"),
+		}
+	}
+
+	#[test]
+	fn vitals_fill_drops_after_health_falls() {
+		use crate::CombatHudPlugin;
+		use crate::CombatHudVisible;
+		use bevy::time::{TimeUpdateStrategy, Virtual};
+		use std::time::Duration;
+
+		const DT: f32 = 0.2;
+
+		let mut app = App::new();
+		app.add_plugins(bevy::MinimalPlugins)
+			.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(DT)))
+			.add_plugins(CombatHudPlugin {
+				hit_markers: false,
+				directional_damage: false,
+				player_vitals: true,
+				lubikan_charge: false,
+				lubikan_point_feedback: false,
+				score: false,
+			});
+		app.world_mut()
+			.resource_mut::<Time<Virtual>>()
+			.set_max_delta(Duration::from_secs(1));
+		app.world_mut().insert_resource(CombatHudVisible(true));
+		let player = app
+			.world_mut()
+			.spawn((Player, Health::from_max(100.0), Name::new("Ada")))
+			.id();
+		app.update();
+
+		let baseline = fill_percent(&mut app);
+		assert!(
+			(baseline - 100.0).abs() < 1.0,
+			"full health should fill the bar, got {baseline}"
+		);
+
+		app.world_mut().get_mut::<Health>(player).expect("health").current = 40.0;
+		app.update();
+
+		let after = fill_percent(&mut app);
+		assert!(
+			after < baseline - 5.0,
+			"fill should interpolate toward the new fraction, baseline={baseline} after={after}"
+		);
+		assert!(after > 0.0, "partial health should still show a fill");
+	}
 }
