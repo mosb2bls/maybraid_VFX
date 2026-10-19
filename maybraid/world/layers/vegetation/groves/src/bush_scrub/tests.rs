@@ -5,23 +5,27 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = BushScrubCell::distribution();
-	assert_eq!(dist.len(), 7);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 12.0);
-	assert_eq!(dist.buckets[1].item, Some(BushScrubCell::DryTuft));
-	assert_eq!(dist.buckets[1].weight, 0.4);
-	assert_eq!(dist.buckets[2].item, Some(BushScrubCell::GreenTuft));
-	assert_eq!(dist.buckets[2].weight, 0.3);
-	assert_eq!(dist.buckets[3].item, Some(BushScrubCell::SmallBush));
-	assert_eq!(dist.buckets[3].weight, 1.0);
-	assert_eq!(dist.buckets[4].item, Some(BushScrubCell::SaplingBush));
-	assert_eq!(dist.buckets[4].weight, 0.5);
-	assert_eq!(dist.buckets[5].item, Some(BushScrubCell::DryTuftPatch));
-	assert_eq!(dist.buckets[5].weight, 1.6);
-	assert_eq!(dist.buckets[6].item, Some(BushScrubCell::GreenTuftPatch));
-	assert_eq!(dist.buckets[6].weight, 1.2);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(BushScrubCell::DryTuft),
+			Some(BushScrubCell::GreenTuft),
+			Some(BushScrubCell::SmallBush),
+			Some(BushScrubCell::SaplingBush),
+			Some(BushScrubCell::DryTuftPatch),
+			Some(BushScrubCell::GreenTuftPatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

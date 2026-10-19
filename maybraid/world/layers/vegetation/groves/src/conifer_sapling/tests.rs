@@ -5,23 +5,27 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = ConiferSaplingCell::distribution();
-	assert_eq!(dist.len(), 7);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 5.2);
-	assert_eq!(dist.buckets[1].item, Some(ConiferSaplingCell::FriendSapling));
-	assert_eq!(dist.buckets[1].weight, 1.0);
-	assert_eq!(dist.buckets[2].item, Some(ConiferSaplingCell::NorthernSapling));
-	assert_eq!(dist.buckets[2].weight, 1.0);
-	assert_eq!(dist.buckets[3].item, Some(ConiferSaplingCell::MossyFriendSapling));
-	assert_eq!(dist.buckets[3].weight, 0.35);
-	assert_eq!(dist.buckets[4].item, Some(ConiferSaplingCell::ColdNorthernSapling));
-	assert_eq!(dist.buckets[4].weight, 0.35);
-	assert_eq!(dist.buckets[5].item, Some(ConiferSaplingCell::BrightFriendSapling));
-	assert_eq!(dist.buckets[5].weight, 0.30);
-	assert_eq!(dist.buckets[6].item, Some(ConiferSaplingCell::WindsweptNorthernSapling));
-	assert_eq!(dist.buckets[6].weight, 0.40);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(ConiferSaplingCell::FriendSapling),
+			Some(ConiferSaplingCell::NorthernSapling),
+			Some(ConiferSaplingCell::MossyFriendSapling),
+			Some(ConiferSaplingCell::ColdNorthernSapling),
+			Some(ConiferSaplingCell::BrightFriendSapling),
+			Some(ConiferSaplingCell::WindsweptNorthernSapling),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

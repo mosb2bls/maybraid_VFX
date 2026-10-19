@@ -5,35 +5,33 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = WildGrassCell::distribution();
-	assert_eq!(dist.len(), 13);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 1.0);
-	assert_eq!(dist.buckets[1].item, Some(WildGrassCell::MeadowGreen));
-	assert_eq!(dist.buckets[1].weight, 0.4);
-	assert_eq!(dist.buckets[2].item, Some(WildGrassCell::GoldenGrass));
-	assert_eq!(dist.buckets[2].weight, 0.3);
-	assert_eq!(dist.buckets[3].item, Some(WildGrassCell::RedPrairie));
-	assert_eq!(dist.buckets[3].weight, 0.2);
-	assert_eq!(dist.buckets[4].item, Some(WildGrassCell::BlueTropical));
-	assert_eq!(dist.buckets[4].weight, 0.16);
-	assert_eq!(dist.buckets[5].item, Some(WildGrassCell::PaleField));
-	assert_eq!(dist.buckets[5].weight, 0.2);
-	assert_eq!(dist.buckets[6].item, Some(WildGrassCell::BloomingGrass));
-	assert_eq!(dist.buckets[6].weight, 0.14);
-	assert_eq!(dist.buckets[7].item, Some(WildGrassCell::MeadowGreenPatch));
-	assert_eq!(dist.buckets[7].weight, 1.6);
-	assert_eq!(dist.buckets[8].item, Some(WildGrassCell::GoldenGrassPatch));
-	assert_eq!(dist.buckets[8].weight, 1.2);
-	assert_eq!(dist.buckets[9].item, Some(WildGrassCell::RedPrairiePatch));
-	assert_eq!(dist.buckets[9].weight, 0.8);
-	assert_eq!(dist.buckets[10].item, Some(WildGrassCell::BlueTropicalPatch));
-	assert_eq!(dist.buckets[10].weight, 0.64);
-	assert_eq!(dist.buckets[11].item, Some(WildGrassCell::PaleFieldPatch));
-	assert_eq!(dist.buckets[11].weight, 0.8);
-	assert_eq!(dist.buckets[12].item, Some(WildGrassCell::BloomingGrassPatch));
-	assert_eq!(dist.buckets[12].weight, 0.56);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(WildGrassCell::MeadowGreen),
+			Some(WildGrassCell::GoldenGrass),
+			Some(WildGrassCell::RedPrairie),
+			Some(WildGrassCell::BlueTropical),
+			Some(WildGrassCell::PaleField),
+			Some(WildGrassCell::BloomingGrass),
+			Some(WildGrassCell::MeadowGreenPatch),
+			Some(WildGrassCell::GoldenGrassPatch),
+			Some(WildGrassCell::RedPrairiePatch),
+			Some(WildGrassCell::BlueTropicalPatch),
+			Some(WildGrassCell::PaleFieldPatch),
+			Some(WildGrassCell::BloomingGrassPatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

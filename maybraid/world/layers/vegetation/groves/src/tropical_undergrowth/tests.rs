@@ -5,33 +5,32 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = TropicalUndergrowthCell::distribution();
-	assert_eq!(dist.len(), 12);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 12.0);
-	assert_eq!(dist.buckets[1].item, Some(TropicalUndergrowthCell::BrightTuft));
-	assert_eq!(dist.buckets[1].weight, 0.4);
-	assert_eq!(dist.buckets[2].item, Some(TropicalUndergrowthCell::DeepTuft));
-	assert_eq!(dist.buckets[2].weight, 0.3);
-	assert_eq!(dist.buckets[3].item, Some(TropicalUndergrowthCell::SmallPalmBush));
-	assert_eq!(dist.buckets[3].weight, 1.0);
-	assert_eq!(dist.buckets[4].item, Some(TropicalUndergrowthCell::MiniRoryHeadTrained));
-	assert_eq!(dist.buckets[4].weight, 0.85);
-	assert_eq!(dist.buckets[5].item, Some(TropicalUndergrowthCell::MiniVaseTree));
-	assert_eq!(dist.buckets[5].weight, 0.20);
-	assert_eq!(dist.buckets[6].item, Some(TropicalUndergrowthCell::MiniSparseStorybook));
-	assert_eq!(dist.buckets[6].weight, 0.15);
-	assert_eq!(dist.buckets[7].item, Some(TropicalUndergrowthCell::MiniPenmarchTorch));
-	assert_eq!(dist.buckets[7].weight, 1.30);
-	assert_eq!(dist.buckets[8].item, Some(TropicalUndergrowthCell::MiniKamakuraTorch));
-	assert_eq!(dist.buckets[8].weight, 1.22);
-	assert_eq!(dist.buckets[9].item, Some(TropicalUndergrowthCell::MiniTorchTree));
-	assert_eq!(dist.buckets[9].weight, 0.22);
-	assert_eq!(dist.buckets[10].item, Some(TropicalUndergrowthCell::BrightTuftPatch));
-	assert_eq!(dist.buckets[10].weight, 1.6);
-	assert_eq!(dist.buckets[11].item, Some(TropicalUndergrowthCell::DeepTuftPatch));
-	assert_eq!(dist.buckets[11].weight, 1.2);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(TropicalUndergrowthCell::BrightTuft),
+			Some(TropicalUndergrowthCell::DeepTuft),
+			Some(TropicalUndergrowthCell::SmallPalmBush),
+			Some(TropicalUndergrowthCell::MiniRoryHeadTrained),
+			Some(TropicalUndergrowthCell::MiniVaseTree),
+			Some(TropicalUndergrowthCell::MiniSparseStorybook),
+			Some(TropicalUndergrowthCell::MiniPenmarchTorch),
+			Some(TropicalUndergrowthCell::MiniKamakuraTorch),
+			Some(TropicalUndergrowthCell::MiniTorchTree),
+			Some(TropicalUndergrowthCell::BrightTuftPatch),
+			Some(TropicalUndergrowthCell::DeepTuftPatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

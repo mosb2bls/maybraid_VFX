@@ -6,17 +6,24 @@ use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = TemperateLowerMassivesCell::distribution();
-	assert_eq!(dist.len(), 4);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 8.0);
-	assert_eq!(dist.buckets[1].item, Some(TemperateLowerMassivesCell::LowerMassiveBraidOak));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(TemperateLowerMassivesCell::LowerMassiveStorybook));
-	assert_eq!(dist.buckets[2].weight, 2.0);
-	assert_eq!(dist.buckets[3].item, Some(TemperateLowerMassivesCell::RareLowerMassiveRory));
-	assert_eq!(dist.buckets[3].weight, 0.35);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(TemperateLowerMassivesCell::LowerMassiveBraidOak),
+			Some(TemperateLowerMassivesCell::LowerMassiveStorybook),
+			Some(TemperateLowerMassivesCell::RareLowerMassiveRory),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

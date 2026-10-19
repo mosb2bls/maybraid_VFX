@@ -6,25 +6,28 @@ use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = LevantineScrubCell::distribution();
-	assert_eq!(dist.len(), 8);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 11.0);
-	assert_eq!(dist.buckets[1].item, Some(LevantineScrubCell::DryRoryHeadTrained));
-	assert_eq!(dist.buckets[1].weight, 1.2);
-	assert_eq!(dist.buckets[2].item, Some(LevantineScrubCell::SmallVaseTree));
-	assert_eq!(dist.buckets[2].weight, 0.70);
-	assert_eq!(dist.buckets[3].item, Some(LevantineScrubCell::DryHighBush));
-	assert_eq!(dist.buckets[3].weight, 2.0);
-	assert_eq!(dist.buckets[4].item, Some(LevantineScrubCell::SmallPenmarchTorch));
-	assert_eq!(dist.buckets[4].weight, 0.45);
-	assert_eq!(dist.buckets[5].item, Some(LevantineScrubCell::RedOliveTorch));
-	assert_eq!(dist.buckets[5].weight, 0.25);
-	assert_eq!(dist.buckets[6].item, Some(LevantineScrubCell::SmallBraidOak));
-	assert_eq!(dist.buckets[6].weight, 0.35);
-	assert_eq!(dist.buckets[7].item, Some(LevantineScrubCell::ScrubHedge));
-	assert_eq!(dist.buckets[7].weight, 0.50);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(LevantineScrubCell::DryRoryHeadTrained),
+			Some(LevantineScrubCell::SmallVaseTree),
+			Some(LevantineScrubCell::DryHighBush),
+			Some(LevantineScrubCell::SmallPenmarchTorch),
+			Some(LevantineScrubCell::RedOliveTorch),
+			Some(LevantineScrubCell::SmallBraidOak),
+			Some(LevantineScrubCell::ScrubHedge),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

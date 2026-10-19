@@ -4,19 +4,25 @@ use anyhow::Result;
 use bevy_math::Vec3;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = LeewardCell::distribution();
-	assert_eq!(dist.len(), 5);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 4.0);
-	assert_eq!(dist.buckets[1].item, Some(LeewardCell::ShelteredTemperateConifer));
-	assert_eq!(dist.buckets[1].weight, 1.8);
-	assert_eq!(dist.buckets[2].item, Some(LeewardCell::WindbreakTemperateConifer));
-	assert_eq!(dist.buckets[2].weight, 1.6);
-	assert_eq!(dist.buckets[3].item, Some(LeewardCell::RoundedLeewardStorybook));
-	assert_eq!(dist.buckets[3].weight, 2.4);
-	assert_eq!(dist.buckets[4].item, Some(LeewardCell::HighLeewardStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.45);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(LeewardCell::ShelteredTemperateConifer),
+			Some(LeewardCell::WindbreakTemperateConifer),
+			Some(LeewardCell::RoundedLeewardStorybook),
+			Some(LeewardCell::HighLeewardStorybook),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

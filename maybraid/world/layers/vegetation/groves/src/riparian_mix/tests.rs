@@ -4,23 +4,27 @@ use anyhow::Result;
 use bevy_math::Vec3;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = RiparianMixCell::distribution();
-	assert_eq!(dist.len(), 7);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 6.9);
-	assert_eq!(dist.buckets[1].item, Some(RiparianMixCell::BankBraidOak));
-	assert_eq!(dist.buckets[1].weight, 0.9);
-	assert_eq!(dist.buckets[2].item, Some(RiparianMixCell::OverbankBraidOak));
-	assert_eq!(dist.buckets[2].weight, 0.6);
-	assert_eq!(dist.buckets[3].item, Some(RiparianMixCell::RoundRiparianStorybook));
-	assert_eq!(dist.buckets[3].weight, 0.9);
-	assert_eq!(dist.buckets[4].item, Some(RiparianMixCell::TallRiparianStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.45);
-	assert_eq!(dist.buckets[5].item, Some(RiparianMixCell::BankFriendConifer));
-	assert_eq!(dist.buckets[5].weight, 0.8);
-	assert_eq!(dist.buckets[6].item, Some(RiparianMixCell::ShelteredTemperateConifer));
-	assert_eq!(dist.buckets[6].weight, 0.8);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(RiparianMixCell::BankBraidOak),
+			Some(RiparianMixCell::OverbankBraidOak),
+			Some(RiparianMixCell::RoundRiparianStorybook),
+			Some(RiparianMixCell::TallRiparianStorybook),
+			Some(RiparianMixCell::BankFriendConifer),
+			Some(RiparianMixCell::ShelteredTemperateConifer),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

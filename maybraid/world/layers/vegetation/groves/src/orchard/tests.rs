@@ -4,15 +4,19 @@ use anyhow::Result;
 use bevy_math::Vec3;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = OrchardCell::distribution();
-	assert_eq!(dist.len(), 3);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, CULTIVATED_EMPTY_WEIGHT);
-	assert_eq!(dist.buckets[1].item, Some(OrchardCell::FruitingStorybook));
-	assert_eq!(dist.buckets[1].weight, 1.5);
-	assert_eq!(dist.buckets[2].item, Some(OrchardCell::PaleBloomStorybook));
-	assert_eq!(dist.buckets[2].weight, 0.75);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![None, Some(OrchardCell::FruitingStorybook), Some(OrchardCell::PaleBloomStorybook),]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

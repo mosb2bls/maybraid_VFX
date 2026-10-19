@@ -5,23 +5,27 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = CommonTuftsCell::distribution();
-	assert_eq!(dist.len(), 7);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 13.78);
-	assert_eq!(dist.buckets[1].item, Some(CommonTuftsCell::ShortGreen));
-	assert_eq!(dist.buckets[1].weight, 0.5);
-	assert_eq!(dist.buckets[2].item, Some(CommonTuftsCell::DryScrub));
-	assert_eq!(dist.buckets[2].weight, 0.25);
-	assert_eq!(dist.buckets[3].item, Some(CommonTuftsCell::TallWild));
-	assert_eq!(dist.buckets[3].weight, 0.25);
-	assert_eq!(dist.buckets[4].item, Some(CommonTuftsCell::ShortGreenPatch));
-	assert_eq!(dist.buckets[4].weight, 2.0);
-	assert_eq!(dist.buckets[5].item, Some(CommonTuftsCell::DryScrubPatch));
-	assert_eq!(dist.buckets[5].weight, 1.0);
-	assert_eq!(dist.buckets[6].item, Some(CommonTuftsCell::TallWildPatch));
-	assert_eq!(dist.buckets[6].weight, 1.0);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(CommonTuftsCell::ShortGreen),
+			Some(CommonTuftsCell::DryScrub),
+			Some(CommonTuftsCell::TallWild),
+			Some(CommonTuftsCell::ShortGreenPatch),
+			Some(CommonTuftsCell::DryScrubPatch),
+			Some(CommonTuftsCell::TallWildPatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

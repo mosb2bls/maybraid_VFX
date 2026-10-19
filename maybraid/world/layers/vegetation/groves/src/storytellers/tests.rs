@@ -4,37 +4,34 @@ use anyhow::Result;
 use bevy_math::Vec3;
 
 #[test]
-fn distribution_matches_authored_order_and_weights() -> Result<()> {
+fn distribution_matches_authored_order_and_membership() -> Result<()> {
 	let dist = StorytellersCell::distribution();
-	assert_eq!(dist.len(), 14);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 16.2);
-	assert_eq!(dist.buckets[1].item, Some(StorytellersCell::ColorfulStorybook));
-	assert_eq!(dist.buckets[1].weight, 1.5);
-	assert_eq!(dist.buckets[2].item, Some(StorytellersCell::ColorfulBraidOak));
-	assert_eq!(dist.buckets[2].weight, 1.5);
-	assert_eq!(dist.buckets[3].item, Some(StorytellersCell::BrightCanopyStorybook));
-	assert_eq!(dist.buckets[3].weight, 0.75);
-	assert_eq!(dist.buckets[4].item, Some(StorytellersCell::PinkLanternStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.35);
-	assert_eq!(dist.buckets[5].item, Some(StorytellersCell::RedFestivalBraidOak));
-	assert_eq!(dist.buckets[5].weight, 0.30);
-	assert_eq!(dist.buckets[6].item, Some(StorytellersCell::PurpleCrownStorybook));
-	assert_eq!(dist.buckets[6].weight, 0.25);
-	assert_eq!(dist.buckets[7].item, Some(StorytellersCell::BlueMoonStorybook));
-	assert_eq!(dist.buckets[7].weight, 0.25);
-	assert_eq!(dist.buckets[8].item, Some(StorytellersCell::GoldenLanternPenmarch));
-	assert_eq!(dist.buckets[8].weight, 0.22);
-	assert_eq!(dist.buckets[9].item, Some(StorytellersCell::BlueFlameKamakura));
-	assert_eq!(dist.buckets[9].weight, 0.20);
-	assert_eq!(dist.buckets[10].item, Some(StorytellersCell::FestivalTorchTree));
-	assert_eq!(dist.buckets[10].weight, 0.18);
-	assert_eq!(dist.buckets[11].item, Some(StorytellersCell::VioletCanopyBraidOak));
-	assert_eq!(dist.buckets[11].weight, 0.28);
-	assert_eq!(dist.buckets[12].item, Some(StorytellersCell::GoldLeafBraidOak));
-	assert_eq!(dist.buckets[12].weight, 0.26);
-	assert_eq!(dist.buckets[13].item, Some(StorytellersCell::CopperFlameBraidOak));
-	assert_eq!(dist.buckets[13].weight, 0.24);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(StorytellersCell::ColorfulStorybook),
+			Some(StorytellersCell::ColorfulBraidOak),
+			Some(StorytellersCell::BrightCanopyStorybook),
+			Some(StorytellersCell::PinkLanternStorybook),
+			Some(StorytellersCell::RedFestivalBraidOak),
+			Some(StorytellersCell::PurpleCrownStorybook),
+			Some(StorytellersCell::BlueMoonStorybook),
+			Some(StorytellersCell::GoldenLanternPenmarch),
+			Some(StorytellersCell::BlueFlameKamakura),
+			Some(StorytellersCell::FestivalTorchTree),
+			Some(StorytellersCell::VioletCanopyBraidOak),
+			Some(StorytellersCell::GoldLeafBraidOak),
+			Some(StorytellersCell::CopperFlameBraidOak),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

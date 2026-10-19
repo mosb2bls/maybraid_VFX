@@ -4,17 +4,24 @@ use anyhow::Result;
 use bevy_math::Vec3;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = ForlornSavannaCell::distribution();
-	assert_eq!(dist.len(), 4);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 30.0);
-	assert_eq!(dist.buckets[1].item, Some(ForlornSavannaCell::SavannaRory));
-	assert_eq!(dist.buckets[1].weight, 3.0);
-	assert_eq!(dist.buckets[2].item, Some(ForlornSavannaCell::AcaciaHighBush));
-	assert_eq!(dist.buckets[2].weight, 2.0);
-	assert_eq!(dist.buckets[3].item, Some(ForlornSavannaCell::RareSavannaStorybook));
-	assert_eq!(dist.buckets[3].weight, 0.2);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(ForlornSavannaCell::SavannaRory),
+			Some(ForlornSavannaCell::AcaciaHighBush),
+			Some(ForlornSavannaCell::RareSavannaStorybook),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

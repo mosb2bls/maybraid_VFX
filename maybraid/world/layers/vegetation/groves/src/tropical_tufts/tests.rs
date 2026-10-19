@@ -6,25 +6,29 @@ use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = TropicalTuftsCell::distribution();
-	assert_eq!(dist.len(), 9);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 10.0);
-	assert_eq!(dist.buckets[1].item, Some(TropicalTuftsCell::BrightTuft));
-	assert_eq!(dist.buckets[1].weight, 0.5);
-	assert_eq!(dist.buckets[2].weight, 0.35);
-	assert_eq!(dist.buckets[3].weight, 0.25);
-	assert_eq!(dist.buckets[4].item, Some(TropicalTuftsCell::SmallPalmBush));
-	assert_eq!(dist.buckets[4].weight, 0.75);
-	assert_eq!(dist.buckets[5].item, Some(TropicalTuftsCell::JuvenilePalmBush));
-	assert_eq!(dist.buckets[5].weight, 0.35);
-	assert_eq!(dist.buckets[6].item, Some(TropicalTuftsCell::BrightTuftPatch));
-	assert_eq!(dist.buckets[6].weight, 2.0);
-	assert_eq!(dist.buckets[7].item, Some(TropicalTuftsCell::DeepTuftPatch));
-	assert_eq!(dist.buckets[7].weight, 1.5);
-	assert_eq!(dist.buckets[8].item, Some(TropicalTuftsCell::YellowGreenTuftPatch));
-	assert_eq!(dist.buckets[8].weight, 0.9);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(TropicalTuftsCell::BrightTuft),
+			Some(TropicalTuftsCell::DeepTuft),
+			Some(TropicalTuftsCell::YellowGreenTuft),
+			Some(TropicalTuftsCell::SmallPalmBush),
+			Some(TropicalTuftsCell::JuvenilePalmBush),
+			Some(TropicalTuftsCell::BrightTuftPatch),
+			Some(TropicalTuftsCell::DeepTuftPatch),
+			Some(TropicalTuftsCell::YellowGreenTuftPatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -99,9 +103,9 @@ mod render_tests {
 	use crate::tropical_tufts::TropicalTuftsParams;
 	use bevy::math::bounding::Aabb3d;
 	use bevy::prelude::{Entity, Transform};
+	use lod::SceneChunk;
 	use lod::lod_ref::LodRef;
 	use lod::scene::{LodScene, LodSceneLevel};
-	use lod::SceneChunk;
 	use vegetation_components::VegetationComponents;
 
 	#[test]

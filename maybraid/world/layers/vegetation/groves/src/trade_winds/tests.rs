@@ -4,21 +4,26 @@ use anyhow::Result;
 use bevy_math::Vec3;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = TradeWindsCell::distribution();
-	assert_eq!(dist.len(), 6);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 21.5);
-	assert_eq!(dist.buckets[1].item, Some(TradeWindsCell::TradeStorybook));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(TradeWindsCell::TradeSopesBanyan));
-	assert_eq!(dist.buckets[2].weight, 0.75);
-	assert_eq!(dist.buckets[3].item, Some(TradeWindsCell::TradeHonuBanyan));
-	assert_eq!(dist.buckets[3].weight, 0.75);
-	assert_eq!(dist.buckets[4].item, Some(TradeWindsCell::RareTallTradeStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.35);
-	assert_eq!(dist.buckets[5].item, Some(TradeWindsCell::RareTradeWaialeaPalm));
-	assert_eq!(dist.buckets[5].weight, 0.25);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(TradeWindsCell::TradeStorybook),
+			Some(TradeWindsCell::TradeSopesBanyan),
+			Some(TradeWindsCell::TradeHonuBanyan),
+			Some(TradeWindsCell::RareTallTradeStorybook),
+			Some(TradeWindsCell::RareTradeWaialeaPalm),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

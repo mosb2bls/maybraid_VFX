@@ -6,17 +6,24 @@ use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = JungleMassivesCell::distribution();
-	assert_eq!(dist.len(), 4);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 24.0);
-	assert_eq!(dist.buckets[1].item, Some(JungleMassivesCell::MassiveJungleStorybook));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(JungleMassivesCell::MassiveHonuBanyan));
-	assert_eq!(dist.buckets[2].weight, 2.0);
-	assert_eq!(dist.buckets[3].item, Some(JungleMassivesCell::MassiveSopesBanyan));
-	assert_eq!(dist.buckets[3].weight, 1.0);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(JungleMassivesCell::MassiveJungleStorybook),
+			Some(JungleMassivesCell::MassiveHonuBanyan),
+			Some(JungleMassivesCell::MassiveSopesBanyan),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

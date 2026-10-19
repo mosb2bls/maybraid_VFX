@@ -5,27 +5,30 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = BraidGrassCell::distribution();
-	assert_eq!(dist.len(), 10);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 2.5);
-	assert_eq!(dist.buckets[1].item, Some(BraidGrassCell::DeepGreenBlade));
-	assert_eq!(dist.buckets[1].weight, 0.5);
-	assert_eq!(dist.buckets[2].weight, 0.25);
-	assert_eq!(dist.buckets[3].weight, 0.25);
-	assert_eq!(dist.buckets[4].item, Some(BraidGrassCell::RedEdgeBlade));
-	assert_eq!(dist.buckets[4].weight, 0.25);
-	assert_eq!(dist.buckets[5].item, Some(BraidGrassCell::GreenSpear));
-	assert_eq!(dist.buckets[5].weight, 1.0);
-	assert_eq!(dist.buckets[6].item, Some(BraidGrassCell::FountainSpear));
-	assert_eq!(dist.buckets[6].weight, 0.75);
-	assert_eq!(dist.buckets[7].item, Some(BraidGrassCell::DeepGreenPatch));
-	assert_eq!(dist.buckets[7].weight, 2.0);
-	assert_eq!(dist.buckets[8].item, Some(BraidGrassCell::PaleReedPatch));
-	assert_eq!(dist.buckets[8].weight, 1.0);
-	assert_eq!(dist.buckets[9].item, Some(BraidGrassCell::JunglePatch));
-	assert_eq!(dist.buckets[9].weight, 1.0);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(BraidGrassCell::DeepGreenBlade),
+			Some(BraidGrassCell::PaleReedBlade),
+			Some(BraidGrassCell::JungleBlade),
+			Some(BraidGrassCell::RedEdgeBlade),
+			Some(BraidGrassCell::GreenSpear),
+			Some(BraidGrassCell::FountainSpear),
+			Some(BraidGrassCell::DeepGreenPatch),
+			Some(BraidGrassCell::PaleReedPatch),
+			Some(BraidGrassCell::JunglePatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

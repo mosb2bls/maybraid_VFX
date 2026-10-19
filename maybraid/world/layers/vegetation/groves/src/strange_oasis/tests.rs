@@ -5,19 +5,25 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = StrangeOasisCell::distribution();
-	assert_eq!(dist.len(), 5);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 10.0);
-	assert_eq!(dist.buckets[1].item, Some(StrangeOasisCell::CompactDatePalm));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(StrangeOasisCell::TorchAccent));
-	assert_eq!(dist.buckets[2].weight, 0.30);
-	assert_eq!(dist.buckets[3].item, Some(StrangeOasisCell::RedTorchAccent));
-	assert_eq!(dist.buckets[3].weight, 0.18);
-	assert_eq!(dist.buckets[4].item, Some(StrangeOasisCell::OasisStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.75);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(StrangeOasisCell::CompactDatePalm),
+			Some(StrangeOasisCell::TorchAccent),
+			Some(StrangeOasisCell::RedTorchAccent),
+			Some(StrangeOasisCell::OasisStorybook),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

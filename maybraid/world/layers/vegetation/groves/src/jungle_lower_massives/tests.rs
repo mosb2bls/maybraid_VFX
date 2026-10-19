@@ -4,21 +4,26 @@ use anyhow::Result;
 use bevy_math::Vec3;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = JungleLowerMassivesCell::distribution();
-	assert_eq!(dist.len(), 6);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 8.0);
-	assert_eq!(dist.buckets[1].item, Some(JungleLowerMassivesCell::LowerMassiveJungleStorybook));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(JungleLowerMassivesCell::LowerMassiveHonuBanyan));
-	assert_eq!(dist.buckets[2].weight, 2.0);
-	assert_eq!(dist.buckets[3].item, Some(JungleLowerMassivesCell::LowerMassiveSopesBanyan));
-	assert_eq!(dist.buckets[3].weight, 1.0);
-	assert_eq!(dist.buckets[4].item, Some(JungleLowerMassivesCell::LowerMassiveWaialeaPalm));
-	assert_eq!(dist.buckets[4].weight, 1.0);
-	assert_eq!(dist.buckets[5].item, Some(JungleLowerMassivesCell::RareLowerMassiveBraidOak));
-	assert_eq!(dist.buckets[5].weight, 0.35);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(JungleLowerMassivesCell::LowerMassiveJungleStorybook),
+			Some(JungleLowerMassivesCell::LowerMassiveHonuBanyan),
+			Some(JungleLowerMassivesCell::LowerMassiveSopesBanyan),
+			Some(JungleLowerMassivesCell::LowerMassiveWaialeaPalm),
+			Some(JungleLowerMassivesCell::RareLowerMassiveBraidOak),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

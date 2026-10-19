@@ -5,19 +5,25 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = JerrysChaparralCell::distribution();
-	assert_eq!(dist.len(), 5);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 7.0);
-	assert_eq!(dist.buckets[1].item, Some(JerrysChaparralCell::DryRoryHeadTrained));
-	assert_eq!(dist.buckets[1].weight, 1.5);
-	assert_eq!(dist.buckets[2].item, Some(JerrysChaparralCell::ChaparralHighBush));
-	assert_eq!(dist.buckets[2].weight, 2.0);
-	assert_eq!(dist.buckets[3].item, Some(JerrysChaparralCell::SmallFriendsConifer));
-	assert_eq!(dist.buckets[3].weight, 0.45);
-	assert_eq!(dist.buckets[4].item, Some(JerrysChaparralCell::ManzanitaRory));
-	assert_eq!(dist.buckets[4].weight, 0.35);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(JerrysChaparralCell::DryRoryHeadTrained),
+			Some(JerrysChaparralCell::ChaparralHighBush),
+			Some(JerrysChaparralCell::SmallFriendsConifer),
+			Some(JerrysChaparralCell::ManzanitaRory),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

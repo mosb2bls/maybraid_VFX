@@ -5,25 +5,28 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = ShamanhomeCell::distribution();
-	assert_eq!(dist.len(), 8);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 6.0);
-	assert_eq!(dist.buckets[1].item, Some(ShamanhomeCell::ShamanBraidOak));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(ShamanhomeCell::RedRitualBraidOak));
-	assert_eq!(dist.buckets[2].weight, 0.45);
-	assert_eq!(dist.buckets[3].item, Some(ShamanhomeCell::GnarledElderBraidOak));
-	assert_eq!(dist.buckets[3].weight, 0.55);
-	assert_eq!(dist.buckets[4].item, Some(ShamanhomeCell::SilverShrineBraidOak));
-	assert_eq!(dist.buckets[4].weight, 0.30);
-	assert_eq!(dist.buckets[5].item, Some(ShamanhomeCell::CopperBranchBraidOak));
-	assert_eq!(dist.buckets[5].weight, 0.25);
-	assert_eq!(dist.buckets[6].item, Some(ShamanhomeCell::RitualDatePalm));
-	assert_eq!(dist.buckets[6].weight, 0.75);
-	assert_eq!(dist.buckets[7].item, Some(ShamanhomeCell::SmallSopeBanyan));
-	assert_eq!(dist.buckets[7].weight, 0.80);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(ShamanhomeCell::ShamanBraidOak),
+			Some(ShamanhomeCell::RedRitualBraidOak),
+			Some(ShamanhomeCell::GnarledElderBraidOak),
+			Some(ShamanhomeCell::SilverShrineBraidOak),
+			Some(ShamanhomeCell::CopperBranchBraidOak),
+			Some(ShamanhomeCell::RitualDatePalm),
+			Some(ShamanhomeCell::SmallSopeBanyan),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

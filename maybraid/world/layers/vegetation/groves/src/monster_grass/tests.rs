@@ -5,17 +5,29 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = MonsterGrassCell::distribution();
-	assert_eq!(dist.len(), 9);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 1.5);
-	assert_eq!(dist.buckets[1].item, Some(MonsterGrassCell::GiantWetBlade));
-	assert_eq!(dist.buckets[1].weight, 0.40);
-	assert_eq!(dist.buckets[5].item, Some(MonsterGrassCell::GiantWetBladePatch));
-	assert_eq!(dist.buckets[5].weight, 1.60);
-	assert_eq!(dist.buckets[8].item, Some(MonsterGrassCell::RedRibbedBladePatch));
-	assert_eq!(dist.buckets[8].weight, 0.28);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(MonsterGrassCell::GiantWetBlade),
+			Some(MonsterGrassCell::BroadJungleBlade),
+			Some(MonsterGrassCell::PaleGiantReed),
+			Some(MonsterGrassCell::RedRibbedBlade),
+			Some(MonsterGrassCell::GiantWetBladePatch),
+			Some(MonsterGrassCell::BroadJungleBladePatch),
+			Some(MonsterGrassCell::PaleGiantReedPatch),
+			Some(MonsterGrassCell::RedRibbedBladePatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 

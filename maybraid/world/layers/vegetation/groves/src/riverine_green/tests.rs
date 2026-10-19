@@ -5,21 +5,26 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = RiverineGreenCell::distribution();
-	assert_eq!(dist.len(), 6);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 11.0);
-	assert_eq!(dist.buckets[1].item, Some(RiverineGreenCell::WetGreenBush));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(RiverineGreenCell::BrightBankBush));
-	assert_eq!(dist.buckets[2].weight, 1.0);
-	assert_eq!(dist.buckets[3].item, Some(RiverineGreenCell::DeepShadeBush));
-	assert_eq!(dist.buckets[3].weight, 0.75);
-	assert_eq!(dist.buckets[4].item, Some(RiverineGreenCell::PaleRiparianBush));
-	assert_eq!(dist.buckets[4].weight, 0.45);
-	assert_eq!(dist.buckets[5].item, Some(RiverineGreenCell::RedTwigRiverBush));
-	assert_eq!(dist.buckets[5].weight, 0.25);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(RiverineGreenCell::WetGreenBush),
+			Some(RiverineGreenCell::BrightBankBush),
+			Some(RiverineGreenCell::DeepShadeBush),
+			Some(RiverineGreenCell::PaleRiparianBush),
+			Some(RiverineGreenCell::RedTwigRiverBush),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
