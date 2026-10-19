@@ -547,6 +547,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "attacks"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "avian3d",
+ "bevy",
+ "combat-targeting",
+ "damage",
+ "lod-avian",
+]
+
+[[package]]
+name = "attacks-playground"
+version = "0.1.5"
+dependencies = [
+ "attacks",
+ "avian3d",
+ "bevy",
+ "combat-targeting",
+ "damage",
+ "lod-avian",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
