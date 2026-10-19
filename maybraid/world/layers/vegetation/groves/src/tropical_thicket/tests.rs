@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use lod::scene::LodScene;
 use procedural_common::NoiseParams;
 
@@ -103,30 +102,6 @@ fn palm_banyan_and_bush_geometry_follows_authored_bands() -> Result<()> {
 		anyhow::bail!("expected red stem palm item");
 	};
 	assert!(red.crown_spread.end <= 6.30);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// LargePalmBush (index 1) rejects steepness 0.30; first-fit falls to BroadWetPalmBush
-	// (index 2), which allows steepness up to 0.68.
-	let prepared =
-		TropicalThicketCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.30 };
-	let outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.35, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, TropicalThicketCell::BroadWetPalmBush);
-		}
-		other => anyhow::bail!("expected BroadWetPalmBush fallback, got {other:?}"),
-	}
 	Ok(())
 }
 

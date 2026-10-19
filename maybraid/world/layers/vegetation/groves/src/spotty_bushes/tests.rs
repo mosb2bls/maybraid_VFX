@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -49,67 +48,6 @@ fn scrub_geometry_follows_authored_bands() -> Result<()> {
 		assert!(*bush.branch_depth.end() <= 5);
 		assert!(bush.leaf_radius.start >= 0.04);
 		assert!(bush.leaf_radius.end <= 0.14);
-	}
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn dry_spot_bush_accepts_steeper_slope_than_dense() -> Result<()> {
-	let prepared =
-		SpottyBushesCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.45 };
-	let dry_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.35, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match dry_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, SpottyBushesCell::DrySpotBush);
-		}
-		other => anyhow::bail!("expected DrySpotBush on moderate slope, got {other:?}"),
-	}
-	let dense_outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.35, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match dense_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, SpottyBushesCell::DenseSpotBush);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_dense_and_flowering() -> Result<()> {
-	let prepared =
-		SpottyBushesCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.45 };
-	for (index, cell) in
-		[(3, SpottyBushesCell::DenseSpotBush), (4, SpottyBushesCell::FloweringSpotBush)]
-	{
-		let outcome = prepared.select_from(
-			index,
-			Vec3::new(5.0, 0.25, 5.0),
-			1.0,
-			Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-			&terrain,
-		);
-		match outcome {
-			GroveCellOutcome::Placed { variant, .. } => {
-				assert_ne!(variant, cell, "expected {cell:?} to reject steepness 0.45");
-			}
-			GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-		}
 	}
 	Ok(())
 }

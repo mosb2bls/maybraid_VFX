@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -85,59 +83,6 @@ fn placement_constraints_use_full_elevation_and_rfc_steepness() -> Result<()> {
 		.find(|b| b.item == Some(WanderingAcaciaCell::DryWanderingSopesBanyan))
 		.ok_or_else(|| anyhow::anyhow!("missing dry wandering sope bucket"))?;
 	assert_eq!(sope.constraints.steepness.end, 0.58);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_dry_sope_but_falls_through_to_vase() -> Result<()> {
-	let prepared =
-		WanderingAcaciaCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let moderate = FlatTerrainSample { elevation: 0.40, steepness: 0.55 };
-	let sope_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&moderate,
-	);
-	match sope_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, WanderingAcaciaCell::DryWanderingSopesBanyan);
-		}
-		other => {
-			anyhow::bail!("expected DryWanderingSopesBanyan on moderate slope, got {other:?}")
-		}
-	}
-	let steep = FlatTerrainSample { elevation: 0.40, steepness: 0.60 };
-	let steep_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match steep_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, WanderingAcaciaCell::WanderingVaseTree);
-		}
-		other => anyhow::bail!(
-			"expected fall-through to WanderingVaseTree on steep slope, got {other:?}"
-		),
-	}
-	let bush_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match bush_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, WanderingAcaciaCell::WanderingHighBush);
-		}
-		other => anyhow::bail!("expected WanderingHighBush on steep slope, got {other:?}"),
-	}
 	Ok(())
 }
 

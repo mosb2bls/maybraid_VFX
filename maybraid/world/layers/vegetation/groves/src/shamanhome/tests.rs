@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -68,63 +67,6 @@ fn geometry_follows_authored_bands() -> Result<()> {
 	};
 	assert_eq!(banyan.height, UnitRange::new(5.0, 7.0));
 	assert_eq!(banyan.descender_density, SPARSE_DESCENDER_DENSITY);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn red_ritual_braid_oak_accepts_steeper_slope_than_ritual_date_palm() -> Result<()> {
-	let prepared =
-		ShamanhomeCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.32 };
-	let red_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match red_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, ShamanhomeCell::RedRitualBraidOak);
-		}
-		other => anyhow::bail!("expected RedRitualBraidOak on moderate slope, got {other:?}"),
-	}
-	let palm_outcome = prepared.select_from(
-		6,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match palm_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, ShamanhomeCell::RitualDatePalm);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn high_elevation_rejects_date_palm_on_steep_slopes() -> Result<()> {
-	let prepared =
-		ShamanhomeCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.50, steepness: 0.15 };
-	let outcome = prepared.select_from(
-		6,
-		Vec3::new(5.0, 0.50, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, ShamanhomeCell::RitualDatePalm);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
 	Ok(())
 }
 

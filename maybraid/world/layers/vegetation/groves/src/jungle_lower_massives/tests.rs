@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -76,32 +74,6 @@ fn waialea_accepts_steeper_slope_than_honu() -> Result<()> {
 	assert!(waialea.constraints.steepness.end > honu.constraints.steepness.end);
 	assert_eq!(honu.constraints.steepness.end, 0.46);
 	assert_eq!(waialea.constraints.steepness.end, 0.62);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_honu_but_allows_waialea() -> Result<()> {
-	let prepared = JungleLowerMassivesCell::distribution().prepare(
-		0.0,
-		0.0,
-		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let terrain = FlatTerrainSample { elevation: 0.30, steepness: 0.55 };
-	let outcome = prepared.select_from(
-		8,
-		Vec3::new(5.0, 0.30, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, JungleLowerMassivesCell::LowerMassiveHonuBanyan);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
 	Ok(())
 }
 

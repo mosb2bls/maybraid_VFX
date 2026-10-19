@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -83,30 +82,6 @@ fn rory_bush_and_conifer_geometry_follows_authored_bands() -> Result<()> {
 		anyhow::bail!("expected manzanita rory item");
 	};
 	assert!(manzanita.canopy_density.end <= 0.35);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// ChaparralHighBush (index 2) rejects steepness 0.60; first-fit falls to SmallFriendsConifer
-	// (index 3), which allows steepness up to 0.65.
-	let prepared =
-		JerrysChaparralCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.60 };
-	let outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.35, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, JerrysChaparralCell::SmallFriendsConifer);
-		}
-		other => anyhow::bail!("expected SmallFriendsConifer fallback, got {other:?}"),
-	}
 	Ok(())
 }
 

@@ -209,7 +209,7 @@ mod tests {
 	use super::*;
 	use anyhow::Result;
 	use bevy_math::Vec3;
-	use vegetation_groves::{cell_center, FlatTerrainSample, GroveExtent, OrchardParams};
+	use vegetation_groves::{FlatTerrainSample, GroveExtent, OrchardParams, cell_center};
 
 	#[test]
 	fn orchard_cell_extent_matches_definition() -> Result<()> {
@@ -229,6 +229,38 @@ mod tests {
 		);
 		assert!(matches!(tile, ForestGroveTile::Orchard(_)));
 		let _ = cell_center(&one);
+		Ok(())
+	}
+
+	#[test]
+	fn forest_assemble_does_not_evaluate_authored_constraint_bands() -> Result<()> {
+		use gimme_gen::Cell;
+		use vegetation_groves::levantine_scrub::LevantineScrubCell;
+		use vegetation_groves::{ForestGroveBiases, GroveCellOutcome, GroveFrontend};
+
+		// Forest grow assembles with [`GroveFrontend::default`] — default biases and
+		// no elevation / steepness normalization domain ([RFC-183 3.5.1], 3.4.2.4).
+		// Levantine `DryHighBush` authored steepness ends at 0.65; 0.69 would empty
+		// every placed bucket if constraints ran. The owner currently places anyway.
+		let grove =
+			GroveFrontend::default().assemble(vegetation_groves::levantine_scrub::definition());
+		assert_eq!(*grove.biases(), ForestGroveBiases::default());
+		let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.69 };
+		let outcome = grove.distribution().select_from(
+			3,
+			Vec3::new(5.0, 0.25, 5.0),
+			1.0,
+			Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
+			&terrain,
+		);
+		match outcome {
+			GroveCellOutcome::Placed { variant, .. } => {
+				assert_eq!(variant, LevantineScrubCell::DryHighBush);
+			}
+			other => {
+				anyhow::bail!("expected DryHighBush without constraint evaluation, got {other:?}")
+			}
+		}
 		Ok(())
 	}
 

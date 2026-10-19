@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -177,34 +176,6 @@ fn patch_wraps_bright_tuft_clump() -> Result<()> {
 	assert_eq!(patch.clump, BRIGHT_TUFT);
 	assert!(*patch.clump_count.start() >= 3);
 	assert!(patch.patch_extent_xz.start >= 1.0);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// SmallPalmBush (index 3) rejects steepness 0.65; first-fit falls to MiniRoryHeadTrained
-	// (index 4), which allows steepness up to 0.70.
-	let prepared = TropicalUndergrowthCell::distribution().prepare(
-		0.0,
-		0.0,
-		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.65 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.35, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, TropicalUndergrowthCell::MiniRoryHeadTrained);
-		}
-		other => anyhow::bail!("expected MiniRoryHeadTrained fallback, got {other:?}"),
-	}
 	Ok(())
 }
 

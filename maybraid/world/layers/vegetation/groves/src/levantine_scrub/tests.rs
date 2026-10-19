@@ -84,26 +84,6 @@ fn hedge_accepts_gentle_slopes_only() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_all_placed_buckets() -> Result<()> {
-	let prepared =
-		LevantineScrubCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.69 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Empty { .. } => {}
-		other => anyhow::bail!("expected Empty on steep slope, got {other:?}"),
-	}
-	Ok(())
-}
-
-#[test]
 fn bush_fits_moderate_slope_from_high_bush_bucket() -> Result<()> {
 	let prepared =
 		LevantineScrubCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);

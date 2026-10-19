@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -68,43 +66,6 @@ fn placement_constraints_use_full_elevation_and_rfc_steepness() -> Result<()> {
 		.find(|b| b.item == Some(AlpineCell::WindlineFriendsConifer))
 		.ok_or_else(|| anyhow::anyhow!("missing windline friends bucket"))?;
 	assert_eq!(windline.constraints.steepness.end, 0.86);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_tall_friends_but_allows_windline() -> Result<()> {
-	let prepared = AlpineCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let moderate = FlatTerrainSample { elevation: 0.30, steepness: 0.40 };
-	let moderate_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.30, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&moderate,
-	);
-	match moderate_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, AlpineCell::TallAlpineFriendsConifer);
-		}
-		other => {
-			anyhow::bail!("expected TallAlpineFriendsConifer on moderate slope, got {other:?}")
-		}
-	}
-	let steep = FlatTerrainSample { elevation: 0.30, steepness: 0.70 };
-	let steep_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.30, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match steep_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, AlpineCell::WindlineFriendsConifer);
-		}
-		other => anyhow::bail!("expected WindlineFriendsConifer on steep ridge, got {other:?}"),
-	}
 	Ok(())
 }
 

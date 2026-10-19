@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -84,28 +82,6 @@ fn rory_accepts_steeper_slope_than_dense_storybook() -> Result<()> {
 	assert!(rory.constraints.steepness.end > jungle.constraints.steepness.end);
 	assert_eq!(jungle.constraints.steepness.end, 0.58);
 	assert_eq!(rory.constraints.steepness.end, 0.76);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_tight_variants() -> Result<()> {
-	let prepared =
-		UnendingJungleCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.30, steepness: 0.75 };
-	let outcome = prepared.select_from(
-		8,
-		Vec3::new(5.0, 0.30, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, UnendingJungleCell::WaialeaPalmAccent);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
 	Ok(())
 }
 

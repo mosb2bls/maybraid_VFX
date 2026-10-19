@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -83,43 +81,6 @@ fn placement_constraints_match_rfc() -> Result<()> {
 	assert_eq!(high_bush.constraints.elevation.start, 0.0);
 	assert_eq!(high_bush.constraints.elevation.end, 1.0);
 	assert_eq!(high_bush.constraints.steepness.end, 0.52);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_braid_oak_but_allows_high_bush() -> Result<()> {
-	let prepared =
-		RiparianGeneralCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.45 };
-	let bush_outcome = prepared.select_from(
-		5,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match bush_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, RiparianGeneralCell::RareRiparianHighBush);
-		}
-		other => {
-			anyhow::bail!("expected RareRiparianHighBush on moderate slope, got {other:?}")
-		}
-	}
-	let braid_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match braid_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, RiparianGeneralCell::RiparianBraidOak);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
 	Ok(())
 }
 

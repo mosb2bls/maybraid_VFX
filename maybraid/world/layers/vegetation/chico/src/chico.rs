@@ -3,7 +3,7 @@
 use bevy_math::Vec3;
 use procedural_common::{NoiseParams, UnitRange};
 
-use crate::hopscotch::{select, HopscotchNode};
+use crate::hopscotch::{HopscotchNode, select};
 use crate::layer::select_layers;
 use crate::{ForestExtent, LayeringKind, SelectedLayers};
 
@@ -310,7 +310,9 @@ pub fn select_layering(noise: NoiseParams, position: Vec3) -> LayeringKind {
 /// Hopscotch plus per-layer Bucket Throw for one forest cell.
 ///
 /// Does not apply [`vegetation_groves::ForestGroveBiases`] — those stay default until the
-/// full RFC bias set is implemented.
+/// full RFC bias set is implemented. Authored grove elevation / steepness bands therefore
+/// have no forest-cell normalization domain yet ([RFC-183 3.5.1], 3.4.2.4); species-specific
+/// first-fit fallback on those bands is a recorded owner gap, not a grove-layer contract.
 pub fn select_cell(extent: ForestExtent, noise: NoiseParams) -> SelectedLayers {
 	let layering = select_layering(noise, extent.center()).layering();
 	select_layers(&layering, noise, extent.center())

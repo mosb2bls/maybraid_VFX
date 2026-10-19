@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -64,54 +62,6 @@ fn placement_constraints_use_full_elevation_and_rfc_steepness() -> Result<()> {
 		.find(|b| b.item == Some(DrylandCell::DrylandVaseTree))
 		.ok_or_else(|| anyhow::anyhow!("missing vase bucket"))?;
 	assert_eq!(vase.constraints.steepness.end, 0.70);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_vase_but_allows_liams() -> Result<()> {
-	let prepared =
-		DrylandCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let moderate = FlatTerrainSample { elevation: 0.40, steepness: 0.55 };
-	let vase_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&moderate,
-	);
-	match vase_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, DrylandCell::DrylandVaseTree);
-		}
-		other => anyhow::bail!("expected DrylandVaseTree on moderate slope, got {other:?}"),
-	}
-	let steep = FlatTerrainSample { elevation: 0.40, steepness: 0.75 };
-	let liams_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match liams_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, DrylandCell::DrylandLiamsConifer);
-		}
-		other => anyhow::bail!("expected DrylandLiamsConifer on steep slope, got {other:?}"),
-	}
-	match prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	) {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, DrylandCell::DrylandVaseTree);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
 	Ok(())
 }
 

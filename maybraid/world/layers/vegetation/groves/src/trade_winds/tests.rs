@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -76,44 +74,6 @@ fn placement_constraints_use_full_elevation_and_rfc_steepness() -> Result<()> {
 		.find(|b| b.item == Some(TradeWindsCell::RareTallTradeStorybook))
 		.ok_or_else(|| anyhow::anyhow!("missing rare tall storybook bucket"))?;
 	assert_eq!(tall.constraints.steepness.end, 0.50);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_trade_sope_but_allows_rare_tall_storybook() -> Result<()> {
-	let prepared =
-		TradeWindsCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let moderate = FlatTerrainSample { elevation: 0.40, steepness: 0.40 };
-	let sope_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&moderate,
-	);
-	match sope_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, TradeWindsCell::TradeSopesBanyan);
-		}
-		other => anyhow::bail!("expected TradeSopesBanyan on moderate slope, got {other:?}"),
-	}
-	let steep = FlatTerrainSample { elevation: 0.40, steepness: 0.45 };
-	let steep_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match steep_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, TradeWindsCell::RareTallTradeStorybook);
-		}
-		other => {
-			anyhow::bail!("expected RareTallTradeStorybook on steep slope, got {other:?}")
-		}
-	}
 	Ok(())
 }
 

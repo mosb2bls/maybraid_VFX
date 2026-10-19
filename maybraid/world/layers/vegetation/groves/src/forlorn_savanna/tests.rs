@@ -1,9 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
 fn distribution_matches_rfc_order_and_weights() -> Result<()> {
@@ -81,41 +79,6 @@ fn placement_constraints_match_rfc() -> Result<()> {
 		.ok_or_else(|| anyhow::anyhow!("missing storybook bucket"))?;
 	assert_eq!(storybook.constraints.elevation.start, 0.0);
 	assert_eq!(storybook.constraints.steepness.end, 0.50);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_rory_but_allows_high_bush() -> Result<()> {
-	let prepared =
-		ForlornSavannaCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.40, steepness: 0.60 };
-	let bush_outcome = prepared.select_from(
-		5,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match bush_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, ForlornSavannaCell::AcaciaHighBush);
-		}
-		other => anyhow::bail!("expected AcaciaHighBush on moderate slope, got {other:?}"),
-	}
-	let rory_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match rory_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, ForlornSavannaCell::SavannaRory);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
 	Ok(())
 }
 

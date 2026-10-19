@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -72,29 +71,6 @@ fn tilt_bands_mix_moderate_and_wide() -> Result<()> {
 	for wide in [BraidGrassCell::JungleBlade, BraidGrassCell::FountainSpear] {
 		let band = tilt(wide);
 		assert!(band.end - band.start >= 0.6, "{wide:?} should span a wide tilt band");
-	}
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// Jungle (index 3) rejects steepness 0.35; first-fit wraps to RedEdge (index 4).
-	let prepared =
-		BraidGrassCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.3, steepness: 0.35 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.3, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, BraidGrassCell::RedEdgeBlade);
-		}
-		other => anyhow::bail!("expected RedEdgeBlade fallback, got {other:?}"),
 	}
 	Ok(())
 }

@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -79,29 +78,6 @@ fn patch_wraps_short_green_clump() -> Result<()> {
 	assert_eq!(patch.clump, SHORT_GREEN);
 	assert!(*patch.clump_count.start() >= 2, "a patch should scatter several clumps");
 	assert!(patch.patch_extent_xz.start > 0.0);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// ShortGreen (index 1) rejects elevation 0.85; first-fit falls to DryScrub (index 2).
-	let prepared =
-		CommonTuftsCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.85, steepness: 0.2 };
-	let outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.85, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, CommonTuftsCell::DryScrub);
-		}
-		other => anyhow::bail!("expected DryScrub fallback, got {other:?}"),
-	}
 	Ok(())
 }
 

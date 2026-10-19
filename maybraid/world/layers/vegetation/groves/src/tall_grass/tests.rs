@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -87,30 +86,6 @@ fn patch_wraps_river_green_clump() -> Result<()> {
 	assert_eq!(patch.clump, RIVER_GREEN);
 	assert!(*patch.clump_count.start() >= 2, "a patch should scatter several clumps");
 	assert!(patch.patch_extent_xz.start > 0.0);
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// TropicalBlade (index 3) rejects elevation 0.50; first-fit falls to HawaiianRed
-	// (index 4), which allows elevation up to 0.65.
-	let prepared =
-		TallGrassCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.50, steepness: 0.20 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.50, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, TallGrassCell::HawaiianRed);
-		}
-		other => anyhow::bail!("expected HawaiianRed fallback, got {other:?}"),
-	}
 	Ok(())
 }
 

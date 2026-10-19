@@ -1,8 +1,7 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
@@ -57,30 +56,6 @@ fn bush_geometry_follows_authored_bands() -> Result<()> {
 		assert!(bush.radial_strength.end <= 0.58);
 		assert!(bush.vertical_bias.start >= 0.18);
 		assert!(bush.vertical_bias.end <= 0.90);
-	}
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// DeepShadeBush (index 3) rejects steepness 0.50; first-fit falls to PaleRiparianBush
-	// (index 4), which allows steepness up to 0.60.
-	let prepared =
-		RiverineGreenCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.50 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, RiverineGreenCell::PaleRiparianBush);
-		}
-		other => anyhow::bail!("expected PaleRiparianBush fallback, got {other:?}"),
 	}
 	Ok(())
 }
