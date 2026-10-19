@@ -12,10 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::catalog::{
-	overlay_machine_fields, seed_device_class, visual_style_choice_is_saved, DeviceClass,
-	Preference, VisualStylePref,
+	overlay_machine_fields, seed_device_class, DeviceClass, Preference, VisualStylePref,
 };
-use super::{InGameSettings, InGameShadowQuality, InGameVisualStyle};
+use super::{InGameSettings, InGameShadowQuality, InGameVisualStyle, VisualStyleProvenance};
 
 pub const ENV_SHADOWS: &str = "MAYBRAID_SHADOWS";
 pub const ENV_RENDER_SCALE: &str = "MAYBRAID_RENDER_SCALE";
@@ -31,18 +30,15 @@ const VISUAL_STYLE_NATIVE_SPLIT_VERSION: u32 = 2;
 pub struct QualitySeeded;
 
 /// Last Machine projection written or loaded. Env overlays do not live here.
+/// Visual-style saved-vs-auto state lives on [`VisualStyleProvenance`].
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct MachineSettings {
 	pub settings: InGameSettings,
-	pub visual_style_saved: bool,
 }
 
 impl Default for MachineSettings {
 	fn default() -> Self {
-		Self {
-			settings: InGameSettings::from_device(seed_device_class()),
-			visual_style_saved: false,
-		}
+		Self { settings: InGameSettings::from_device(seed_device_class()) }
 	}
 }
 
@@ -118,42 +114,45 @@ pub fn load_machine_settings(root: &SaveRoot, class: DeviceClass) -> InGameSetti
 	load_machine_settings_ex(root, class).settings
 }
 
-/// Load Machine keys and whether [`VisualStylePref`] was an explicit saved choice.
+/// Load Machine keys and visual-style provenance derived from on-disk keys.
 pub fn load_machine_settings_ex(root: &SaveRoot, class: DeviceClass) -> LoadedMachineSettings {
 	let mut settings = InGameSettings::from_device(class);
 	let Some(file) = read_settings_file(root) else {
-		return LoadedMachineSettings { settings, visual_style_saved: false };
+		return LoadedMachineSettings {
+			settings,
+			visual_style_provenance: VisualStyleProvenance::PendingAuto,
+		};
 	};
 	overlay_machine_fields(&mut settings, &file.fields);
 	migrate_v1_sharp_to_native(&mut settings, file.version);
 	LoadedMachineSettings {
 		settings,
-		visual_style_saved: visual_style_choice_is_saved(&file.fields),
+		visual_style_provenance: VisualStyleProvenance::from_machine_fields(&file.fields),
 	}
 }
 
-/// Device defaults plus whether visual style was saved on disk.
+/// Device defaults plus visual-style provenance derived from on-disk keys.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LoadedMachineSettings {
 	pub settings: InGameSettings,
-	pub visual_style_saved: bool,
+	pub visual_style_provenance: VisualStyleProvenance,
 }
 
 pub fn save_machine_settings(
 	root: &SaveRoot,
 	settings: &InGameSettings,
 ) -> Result<(), PersistError> {
-	save_machine_fields(root, settings, true)
+	save_machine_fields(root, settings, VisualStyleProvenance::Explicit)
 }
 
 fn save_machine_fields(
 	root: &SaveRoot,
 	settings: &InGameSettings,
-	persist_visual_style: bool,
+	provenance: VisualStyleProvenance,
 ) -> Result<(), PersistError> {
 	root.ensure_dirs()?;
 	let mut fields = settings.persisted_fields();
-	if !persist_visual_style {
+	if !provenance.is_saved() {
 		fields.remove(VisualStylePref::KEY);
 	}
 	let file = SettingsFile { version: SETTINGS_VERSION, fields };
@@ -168,6 +167,7 @@ fn read_settings_file(root: &SaveRoot) -> Option<SettingsFile> {
 
 pub(super) fn write_machine_preference<P: Preference>(
 	machine: Option<&mut MachineSettings>,
+	provenance: &mut VisualStyleProvenance,
 	value: P::Value,
 	root: Option<&SaveRoot>,
 ) {
@@ -176,30 +176,14 @@ pub(super) fn write_machine_preference<P: Preference>(
 	};
 	P::set(&mut machine.settings, value);
 	if P::KEY == VisualStylePref::KEY {
-		machine.visual_style_saved = true;
+		provenance.mark_explicit();
 	}
 	let Some(root) = root else {
 		return;
 	};
-	if let Err(error) = save_machine_fields(root, &machine.settings, machine.visual_style_saved) {
+	if let Err(error) = save_machine_fields(root, &machine.settings, *provenance) {
 		warn!("failed to persist machine settings: {error}");
 	}
-}
-
-/// Apply the host heuristic when `visual_style` was never an explicit save.
-///
-/// Returns `None` when [`VisualStyleSaved`] is set so an explicit choice stays.
-pub fn apply_unsaved_visual_style_default(
-	visual_style_saved: bool,
-	settings: &mut InGameSettings,
-	signals: &maybraid_world::VisualStyleSignals,
-) -> Option<maybraid_world::VisualStylePick> {
-	if visual_style_saved {
-		return None;
-	}
-	let pick = maybraid_world::pick_default_visual_style(signals);
-	settings.visual_style = InGameVisualStyle::from_visual_style(pick.style);
-	Some(pick)
 }
 
 /// Load Machine defaults and the live bag. `None` when [`QualitySeeded`] is set.
@@ -207,7 +191,7 @@ pub fn apply_seed(
 	already_seeded: bool,
 	root: Option<&SaveRoot>,
 	shadows_env: Option<&str>,
-) -> Option<(InGameSettings, InGameSettings, bool)> {
+) -> Option<(InGameSettings, InGameSettings, VisualStyleProvenance)> {
 	if already_seeded {
 		return None;
 	}
@@ -215,12 +199,12 @@ pub fn apply_seed(
 	let loaded = root.map(|root| load_machine_settings_ex(root, class)).unwrap_or_else(|| {
 		LoadedMachineSettings {
 			settings: InGameSettings::from_device(class),
-			visual_style_saved: false,
+			visual_style_provenance: VisualStyleProvenance::PendingAuto,
 		}
 	});
 	let mut live = loaded.settings;
 	apply_shadows_env(&mut live, shadows_env);
-	Some((loaded.settings, live, loaded.visual_style_saved))
+	Some((loaded.settings, live, loaded.visual_style_provenance))
 }
 
 pub(super) fn seed_in_game_settings(
@@ -231,21 +215,21 @@ pub(super) fn seed_in_game_settings(
 	save_root: Option<Res<SaveRoot>>,
 ) {
 	let env = std::env::var(ENV_SHADOWS).ok();
-	let Some((loaded, live, visual_style_saved)) =
+	let Some((loaded, live, provenance)) =
 		apply_seed(seeded.is_some(), save_root.as_deref(), env.as_deref())
 	else {
 		return;
 	};
-	*machine = MachineSettings { settings: loaded, visual_style_saved };
+	*machine = MachineSettings { settings: loaded };
 	*settings = live;
 	commands.insert_resource(QualitySeeded);
-	commands.insert_resource(super::VisualStyleSaved(visual_style_saved));
-	commands.insert_resource(super::VisualStyleAutoPick::default());
+	commands.insert_resource(provenance);
 }
 
 pub(super) fn persist_machine_settings_on_exit(
 	exits: MessageReader<AppExit>,
 	machine: Res<MachineSettings>,
+	provenance: Res<VisualStyleProvenance>,
 	save_root: Option<Res<SaveRoot>>,
 ) {
 	if exits.is_empty() {
@@ -254,9 +238,7 @@ pub(super) fn persist_machine_settings_on_exit(
 	let Some(root) = save_root else {
 		return;
 	};
-	if let Err(error) =
-		save_machine_fields(root.as_ref(), &machine.settings, machine.visual_style_saved)
-	{
+	if let Err(error) = save_machine_fields(root.as_ref(), &machine.settings, *provenance) {
 		warn!("failed to persist machine settings on exit: {error}");
 	}
 }
@@ -266,13 +248,14 @@ mod tests {
 	use character_persist::SaveRoot;
 
 	use super::{
-		apply_seed, apply_shadows_env, apply_unsaved_visual_style_default, load_machine_settings,
-		load_machine_settings_ex, parse_render_scale_env, parse_shadows_env, save_machine_fields,
-		save_machine_settings, write_machine_preference, MachineSettings, ENV_RENDER_SCALE,
-		ENV_SHADOWS,
+		apply_seed, apply_shadows_env, load_machine_settings, load_machine_settings_ex,
+		parse_render_scale_env, parse_shadows_env, save_machine_fields, save_machine_settings,
+		write_machine_preference, MachineSettings, ENV_RENDER_SCALE, ENV_SHADOWS,
 	};
 	use crate::settings::catalog::{DeviceClass, Shadows, VisualStylePref};
-	use crate::settings::{InGameSettings, InGameShadowQuality, InGameVisualStyle};
+	use crate::settings::{
+		InGameSettings, InGameShadowQuality, InGameVisualStyle, VisualStyleProvenance,
+	};
 
 	fn write_fields(root: &SaveRoot, json: &str) {
 		root.ensure_dirs().expect("dirs");
@@ -356,27 +339,27 @@ mod tests {
 	fn user_cycle_persists_and_later_seed_does_not_reset() {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
-		let (machine, live, visual_style_saved) =
-			apply_seed(false, Some(&root), None).expect("seed");
+		let (machine, live, mut provenance) = apply_seed(false, Some(&root), None).expect("seed");
 		assert_eq!(live.shadows, InGameShadowQuality::Off);
 		assert_eq!(machine.shadows, InGameShadowQuality::Off);
-		assert!(!visual_style_saved);
+		assert_eq!(provenance, VisualStyleProvenance::PendingAuto);
 
-		let mut stored = MachineSettings { settings: machine, visual_style_saved };
+		let mut stored = MachineSettings { settings: machine };
 		write_machine_preference::<Shadows>(
 			Some(&mut stored),
+			&mut provenance,
 			InGameShadowQuality::Low,
 			Some(&root),
 		);
 		assert_eq!(stored.settings.shadows, InGameShadowQuality::Low);
-		assert!(!stored.visual_style_saved);
+		assert_eq!(provenance, VisualStyleProvenance::PendingAuto);
 		assert!(read_raw(&root).contains("\"low\""));
 		assert!(!read_raw(&root).contains("\"visual_style\""));
 
 		assert!(apply_seed(true, Some(&root), None).is_none());
 		let (_, live, still_unsaved) = apply_seed(false, Some(&root), None).expect("reload");
 		assert_eq!(live.shadows, InGameShadowQuality::Low);
-		assert!(!still_unsaved);
+		assert_eq!(still_unsaved, VisualStyleProvenance::PendingAuto);
 	}
 
 	#[test]
@@ -396,19 +379,22 @@ mod tests {
 		let before = read_raw(&root);
 		assert!(before.contains("\"pre_post_modern\""));
 
-		let mut stored = MachineSettings { settings: loaded, visual_style_saved: true };
+		let mut stored = MachineSettings { settings: loaded };
+		let mut provenance = VisualStyleProvenance::Explicit;
 		write_machine_preference::<VisualStylePref>(
 			Some(&mut stored),
+			&mut provenance,
 			InGameVisualStyle::Native,
 			Some(&root),
 		);
 		assert_eq!(stored.settings.visual_style, InGameVisualStyle::Native);
-		assert!(stored.visual_style_saved);
+		assert_eq!(provenance, VisualStyleProvenance::Explicit);
 		assert!(read_raw(&root).contains("\"native\""));
 		assert!(read_raw(&root).contains("\"version\": 2"));
 
 		write_machine_preference::<VisualStylePref>(
 			Some(&mut stored),
+			&mut provenance,
 			InGameVisualStyle::Sharp,
 			Some(&root),
 		);
@@ -472,7 +458,8 @@ mod tests {
 		let dir = tempfile::tempdir().expect("tempdir");
 		let root = SaveRoot::at(dir.path());
 		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
-		assert!(!loaded.visual_style_saved);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::PendingAuto);
+		assert!(!loaded.visual_style_provenance.is_saved());
 		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
 
 		write_fields(
@@ -480,7 +467,7 @@ mod tests {
 			r#"{ "version": 1, "fields": { "shadows": "off", "render_scale": "auto" } }"#,
 		);
 		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
-		assert!(!loaded.visual_style_saved);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::PendingAuto);
 		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
 	}
 
@@ -493,7 +480,8 @@ mod tests {
 			r#"{ "version": 2, "fields": { "shadows": "off", "visual_style": "impressionist" } }"#,
 		);
 		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
-		assert!(loaded.visual_style_saved);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::Explicit);
+		assert!(loaded.visual_style_provenance.is_saved());
 		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Impressionist);
 
 		write_fields(
@@ -501,7 +489,7 @@ mod tests {
 			r#"{ "version": 1, "fields": { "shadows": "off", "render_scale": "75" } }"#,
 		);
 		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
-		assert!(loaded.visual_style_saved);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::Explicit);
 		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::PrePostModern);
 	}
 
@@ -516,11 +504,88 @@ mod tests {
 				mob_hud: false,
 				visual_style: InGameVisualStyle::Sharp,
 			},
-			false,
+			VisualStyleProvenance::PendingAuto,
 		)
 		.expect("save");
 		assert!(!read_raw(&root).contains("\"visual_style\""));
-		assert!(!load_machine_settings_ex(&root, DeviceClass::Modest).visual_style_saved);
+		assert_eq!(
+			load_machine_settings_ex(&root, DeviceClass::Modest).visual_style_provenance,
+			VisualStyleProvenance::PendingAuto
+		);
+	}
+
+	#[test]
+	fn auto_picked_style_is_not_written() -> anyhow::Result<()> {
+		use maybraid_world::VisualStyleAutoReason;
+
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+		save_machine_fields(
+			&root,
+			&InGameSettings {
+				shadows: InGameShadowQuality::Off,
+				mob_hud: false,
+				visual_style: InGameVisualStyle::Sharp,
+			},
+			VisualStyleProvenance::AutoPicked(VisualStyleAutoReason::UnifiedMemoryBelow24GiB),
+		)?;
+		assert!(!read_raw(&root).contains("\"visual_style\""));
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::PendingAuto);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
+		Ok(())
+	}
+
+	#[test]
+	fn legacy_visual_style_saved_files_load_identically() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let root = SaveRoot::at(dir.path());
+
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::PendingAuto);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
+
+		write_fields(
+			&root,
+			r#"{ "version": 2, "fields": { "shadows": "off", "visual_style": "impressionist" } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::Explicit);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Impressionist);
+
+		write_fields(
+			&root,
+			r#"{ "version": 1, "fields": { "shadows": "off", "render_scale": "auto" } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::PendingAuto);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
+
+		write_fields(
+			&root,
+			r#"{ "version": 1, "fields": { "shadows": "off", "render_scale": "75" } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::Explicit);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::PrePostModern);
+
+		// A stray `visual_style_saved` field must not override the old key-presence rule.
+		write_fields(
+			&root,
+			r#"{ "version": 2, "fields": { "shadows": "off", "visual_style_saved": true } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::PendingAuto);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Native);
+
+		write_fields(
+			&root,
+			r#"{ "version": 2, "fields": { "shadows": "off", "visual_style": "sharp", "visual_style_saved": false } }"#,
+		);
+		let loaded = load_machine_settings_ex(&root, DeviceClass::Modest);
+		assert_eq!(loaded.visual_style_provenance, VisualStyleProvenance::Explicit);
+		assert_eq!(loaded.settings.visual_style, InGameVisualStyle::Sharp);
+		Ok(())
 	}
 
 	#[test]
@@ -541,15 +606,25 @@ mod tests {
 			memory_bytes: Some(16 * 1024 * 1024 * 1024),
 			..VisualStyleSignals::default()
 		};
-		let pick =
-			apply_unsaved_visual_style_default(false, &mut settings, &signals).expect("pick");
+		let mut provenance = VisualStyleProvenance::PendingAuto;
+		let pick = provenance.apply_unsaved_default(&mut settings, &signals).expect("pick");
 		assert_eq!(pick.style, VisualStyle::Sharp);
 		assert_eq!(pick.reason, VisualStyleAutoReason::UnifiedMemoryBelow24GiB);
+		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
+		assert_eq!(
+			provenance,
+			VisualStyleProvenance::AutoPicked(VisualStyleAutoReason::UnifiedMemoryBelow24GiB)
+		);
+		assert!(!provenance.is_saved());
+
+		assert!(provenance.apply_unsaved_default(&mut settings, &signals).is_none());
 		assert_eq!(settings.visual_style, InGameVisualStyle::Sharp);
 
 		settings.visual_style = InGameVisualStyle::Impressionist;
 		signals.device_tier = Some(maybraid_world::DeviceTier::Low);
-		assert!(apply_unsaved_visual_style_default(true, &mut settings, &signals).is_none());
+		let mut explicit = VisualStyleProvenance::Explicit;
+		assert!(explicit.apply_unsaved_default(&mut settings, &signals).is_none());
 		assert_eq!(settings.visual_style, InGameVisualStyle::Impressionist);
+		assert_eq!(explicit, VisualStyleProvenance::Explicit);
 	}
 }
