@@ -13,8 +13,9 @@ use maybraid_agent::{
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
 use mob_characters::CharacterSceneRecipe;
 use mob_scenes::MobScene;
-use player::Player as MotorPlayer;
+use player::{MoveWish, Player as MotorPlayer};
 use player_camera::CameraController;
+use tanz_user::{ControlMode, TanzExecution, TanzId, TanzUser};
 use terrain_layer_model::TerrainStreaming;
 use threat_management_intelligence::ThreatManagementIntelligence;
 use world_player::player::{holding_elevation, player_spawn_point_at, AwaitingTerrainSurface};
@@ -24,6 +25,7 @@ use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldMenuShell, WorldSurfaceReady};
 use crate::map_view::WorldMapView;
 use crate::render_scale::{PresentationChurn, RequestVisualStyle, VisualStyle};
+use crate::screenshot::{GameplayScreenshotFinished, RequestGameplayScreenshot};
 use crate::PlayerSpawnXz;
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
@@ -138,6 +140,8 @@ impl Plugin for WorldAgentPlugin {
 				(
 					agent_apply_world_ops,
 					agent_emit_presentation_churn,
+					agent_emit_tanz,
+					agent_screenshot_finished,
 					agent_sample_player,
 					agent_sample_picker,
 					agent_chunk_loads,
@@ -429,6 +433,7 @@ fn agent_apply_world_ops(
 		),
 		With<MotorPlayer>,
 	>,
+	mut tanzers: Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
 ) {
 	let pending = std::mem::take(&mut runtime.pending);
 	let t = time.elapsed_secs();
@@ -490,6 +495,45 @@ fn agent_apply_world_ops(
 				if !console.is_empty() {
 					info!(target: "maybraid.agent", "{console}");
 				}
+			}
+			AgentCommand::TanzMode { mode } => {
+				let label = format!("tanz_mode {mode}");
+				let result = apply_tanz_mode(&mut tanzers, &mode);
+				let (status, detail) = match result {
+					Ok(detail) => (CommandStatus::Finished, Some(detail)),
+					Err(detail) => (CommandStatus::Failed, Some(detail)),
+				};
+				emit(
+					&runtime.sink,
+					AgentEvent {
+						t,
+						frame,
+						body: AgentEventBody::Command { id, status, cmd: label, detail },
+					},
+				);
+			}
+			AgentCommand::Tanz { id: tanz_id } => {
+				let label = format!("tanz {tanz_id}");
+				let result = apply_tanz(&mut tanzers, &tanz_id);
+				let (status, detail) = match result {
+					Ok(detail) => (CommandStatus::Finished, Some(detail)),
+					Err(detail) => (CommandStatus::Failed, Some(detail)),
+				};
+				emit(
+					&runtime.sink,
+					AgentEvent {
+						t,
+						frame,
+						body: AgentEventBody::Command { id, status, cmd: label, detail },
+					},
+				);
+			}
+			AgentCommand::Screenshot { path } => {
+				commands.spawn(RequestGameplayScreenshot {
+					path: std::path::PathBuf::from(&path),
+					command_id: Some(id),
+				});
+				info!(target: "maybraid.agent", "screenshot {path}: queued");
 			}
 			AgentCommand::VisualStyle { style } => {
 				if let Some(visual_style) = VisualStyle::from_script_id(&style) {
@@ -724,6 +768,110 @@ fn agent_actor_census(
 			},
 		},
 	);
+}
+
+fn apply_tanz_mode(
+	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	mode: &str,
+) -> Result<String, String> {
+	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
+	let next = if mode.trim().eq_ignore_ascii_case("toggle") {
+		user.0.mode.toggle()
+	} else {
+		ControlMode::from_script_id(mode).ok_or_else(|| format!("unknown tanz mode: {mode}"))?
+	};
+	let changed = user.0.set_mode(next, &mut user.1, &mut user.2);
+	Ok(if changed {
+		format!("mode {}", next.script_id())
+	} else {
+		format!("already {}", next.script_id())
+	})
+}
+
+fn apply_tanz(
+	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	id: &str,
+) -> Result<String, String> {
+	let tanz_id = TanzId::from_script_id(id).ok_or_else(|| format!("unknown tanz: {id}"))?;
+	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
+	if !user.0.mode.is_tanzer() {
+		user.0.set_mode(ControlMode::Tanzer, &mut user.1, &mut user.2);
+	}
+	user.1.submit(tanz_id);
+	Ok(format!("submitted {}", tanz_id.script_id()))
+}
+
+fn agent_emit_tanz(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	users: Query<(&TanzUser, &TanzExecution)>,
+	mut last_mode: Local<Option<ControlMode>>,
+	mut last_active: Local<Option<TanzId>>,
+) {
+	if !runtime.ready {
+		return;
+	}
+	let Some((user, execution)) = users.iter().next() else {
+		return;
+	};
+	let t = time.elapsed_secs();
+	let frame = runtime.frame;
+	if *last_mode != Some(user.mode) {
+		*last_mode = Some(user.mode);
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Tanz { mode: user.mode.script_id().into(), id: None },
+			},
+		);
+	}
+	let active = execution.active.map(|active| active.id);
+	if active != *last_active {
+		*last_active = active;
+		if let Some(id) = active {
+			emit(
+				&runtime.sink,
+				AgentEvent {
+					t,
+					frame,
+					body: AgentEventBody::Tanz {
+						mode: user.mode.script_id().into(),
+						id: Some(id.script_id().into()),
+					},
+				},
+			);
+		}
+	}
+}
+
+fn agent_screenshot_finished(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	mut finished: MessageReader<GameplayScreenshotFinished>,
+) {
+	let t = time.elapsed_secs();
+	let frame = runtime.frame;
+	for shot in finished.read() {
+		let Some(id) = shot.command_id else {
+			continue;
+		};
+		let status = if shot.ok { CommandStatus::Finished } else { CommandStatus::Failed };
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Command {
+					id,
+					status,
+					cmd: format!("screenshot {}", shot.path.display()),
+					detail: Some(shot.detail.clone()),
+				},
+			},
+		);
+	}
 }
 
 fn agent_maybe_quit(

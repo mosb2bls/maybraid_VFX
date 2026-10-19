@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Script API version. Bump when a command is added or its meaning changes;
 /// record each bump in `maybraid/agent/README.md`.
-pub const SCRIPT_API_VERSION: u32 = 5;
+pub const SCRIPT_API_VERSION: u32 = 6;
 
 const DEFAULT_GOTO_TIMEOUT: f32 = 30.0;
 const DEFAULT_GOTO_RADIUS: f32 = 3.0;
@@ -145,6 +145,15 @@ pub enum AgentCommand {
 	/// offscreen), `impressionist`, `watercolor`, `retro`, `antediluvian`, or
 	/// `pre_post_modern`.
 	VisualStyle { style: String },
+	/// Set Tanzer / Standard, or `toggle`. Does not go through the LB+RB chord.
+	TanzMode { mode: String },
+	/// Submit an equipped Tanz by script id (`left_strafe`, `right_strafe`,
+	/// `forward_dash`, `healing_salute`). Enters Tanzer if needed.
+	Tanz { id: String },
+	/// Capture the presented 3D surface after render (GPU readback). `finished`
+	/// waits until the PNG is written; `detail` includes mean luma so a black
+	/// frame is visible in events.
+	Screenshot { path: String },
 	/// Scenario marker (also a Tracy message when Tracy is enabled).
 	Scenario { name: String, mark: ScenarioMark },
 	/// Request process exit after the current tick's events flush.
@@ -170,6 +179,9 @@ impl AgentCommand {
 			Self::Teleport { xz, .. } => format!("teleport {:.1},{:.1}", xz[0], xz[1]),
 			Self::Console { line } => format!("console {line}"),
 			Self::VisualStyle { style } => format!("visual_style {style}"),
+			Self::TanzMode { mode } => format!("tanz_mode {mode}"),
+			Self::Tanz { id } => format!("tanz {id}"),
+			Self::Screenshot { path } => format!("screenshot {path}"),
 			Self::Scenario { name, mark } => format!("scenario {name} {mark:?}"),
 			Self::Quit => "quit".into(),
 		}
@@ -269,6 +281,24 @@ mod tests {
 		let native = AgentCommand::parse_line(r#"{"cmd":"visual_style","style":"native"}"#)
 			.map_err(|e| anyhow::anyhow!("{e}"))?;
 		assert_eq!(native, AgentCommand::VisualStyle { style: "native".into() });
+		Ok(())
+	}
+
+	#[test]
+	fn parse_tanz_and_screenshot() -> anyhow::Result<()> {
+		let mode = AgentCommand::parse_line(r#"{"cmd":"tanz_mode","mode":"tanzer"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(mode, AgentCommand::TanzMode { mode: "tanzer".into() });
+		assert_eq!(mode.label(), "tanz_mode tanzer");
+		let tanz = AgentCommand::parse_line(r#"{"cmd":"tanz","id":"left_strafe"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(tanz, AgentCommand::Tanz { id: "left_strafe".into() });
+		assert_eq!(tanz.label(), "tanz left_strafe");
+		let shot = AgentCommand::parse_line(r#"{"cmd":"screenshot","path":"/tmp/tanz.png"}"#)
+			.map_err(|e| anyhow::anyhow!("{e}"))?;
+		assert_eq!(shot, AgentCommand::Screenshot { path: "/tmp/tanz.png".into() });
+		assert_eq!(shot.label(), "screenshot /tmp/tanz.png");
+		assert!(!shot.is_duration());
 		Ok(())
 	}
 

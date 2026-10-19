@@ -6,7 +6,7 @@ use durham::{
 	TerrainTrimeshCollider,
 };
 use game_commands::command::{CommandConsoleOutput, TextEntryFocus};
-use maybraid_character_controller::CharacterIntent;
+use maybraid_character_controller::{CharacterIntent, OrdinaryLocomotionEnabled};
 use maybraid_skill_map::SkillMapEnabled;
 use maybraid_sky::{SkyDome, SKY_HORIZON};
 use player::{
@@ -166,6 +166,7 @@ pub(crate) fn apply_intents_to_movement(
 	text_focus: Res<TextEntryFocus>,
 	gameplay: Res<WorldGameplayEnabled>,
 	map: Option<Res<WorldMapView>>,
+	ordinary: Option<Res<OrdinaryLocomotionEnabled>>,
 	mut commands: Commands,
 	mut intents: MessageReader<CharacterIntent>,
 	cameras: Query<&CameraController, With<Camera3d>>,
@@ -186,6 +187,11 @@ pub(crate) fn apply_intents_to_movement(
 			wish.0 = Vec3::ZERO;
 			commands.entity(entity).remove::<(JumpWish, Sprinting)>();
 		}
+		return;
+	}
+
+	if ordinary.is_some_and(|enabled| !enabled.0) {
+		for _ in intents.read() {}
 		return;
 	}
 

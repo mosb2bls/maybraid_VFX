@@ -1,7 +1,7 @@
 //! Move / jump / sprint / stance from [`CharacterIntent`]. Look and use-item belong to other crates.
 
 use bevy::prelude::*;
-use maybraid_character_controller::CharacterIntent;
+use maybraid_character_controller::{CharacterIntent, OrdinaryLocomotionEnabled};
 
 use crate::body::{CharacterController, JumpWish, Jumping, MoveWish, Sprinting};
 use crate::identity::{Player, PlayerLook};
@@ -11,6 +11,7 @@ const FOCUS_EPS: f32 = 1e-6;
 
 pub(crate) fn apply_move_intents(
 	mouse: Res<ButtonInput<MouseButton>>,
+	ordinary: Option<Res<OrdinaryLocomotionEnabled>>,
 	mut commands: Commands,
 	mut intents: MessageReader<CharacterIntent>,
 	mut wishes: Query<
@@ -18,6 +19,7 @@ pub(crate) fn apply_move_intents(
 		(With<CharacterController>, With<Player>),
 	>,
 ) {
+	let ordinary = ordinary.is_none_or(|enabled| enabled.0);
 	let mut move_stick = Vec2::ZERO;
 	let mut jump = false;
 	let mut focusing = mouse.pressed(MouseButton::Right);
@@ -27,13 +29,13 @@ pub(crate) fn apply_move_intents(
 	let mut change_prone = false;
 	for intent in intents.read() {
 		match *intent {
-			CharacterIntent::Move(value) => move_stick = value,
-			CharacterIntent::Jump => jump = true,
+			CharacterIntent::Move(value) if ordinary => move_stick = value,
+			CharacterIntent::Jump if ordinary => jump = true,
 			CharacterIntent::Focus(value) if value > FOCUS_EPS => focusing = true,
-			CharacterIntent::StartSprint => start_sprint = true,
-			CharacterIntent::StopSprint => stop_sprint = true,
-			CharacterIntent::ChangeSquat => change_squat = true,
-			CharacterIntent::ChangeProne => change_prone = true,
+			CharacterIntent::StartSprint if ordinary => start_sprint = true,
+			CharacterIntent::StopSprint if ordinary => stop_sprint = true,
+			CharacterIntent::ChangeSquat if ordinary => change_squat = true,
+			CharacterIntent::ChangeProne if ordinary => change_prone = true,
 			_ => {}
 		}
 	}

@@ -145,7 +145,9 @@ pub(crate) fn cycle_equipped_inventory_queues(
 		let snapshot = bag.clone();
 		if let Some(loadout) = loadout.as_deref_mut() {
 			loadout.retarget_inventory(snapshot.clone());
-			commands.entity(player).insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
+			commands
+				.entity(player)
+				.insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
 		}
 	}
 }
@@ -306,11 +308,18 @@ mod tests {
 		let extra_id = ledger.ensure_owned(extra);
 		let _ = ledger.apply_to_equipped(5.0);
 		assert!(ledger.select(Some(extra_id)));
-		let extra_charge = ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_charge = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert!(cycle_ledger_selection(&mut ledger, 1));
 		assert_eq!(ledger.selection(), LubikanSelection::default());
-		let extra_after =
-			ledger.account(extra_id).ok_or_else(|| anyhow::anyhow!("extra"))?.charge().current();
+		let extra_after = ledger
+			.account(extra_id)
+			.ok_or_else(|| anyhow::anyhow!("extra"))?
+			.charge()
+			.current();
 		assert_eq!(extra_charge, extra_after);
 		Ok(())
 	}

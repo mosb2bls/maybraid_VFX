@@ -234,7 +234,8 @@ pub(crate) fn solid_capital_placeholder_mesh(
 	segments: u32,
 ) -> Mesh {
 	let echinus_h = echinus_height_d.max(1e-3);
-	let echinus = solid_frustum_data(echinus_radius_bottom, echinus_radius_top, echinus_h, segments);
+	let echinus =
+		solid_frustum_data(echinus_radius_bottom, echinus_radius_top, echinus_h, segments);
 	let abacus = solid_square_box_data(abacus_half_side_d, abacus_height_d);
 	let offset_y = echinus_h;
 	let mut positions = echinus.positions;
@@ -426,10 +427,7 @@ mod tests {
 	fn check_shaft_closed(mesh: &Mesh, height_d: f32) {
 		let positions = mesh_positions(mesh).expect("positions");
 		let indices = mesh_indices(mesh).expect("indices");
-		assert!(
-			mesh_is_closed(&positions, &indices),
-			"shaft should be closed"
-		);
+		assert!(mesh_is_closed(&positions, &indices), "shaft should be closed");
 		assert!(
 			mesh_normals_point_outward(&positions, &indices, height_d),
 			"shaft normals should point outward"
@@ -475,7 +473,8 @@ mod tests {
 	fn shaft_uv_seam_is_duplicated_on_local_neg_z() {
 		let r = DoricColumnRatios::default();
 		let (_, shaft, _) = authored_extents(r);
-		let mesh = solid_shaft_mesh(shaft.radius_bottom_d, shaft.radius_top_d, shaft.height_d, 24, 4);
+		let mesh =
+			solid_shaft_mesh(shaft.radius_bottom_d, shaft.radius_top_d, shaft.height_d, 24, 4);
 		let positions = mesh_positions(&mesh).expect("positions");
 		let uvs = mesh
 			.attribute(Mesh::ATTRIBUTE_UV_0)
@@ -506,7 +505,8 @@ mod tests {
 	fn shaft_tangents_are_right_handed_and_circumferential() {
 		let r = DoricColumnRatios::default();
 		let (_, shaft, _) = authored_extents(r);
-		let mesh = solid_shaft_mesh(shaft.radius_bottom_d, shaft.radius_top_d, shaft.height_d, 16, 4);
+		let mesh =
+			solid_shaft_mesh(shaft.radius_bottom_d, shaft.radius_top_d, shaft.height_d, 16, 4);
 		let normals = mesh
 			.attribute(Mesh::ATTRIBUTE_NORMAL)
 			.and_then(|v| v.as_float3())

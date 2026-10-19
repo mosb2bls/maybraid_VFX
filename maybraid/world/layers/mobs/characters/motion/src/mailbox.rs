@@ -12,8 +12,8 @@ use bevy::ecs::query::{Has, Or};
 use bevy::prelude::*;
 use character_animations::{
 	animations::{
-		Idle, Jab, Prone, QuadrupedIdle, QuadrupedLeap, QuadrupedRun, Squat, SquatDescent, Tuck,
-		TwoFootedTuckedFlip, UprightLeap,
+		Idle, Jab, PowerStrafe, Prone, QuadrupedIdle, QuadrupedLeap, QuadrupedRun, Squat,
+		SquatDescent, Tuck, TwoFootedTuckedFlip, UprightLeap, UprightPowerDash,
 	},
 	Animation, Effects,
 };
@@ -139,6 +139,15 @@ impl AnimMailbox {
 			prepared_clip: None,
 			prepared_from: None,
 		}
+	}
+
+	pub fn clip_progress(&self) -> f32 {
+		self.clip_progress
+	}
+
+	/// True once a bone sample has been written and the clip crossfade finished.
+	pub fn settled(&self) -> bool {
+		self.posed && self.blend_progress >= 1.0
 	}
 
 	/// Authoritative base animation pose (crossfaded while transitioning).
@@ -782,6 +791,29 @@ where
 	}
 }
 
+/// Hash the resolved humanoid still at `progress`. Capture ids use this so a
+/// choreography edit at the same progress invalidates the icon cache.
+pub fn fingerprint_humanoid_clip(clip: AnimClip, progress: f32) -> u64 {
+	use std::hash::{Hash, Hasher};
+
+	let mut rig = HumanoidV0Rig::for_clip_test();
+	let effects = sample_humanoid(clip, &mut rig, progress, true, true);
+	let mut hasher = std::collections::hash_map::DefaultHasher::new();
+	for name in rig.animation_bone_names() {
+		name.hash(&mut hasher);
+		let rotation = rig.rotation(name);
+		rotation.x.to_bits().hash(&mut hasher);
+		rotation.y.to_bits().hash(&mut hasher);
+		rotation.z.to_bits().hash(&mut hasher);
+		rotation.w.to_bits().hash(&mut hasher);
+	}
+	let translation = effects.0.translation;
+	translation.x.to_bits().hash(&mut hasher);
+	translation.y.to_bits().hash(&mut hasher);
+	translation.z.to_bits().hash(&mut hasher);
+	hasher.finish()
+}
+
 fn sample_humanoid(
 	clip: AnimClip,
 	rig: &mut HumanoidV0Rig,
@@ -801,6 +833,13 @@ fn sample_humanoid(
 		AnimClip::Leap(leap) => {
 			sample_split(&UprightLeap::from_leap(&leap), rig, progress, write_bones, write_effects)
 		}
+		AnimClip::PowerDash(power_dash) => sample_split(
+			&UprightPowerDash::from_power_dash(&power_dash),
+			rig,
+			progress.clamp(0.0, 1.0),
+			write_bones,
+			write_effects,
+		),
 		AnimClip::Tuck(params) => sample_split(
 			&Tuck::new(params.tightness),
 			rig,
@@ -834,6 +873,13 @@ fn sample_humanoid(
 			&Jab::new(params.side, params.backswing, params.target),
 			rig,
 			progress.rem_euclid(1.0),
+			write_bones,
+			write_effects,
+		),
+		AnimClip::PowerStrafe(params) => sample_split(
+			&PowerStrafe::new(params.side),
+			rig,
+			progress.clamp(0.0, 1.0),
 			write_bones,
 			write_effects,
 		),
@@ -1008,6 +1054,25 @@ mod tests {
 		assert!(rig.posed_angle("shoulder.L") > 0.0);
 		assert!(rig.posed_angle("shoulder.L") < 0.15);
 		assert!(rig.posed_angle("humerus.L") > 0.2, "Still should hang the arms");
+	}
+
+	#[test]
+	fn fingerprint_tracks_the_live_clip_pose() {
+		let dash = AnimClip::power_dash();
+		let left = AnimClip::power_strafe_left();
+		let right = AnimClip::power_strafe_right();
+		let dash_hold = fingerprint_humanoid_clip(dash, dash.representative_progress());
+		let dash_start = fingerprint_humanoid_clip(dash, 0.0);
+		let left_hold = fingerprint_humanoid_clip(left, left.representative_progress());
+		let right_hold = fingerprint_humanoid_clip(right, right.representative_progress());
+		assert_ne!(dash_hold, dash_start, "held dash must differ from rest");
+		assert_ne!(dash_hold, left_hold, "dash and strafe stills must differ");
+		assert_ne!(left_hold, right_hold, "mirrored strafes must differ");
+		assert_eq!(
+			dash_hold,
+			fingerprint_humanoid_clip(dash, dash.representative_progress()),
+			"same clip+progress must be stable"
+		);
 	}
 
 	#[test]

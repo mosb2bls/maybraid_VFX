@@ -1,0 +1,29 @@
+[package]
+name = "tanz-user"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+publish = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+bevy = { workspace = true }
+characters = { workspace = true }
+damage = { workspace = true }
+item-icons = { workspace = true }
+maybraid-character-controller = { workspace = true }
+maybraid-input = { workspace = true }
+menu-components = { workspace = true }
+maybraid-skill-map = { workspace = true }
+player = { workspace = true }
+screen-capture = { workspace = true }
+
+[dev-dependencies]
+anyhow = { workspace = true }
+character-animations = { workspace = true }
+
+[lints]
+workspace = true

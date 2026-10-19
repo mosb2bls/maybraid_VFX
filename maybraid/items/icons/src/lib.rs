@@ -8,6 +8,7 @@ use character_items::{
 	icon_catalog_key_for_label, Inventory, InventoryItem, SELF_LUBIKAN_CAPTURE_LABEL,
 };
 use character_persist::SaveRoot;
+use characters::AnimClip;
 use firearms_components::firearm_preview_camera;
 use host::{
 	install_capture_hosts, keep_capture_hosts_visible, mark_capture_hosts_ready,
@@ -20,7 +21,8 @@ use screen_capture::{
 };
 
 pub use host::{
-	CaptureHostRealized, ItemCaptureSubjects, HOST_GRENADE, HOST_SELF_LUBIKAN, HOST_SKILL_MAP,
+	CaptureHostRealized, CapturePoseSpec, ItemCaptureSubjects, PoseCaptureSpec,
+	PoseCaptureSubjects, HOST_GRENADE, HOST_SELF_LUBIKAN, HOST_SKILL_MAP,
 };
 pub use prune::{
 	kept_icon_file_names, prune_icon_cache, prune_icon_cache_to_saved_inventories,
@@ -28,7 +30,7 @@ pub use prune::{
 };
 pub use screen_capture::{
 	CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed, CaptureHostReady,
-	CaptureHostRoot, CaptureId, CaptureMode,
+	CaptureHostRoot, CaptureId, CaptureMode, RepresentativePose, HOST_REPRESENTATIVE_POSE,
 };
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -40,6 +42,11 @@ pub const ITEM_ICON_RESOLUTION: CaptureResolution = CaptureResolution::ICON;
 pub const FIREARM_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(256, 112);
 /// Square HUD / catalog charge. The in-world grenade is a sphere.
 pub const GRENADE_SILHOUETTE_RESOLUTION: CaptureResolution = CaptureResolution::new(128, 128);
+/// Tanz / representative-pose HUD silhouette. Matches the retired 128px assets.
+pub const POSE_ICON_RESOLUTION: CaptureResolution = CaptureResolution::new(128, 128);
+/// Isolated pose hosts wait on GLB load + mailbox settle. World streaming and
+/// lavapipe both need more than the default 180-frame capture timeout.
+const POSE_CAPTURE_MAX_WAIT_FRAMES: u32 = 1800;
 
 /// Clothing inspect camera (catalog thumbnail).
 const CLOTHING_EYE: Vec3 = Vec3::new(0.0, 0.75, 2.5);
@@ -155,18 +162,22 @@ impl Plugin for ItemIconPlugin {
 		if !app.is_plugin_added::<ScreenCapturePlugin>() {
 			app.add_plugins(ScreenCapturePlugin::new(discover_icon_cache_dir()));
 		}
+		if let Some(mut root) = app.world_mut().get_resource_mut::<CaptureCacheRoot>() {
+			root.max_wait_frames = root.max_wait_frames.max(POSE_CAPTURE_MAX_WAIT_FRAMES);
+		}
 		if app.get_sub_app(bevy::render::RenderApp).is_some() {
 			install_capture_hosts(app);
 		}
 		app.init_resource::<ItemIconCache>()
 			.init_resource::<ItemIconDiscovery>()
 			.init_resource::<ItemCaptureSubjects>()
+			.init_resource::<PoseCaptureSubjects>()
 			.configure_sets(Update, ItemIconSystems::Store.after(ItemIconSystems::Discover))
 			.add_systems(Update, realize_capture_hosts)
 			.add_systems(Update, prune::prune_icon_cache_on_request)
 			.add_systems(
 				Update,
-				(store_completed_icons, store_failed_icons)
+				(store_completed_icons, store_failed_icons, log_pose_icon_events)
 					.chain()
 					.in_set(ItemIconSystems::Store),
 			)
@@ -352,6 +363,41 @@ impl CaptureSubject for SelfLubikanSubject {
 	}
 }
 
+/// Silhouette request for a [`RepresentativePose`] still. Hosts spawn the
+/// default nude Braidman and scrub the live clip to `progress`.
+pub fn pose_icon_request(subject: &impl RepresentativePose) -> CaptureRequest {
+	CaptureRequest::from_subject(
+		subject,
+		CaptureMode::Silhouette,
+		POSE_ICON_RESOLUTION,
+		CaptureLighting::studio(),
+		CaptureRevision::CURRENT,
+	)
+	.with_file_stem(subject.pose_label().as_ref())
+	.with_framing(CaptureFraming::ICON)
+}
+
+pub fn request_pose_icon(
+	subject: &impl RepresentativePose,
+	clip: AnimClip,
+	progress: f32,
+	discovery: &mut ItemIconDiscovery,
+	poses: &mut PoseCaptureSubjects,
+	client: &mut CaptureClient,
+) {
+	let revision = CaptureRevision::CURRENT;
+	if discovery.revision != revision {
+		discovery.requested.clear();
+		discovery.revision = revision;
+	}
+	let id = subject.capture_id();
+	if !discovery.requested.insert(id.clone()) {
+		return;
+	}
+	poses.remember(id, PoseCaptureSpec { clip, progress });
+	client.request(pose_icon_request(subject));
+}
+
 pub fn pending_inventory_icons(
 	inventory: &Inventory,
 	discovery: &mut ItemIconDiscovery,
@@ -392,6 +438,34 @@ fn store_completed_icons(
 fn store_failed_icons(mut failed: MessageReader<CaptureFailed>, mut cache: ResMut<ItemIconCache>) {
 	for event in failed.read() {
 		cache.mark_failed(event.key.id.clone(), event.key.mode);
+	}
+}
+
+fn log_pose_icon_events(
+	mut completed: MessageReader<CaptureCompleted>,
+	mut failed: MessageReader<CaptureFailed>,
+) {
+	for event in completed.read() {
+		if !event.key.id.as_str().starts_with("pose:") {
+			continue;
+		}
+		info!(
+			id = %event.key.id.as_str(),
+			source = ?event.source,
+			file = %event.key.file_name(),
+			"pose icon ready"
+		);
+	}
+	for event in failed.read() {
+		if !event.key.id.as_str().starts_with("pose:") {
+			continue;
+		}
+		warn!(
+			id = %event.key.id.as_str(),
+			error = %event.error,
+			file = %event.key.file_name(),
+			"pose icon failed"
+		);
 	}
 }
 

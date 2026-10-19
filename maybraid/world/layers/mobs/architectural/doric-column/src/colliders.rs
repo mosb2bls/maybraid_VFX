@@ -37,11 +37,7 @@ fn round_shape(base_y: f32, part: RoundPartLayout) -> (Vec3, Quat, Collider) {
 	let height = part.height.max(1e-3);
 	let radius = (part.radius_bottom + part.radius_top) * 0.5;
 	let center_y = base_y + height * 0.5;
-	(
-		Vec3::new(0.0, center_y, 0.0),
-		Quat::IDENTITY,
-		Collider::cylinder(radius, height),
-	)
+	(Vec3::new(0.0, center_y, 0.0), Quat::IDENTITY, Collider::cylinder(radius, height))
 }
 
 /// Axis-aligned bounds enclosing the cover collider (assembly space).
@@ -53,8 +49,8 @@ pub fn cover_aabb(layout: &DoricColumnLayout) -> (Vec3, Vec3) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use bevy::prelude::Color;
 	use crate::spec::DoricColumnSpec;
+	use bevy::prelude::Color;
 
 	#[test]
 	fn collider_height_matches_layout() {
@@ -77,14 +73,8 @@ mod tests {
 
 	#[test]
 	fn collider_radius_tracks_scale() {
-		let narrow = DoricColumnSpec {
-			scale: Vec3::splat(0.5),
-			..DoricColumnSpec::default()
-		};
-		let wide = DoricColumnSpec {
-			scale: Vec3::splat(2.0),
-			..DoricColumnSpec::default()
-		};
+		let narrow = DoricColumnSpec { scale: Vec3::splat(0.5), ..DoricColumnSpec::default() };
+		let wide = DoricColumnSpec { scale: Vec3::splat(2.0), ..DoricColumnSpec::default() };
 		let (_, max_n) = cover_aabb(&narrow.layout());
 		let (_, max_w) = cover_aabb(&wide.layout());
 		assert!(max_w.x > max_n.x);

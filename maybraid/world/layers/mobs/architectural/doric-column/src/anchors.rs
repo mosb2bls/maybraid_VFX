@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use bevy::prelude::*;
 use crate::layout::DoricColumnLayout;
 use crate::spec::DoricColumnSpec;
+use bevy::prelude::*;
 
 /// Stable anchor names shared with authored GLBs (empty nodes / rig bones).
 pub mod names {
@@ -64,22 +64,10 @@ impl DoricColumnAnchors {
 
 		let chain_y = shaft_top_y;
 		let chain_r = layout.shaft.radius_top + layout.chain_anchor_outset;
-		transforms.insert(
-			names::CHAIN_ANCHOR_POS_X,
-			chain_anchor(chain_r, chain_y, Vec3::X),
-		);
-		transforms.insert(
-			names::CHAIN_ANCHOR_NEG_X,
-			chain_anchor(chain_r, chain_y, -Vec3::X),
-		);
-		transforms.insert(
-			names::CHAIN_ANCHOR_POS_Z,
-			chain_anchor(chain_r, chain_y, Vec3::Z),
-		);
-		transforms.insert(
-			names::CHAIN_ANCHOR_NEG_Z,
-			chain_anchor(chain_r, chain_y, -Vec3::Z),
-		);
+		transforms.insert(names::CHAIN_ANCHOR_POS_X, chain_anchor(chain_r, chain_y, Vec3::X));
+		transforms.insert(names::CHAIN_ANCHOR_NEG_X, chain_anchor(chain_r, chain_y, -Vec3::X));
+		transforms.insert(names::CHAIN_ANCHOR_POS_Z, chain_anchor(chain_r, chain_y, Vec3::Z));
+		transforms.insert(names::CHAIN_ANCHOR_NEG_Z, chain_anchor(chain_r, chain_y, -Vec3::Z));
 		Self { transforms }
 	}
 
@@ -104,8 +92,8 @@ pub fn anchor_world(spec: &DoricColumnSpec, root: &Transform, name: &str) -> Opt
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use bevy::prelude::Color;
 	use crate::{DoricColumnDimensions, DoricColumnMaterials, DoricColumnSpec};
+	use bevy::prelude::Color;
 
 	#[test]
 	fn chain_anchors_scale_with_shaft_radius() {
@@ -133,7 +121,8 @@ mod tests {
 	fn material_swap_does_not_move_anchors() {
 		let base = DoricColumnSpec::default();
 		let mut painted = DoricColumnSpec::default();
-		painted.materials.shaft = painted.materials.shaft.with_palette([Color::srgb(0.9, 0.1, 0.1)]);
+		painted.materials.shaft =
+			painted.materials.shaft.with_palette([Color::srgb(0.9, 0.1, 0.1)]);
 		let a = DoricColumnAnchors::for_spec(&base);
 		let b = DoricColumnAnchors::for_spec(&painted);
 		assert_eq!(a.transforms, b.transforms);

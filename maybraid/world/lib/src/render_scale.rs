@@ -16,7 +16,7 @@
 
 pub mod device_tier;
 mod presentation;
-mod target;
+pub(crate) mod target;
 pub mod visual_style;
 
 pub use presentation::PresentationMaterialsPlugin;
