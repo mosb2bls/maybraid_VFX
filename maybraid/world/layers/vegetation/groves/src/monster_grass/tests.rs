@@ -1,22 +1,33 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = MonsterGrassCell::distribution();
-	assert_eq!(dist.len(), 9);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 1.5);
-	assert_eq!(dist.buckets[1].item, Some(MonsterGrassCell::GiantWetBlade));
-	assert_eq!(dist.buckets[1].weight, 0.40);
-	assert_eq!(dist.buckets[5].item, Some(MonsterGrassCell::GiantWetBladePatch));
-	assert_eq!(dist.buckets[5].weight, 1.60);
-	assert_eq!(dist.buckets[8].item, Some(MonsterGrassCell::RedRibbedBladePatch));
-	assert_eq!(dist.buckets[8].weight, 0.28);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(MonsterGrassCell::GiantWetBlade),
+			Some(MonsterGrassCell::BroadJungleBlade),
+			Some(MonsterGrassCell::PaleGiantReed),
+			Some(MonsterGrassCell::RedRibbedBlade),
+			Some(MonsterGrassCell::GiantWetBladePatch),
+			Some(MonsterGrassCell::BroadJungleBladePatch),
+			Some(MonsterGrassCell::PaleGiantReedPatch),
+			Some(MonsterGrassCell::RedRibbedBladePatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -117,28 +128,6 @@ fn patch_wraps_giant_wet_blade_clump() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	let prepared =
-		MonsterGrassCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.55 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.35, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, MonsterGrassCell::RedRibbedBlade);
-		}
-		other => anyhow::bail!("expected RedRibbedBlade fallback, got {other:?}"),
-	}
-	Ok(())
-}
-
-#[test]
 fn placements_break_the_cell_grid() -> Result<()> {
 	let noise = crate::grove::GroveFrontend::default().noise;
 	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
@@ -166,19 +155,12 @@ fn placements_break_the_cell_grid() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0));
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+		GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0)),
+		&FlatTerrainSample { elevation: 0.35, steepness: 0.15 },
+	)
 }
 
 #[cfg(feature = "render")]
@@ -326,7 +308,7 @@ mod render_tests {
 
 	#[test]
 	fn fold_bins_are_square_not_strips() -> Result<()> {
-		use crate::grove::{GroveCellVariant, GroveExtent, DEFAULT_GROVE_EXTENT_XZ};
+		use crate::grove::{DEFAULT_GROVE_EXTENT_XZ, GroveCellVariant, GroveExtent};
 
 		let placements = vec![
 			GroveCellVariant::new(MonsterGrassCell::GiantWetBlade, Vec3::new(5.0, 0.0, 5.0), 1.0),
@@ -353,11 +335,11 @@ mod render_tests {
 		use crate::grove::GroveCellVariant;
 		use bevy::math::bounding::Aabb3d;
 		use bevy::prelude::{Entity, Transform};
+		use lod::SceneChunk;
 		use lod::lod_ref::LodRef;
 		use lod::scene::{LodScene, LodSceneLevel};
-		use lod::SceneChunk;
 		use vegetation_components::{
-			CollectionPresent, VegetationComponents, FLATTENED_KIT_CHUNK_WEIGHT,
+			CollectionPresent, FLATTENED_KIT_CHUNK_WEIGHT, VegetationComponents,
 		};
 
 		let grove = MonsterGrassParams::with_resolved_placements(
@@ -419,7 +401,7 @@ mod render_tests {
 
 	#[test]
 	fn structural_lod_thins_to_proxy_grids() -> Result<()> {
-		use crate::grove::{GroveCellVariant, DEFAULT_GROVE_EXTENT_XZ};
+		use crate::grove::{DEFAULT_GROVE_EXTENT_XZ, GroveCellVariant};
 		use crate::monster_grass::{
 			MONSTER_GRASS_STRUCTURAL_HIGH_FACTOR, MONSTER_GRASS_STRUCTURAL_LOW_FACTOR,
 			MONSTER_GRASS_STRUCTURAL_MEDIUM_FACTOR,

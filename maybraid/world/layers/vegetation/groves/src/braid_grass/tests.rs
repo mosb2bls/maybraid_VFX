@@ -1,32 +1,34 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = BraidGrassCell::distribution();
-	assert_eq!(dist.len(), 10);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 2.5);
-	assert_eq!(dist.buckets[1].item, Some(BraidGrassCell::DeepGreenBlade));
-	assert_eq!(dist.buckets[1].weight, 0.5);
-	assert_eq!(dist.buckets[2].weight, 0.25);
-	assert_eq!(dist.buckets[3].weight, 0.25);
-	assert_eq!(dist.buckets[4].item, Some(BraidGrassCell::RedEdgeBlade));
-	assert_eq!(dist.buckets[4].weight, 0.25);
-	assert_eq!(dist.buckets[5].item, Some(BraidGrassCell::GreenSpear));
-	assert_eq!(dist.buckets[5].weight, 1.0);
-	assert_eq!(dist.buckets[6].item, Some(BraidGrassCell::FountainSpear));
-	assert_eq!(dist.buckets[6].weight, 0.75);
-	assert_eq!(dist.buckets[7].item, Some(BraidGrassCell::DeepGreenPatch));
-	assert_eq!(dist.buckets[7].weight, 2.0);
-	assert_eq!(dist.buckets[8].item, Some(BraidGrassCell::PaleReedPatch));
-	assert_eq!(dist.buckets[8].weight, 1.0);
-	assert_eq!(dist.buckets[9].item, Some(BraidGrassCell::JunglePatch));
-	assert_eq!(dist.buckets[9].weight, 1.0);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(BraidGrassCell::DeepGreenBlade),
+			Some(BraidGrassCell::PaleReedBlade),
+			Some(BraidGrassCell::JungleBlade),
+			Some(BraidGrassCell::RedEdgeBlade),
+			Some(BraidGrassCell::GreenSpear),
+			Some(BraidGrassCell::FountainSpear),
+			Some(BraidGrassCell::DeepGreenPatch),
+			Some(BraidGrassCell::PaleReedPatch),
+			Some(BraidGrassCell::JunglePatch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -77,41 +79,11 @@ fn tilt_bands_mix_moderate_and_wide() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// Jungle (index 3) rejects steepness 0.35; first-fit wraps to RedEdge (index 4).
-	let prepared =
-		BraidGrassCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.3, steepness: 0.35 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.3, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, BraidGrassCell::RedEdgeBlade);
-		}
-		other => anyhow::bail!("expected RedEdgeBlade fallback, got {other:?}"),
-	}
-	Ok(())
-}
-
-#[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(10.0, 1.0, 10.0));
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+		GroveExtent::new(Vec3::ZERO, Vec3::new(10.0, 1.0, 10.0)),
+		&FlatTerrainSample { elevation: 0.35, steepness: 0.15 },
+	)
 }

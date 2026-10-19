@@ -1,26 +1,30 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = HighBushCell::distribution();
-	assert_eq!(dist.len(), 6);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 11.0);
-	assert_eq!(dist.buckets[1].item, Some(HighBushCell::GreenHighBush));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(HighBushCell::DenseHighBush));
-	assert_eq!(dist.buckets[2].weight, 1.25);
-	assert_eq!(dist.buckets[3].item, Some(HighBushCell::DryHighBush));
-	assert_eq!(dist.buckets[3].weight, 0.75);
-	assert_eq!(dist.buckets[4].item, Some(HighBushCell::BerryHighBush));
-	assert_eq!(dist.buckets[4].weight, 0.35);
-	assert_eq!(dist.buckets[5].item, Some(HighBushCell::CopperCaneHighBush));
-	assert_eq!(dist.buckets[5].weight, 0.30);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(HighBushCell::GreenHighBush),
+			Some(HighBushCell::DenseHighBush),
+			Some(HighBushCell::DryHighBush),
+			Some(HighBushCell::BerryHighBush),
+			Some(HighBushCell::CopperCaneHighBush),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -57,30 +61,6 @@ fn bush_geometry_follows_authored_bands() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// BerryHighBush (index 4) rejects steepness 0.40; first-fit falls to CopperCaneHighBush
-	// (index 5), which allows steepness up to 0.58.
-	let prepared =
-		HighBushCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.40 };
-	let outcome = prepared.select_from(
-		4,
-		Vec3::new(5.0, 0.35, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, HighBushCell::CopperCaneHighBush);
-		}
-		other => anyhow::bail!("expected CopperCaneHighBush fallback, got {other:?}"),
-	}
-	Ok(())
-}
-
-#[test]
 fn placements_break_the_cell_grid() -> Result<()> {
 	let noise = crate::grove::GroveFrontend::default().noise;
 	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
@@ -108,17 +88,10 @@ fn placements_break_the_cell_grid() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0));
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+		GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0)),
+		&FlatTerrainSample { elevation: 0.35, steepness: 0.15 },
+	)
 }

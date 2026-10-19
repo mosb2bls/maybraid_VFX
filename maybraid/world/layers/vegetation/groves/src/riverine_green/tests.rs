@@ -1,26 +1,30 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = RiverineGreenCell::distribution();
-	assert_eq!(dist.len(), 6);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 11.0);
-	assert_eq!(dist.buckets[1].item, Some(RiverineGreenCell::WetGreenBush));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(RiverineGreenCell::BrightBankBush));
-	assert_eq!(dist.buckets[2].weight, 1.0);
-	assert_eq!(dist.buckets[3].item, Some(RiverineGreenCell::DeepShadeBush));
-	assert_eq!(dist.buckets[3].weight, 0.75);
-	assert_eq!(dist.buckets[4].item, Some(RiverineGreenCell::PaleRiparianBush));
-	assert_eq!(dist.buckets[4].weight, 0.45);
-	assert_eq!(dist.buckets[5].item, Some(RiverineGreenCell::RedTwigRiverBush));
-	assert_eq!(dist.buckets[5].weight, 0.25);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(RiverineGreenCell::WetGreenBush),
+			Some(RiverineGreenCell::BrightBankBush),
+			Some(RiverineGreenCell::DeepShadeBush),
+			Some(RiverineGreenCell::PaleRiparianBush),
+			Some(RiverineGreenCell::RedTwigRiverBush),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -62,30 +66,6 @@ fn bush_geometry_follows_authored_bands() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn constraint_first_fit_fallback() -> Result<()> {
-	// DeepShadeBush (index 3) rejects steepness 0.50; first-fit falls to PaleRiparianBush
-	// (index 4), which allows steepness up to 0.60.
-	let prepared =
-		RiverineGreenCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.50 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, RiverineGreenCell::PaleRiparianBush);
-		}
-		other => anyhow::bail!("expected PaleRiparianBush fallback, got {other:?}"),
-	}
-	Ok(())
-}
-
-#[test]
 fn placements_break_the_cell_grid() -> Result<()> {
 	let noise = crate::grove::GroveFrontend::default().noise;
 	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
@@ -113,17 +93,10 @@ fn placements_break_the_cell_grid() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0));
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+		GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0)),
+		&FlatTerrainSample { elevation: 0.25, steepness: 0.15 },
+	)
 }

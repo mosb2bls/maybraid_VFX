@@ -7,11 +7,11 @@
 use bevy_math::Vec3;
 use gimme_gen::Cell;
 use procedural_common::{
-	perturb_weights, BucketThrow, FirstFitIndices, NoiseConfig, NoiseParams, MIN_BUCKET_WEIGHT,
+	BucketThrow, FirstFitIndices, MIN_BUCKET_WEIGHT, NoiseConfig, NoiseParams, perturb_weights,
 };
 
-use crate::grove::terrain::{GroveWorldSample, PlacementConstraints};
 use crate::grove::GroveCellOutcome;
+use crate::grove::terrain::{GroveWorldSample, PlacementConstraints};
 
 /// Noise lane for the per-cell bucket throw (offset from the placement position).
 const SELECTION_LANE: Vec3 = Vec3::new(30.0, 0.0, 0.0);
@@ -233,6 +233,32 @@ mod tests {
 
 	fn prepared<V: Clone>(dist: GroveDistribution<V>) -> PreparedGroveDistribution<V> {
 		dist.prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO)
+	}
+
+	#[test]
+	fn first_fit_walks_from_start_index_on_synthetic_distribution() -> Result<()> {
+		let dist = GroveDistribution::new(vec![
+			GroveBucket::none(1.0),
+			GroveBucket::placed(1.0, PlacementConstraints::UNCONSTRAINED, "first"),
+			GroveBucket::placed(1.0, PlacementConstraints::UNCONSTRAINED, "second"),
+		]);
+		let prepared = prepared(dist);
+		let cell = Cell::from_min_max(Vec3::ZERO, Vec3::ONE);
+		let terrain = flat(0.5, 0.1);
+
+		match prepared.select_from(0, Vec3::ZERO, 1.0, cell, &terrain) {
+			GroveCellOutcome::Empty { .. } => {}
+			other => anyhow::bail!("start 0 (None) should empty, got {other:?}"),
+		}
+		match prepared.select_from(1, Vec3::ZERO, 1.0, cell, &terrain) {
+			GroveCellOutcome::Placed { variant, .. } => assert_eq!(variant, "first"),
+			other => anyhow::bail!("start 1 should place first, got {other:?}"),
+		}
+		match prepared.select_from(2, Vec3::ZERO, 1.0, cell, &terrain) {
+			GroveCellOutcome::Placed { variant, .. } => assert_eq!(variant, "second"),
+			other => anyhow::bail!("start 2 should place second, got {other:?}"),
+		}
+		Ok(())
 	}
 
 	#[test]

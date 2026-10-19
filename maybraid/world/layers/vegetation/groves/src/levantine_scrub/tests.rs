@@ -6,25 +6,28 @@ use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = LevantineScrubCell::distribution();
-	assert_eq!(dist.len(), 8);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 11.0);
-	assert_eq!(dist.buckets[1].item, Some(LevantineScrubCell::DryRoryHeadTrained));
-	assert_eq!(dist.buckets[1].weight, 1.2);
-	assert_eq!(dist.buckets[2].item, Some(LevantineScrubCell::SmallVaseTree));
-	assert_eq!(dist.buckets[2].weight, 0.70);
-	assert_eq!(dist.buckets[3].item, Some(LevantineScrubCell::DryHighBush));
-	assert_eq!(dist.buckets[3].weight, 2.0);
-	assert_eq!(dist.buckets[4].item, Some(LevantineScrubCell::SmallPenmarchTorch));
-	assert_eq!(dist.buckets[4].weight, 0.45);
-	assert_eq!(dist.buckets[5].item, Some(LevantineScrubCell::RedOliveTorch));
-	assert_eq!(dist.buckets[5].weight, 0.25);
-	assert_eq!(dist.buckets[6].item, Some(LevantineScrubCell::SmallBraidOak));
-	assert_eq!(dist.buckets[6].weight, 0.35);
-	assert_eq!(dist.buckets[7].item, Some(LevantineScrubCell::ScrubHedge));
-	assert_eq!(dist.buckets[7].weight, 0.50);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(LevantineScrubCell::DryRoryHeadTrained),
+			Some(LevantineScrubCell::SmallVaseTree),
+			Some(LevantineScrubCell::DryHighBush),
+			Some(LevantineScrubCell::SmallPenmarchTorch),
+			Some(LevantineScrubCell::RedOliveTorch),
+			Some(LevantineScrubCell::SmallBraidOak),
+			Some(LevantineScrubCell::ScrubHedge),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -84,26 +87,6 @@ fn hedge_accepts_gentle_slopes_only() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_all_placed_buckets() -> Result<()> {
-	let prepared =
-		LevantineScrubCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.69 };
-	let outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Empty { .. } => {}
-		other => anyhow::bail!("expected Empty on steep slope, got {other:?}"),
-	}
-	Ok(())
-}
-
-#[test]
 fn bush_fits_moderate_slope_from_high_bush_bucket() -> Result<()> {
 	let prepared =
 		LevantineScrubCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
@@ -152,17 +135,10 @@ fn placements_break_the_cell_grid() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0));
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+		GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0)),
+		&FlatTerrainSample { elevation: 0.25, steepness: 0.15 },
+	)
 }

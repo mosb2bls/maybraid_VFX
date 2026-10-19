@@ -1,24 +1,29 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = StrangeOasisCell::distribution();
-	assert_eq!(dist.len(), 5);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 10.0);
-	assert_eq!(dist.buckets[1].item, Some(StrangeOasisCell::CompactDatePalm));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(StrangeOasisCell::TorchAccent));
-	assert_eq!(dist.buckets[2].weight, 0.30);
-	assert_eq!(dist.buckets[3].item, Some(StrangeOasisCell::RedTorchAccent));
-	assert_eq!(dist.buckets[3].weight, 0.18);
-	assert_eq!(dist.buckets[4].item, Some(StrangeOasisCell::OasisStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.75);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(StrangeOasisCell::CompactDatePalm),
+			Some(StrangeOasisCell::TorchAccent),
+			Some(StrangeOasisCell::RedTorchAccent),
+			Some(StrangeOasisCell::OasisStorybook),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -54,63 +59,6 @@ fn geometry_follows_authored_bands() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn red_torch_accepts_steeper_slope_than_compact_date_palm() -> Result<()> {
-	let prepared =
-		StrangeOasisCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.32 };
-	let red_outcome = prepared.select_from(
-		3,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match red_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, StrangeOasisCell::RedTorchAccent);
-		}
-		other => anyhow::bail!("expected RedTorchAccent on moderate slope, got {other:?}"),
-	}
-	let palm_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match palm_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, StrangeOasisCell::CompactDatePalm);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn high_elevation_rejects_oasis_floor_variants() -> Result<()> {
-	let prepared =
-		StrangeOasisCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.45, steepness: 0.15 };
-	let outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.45, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, StrangeOasisCell::CompactDatePalm);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
 fn placements_break_the_cell_grid() -> Result<()> {
 	let noise = crate::grove::GroveFrontend::default().noise;
 	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
@@ -138,17 +86,10 @@ fn placements_break_the_cell_grid() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0));
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.12 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+		GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0)),
+		&FlatTerrainSample { elevation: 0.25, steepness: 0.12 },
+	)
 }

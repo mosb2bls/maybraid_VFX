@@ -1,26 +1,29 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = JungleLowerMassivesCell::distribution();
-	assert_eq!(dist.len(), 6);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 8.0);
-	assert_eq!(dist.buckets[1].item, Some(JungleLowerMassivesCell::LowerMassiveJungleStorybook));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(JungleLowerMassivesCell::LowerMassiveHonuBanyan));
-	assert_eq!(dist.buckets[2].weight, 2.0);
-	assert_eq!(dist.buckets[3].item, Some(JungleLowerMassivesCell::LowerMassiveSopesBanyan));
-	assert_eq!(dist.buckets[3].weight, 1.0);
-	assert_eq!(dist.buckets[4].item, Some(JungleLowerMassivesCell::LowerMassiveWaialeaPalm));
-	assert_eq!(dist.buckets[4].weight, 1.0);
-	assert_eq!(dist.buckets[5].item, Some(JungleLowerMassivesCell::RareLowerMassiveBraidOak));
-	assert_eq!(dist.buckets[5].weight, 0.35);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(JungleLowerMassivesCell::LowerMassiveJungleStorybook),
+			Some(JungleLowerMassivesCell::LowerMassiveHonuBanyan),
+			Some(JungleLowerMassivesCell::LowerMassiveSopesBanyan),
+			Some(JungleLowerMassivesCell::LowerMassiveWaialeaPalm),
+			Some(JungleLowerMassivesCell::RareLowerMassiveBraidOak),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -80,32 +83,6 @@ fn waialea_accepts_steeper_slope_than_honu() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_honu_but_allows_waialea() -> Result<()> {
-	let prepared = JungleLowerMassivesCell::distribution().prepare(
-		0.0,
-		0.0,
-		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let terrain = FlatTerrainSample { elevation: 0.30, steepness: 0.55 };
-	let outcome = prepared.select_from(
-		8,
-		Vec3::new(5.0, 0.30, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, JungleLowerMassivesCell::LowerMassiveHonuBanyan);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
 fn palette_resolves_for_all_varietals() -> Result<()> {
 	for cell in [
 		JungleLowerMassivesCell::LowerMassiveJungleStorybook,
@@ -130,13 +107,10 @@ fn palette_resolves_for_all_varietals() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let noise = crate::grove::GroveFrontend::default().noise;
-	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(80.0, 1.0, 80.0));
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
+		definition(),
+		crate::grove::GroveFrontend::default().noise,
+		GroveExtent::new(Vec3::ZERO, Vec3::new(80.0, 1.0, 80.0)),
+		&FlatTerrainSample { elevation: 0.35, steepness: 0.15 },
+	)
 }

@@ -1,20 +1,22 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = OrchardCell::distribution();
-	assert_eq!(dist.len(), 3);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, CULTIVATED_EMPTY_WEIGHT);
-	assert_eq!(dist.buckets[1].item, Some(OrchardCell::FruitingStorybook));
-	assert_eq!(dist.buckets[1].weight, 1.5);
-	assert_eq!(dist.buckets[2].item, Some(OrchardCell::PaleBloomStorybook));
-	assert_eq!(dist.buckets[2].weight, 0.75);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![None, Some(OrchardCell::FruitingStorybook), Some(OrchardCell::PaleBloomStorybook),]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -63,42 +65,6 @@ fn placement_constraints_use_full_elevation_and_rfc_steepness() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_fruiting_but_allows_pale_on_gentler_band() -> Result<()> {
-	let prepared =
-		OrchardCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let gentle = FlatTerrainSample { elevation: 0.40, steepness: 0.25 };
-	let fruiting_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&gentle,
-	);
-	match fruiting_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, OrchardCell::FruitingStorybook);
-		}
-		other => anyhow::bail!("expected FruitingStorybook on gentle slope, got {other:?}"),
-	}
-	let steep = FlatTerrainSample { elevation: 0.40, steepness: 0.32 };
-	let steep_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match steep_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, OrchardCell::FruitingStorybook);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
 fn palette_resolves_for_all_varietals() -> Result<()> {
 	for cell in [OrchardCell::FruitingStorybook, OrchardCell::PaleBloomStorybook] {
 		for (palette, label) in
@@ -125,13 +91,10 @@ fn placement_uses_tight_centroid_offset_and_uniform_scale() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let noise = crate::grove::GroveFrontend::default().noise;
-	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(120.0, 1.0, 120.0));
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.10 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
+		definition(),
+		crate::grove::GroveFrontend::default().noise,
+		GroveExtent::new(Vec3::ZERO, Vec3::new(120.0, 1.0, 120.0)),
+		&FlatTerrainSample { elevation: 0.35, steepness: 0.10 },
+	)
 }

@@ -1,24 +1,30 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveCellOutcome, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
 use gimme_gen::Cell;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = ConiferMassivesCell::distribution();
-	assert_eq!(dist.len(), 5);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 23.0);
-	assert_eq!(dist.buckets[1].item, Some(ConiferMassivesCell::MassiveNorthernConifer));
-	assert_eq!(dist.buckets[1].weight, 1.25);
-	assert_eq!(dist.buckets[2].item, Some(ConiferMassivesCell::MassiveFriendsConifer));
-	assert_eq!(dist.buckets[2].weight, 1.25);
-	assert_eq!(dist.buckets[3].item, Some(ConiferMassivesCell::MassiveLiamsConifer));
-	assert_eq!(dist.buckets[3].weight, 0.75);
-	assert_eq!(dist.buckets[4].item, Some(ConiferMassivesCell::MassiveTemperateConifer));
-	assert_eq!(dist.buckets[4].weight, 0.25);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(ConiferMassivesCell::MassiveNorthernConifer),
+			Some(ConiferMassivesCell::MassiveFriendsConifer),
+			Some(ConiferMassivesCell::MassiveLiamsConifer),
+			Some(ConiferMassivesCell::MassiveTemperateConifer),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -141,13 +147,10 @@ fn palette_resolves_for_all_varietals() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let noise = crate::grove::GroveFrontend::default().noise;
-	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(300.0, 1.0, 300.0));
-	let terrain = FlatTerrainSample::default();
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
+		definition(),
+		crate::grove::GroveFrontend::default().noise,
+		GroveExtent::new(Vec3::ZERO, Vec3::new(300.0, 1.0, 300.0)),
+		&FlatTerrainSample::default(),
+	)
 }

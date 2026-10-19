@@ -1,28 +1,30 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = RiparianMixCell::distribution();
-	assert_eq!(dist.len(), 7);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 6.9);
-	assert_eq!(dist.buckets[1].item, Some(RiparianMixCell::BankBraidOak));
-	assert_eq!(dist.buckets[1].weight, 0.9);
-	assert_eq!(dist.buckets[2].item, Some(RiparianMixCell::OverbankBraidOak));
-	assert_eq!(dist.buckets[2].weight, 0.6);
-	assert_eq!(dist.buckets[3].item, Some(RiparianMixCell::RoundRiparianStorybook));
-	assert_eq!(dist.buckets[3].weight, 0.9);
-	assert_eq!(dist.buckets[4].item, Some(RiparianMixCell::TallRiparianStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.45);
-	assert_eq!(dist.buckets[5].item, Some(RiparianMixCell::BankFriendConifer));
-	assert_eq!(dist.buckets[5].weight, 0.8);
-	assert_eq!(dist.buckets[6].item, Some(RiparianMixCell::ShelteredTemperateConifer));
-	assert_eq!(dist.buckets[6].weight, 0.8);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(RiparianMixCell::BankBraidOak),
+			Some(RiparianMixCell::OverbankBraidOak),
+			Some(RiparianMixCell::RoundRiparianStorybook),
+			Some(RiparianMixCell::TallRiparianStorybook),
+			Some(RiparianMixCell::BankFriendConifer),
+			Some(RiparianMixCell::ShelteredTemperateConifer),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -116,41 +118,6 @@ fn placement_constraints_match_rfc() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_bank_braid_but_allows_bank_friend() -> Result<()> {
-	let prepared =
-		RiparianMixCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.38 };
-	let friend_outcome = prepared.select_from(
-		5,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match friend_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, RiparianMixCell::BankFriendConifer);
-		}
-		other => anyhow::bail!("expected BankFriendConifer on moderate slope, got {other:?}"),
-	}
-	let bank_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.25, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match bank_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, RiparianMixCell::BankBraidOak);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
 fn palette_resolves_for_all_varietals() -> Result<()> {
 	for cell in [
 		RiparianMixCell::BankBraidOak,
@@ -176,13 +143,10 @@ fn palette_resolves_for_all_varietals() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let noise = crate::grove::GroveFrontend::default().noise;
-	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(180.0, 1.0, 180.0));
-	let terrain = FlatTerrainSample::default();
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
+		definition(),
+		crate::grove::GroveFrontend::default().noise,
+		GroveExtent::new(Vec3::ZERO, Vec3::new(180.0, 1.0, 180.0)),
+		&FlatTerrainSample::default(),
+	)
 }

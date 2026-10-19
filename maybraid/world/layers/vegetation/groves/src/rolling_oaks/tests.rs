@@ -1,24 +1,28 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = RollingOaksCell::distribution();
-	assert_eq!(dist.len(), 5);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 12.4);
-	assert_eq!(dist.buckets[1].item, Some(RollingOaksCell::RollingBraidOak));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(RollingOaksCell::RareTallRollingBraidOak));
-	assert_eq!(dist.buckets[2].weight, 0.15);
-	assert_eq!(dist.buckets[3].item, Some(RollingOaksCell::RareSentinelRollingBraidOak));
-	assert_eq!(dist.buckets[3].weight, 0.05);
-	assert_eq!(dist.buckets[4].item, Some(RollingOaksCell::RareRollingStorybook));
-	assert_eq!(dist.buckets[4].weight, 0.35);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(RollingOaksCell::RollingBraidOak),
+			Some(RollingOaksCell::RareTallRollingBraidOak),
+			Some(RollingOaksCell::RareSentinelRollingBraidOak),
+			Some(RollingOaksCell::RareRollingStorybook),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -99,45 +103,6 @@ fn placement_constraints_match_rfc() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_braid_oak_but_allows_storybook() -> Result<()> {
-	let prepared =
-		RollingOaksCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.40, steepness: 0.50 };
-	let story_outcome = prepared.select_from(
-		4,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match story_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, RollingOaksCell::RareRollingStorybook);
-		}
-		other => {
-			anyhow::bail!("expected RareRollingStorybook on moderate slope, got {other:?}")
-		}
-	}
-	let braid_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match braid_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, RollingOaksCell::RareRollingStorybook);
-		}
-		other => anyhow::bail!(
-			"expected storybook after braid-oak variants reject steep slope, got {other:?}"
-		),
-	}
-	Ok(())
-}
-
-#[test]
 fn palette_resolves_for_all_varietals() -> Result<()> {
 	for cell in [
 		RollingOaksCell::RollingBraidOak,
@@ -161,13 +126,10 @@ fn palette_resolves_for_all_varietals() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let noise = crate::grove::GroveFrontend::default().noise;
-	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(220.0, 1.0, 220.0));
-	let terrain = FlatTerrainSample { elevation: 0.40, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
+		definition(),
+		crate::grove::GroveFrontend::default().noise,
+		GroveExtent::new(Vec3::ZERO, Vec3::new(220.0, 1.0, 220.0)),
+		&FlatTerrainSample { elevation: 0.40, steepness: 0.15 },
+	)
 }

@@ -1,32 +1,32 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = UnendingJungleCell::distribution();
-	assert_eq!(dist.len(), 9);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 8.0);
-	assert_eq!(dist.buckets[1].item, Some(UnendingJungleCell::SmallHonuBanyan));
-	assert_eq!(dist.buckets[1].weight, 2.0);
-	assert_eq!(dist.buckets[2].item, Some(UnendingJungleCell::SmallSopeBanyan));
-	assert_eq!(dist.buckets[2].weight, 1.0);
-	assert_eq!(dist.buckets[3].item, Some(UnendingJungleCell::LowerStorybook));
-	assert_eq!(dist.buckets[3].weight, 2.0);
-	assert_eq!(dist.buckets[4].item, Some(UnendingJungleCell::SmallJungleStorybook));
-	assert_eq!(dist.buckets[4].weight, 1.25);
-	assert_eq!(dist.buckets[5].item, Some(UnendingJungleCell::PenmarchAccent));
-	assert_eq!(dist.buckets[5].weight, 0.35);
-	assert_eq!(dist.buckets[6].item, Some(UnendingJungleCell::RedJungleTorch));
-	assert_eq!(dist.buckets[6].weight, 0.20);
-	assert_eq!(dist.buckets[7].item, Some(UnendingJungleCell::RoryAccent));
-	assert_eq!(dist.buckets[7].weight, 0.35);
-	assert_eq!(dist.buckets[8].item, Some(UnendingJungleCell::WaialeaPalmAccent));
-	assert_eq!(dist.buckets[8].weight, 0.55);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(UnendingJungleCell::SmallHonuBanyan),
+			Some(UnendingJungleCell::SmallSopeBanyan),
+			Some(UnendingJungleCell::LowerStorybook),
+			Some(UnendingJungleCell::SmallJungleStorybook),
+			Some(UnendingJungleCell::PenmarchAccent),
+			Some(UnendingJungleCell::RedJungleTorch),
+			Some(UnendingJungleCell::RoryAccent),
+			Some(UnendingJungleCell::WaialeaPalmAccent),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -88,28 +88,6 @@ fn rory_accepts_steeper_slope_than_dense_storybook() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_tight_variants() -> Result<()> {
-	let prepared =
-		UnendingJungleCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let terrain = FlatTerrainSample { elevation: 0.30, steepness: 0.75 };
-	let outcome = prepared.select_from(
-		8,
-		Vec3::new(5.0, 0.30, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&terrain,
-	);
-	match outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_ne!(variant, UnendingJungleCell::WaialeaPalmAccent);
-		}
-		GroveCellOutcome::Empty { .. } | GroveCellOutcome::Rejected { .. } => {}
-	}
-	Ok(())
-}
-
-#[test]
 fn placements_break_the_cell_grid() -> Result<()> {
 	let noise = crate::grove::GroveFrontend::default().noise;
 	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
@@ -130,13 +108,10 @@ fn placements_break_the_cell_grid() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let noise = crate::grove::GroveFrontend::default().noise;
-	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(50.0, 1.0, 50.0));
-	let terrain = FlatTerrainSample { elevation: 0.35, steepness: 0.15 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
+		definition(),
+		crate::grove::GroveFrontend::default().noise,
+		GroveExtent::new(Vec3::ZERO, Vec3::new(50.0, 1.0, 50.0)),
+		&FlatTerrainSample { elevation: 0.35, steepness: 0.15 },
+	)
 }

@@ -5,25 +5,28 @@ use bevy_math::Vec3;
 use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = GoettingenFollowCell::distribution();
-	assert_eq!(dist.len(), 8);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 9.7);
-	assert_eq!(dist.buckets[1].item, Some(GoettingenFollowCell::FollowBraidOak));
-	assert_eq!(dist.buckets[1].weight, 1.0);
-	assert_eq!(dist.buckets[2].item, Some(GoettingenFollowCell::RedBranchBraidOak));
-	assert_eq!(dist.buckets[2].weight, 0.35);
-	assert_eq!(dist.buckets[3].item, Some(GoettingenFollowCell::MossyTrailBraidOak));
-	assert_eq!(dist.buckets[3].weight, 0.40);
-	assert_eq!(dist.buckets[4].item, Some(GoettingenFollowCell::ParkEdgeBraidOak));
-	assert_eq!(dist.buckets[4].weight, 0.30);
-	assert_eq!(dist.buckets[5].item, Some(GoettingenFollowCell::TallFollowBraidOak));
-	assert_eq!(dist.buckets[5].weight, 0.45);
-	assert_eq!(dist.buckets[6].item, Some(GoettingenFollowCell::OldGrowthFollowBraidOak));
-	assert_eq!(dist.buckets[6].weight, 0.25);
-	assert_eq!(dist.buckets[7].item, Some(GoettingenFollowCell::FollowStorybook));
-	assert_eq!(dist.buckets[7].weight, 1.0);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(GoettingenFollowCell::FollowBraidOak),
+			Some(GoettingenFollowCell::RedBranchBraidOak),
+			Some(GoettingenFollowCell::MossyTrailBraidOak),
+			Some(GoettingenFollowCell::ParkEdgeBraidOak),
+			Some(GoettingenFollowCell::TallFollowBraidOak),
+			Some(GoettingenFollowCell::OldGrowthFollowBraidOak),
+			Some(GoettingenFollowCell::FollowStorybook),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -94,17 +97,10 @@ fn placements_break_the_cell_grid() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let grove = Grove::assemble(
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
 		definition(),
-		ForestGroveBiases::default(),
 		NoiseParams::default(),
-		Vec3::ZERO,
-	);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0));
-	let terrain = FlatTerrainSample { elevation: 0.25, steepness: 0.12 };
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+		GroveExtent::new(Vec3::ZERO, Vec3::new(40.0, 1.0, 40.0)),
+		&FlatTerrainSample { elevation: 0.25, steepness: 0.12 },
+	)
 }

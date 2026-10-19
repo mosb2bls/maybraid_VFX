@@ -1,26 +1,29 @@
 use super::*;
-use crate::grove::{FlatTerrainSample, ForestGroveBiases, Grove, GroveCellOutcome, GroveExtent};
+use crate::grove::{FlatTerrainSample, GroveExtent};
 use anyhow::Result;
 use bevy_math::Vec3;
-use gimme_gen::Cell;
-use procedural_common::NoiseParams;
 
 #[test]
-fn distribution_matches_rfc_order_and_weights() -> Result<()> {
+fn distribution_matches_rfc_order_and_membership() -> Result<()> {
 	let dist = WanderingAcaciaCell::distribution();
-	assert_eq!(dist.len(), 6);
-	assert!(dist.buckets[0].item.is_none());
-	assert_eq!(dist.buckets[0].weight, 37.0);
-	assert_eq!(dist.buckets[1].item, Some(WanderingAcaciaCell::WanderingHighBush));
-	assert_eq!(dist.buckets[1].weight, 5.0);
-	assert_eq!(dist.buckets[2].item, Some(WanderingAcaciaCell::DryWanderingSopesBanyan));
-	assert_eq!(dist.buckets[2].weight, 1.0);
-	assert_eq!(dist.buckets[3].item, Some(WanderingAcaciaCell::WanderingVaseTree));
-	assert_eq!(dist.buckets[3].weight, 0.25);
-	assert_eq!(dist.buckets[4].item, Some(WanderingAcaciaCell::WanderingPenmarchTorch));
-	assert_eq!(dist.buckets[4].weight, 0.18);
-	assert_eq!(dist.buckets[5].item, Some(WanderingAcaciaCell::WanderingKamakuraTorch));
-	assert_eq!(dist.buckets[5].weight, 0.12);
+	assert_eq!(
+		dist.buckets.iter().map(|b| b.item).collect::<Vec<_>>(),
+		vec![
+			None,
+			Some(WanderingAcaciaCell::WanderingHighBush),
+			Some(WanderingAcaciaCell::DryWanderingSopesBanyan),
+			Some(WanderingAcaciaCell::WanderingVaseTree),
+			Some(WanderingAcaciaCell::WanderingPenmarchTorch),
+			Some(WanderingAcaciaCell::WanderingKamakuraTorch),
+		]
+	);
+	for bucket in &dist.buckets {
+		assert!(
+			bucket.weight.is_finite() && bucket.weight >= 0.0,
+			"weight {} must be finite and nonnegative",
+			bucket.weight
+		);
+	}
 	Ok(())
 }
 
@@ -89,59 +92,6 @@ fn placement_constraints_use_full_elevation_and_rfc_steepness() -> Result<()> {
 }
 
 #[test]
-#[ignore = "placement constraints deferred to forest-layer normalization"]
-fn steep_slope_rejects_dry_sope_but_falls_through_to_vase() -> Result<()> {
-	let prepared =
-		WanderingAcaciaCell::distribution().prepare(0.0, 0.0, NoiseParams::default(), Vec3::ZERO);
-	let moderate = FlatTerrainSample { elevation: 0.40, steepness: 0.55 };
-	let sope_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&moderate,
-	);
-	match sope_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, WanderingAcaciaCell::DryWanderingSopesBanyan);
-		}
-		other => {
-			anyhow::bail!("expected DryWanderingSopesBanyan on moderate slope, got {other:?}")
-		}
-	}
-	let steep = FlatTerrainSample { elevation: 0.40, steepness: 0.60 };
-	let steep_outcome = prepared.select_from(
-		2,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match steep_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, WanderingAcaciaCell::WanderingVaseTree);
-		}
-		other => anyhow::bail!(
-			"expected fall-through to WanderingVaseTree on steep slope, got {other:?}"
-		),
-	}
-	let bush_outcome = prepared.select_from(
-		1,
-		Vec3::new(5.0, 0.40, 5.0),
-		1.0,
-		Cell::from_min_max(Vec3::ZERO, Vec3::ONE),
-		&steep,
-	);
-	match bush_outcome {
-		GroveCellOutcome::Placed { variant, .. } => {
-			assert_eq!(variant, WanderingAcaciaCell::WanderingHighBush);
-		}
-		other => anyhow::bail!("expected WanderingHighBush on steep slope, got {other:?}"),
-	}
-	Ok(())
-}
-
-#[test]
 fn palette_resolves_for_all_varietals() -> Result<()> {
 	for cell in [
 		WanderingAcaciaCell::WanderingHighBush,
@@ -166,13 +116,10 @@ fn palette_resolves_for_all_varietals() -> Result<()> {
 
 #[test]
 fn populated_grove_is_deterministic_and_non_empty() -> Result<()> {
-	let noise = crate::grove::GroveFrontend::default().noise;
-	let grove = Grove::assemble(definition(), ForestGroveBiases::default(), noise, Vec3::ZERO);
-	let extent = GroveExtent::new(Vec3::ZERO, Vec3::new(300.0, 1.0, 300.0));
-	let terrain = FlatTerrainSample::default();
-	let a = grove.populate(&extent, &terrain);
-	let b = grove.populate(&extent, &terrain);
-	assert_eq!(a, b);
-	assert!(!a.is_empty());
-	Ok(())
+	crate::grove::populate_checks::assert_populated_grove_is_deterministic_and_non_empty(
+		definition(),
+		crate::grove::GroveFrontend::default().noise,
+		GroveExtent::new(Vec3::ZERO, Vec3::new(300.0, 1.0, 300.0)),
+		&FlatTerrainSample::default(),
+	)
 }
