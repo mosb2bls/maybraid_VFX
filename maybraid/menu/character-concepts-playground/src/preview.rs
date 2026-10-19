@@ -9,7 +9,6 @@ use bevy::prelude::*;
 use bevy::scene::prelude::bsn;
 use character_items::ClothingMesh;
 use characters::{
-	AnimProgress,
 	assembly::CharacterPartSlot,
 	character_bounds,
 	species::{
@@ -43,9 +42,9 @@ use characters::{
 		wumbus::{WumbusConfig, WumbusHornMesh},
 		ylter::YilterConfig,
 	},
-	AnimRef, AnimRefRoot, CharacterComponents, CharacterMembers, CharacterRecipe, ComponentsOnly,
-	MaterialRefRoot, PartNode, RigId, RigNode, SkinRefApplied, SkinRefRoot, SocketRefApplied,
-	SocketRefRoot,
+	AnimProgress, AnimRef, AnimRefRoot, CharacterComponents, CharacterMembers, ComponentsOnly,
+	ConceptSpeciesConfig, MaterialRefRoot, PartNode, RigId, RigNode, SkinRefApplied, SkinRefRoot,
+	SocketRefApplied, SocketRefRoot,
 };
 use lod::lod_ref::LodRef;
 use lod::scene::LodScene;
@@ -61,204 +60,17 @@ use crate::skinning::{
 /// Run `$body` with `$recipe` bound to `config.clothed()` (monomorphized per species).
 macro_rules! with_clothed_recipe {
 	($config:expr, $recipe:ident => $body:expr) => {
-		match $config {
-			ConceptPreviewConfig::Braidman { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Brenal { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Caole { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Epiphant { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Hars { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Yilter { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Sonyak { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Claber { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Croconot { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Brodler { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Mygr { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Dui { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Lidder { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Chupri { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Brokker { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Tipple { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Topple { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Kispar { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Tapp { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Kaller { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Kappler { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Wumbus { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Lero { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Spibmom { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Grener { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Thumplus { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Mistler { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-			ConceptPreviewConfig::Tuberwaber { config, .. } => {
-				let $recipe = config.clothed();
-				$body
-			}
-		}
+		::characters::with_clothed_concept_recipe!(&$config.species, $recipe => $body)
 	};
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum ConceptSpecies {
-	#[default]
-	Braidman,
-	Brenal,
-	Caole,
-	Epiphant,
-	Hars,
-	Yilter,
-	Sonyak,
-	Claber,
-	Croconot,
-	Brodler,
-	Mygr,
-	Dui,
-	Lidder,
-	Chupri,
-	Brokker,
-	Tipple,
-	Topple,
-	Kispar,
-	Tapp,
-	Kaller,
-	Kappler,
-	Wumbus,
-	Lero,
-	Spibmom,
-	Grener,
-	Thumplus,
-	Mistler,
-	Tuberwaber,
-}
+pub use characters::ConceptSpecies;
 
-impl ConceptSpecies {
-	pub const fn skeleton_kind(self) -> characters::RigSkeletonKind {
-		use characters::RigSkeletonKind;
-		match self {
-			Self::Brenal
-			| Self::Caole
-			| Self::Epiphant
-			| Self::Hars
-			| Self::Yilter
-			| Self::Sonyak
-			| Self::Claber
-			| Self::Croconot => RigSkeletonKind::Quadruped,
-			Self::Grener | Self::Thumplus | Self::Mistler => RigSkeletonKind::Forelimbed,
-			_ => RigSkeletonKind::Humanoid,
-		}
-	}
-}
-
+/// Preview payload: typed species config beside shared playback controls.
 #[derive(Resource, Debug, Clone, PartialEq)]
-pub enum ConceptPreviewConfig {
-	Braidman { config: BraidmanConfig, animation: ConceptAnimation },
-	Brenal { config: BrenalConfig, animation: ConceptAnimation },
-	Caole { config: CaoleConfig, animation: ConceptAnimation },
-	Epiphant { config: EpiphantConfig, animation: ConceptAnimation },
-	Hars { config: HarsConfig, animation: ConceptAnimation },
-	Yilter { config: YilterConfig, animation: ConceptAnimation },
-	Sonyak { config: SonyakConfig, animation: ConceptAnimation },
-	Claber { config: ClaberConfig, animation: ConceptAnimation },
-	Croconot { config: CroconotConfig, animation: ConceptAnimation },
-	Brodler { config: BrodlerConfig, animation: ConceptAnimation },
-	Mygr { config: MygrConfig, animation: ConceptAnimation },
-	Dui { config: DuiConfig, animation: ConceptAnimation },
-	Lidder { config: LidderConfig, animation: ConceptAnimation },
-	Chupri { config: ChupriConfig, animation: ConceptAnimation },
-	Brokker { config: BrokkerConfig, animation: ConceptAnimation },
-	Tipple { config: TippleConfig, animation: ConceptAnimation },
-	Topple { config: ToppleConfig, animation: ConceptAnimation },
-	Kispar { config: KisparConfig, animation: ConceptAnimation },
-	Tapp { config: TappConfig, animation: ConceptAnimation },
-	Kaller { config: KallerConfig, animation: ConceptAnimation },
-	Kappler { config: KapplerConfig, animation: ConceptAnimation },
-	Wumbus { config: WumbusConfig, animation: ConceptAnimation },
-	Lero { config: LeroConfig, animation: ConceptAnimation },
-	Spibmom { config: SpibmomConfig, animation: ConceptAnimation },
-	Grener { config: GrenerConfig, animation: ConceptAnimation },
-	Thumplus { config: ThumplusConfig, animation: ConceptAnimation },
-	Mistler { config: MistlerConfig, animation: ConceptAnimation },
-	Tuberwaber { config: TuberwaberConfig, animation: ConceptAnimation },
+pub struct ConceptPreviewConfig {
+	species: ConceptSpeciesConfig,
+	animation: ConceptAnimation,
 }
 
 impl Default for ConceptPreviewConfig {
@@ -268,310 +80,346 @@ impl Default for ConceptPreviewConfig {
 }
 
 impl ConceptPreviewConfig {
+	pub fn new(species: ConceptSpeciesConfig, animation: ConceptAnimation) -> Self {
+		Self { species, animation }
+	}
+
 	pub fn default_for(species: ConceptSpecies) -> Self {
-		match species {
-			ConceptSpecies::Braidman => Self::braidman(BraidmanConfig::default_preview()),
-			ConceptSpecies::Brenal => Self::brenal(BrenalConfig::default_preview()),
-			ConceptSpecies::Caole => Self::caole(CaoleConfig::default_preview()),
-			ConceptSpecies::Epiphant => Self::epiphant(EpiphantConfig::default_preview()),
-			ConceptSpecies::Hars => Self::hars(HarsConfig::default_preview()),
-			ConceptSpecies::Yilter => Self::ylter(YilterConfig::default_preview()),
-			ConceptSpecies::Sonyak => Self::sonyak(SonyakConfig::default_preview()),
-			ConceptSpecies::Claber => Self::claber(ClaberConfig::default_preview()),
-			ConceptSpecies::Croconot => Self::croconot(CroconotConfig::default_preview()),
-			ConceptSpecies::Brodler => Self::brodler(BrodlerConfig::default_preview()),
-			ConceptSpecies::Mygr => Self::mygr(MygrConfig::default_preview()),
-			ConceptSpecies::Dui => Self::dui(DuiConfig::default_preview()),
-			ConceptSpecies::Lidder => Self::lidder(LidderConfig::default_preview()),
-			ConceptSpecies::Chupri => Self::chupri(ChupriConfig::default_preview()),
-			ConceptSpecies::Brokker => Self::brokker(BrokkerConfig::default_preview()),
-			ConceptSpecies::Tipple => Self::tipple(TippleConfig::default_preview()),
-			ConceptSpecies::Topple => Self::topple(ToppleConfig::default_preview()),
-			ConceptSpecies::Kispar => Self::kispar(KisparConfig::default_preview()),
-			ConceptSpecies::Tapp => Self::tapp(TappConfig::default_preview()),
-			ConceptSpecies::Kaller => Self::kaller(KallerConfig::default_preview()),
-			ConceptSpecies::Kappler => Self::kappler(KapplerConfig::default_preview()),
-			ConceptSpecies::Wumbus => Self::wumbus(WumbusConfig::default_preview()),
-			ConceptSpecies::Lero => Self::lero(LeroConfig::default_preview()),
-			ConceptSpecies::Spibmom => Self::spibmom(SpibmomConfig::default_preview()),
-			ConceptSpecies::Grener => Self::grener(GrenerConfig::default_preview()),
-			ConceptSpecies::Thumplus => Self::thumplus(ThumplusConfig::default_preview()),
-			ConceptSpecies::Mistler => Self::mistler(MistlerConfig::default_preview()),
-			ConceptSpecies::Tuberwaber => Self::tuberwaber(TuberwaberConfig::default_preview()),
-		}
+		Self::new(ConceptSpeciesConfig::default_for(species), ConceptAnimation::default())
 	}
 
 	pub fn species(&self) -> ConceptSpecies {
-		match self {
-			Self::Braidman { .. } => ConceptSpecies::Braidman,
-			Self::Brenal { .. } => ConceptSpecies::Brenal,
-			Self::Caole { .. } => ConceptSpecies::Caole,
-			Self::Epiphant { .. } => ConceptSpecies::Epiphant,
-			Self::Hars { .. } => ConceptSpecies::Hars,
-			Self::Yilter { .. } => ConceptSpecies::Yilter,
-			Self::Sonyak { .. } => ConceptSpecies::Sonyak,
-			Self::Claber { .. } => ConceptSpecies::Claber,
-			Self::Croconot { .. } => ConceptSpecies::Croconot,
-			Self::Brodler { .. } => ConceptSpecies::Brodler,
-			Self::Mygr { .. } => ConceptSpecies::Mygr,
-			Self::Dui { .. } => ConceptSpecies::Dui,
-			Self::Lidder { .. } => ConceptSpecies::Lidder,
-			Self::Chupri { .. } => ConceptSpecies::Chupri,
-			Self::Brokker { .. } => ConceptSpecies::Brokker,
-			Self::Tipple { .. } => ConceptSpecies::Tipple,
-			Self::Topple { .. } => ConceptSpecies::Topple,
-			Self::Kispar { .. } => ConceptSpecies::Kispar,
-			Self::Tapp { .. } => ConceptSpecies::Tapp,
-			Self::Kaller { .. } => ConceptSpecies::Kaller,
-			Self::Kappler { .. } => ConceptSpecies::Kappler,
-			Self::Wumbus { .. } => ConceptSpecies::Wumbus,
-			Self::Lero { .. } => ConceptSpecies::Lero,
-			Self::Spibmom { .. } => ConceptSpecies::Spibmom,
-			Self::Grener { .. } => ConceptSpecies::Grener,
-			Self::Thumplus { .. } => ConceptSpecies::Thumplus,
-			Self::Mistler { .. } => ConceptSpecies::Mistler,
-			Self::Tuberwaber { .. } => ConceptSpecies::Tuberwaber,
-		}
+		self.species.species()
+	}
+
+	pub fn species_config(&self) -> &ConceptSpeciesConfig {
+		&self.species
 	}
 
 	pub fn body_preview_focus(&self) -> character_ui_menu::CameraFocus {
-		use character_ui_menu::CameraFocus;
-		use characters::CharacterRecipe;
-		let kind = self.species().skeleton_kind();
-		with_clothed_recipe!(self, recipe => {
-			CameraFocus::fit_preview_bounds(
-				recipe.locomotion_capsule().preview_aabb_for(kind),
-				CameraFocus::BODY_PREVIEW_FOV,
-				kind.preview_view_direction(),
-			)
-		})
+		self.species().body_preview_focus(self.species.locomotion_capsule())
 	}
 
-	pub fn braidman(config: BraidmanConfig) -> Self {
-		Self::Braidman { config, animation: ConceptAnimation::default() }
+	pub fn status_label(&self) -> String {
+		let label = self.species.status_label();
+		if self.species().preview_sync_includes_animation() {
+			format!("{} animation={}", label, self.animation.label())
+		} else {
+			label
+		}
+	}
+
+	pub fn sync_key(&self) -> String {
+		let key = format!("species={} {}", self.species().label(), self.species.sync_key());
+		if self.species().preview_sync_includes_animation() {
+			format!("{key} animation={:?}", self.animation)
+		} else {
+			key
+		}
 	}
 
 	pub fn braidman_with_animation(config: BraidmanConfig, animation: ConceptAnimation) -> Self {
-		Self::Braidman { config, animation }
-	}
-
-	pub fn brenal(config: BrenalConfig) -> Self {
-		Self::Brenal { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Braidman(config), animation)
 	}
 
 	pub fn brenal_with_animation(config: BrenalConfig, animation: ConceptAnimation) -> Self {
-		Self::Brenal { config, animation }
-	}
-
-	pub fn caole(config: CaoleConfig) -> Self {
-		Self::Caole { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Brenal(config), animation)
 	}
 
 	pub fn caole_with_animation(config: CaoleConfig, animation: ConceptAnimation) -> Self {
-		Self::Caole { config, animation }
-	}
-
-	pub fn epiphant(config: EpiphantConfig) -> Self {
-		Self::Epiphant { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Caole(config), animation)
 	}
 
 	pub fn epiphant_with_animation(config: EpiphantConfig, animation: ConceptAnimation) -> Self {
-		Self::Epiphant { config, animation }
-	}
-
-	pub fn hars(config: HarsConfig) -> Self {
-		Self::Hars { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Epiphant(config), animation)
 	}
 
 	pub fn hars_with_animation(config: HarsConfig, animation: ConceptAnimation) -> Self {
-		Self::Hars { config, animation }
-	}
-
-	pub fn ylter(config: YilterConfig) -> Self {
-		Self::Yilter { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Hars(config), animation)
 	}
 
 	pub fn ylter_with_animation(config: YilterConfig, animation: ConceptAnimation) -> Self {
-		Self::Yilter { config, animation }
-	}
-
-	pub fn sonyak(config: SonyakConfig) -> Self {
-		Self::Sonyak { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Yilter(config), animation)
 	}
 
 	pub fn sonyak_with_animation(config: SonyakConfig, animation: ConceptAnimation) -> Self {
-		Self::Sonyak { config, animation }
-	}
-
-	pub fn croconot(config: CroconotConfig) -> Self {
-		Self::Croconot { config, animation: ConceptAnimation::default() }
-	}
-
-	pub fn croconot_with_animation(config: CroconotConfig, animation: ConceptAnimation) -> Self {
-		Self::Croconot { config, animation }
-	}
-
-	pub fn claber(config: ClaberConfig) -> Self {
-		Self::Claber { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Sonyak(config), animation)
 	}
 
 	pub fn claber_with_animation(config: ClaberConfig, animation: ConceptAnimation) -> Self {
-		Self::Claber { config, animation }
+		Self::new(ConceptSpeciesConfig::Claber(config), animation)
 	}
 
-	pub fn brodler(config: BrodlerConfig) -> Self {
-		Self::Brodler { config, animation: ConceptAnimation::default() }
+	pub fn croconot_with_animation(config: CroconotConfig, animation: ConceptAnimation) -> Self {
+		Self::new(ConceptSpeciesConfig::Croconot(config), animation)
 	}
 
 	pub fn brodler_with_animation(config: BrodlerConfig, animation: ConceptAnimation) -> Self {
-		Self::Brodler { config, animation }
-	}
-
-	pub fn mygr(config: MygrConfig) -> Self {
-		Self::Mygr { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Brodler(config), animation)
 	}
 
 	pub fn mygr_with_animation(config: MygrConfig, animation: ConceptAnimation) -> Self {
-		Self::Mygr { config, animation }
-	}
-
-	pub fn dui(config: DuiConfig) -> Self {
-		Self::Dui { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Mygr(config), animation)
 	}
 
 	pub fn dui_with_animation(config: DuiConfig, animation: ConceptAnimation) -> Self {
-		Self::Dui { config, animation }
-	}
-
-	pub fn lidder(config: LidderConfig) -> Self {
-		Self::Lidder { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Dui(config), animation)
 	}
 
 	pub fn lidder_with_animation(config: LidderConfig, animation: ConceptAnimation) -> Self {
-		Self::Lidder { config, animation }
-	}
-
-	pub fn chupri(config: ChupriConfig) -> Self {
-		Self::Chupri { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Lidder(config), animation)
 	}
 
 	pub fn chupri_with_animation(config: ChupriConfig, animation: ConceptAnimation) -> Self {
-		Self::Chupri { config, animation }
-	}
-
-	pub fn brokker(config: BrokkerConfig) -> Self {
-		Self::Brokker { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Chupri(config), animation)
 	}
 
 	pub fn brokker_with_animation(config: BrokkerConfig, animation: ConceptAnimation) -> Self {
-		Self::Brokker { config, animation }
-	}
-
-	pub fn tipple(config: TippleConfig) -> Self {
-		Self::Tipple { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Brokker(config), animation)
 	}
 
 	pub fn tipple_with_animation(config: TippleConfig, animation: ConceptAnimation) -> Self {
-		Self::Tipple { config, animation }
-	}
-
-	pub fn topple(config: ToppleConfig) -> Self {
-		Self::Topple { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Tipple(config), animation)
 	}
 
 	pub fn topple_with_animation(config: ToppleConfig, animation: ConceptAnimation) -> Self {
-		Self::Topple { config, animation }
-	}
-
-	pub fn kispar(config: KisparConfig) -> Self {
-		Self::Kispar { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Topple(config), animation)
 	}
 
 	pub fn kispar_with_animation(config: KisparConfig, animation: ConceptAnimation) -> Self {
-		Self::Kispar { config, animation }
-	}
-
-	pub fn tapp(config: TappConfig) -> Self {
-		Self::Tapp { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Kispar(config), animation)
 	}
 
 	pub fn tapp_with_animation(config: TappConfig, animation: ConceptAnimation) -> Self {
-		Self::Tapp { config, animation }
-	}
-
-	pub fn kaller(config: KallerConfig) -> Self {
-		Self::Kaller { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Tapp(config), animation)
 	}
 
 	pub fn kaller_with_animation(config: KallerConfig, animation: ConceptAnimation) -> Self {
-		Self::Kaller { config, animation }
-	}
-
-	pub fn kappler(config: KapplerConfig) -> Self {
-		Self::Kappler { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Kaller(config), animation)
 	}
 
 	pub fn kappler_with_animation(config: KapplerConfig, animation: ConceptAnimation) -> Self {
-		Self::Kappler { config, animation }
-	}
-
-	pub fn wumbus(config: WumbusConfig) -> Self {
-		Self::Wumbus { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Kappler(config), animation)
 	}
 
 	pub fn wumbus_with_animation(config: WumbusConfig, animation: ConceptAnimation) -> Self {
-		Self::Wumbus { config, animation }
-	}
-
-	pub fn lero(config: LeroConfig) -> Self {
-		Self::Lero { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Wumbus(config), animation)
 	}
 
 	pub fn lero_with_animation(config: LeroConfig, animation: ConceptAnimation) -> Self {
-		Self::Lero { config, animation }
-	}
-
-	pub fn spibmom(config: SpibmomConfig) -> Self {
-		Self::Spibmom { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Lero(config), animation)
 	}
 
 	pub fn spibmom_with_animation(config: SpibmomConfig, animation: ConceptAnimation) -> Self {
-		Self::Spibmom { config, animation }
-	}
-
-	pub fn grener(config: GrenerConfig) -> Self {
-		Self::Grener { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Spibmom(config), animation)
 	}
 
 	pub fn grener_with_animation(config: GrenerConfig, animation: ConceptAnimation) -> Self {
-		Self::Grener { config, animation }
-	}
-
-	pub fn thumplus(config: ThumplusConfig) -> Self {
-		Self::Thumplus { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Grener(config), animation)
 	}
 
 	pub fn thumplus_with_animation(config: ThumplusConfig, animation: ConceptAnimation) -> Self {
-		Self::Thumplus { config, animation }
-	}
-
-	pub fn mistler(config: MistlerConfig) -> Self {
-		Self::Mistler { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Thumplus(config), animation)
 	}
 
 	pub fn mistler_with_animation(config: MistlerConfig, animation: ConceptAnimation) -> Self {
-		Self::Mistler { config, animation }
-	}
-
-	pub fn tuberwaber(config: TuberwaberConfig) -> Self {
-		Self::Tuberwaber { config, animation: ConceptAnimation::default() }
+		Self::new(ConceptSpeciesConfig::Mistler(config), animation)
 	}
 
 	pub fn tuberwaber_with_animation(
 		config: TuberwaberConfig,
 		animation: ConceptAnimation,
 	) -> Self {
-		Self::Tuberwaber { config, animation }
+		Self::new(ConceptSpeciesConfig::Tuberwaber(config), animation)
+	}
+
+	pub fn spawn_key(&self) -> String {
+		match &self.species {
+			ConceptSpeciesConfig::Braidman(config) => format!(
+				"species=braidman body={:?} head={:?} eye={:?} nose={:?} mouth={:?} ear={:?} hair={:?} clothing={:?}",
+				config.body,
+				config.head,
+				config.eye,
+				config.nose,
+				config.mouth,
+				config.ear,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Brenal(config) => format!(
+				"species=brenal horns={:?} eye={:?}",
+				config.horns,
+				config.eye,
+			),
+			ConceptSpeciesConfig::Caole(config) => format!(
+				"species=caole body={:?} mouth={:?} eye={:?}",
+				config.body,
+				config.mouth,
+				config.eye,
+			),
+			ConceptSpeciesConfig::Epiphant(config) => format!(
+				"species=epiphant body={:?} nose={:?} eye={:?}",
+				config.body,
+				config.nose,
+				config.eye,
+			),
+			ConceptSpeciesConfig::Hars(config) => format!(
+				"species=hars mouth={:?} eye={:?}",
+				config.mouth,
+				config.eye,
+			),
+			ConceptSpeciesConfig::Yilter(config) => format!(
+				"species=ylter mouth={:?}",
+				config.mouth,
+			),
+			ConceptSpeciesConfig::Sonyak(config) => format!(
+				"species=sonyak mouth={:?}",
+				config.mouth,
+			),
+			ConceptSpeciesConfig::Claber(config) => format!(
+				"species=claber horns={:?} eye={:?}",
+				config.horns,
+				config.eye,
+			),
+			ConceptSpeciesConfig::Croconot(config) => format!(
+				"species=croconot horns={:?} eye={:?}",
+				config.horns,
+				config.eye,
+			),
+			ConceptSpeciesConfig::Brodler(config) => format!(
+				"species=brodler head={:?} horns={:?} eye={:?} nose={:?} mouth={:?} ear={:?} hair={:?} clothing={:?}",
+				config.head,
+				config.horns,
+				config.eye,
+				config.nose,
+				config.mouth,
+				config.ear,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Mygr(config) => format!(
+				"species=mygr eye={:?} hair={:?} clothing={:?}",
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Dui(config) => format!(
+				"species=dui nose={:?} hair={:?} clothing={:?}",
+				config.nose,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Lidder(config) => format!(
+				"species=lidder beak={:?} eye={:?} hair={:?} clothing={:?}",
+				config.beak,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Chupri(config) => format!(
+				"species=chupri beak={:?} eye={:?} hair={:?} clothing={:?}",
+				config.beak,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Brokker(config) => format!(
+				"species=brokker eye={:?} hair={:?} clothing={:?}",
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Tipple(config) => format!(
+				"species=tipple beak={:?} eye={:?} hair={:?} clothing={:?}",
+				config.beak,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Topple(config) => format!(
+				"species=topple beak={:?} eye={:?} hair={:?} clothing={:?}",
+				config.beak,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Kispar(config) => format!(
+				"species=kispar beak={:?} eye={:?} hair={:?} clothing={:?}",
+				config.beak,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Tapp(config) => format!(
+				"species=tapp beak={:?} eye={:?} hair={:?} clothing={:?}",
+				config.beak,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Kaller(config) => format!(
+				"species=kaller eye={:?} hair={:?} clothing={:?}",
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Kappler(config) => format!(
+				"species=kappler beak={:?} eye={:?} hair={:?} clothing={:?}",
+				config.beak,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Wumbus(config) => format!(
+				"species=wumbus horns={:?} eye={:?} hair={:?} clothing={:?}",
+				config.horns,
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Lero(config) => format!(
+				"species=lero mouth={:?} hair={:?} clothing={:?}",
+				config.mouth,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Spibmom(config) => format!(
+				"species=spibmom eye={:?} hair={:?} clothing={:?}",
+				config.eye,
+				config.hair,
+				config.clothing,
+			),
+			ConceptSpeciesConfig::Grener(config) => format!(
+				"species=grener body={:?}",
+				config.colors.body,
+			),
+			ConceptSpeciesConfig::Thumplus(config) => format!(
+				"species=thumplus body={:?}",
+				config.colors.body,
+			),
+			ConceptSpeciesConfig::Mistler(config) => format!(
+				"species=mistler body={:?}",
+				config.colors.body,
+			),
+			ConceptSpeciesConfig::Tuberwaber(config) => format!(
+				"species=tuberwaber body={:?} head={:?} eye={:?} nose={:?} mouth={:?} hair={:?} clothing={:?}",
+				config.body,
+				config.head,
+				config.eye,
+				config.nose,
+				config.mouth,
+				config.hair,
+				config.clothing,
+			),
+		}
+	}
+
+	pub fn with_animation(self, animation: ConceptAnimation) -> Self {
+		Self { species: self.species, animation }
+	}
+
+	pub const fn animation(&self) -> ConceptAnimation {
+		self.animation
 	}
 
 	/// High-band armature nodes from the LodScene recipe (body / neck / head).
@@ -586,401 +434,6 @@ impl ConceptPreviewConfig {
 		with_clothed_recipe!(self, recipe => {
 			recipe.part_nodes_for_level(LodSceneLevel::High).flatten()
 		})
-	}
-
-	pub fn status_label(&self) -> String {
-		match self {
-			Self::Braidman { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Brenal { config, .. } => config.status_label(),
-			Self::Caole { config, .. } => config.status_label(),
-			Self::Epiphant { config, .. } => config.status_label(),
-			Self::Hars { config, .. } => config.status_label(),
-			Self::Yilter { config, .. } => config.status_label(),
-			Self::Sonyak { config, .. } => config.status_label(),
-			Self::Claber { config, .. } => config.status_label(),
-			Self::Croconot { config, .. } => config.status_label(),
-			Self::Brodler { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Mygr { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Dui { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Lidder { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Chupri { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Brokker { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Tipple { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Topple { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Kispar { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Tapp { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Kaller { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Kappler { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Wumbus { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Lero { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Spibmom { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Grener { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Thumplus { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Mistler { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-			Self::Tuberwaber { config, animation } => {
-				format!("{} animation={}", config.status_label(), animation.label())
-			}
-		}
-	}
-
-	pub fn sync_key(&self) -> String {
-		match self {
-			Self::Braidman { config, animation } => {
-				format!("species=braidman {} animation={animation:?}", config.sync_key())
-			}
-			Self::Brenal { config, .. } => format!("species=brenal {}", config.sync_key()),
-			Self::Caole { config, .. } => format!("species=caole {}", config.sync_key()),
-			Self::Epiphant { config, animation } => {
-				format!("species=epiphant {} animation={animation:?}", config.sync_key())
-			}
-			Self::Hars { config, .. } => format!("species=hars {}", config.sync_key()),
-			Self::Yilter { config, .. } => format!("species=ylter {}", config.sync_key()),
-			Self::Sonyak { config, .. } => format!("species=sonyak {}", config.sync_key()),
-			Self::Claber { config, .. } => format!("species=claber {}", config.sync_key()),
-			Self::Croconot { config, .. } => format!("species=croconot {}", config.sync_key()),
-			Self::Brodler { config, animation } => {
-				format!("species=brodler {} animation={animation:?}", config.sync_key())
-			}
-			Self::Mygr { config, animation } => {
-				format!("species=mygr {} animation={animation:?}", config.sync_key())
-			}
-			Self::Dui { config, animation } => {
-				format!("species=dui {} animation={animation:?}", config.sync_key())
-			}
-			Self::Lidder { config, animation } => {
-				format!("species=lidder {} animation={animation:?}", config.sync_key())
-			}
-			Self::Chupri { config, animation } => {
-				format!("species=chupri {} animation={animation:?}", config.sync_key())
-			}
-			Self::Brokker { config, animation } => {
-				format!("species=brokker {} animation={animation:?}", config.sync_key())
-			}
-			Self::Tipple { config, animation } => {
-				format!("species=tipple {} animation={animation:?}", config.sync_key())
-			}
-			Self::Topple { config, animation } => {
-				format!("species=topple {} animation={animation:?}", config.sync_key())
-			}
-			Self::Kispar { config, animation } => {
-				format!("species=kispar {} animation={animation:?}", config.sync_key())
-			}
-			Self::Tapp { config, animation } => {
-				format!("species=tapp {} animation={animation:?}", config.sync_key())
-			}
-			Self::Kaller { config, animation } => {
-				format!("species=kaller {} animation={animation:?}", config.sync_key())
-			}
-			Self::Kappler { config, animation } => {
-				format!("species=kappler {} animation={animation:?}", config.sync_key())
-			}
-			Self::Wumbus { config, animation } => {
-				format!("species=wumbus {} animation={animation:?}", config.sync_key())
-			}
-			Self::Lero { config, animation } => {
-				format!("species=lero {} animation={animation:?}", config.sync_key())
-			}
-			Self::Spibmom { config, animation } => {
-				format!("species=spibmom {} animation={animation:?}", config.sync_key())
-			}
-			Self::Grener { config, animation } => {
-				format!("species=grener {} animation={animation:?}", config.sync_key())
-			}
-			Self::Thumplus { config, animation } => {
-				format!("species=thumplus {} animation={animation:?}", config.sync_key())
-			}
-			Self::Mistler { config, animation } => {
-				format!("species=mistler {} animation={animation:?}", config.sync_key())
-			}
-			Self::Tuberwaber { config, animation } => {
-				format!("species=tuberwaber {} animation={animation:?}", config.sync_key())
-			}
-		}
-	}
-
-	pub fn spawn_key(&self) -> String {
-		match self {
-			Self::Braidman { config, .. } => format!(
-				"species=braidman body={:?} head={:?} eye={:?} nose={:?} mouth={:?} ear={:?} hair={:?} clothing={:?}",
-				config.body,
-				config.head,
-				config.eye,
-				config.nose,
-				config.mouth,
-				config.ear,
-				config.hair,
-				config.clothing,
-			),
-			Self::Brenal { config, .. } => format!(
-				"species=brenal horns={:?} eye={:?}",
-				config.horns,
-				config.eye,
-			),
-			Self::Caole { config, .. } => format!(
-				"species=caole body={:?} mouth={:?} eye={:?}",
-				config.body,
-				config.mouth,
-				config.eye,
-			),
-			Self::Epiphant { config, .. } => format!(
-				"species=epiphant body={:?} nose={:?} eye={:?}",
-				config.body,
-				config.nose,
-				config.eye,
-			),
-			Self::Hars { config, .. } => format!(
-				"species=hars mouth={:?} eye={:?}",
-				config.mouth,
-				config.eye,
-			),
-			Self::Yilter { config, .. } => format!(
-				"species=ylter mouth={:?}",
-				config.mouth,
-			),
-			Self::Sonyak { config, .. } => format!(
-				"species=sonyak mouth={:?}",
-				config.mouth,
-			),
-			Self::Claber { config, .. } => format!(
-				"species=claber horns={:?} eye={:?}",
-				config.horns,
-				config.eye,
-			),
-			Self::Croconot { config, .. } => format!(
-				"species=croconot horns={:?} eye={:?}",
-				config.horns,
-				config.eye,
-			),
-			Self::Brodler { config, .. } => format!(
-				"species=brodler head={:?} horns={:?} eye={:?} nose={:?} mouth={:?} ear={:?} hair={:?} clothing={:?}",
-				config.head,
-				config.horns,
-				config.eye,
-				config.nose,
-				config.mouth,
-				config.ear,
-				config.hair,
-				config.clothing,
-			),
-			Self::Mygr { config, .. } => format!(
-				"species=mygr eye={:?} hair={:?} clothing={:?}",
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Dui { config, .. } => format!(
-				"species=dui nose={:?} hair={:?} clothing={:?}",
-				config.nose,
-				config.hair,
-				config.clothing,
-			),
-			Self::Lidder { config, .. } => format!(
-				"species=lidder beak={:?} eye={:?} hair={:?} clothing={:?}",
-				config.beak,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Chupri { config, .. } => format!(
-				"species=chupri beak={:?} eye={:?} hair={:?} clothing={:?}",
-				config.beak,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Brokker { config, .. } => format!(
-				"species=brokker eye={:?} hair={:?} clothing={:?}",
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Tipple { config, .. } => format!(
-				"species=tipple beak={:?} eye={:?} hair={:?} clothing={:?}",
-				config.beak,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Topple { config, .. } => format!(
-				"species=topple beak={:?} eye={:?} hair={:?} clothing={:?}",
-				config.beak,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Kispar { config, .. } => format!(
-				"species=kispar beak={:?} eye={:?} hair={:?} clothing={:?}",
-				config.beak,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Tapp { config, .. } => format!(
-				"species=tapp beak={:?} eye={:?} hair={:?} clothing={:?}",
-				config.beak,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Kaller { config, .. } => format!(
-				"species=kaller eye={:?} hair={:?} clothing={:?}",
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Kappler { config, .. } => format!(
-				"species=kappler beak={:?} eye={:?} hair={:?} clothing={:?}",
-				config.beak,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Wumbus { config, .. } => format!(
-				"species=wumbus horns={:?} eye={:?} hair={:?} clothing={:?}",
-				config.horns,
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Lero { config, .. } => format!(
-				"species=lero mouth={:?} hair={:?} clothing={:?}",
-				config.mouth,
-				config.hair,
-				config.clothing,
-			),
-			Self::Spibmom { config, .. } => format!(
-				"species=spibmom eye={:?} hair={:?} clothing={:?}",
-				config.eye,
-				config.hair,
-				config.clothing,
-			),
-			Self::Grener { config, .. } => format!(
-				"species=grener body={:?}",
-				config.colors.body,
-			),
-			Self::Thumplus { config, .. } => format!(
-				"species=thumplus body={:?}",
-				config.colors.body,
-			),
-			Self::Mistler { config, .. } => format!(
-				"species=mistler body={:?}",
-				config.colors.body,
-			),
-			Self::Tuberwaber { config, .. } => format!(
-				"species=tuberwaber body={:?} head={:?} eye={:?} nose={:?} mouth={:?} hair={:?} clothing={:?}",
-				config.body,
-				config.head,
-				config.eye,
-				config.nose,
-				config.mouth,
-				config.hair,
-				config.clothing,
-			),
-		}
-	}
-
-	pub fn with_animation(self, animation: ConceptAnimation) -> Self {
-		match self {
-			Self::Braidman { config, .. } => Self::Braidman { config, animation },
-			Self::Brenal { config, .. } => Self::Brenal { config, animation },
-			Self::Caole { config, .. } => Self::Caole { config, animation },
-			Self::Epiphant { config, .. } => Self::Epiphant { config, animation },
-			Self::Hars { config, .. } => Self::Hars { config, animation },
-			Self::Yilter { config, .. } => Self::Yilter { config, animation },
-			Self::Sonyak { config, .. } => Self::Sonyak { config, animation },
-			Self::Claber { config, .. } => Self::Claber { config, animation },
-			Self::Croconot { config, .. } => Self::Croconot { config, animation },
-			Self::Brodler { config, .. } => Self::Brodler { config, animation },
-			Self::Mygr { config, .. } => Self::Mygr { config, animation },
-			Self::Dui { config, .. } => Self::Dui { config, animation },
-			Self::Lidder { config, .. } => Self::Lidder { config, animation },
-			Self::Chupri { config, .. } => Self::Chupri { config, animation },
-			Self::Brokker { config, .. } => Self::Brokker { config, animation },
-			Self::Tipple { config, .. } => Self::Tipple { config, animation },
-			Self::Topple { config, .. } => Self::Topple { config, animation },
-			Self::Kispar { config, .. } => Self::Kispar { config, animation },
-			Self::Tapp { config, .. } => Self::Tapp { config, animation },
-			Self::Kaller { config, .. } => Self::Kaller { config, animation },
-			Self::Kappler { config, .. } => Self::Kappler { config, animation },
-			Self::Wumbus { config, .. } => Self::Wumbus { config, animation },
-			Self::Lero { config, .. } => Self::Lero { config, animation },
-			Self::Spibmom { config, .. } => Self::Spibmom { config, animation },
-			Self::Grener { config, .. } => Self::Grener { config, animation },
-			Self::Thumplus { config, .. } => Self::Thumplus { config, animation },
-			Self::Mistler { config, .. } => Self::Mistler { config, animation },
-			Self::Tuberwaber { config, .. } => Self::Tuberwaber { config, animation },
-		}
-	}
-
-	pub const fn animation(&self) -> ConceptAnimation {
-		match self {
-			Self::Braidman { animation, .. }
-			| Self::Brenal { animation, .. }
-			| Self::Caole { animation, .. }
-			| Self::Epiphant { animation, .. }
-			| Self::Hars { animation, .. }
-			| Self::Yilter { animation, .. }
-			| Self::Sonyak { animation, .. }
-			| Self::Claber { animation, .. }
-			| Self::Croconot { animation, .. }
-			| Self::Brodler { animation, .. }
-			| Self::Mygr { animation, .. }
-			| Self::Dui { animation, .. }
-			| Self::Lidder { animation, .. }
-			| Self::Chupri { animation, .. }
-			| Self::Brokker { animation, .. }
-			| Self::Tipple { animation, .. }
-			| Self::Topple { animation, .. }
-			| Self::Kispar { animation, .. }
-			| Self::Tapp { animation, .. }
-			| Self::Kaller { animation, .. }
-			| Self::Kappler { animation, .. }
-			| Self::Wumbus { animation, .. }
-			| Self::Lero { animation, .. }
-			| Self::Spibmom { animation, .. }
-			| Self::Grener { animation, .. }
-			| Self::Thumplus { animation, .. }
-			| Self::Mistler { animation, .. }
-			| Self::Tuberwaber { animation, .. } => *animation,
-		}
 	}
 }
 
@@ -1535,8 +988,8 @@ pub fn preview_asset_target(
 	slot: CharacterPartSlot,
 	label: &str,
 ) -> PreviewAssetTarget {
-	match config {
-		ConceptPreviewConfig::Braidman { config, .. } => {
+	match config.species_config() {
+		ConceptSpeciesConfig::Braidman(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::BraidmanBody(config.body),
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1567,7 +1020,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Brenal { config, .. } => {
+		ConceptSpeciesConfig::Brenal(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::BrenalBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1592,7 +1045,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Caole { config, .. } => {
+		ConceptSpeciesConfig::Caole(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::CaoleBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1615,7 +1068,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Epiphant { config, .. } => {
+		ConceptSpeciesConfig::Epiphant(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::EpiphantBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1640,7 +1093,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Hars { config, .. } => {
+		ConceptSpeciesConfig::Hars(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::HarsBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => PreviewTarget::HarsBody,
@@ -1659,7 +1112,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Yilter { .. } => {
+		ConceptSpeciesConfig::Yilter(_) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::YilterBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1683,7 +1136,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Sonyak { .. } => {
+		ConceptSpeciesConfig::Sonyak(_) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::SonyakBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1707,7 +1160,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Claber { config, .. } => {
+		ConceptSpeciesConfig::Claber(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::ClaberBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1732,7 +1185,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Croconot { config, .. } => {
+		ConceptSpeciesConfig::Croconot(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::CroconotBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1757,7 +1210,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Brodler { config, .. } => {
+		ConceptSpeciesConfig::Brodler(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::BrodlerBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1788,7 +1241,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Mygr { config, .. } => {
+		ConceptSpeciesConfig::Mygr(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::MygrBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => PreviewTarget::MygrBody,
@@ -1812,7 +1265,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Dui { config, .. } => {
+		ConceptSpeciesConfig::Dui(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::DuiBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => PreviewTarget::DuiBody,
@@ -1836,7 +1289,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Lidder { config, .. } => {
+		ConceptSpeciesConfig::Lidder(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::LidderBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1866,7 +1319,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Chupri { config, .. } => {
+		ConceptSpeciesConfig::Chupri(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::ChupriBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1896,7 +1349,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Brokker { config, .. } => {
+		ConceptSpeciesConfig::Brokker(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::BrokkerBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1927,7 +1380,7 @@ pub fn preview_asset_target(
 			PreviewAssetTarget { target }
 		}
 
-		ConceptPreviewConfig::Tipple { config, .. } => {
+		ConceptSpeciesConfig::Tipple(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::TippleBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1958,7 +1411,7 @@ pub fn preview_asset_target(
 			PreviewAssetTarget { target }
 		}
 
-		ConceptPreviewConfig::Topple { config, .. } => {
+		ConceptSpeciesConfig::Topple(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::ToppleBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -1989,7 +1442,7 @@ pub fn preview_asset_target(
 			PreviewAssetTarget { target }
 		}
 
-		ConceptPreviewConfig::Kispar { config, .. } => {
+		ConceptSpeciesConfig::Kispar(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::KisparBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -2019,7 +1472,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Tapp { config, .. } => {
+		ConceptSpeciesConfig::Tapp(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::TappBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => PreviewTarget::TappBody,
@@ -2043,7 +1496,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Kaller { config, .. } => {
+		ConceptSpeciesConfig::Kaller(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::KallerBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -2073,7 +1526,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Kappler { config, .. } => {
+		ConceptSpeciesConfig::Kappler(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::KapplerBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -2103,7 +1556,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Wumbus { config, .. } => {
+		ConceptSpeciesConfig::Wumbus(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::WumbusBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -2133,7 +1586,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Lero { config, .. } => {
+		ConceptSpeciesConfig::Lero(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::LeroBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => PreviewTarget::LeroBody,
@@ -2157,7 +1610,7 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Spibmom { config, .. } => {
+		ConceptSpeciesConfig::Spibmom(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::SpibmomBody,
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {
@@ -2187,19 +1640,19 @@ pub fn preview_asset_target(
 			};
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Grener { .. } => {
+		ConceptSpeciesConfig::Grener(_) => {
 			let target = PreviewTarget::GrenerBody;
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Thumplus { .. } => {
+		ConceptSpeciesConfig::Thumplus(_) => {
 			let target = PreviewTarget::ThumplusBody;
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Mistler { .. } => {
+		ConceptSpeciesConfig::Mistler(_) => {
 			let target = PreviewTarget::MistlerBody;
 			PreviewAssetTarget { target }
 		}
-		ConceptPreviewConfig::Tuberwaber { config, .. } => {
+		ConceptSpeciesConfig::Tuberwaber(config) => {
 			let target = match slot {
 				CharacterPartSlot::BodyMesh => PreviewTarget::TuberwaberBody(config.body),
 				CharacterPartSlot::NeckRig | CharacterPartSlot::NeckMesh => {

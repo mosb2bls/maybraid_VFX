@@ -81,36 +81,7 @@ impl FocusReferenceSyncState {
 
 /// Any config change that can affect proportions refreshes the applied pose.
 fn focus_live_key(config: &ConceptPreviewConfig) -> String {
-	match config {
-		ConceptPreviewConfig::Braidman { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Brenal { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Caole { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Epiphant { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Hars { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Yilter { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Sonyak { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Claber { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Croconot { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Brodler { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Mygr { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Dui { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Lidder { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Chupri { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Brokker { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Tipple { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Topple { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Kispar { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Tapp { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Kaller { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Kappler { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Wumbus { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Lero { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Spibmom { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Grener { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Thumplus { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Mistler { config, .. } => config.sync_key(),
-		ConceptPreviewConfig::Tuberwaber { config, .. } => config.sync_key(),
-	}
+	config.species_config().sync_key()
 }
 
 /// Shadow rigs must respawn when the underlying armature assets change: a new

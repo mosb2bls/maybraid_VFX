@@ -1,14 +1,18 @@
 //! Per-species build memory and runtime reset when switching species.
 
 use bevy::prelude::*;
-use characters::species::{
-	braidman::BraidmanConfig, brenal::BrenalConfig, brodler::BrodlerConfig, brokker::BrokkerConfig,
-	caole::CaoleConfig, chupri::ChupriConfig, claber::ClaberConfig, croconot::CroconotConfig,
-	dui::DuiConfig, epiphant::EpiphantConfig, grener::GrenerConfig, hars::HarsConfig,
-	kaller::KallerConfig, kappler::KapplerConfig, kispar::KisparConfig, lero::LeroConfig,
-	lidder::LidderConfig, mistler::MistlerConfig, mygr::MygrConfig, sonyak::SonyakConfig,
-	spibmom::SpibmomConfig, tapp::TappConfig, thumplus::ThumplusConfig, tipple::TippleConfig,
-	topple::ToppleConfig, tuberwaber::TuberwaberConfig, wumbus::WumbusConfig, ylter::YilterConfig,
+use characters::{
+	species::{
+		braidman::BraidmanConfig, brenal::BrenalConfig, brodler::BrodlerConfig,
+		brokker::BrokkerConfig, caole::CaoleConfig, chupri::ChupriConfig, claber::ClaberConfig,
+		croconot::CroconotConfig, dui::DuiConfig, epiphant::EpiphantConfig, grener::GrenerConfig,
+		hars::HarsConfig, kaller::KallerConfig, kappler::KapplerConfig, kispar::KisparConfig,
+		lero::LeroConfig, lidder::LidderConfig, mistler::MistlerConfig, mygr::MygrConfig,
+		sonyak::SonyakConfig, spibmom::SpibmomConfig, tapp::TappConfig, thumplus::ThumplusConfig,
+		tipple::TippleConfig, topple::ToppleConfig, tuberwaber::TuberwaberConfig,
+		wumbus::WumbusConfig, ylter::YilterConfig,
+	},
+	ConceptSpeciesConfig,
 };
 
 use crate::{
@@ -145,119 +149,120 @@ impl Default for SpeciesSessionState {
 }
 
 impl SpeciesSessionState {
-	pub fn persist(&mut self, config: &ConceptPreviewConfig) {
-		match config {
-			ConceptPreviewConfig::Braidman { config, animation } => {
+	pub fn persist(&mut self, preview: &ConceptPreviewConfig) {
+		let animation = preview.animation();
+		match preview.species_config() {
+			ConceptSpeciesConfig::Braidman(config) => {
 				self.braidman.clone_from(config);
-				self.braidman_animation = *animation;
+				self.braidman_animation = animation;
 			}
-			ConceptPreviewConfig::Brenal { config, animation } => {
+			ConceptSpeciesConfig::Brenal(config) => {
 				self.brenal.clone_from(config);
-				self.brenal_animation = *animation;
+				self.brenal_animation = animation;
 			}
-			ConceptPreviewConfig::Caole { config, animation } => {
+			ConceptSpeciesConfig::Caole(config) => {
 				self.caole.clone_from(config);
-				self.caole_animation = *animation;
+				self.caole_animation = animation;
 			}
-			ConceptPreviewConfig::Epiphant { config, animation } => {
+			ConceptSpeciesConfig::Epiphant(config) => {
 				self.epiphant.clone_from(config);
-				self.epiphant_animation = *animation;
+				self.epiphant_animation = animation;
 			}
-			ConceptPreviewConfig::Hars { config, animation } => {
+			ConceptSpeciesConfig::Hars(config) => {
 				self.hars.clone_from(config);
-				self.hars_animation = *animation;
+				self.hars_animation = animation;
 			}
-			ConceptPreviewConfig::Yilter { config, animation } => {
+			ConceptSpeciesConfig::Yilter(config) => {
 				self.ylter.clone_from(config);
-				self.ylter_animation = *animation;
+				self.ylter_animation = animation;
 			}
-			ConceptPreviewConfig::Sonyak { config, animation } => {
+			ConceptSpeciesConfig::Sonyak(config) => {
 				self.sonyak.clone_from(config);
-				self.sonyak_animation = *animation;
+				self.sonyak_animation = animation;
 			}
-			ConceptPreviewConfig::Claber { config, animation } => {
+			ConceptSpeciesConfig::Claber(config) => {
 				self.claber.clone_from(config);
-				self.claber_animation = *animation;
+				self.claber_animation = animation;
 			}
-			ConceptPreviewConfig::Croconot { config, animation } => {
+			ConceptSpeciesConfig::Croconot(config) => {
 				self.croconot.clone_from(config);
-				self.croconot_animation = *animation;
+				self.croconot_animation = animation;
 			}
-			ConceptPreviewConfig::Brodler { config, animation } => {
+			ConceptSpeciesConfig::Brodler(config) => {
 				self.brodler.clone_from(config);
-				self.brodler_animation = *animation;
+				self.brodler_animation = animation;
 			}
-			ConceptPreviewConfig::Mygr { config, animation } => {
+			ConceptSpeciesConfig::Mygr(config) => {
 				self.mygr.clone_from(config);
-				self.mygr_animation = *animation;
+				self.mygr_animation = animation;
 			}
-			ConceptPreviewConfig::Dui { config, animation } => {
+			ConceptSpeciesConfig::Dui(config) => {
 				self.dui.clone_from(config);
-				self.dui_animation = *animation;
+				self.dui_animation = animation;
 			}
-			ConceptPreviewConfig::Lidder { config, animation } => {
+			ConceptSpeciesConfig::Lidder(config) => {
 				self.lidder.clone_from(config);
-				self.lidder_animation = *animation;
+				self.lidder_animation = animation;
 			}
-			ConceptPreviewConfig::Chupri { config, animation } => {
+			ConceptSpeciesConfig::Chupri(config) => {
 				self.chupri.clone_from(config);
-				self.chupri_animation = *animation;
+				self.chupri_animation = animation;
 			}
-			ConceptPreviewConfig::Brokker { config, animation } => {
+			ConceptSpeciesConfig::Brokker(config) => {
 				self.brokker.clone_from(config);
-				self.brokker_animation = *animation;
+				self.brokker_animation = animation;
 			}
-			ConceptPreviewConfig::Tipple { config, animation } => {
+			ConceptSpeciesConfig::Tipple(config) => {
 				self.tipple.clone_from(config);
-				self.tipple_animation = *animation;
+				self.tipple_animation = animation;
 			}
-			ConceptPreviewConfig::Topple { config, animation } => {
+			ConceptSpeciesConfig::Topple(config) => {
 				self.topple.clone_from(config);
-				self.topple_animation = *animation;
+				self.topple_animation = animation;
 			}
-			ConceptPreviewConfig::Kispar { config, animation } => {
+			ConceptSpeciesConfig::Kispar(config) => {
 				self.kispar.clone_from(config);
-				self.kispar_animation = *animation;
+				self.kispar_animation = animation;
 			}
-			ConceptPreviewConfig::Tapp { config, animation } => {
+			ConceptSpeciesConfig::Tapp(config) => {
 				self.tapp.clone_from(config);
-				self.tapp_animation = *animation;
+				self.tapp_animation = animation;
 			}
-			ConceptPreviewConfig::Kaller { config, animation } => {
+			ConceptSpeciesConfig::Kaller(config) => {
 				self.kaller.clone_from(config);
-				self.kaller_animation = *animation;
+				self.kaller_animation = animation;
 			}
-			ConceptPreviewConfig::Kappler { config, animation } => {
+			ConceptSpeciesConfig::Kappler(config) => {
 				self.kappler.clone_from(config);
-				self.kappler_animation = *animation;
+				self.kappler_animation = animation;
 			}
-			ConceptPreviewConfig::Wumbus { config, animation } => {
+			ConceptSpeciesConfig::Wumbus(config) => {
 				self.wumbus.clone_from(config);
-				self.wumbus_animation = *animation;
+				self.wumbus_animation = animation;
 			}
-			ConceptPreviewConfig::Lero { config, animation } => {
+			ConceptSpeciesConfig::Lero(config) => {
 				self.lero.clone_from(config);
-				self.lero_animation = *animation;
+				self.lero_animation = animation;
 			}
-			ConceptPreviewConfig::Spibmom { config, animation } => {
+			ConceptSpeciesConfig::Spibmom(config) => {
 				self.spibmom.clone_from(config);
-				self.spibmom_animation = *animation;
+				self.spibmom_animation = animation;
 			}
-			ConceptPreviewConfig::Grener { config, animation } => {
+			ConceptSpeciesConfig::Grener(config) => {
 				self.grener.clone_from(config);
-				self.grener_animation = *animation;
+				self.grener_animation = animation;
 			}
-			ConceptPreviewConfig::Thumplus { config, animation } => {
+			ConceptSpeciesConfig::Thumplus(config) => {
 				self.thumplus.clone_from(config);
-				self.thumplus_animation = *animation;
+				self.thumplus_animation = animation;
 			}
-			ConceptPreviewConfig::Mistler { config, animation } => {
+			ConceptSpeciesConfig::Mistler(config) => {
 				self.mistler.clone_from(config);
-				self.mistler_animation = *animation;
+				self.mistler_animation = animation;
 			}
-			ConceptPreviewConfig::Tuberwaber { config, animation } => {
+			ConceptSpeciesConfig::Tuberwaber(config) => {
 				self.tuberwaber.clone_from(config);
-				self.tuberwaber_animation = *animation;
+				self.tuberwaber_animation = animation;
 			}
 		}
 	}

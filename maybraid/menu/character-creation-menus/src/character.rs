@@ -1,7 +1,5 @@
 use character_items::{Inventory, InventoryDropPolicy, InventoryItem};
-use character_ui_menu::{
-	CameraFocus, LabelOption, ListValues, MenuComponent, MenuNode, SingleSelect,
-};
+use character_ui_menu::{CameraFocus, MenuComponent, MenuNode, SingleSelect};
 use characters::{
 	species::{
 		braidman::BraidmanConfig, brenal::BrenalConfig, brodler::BrodlerConfig,
@@ -13,7 +11,7 @@ use characters::{
 		tipple::TippleConfig, topple::ToppleConfig, tuberwaber::TuberwaberConfig,
 		wumbus::WumbusConfig, ylter::YilterConfig,
 	},
-	CharacterAppearance, ConceptAnimation,
+	CharacterAppearance, ConceptAnimation, ConceptSpeciesConfig,
 };
 
 use crate::{
@@ -52,198 +50,7 @@ use crate::{
 	shared::{clothing_menu_from_inventory, inventory_overlay_key, loadout_section},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ConceptSpecies {
-	Braidman,
-	Brenal,
-	Caole,
-	Epiphant,
-	Hars,
-	Yilter,
-	Sonyak,
-	Claber,
-	Croconot,
-	Brodler,
-	Mygr,
-	Dui,
-	Lidder,
-	Chupri,
-	Brokker,
-	Tipple,
-	Topple,
-	Kispar,
-	Tapp,
-	Kaller,
-	Kappler,
-	Wumbus,
-	Lero,
-	Spibmom,
-	Grener,
-	Thumplus,
-	Mistler,
-	Tuberwaber,
-}
-
-impl ConceptSpecies {
-	pub const fn label(self) -> &'static str {
-		match self {
-			Self::Braidman => "braidman",
-			Self::Brenal => "brenal",
-			Self::Caole => "caole",
-			Self::Epiphant => "epiphant",
-			Self::Hars => "hars",
-			Self::Yilter => "ylter",
-			Self::Sonyak => "sonyak",
-			Self::Claber => "claber",
-			Self::Croconot => "croconot",
-			Self::Brodler => "brodler",
-			Self::Mygr => "mygr",
-			Self::Dui => "dui",
-			Self::Lidder => "lidder",
-			Self::Chupri => "chupri",
-			Self::Brokker => "brokker",
-			Self::Tipple => "tipple",
-			Self::Topple => "topple",
-			Self::Kispar => "kispar",
-			Self::Tapp => "tapp",
-			Self::Kaller => "kaller",
-			Self::Kappler => "kappler",
-			Self::Wumbus => "wumbus",
-			Self::Lero => "lero",
-			Self::Spibmom => "spibmom",
-			Self::Grener => "grener",
-			Self::Thumplus => "thumplus",
-			Self::Mistler => "mistler",
-			Self::Tuberwaber => "tuberwaber",
-		}
-	}
-}
-
-impl ListValues for ConceptSpecies {
-	fn values() -> &'static [Self] {
-		&[
-			// Humanoids
-			Self::Braidman,
-			Self::Brodler,
-			Self::Mygr,
-			Self::Dui,
-			Self::Wumbus,
-			Self::Lero,
-			Self::Spibmom,
-			Self::Tuberwaber,
-			// Quadrupeds
-			Self::Brenal,
-			Self::Caole,
-			Self::Epiphant,
-			Self::Hars,
-			Self::Yilter,
-			Self::Sonyak,
-			Self::Claber,
-			Self::Croconot,
-			// Birds
-			Self::Lidder,
-			Self::Chupri,
-			Self::Brokker,
-			Self::Tipple,
-			Self::Topple,
-			Self::Kispar,
-			Self::Tapp,
-			Self::Kaller,
-			Self::Kappler,
-			// Aquatic
-			Self::Grener,
-			Self::Thumplus,
-			Self::Mistler,
-		]
-	}
-}
-
-impl ConceptSpecies {
-	pub const HUMANOIDS: &'static [Self] = &[
-		Self::Braidman,
-		Self::Brodler,
-		Self::Mygr,
-		Self::Dui,
-		Self::Wumbus,
-		Self::Lero,
-		Self::Spibmom,
-		Self::Tuberwaber,
-	];
-
-	pub const fn is_humanoid(self) -> bool {
-		matches!(
-			self,
-			Self::Braidman
-				| Self::Brodler
-				| Self::Mygr | Self::Dui
-				| Self::Wumbus
-				| Self::Lero | Self::Spibmom
-				| Self::Tuberwaber
-		)
-	}
-
-	/// Body-rig family used to expand and aim whole-body preview framing.
-	pub const fn skeleton_kind(self) -> characters::RigSkeletonKind {
-		use characters::RigSkeletonKind;
-		match self {
-			Self::Brenal
-			| Self::Caole
-			| Self::Epiphant
-			| Self::Hars
-			| Self::Yilter
-			| Self::Sonyak
-			| Self::Claber
-			| Self::Croconot => RigSkeletonKind::Quadruped,
-			Self::Grener | Self::Thumplus | Self::Mistler => RigSkeletonKind::Forelimbed,
-			_ => RigSkeletonKind::Humanoid,
-		}
-	}
-
-	/// Whole-body preview framing from a rest-pose hull (no per-species offsets).
-	pub fn body_preview_focus(self, hull: characters::LocomotionCapsule) -> CameraFocus {
-		let kind = self.skeleton_kind();
-		CameraFocus::fit_preview_bounds(
-			hull.preview_aabb_for(kind),
-			CameraFocus::BODY_PREVIEW_FOV,
-			kind.preview_view_direction(),
-		)
-	}
-}
-
-impl LabelOption for ConceptSpecies {
-	fn label(&self) -> &'static str {
-		match *self {
-			Self::Braidman => "braidman",
-			Self::Brenal => "brenal",
-			Self::Caole => "caole",
-			Self::Epiphant => "epiphant",
-			Self::Hars => "hars",
-			Self::Yilter => "ylter",
-			Self::Sonyak => "sonyak",
-			Self::Claber => "claber",
-			Self::Croconot => "croconot",
-			Self::Brodler => "brodler",
-			Self::Mygr => "mygr",
-			Self::Dui => "dui",
-			Self::Lidder => "lidder",
-			Self::Chupri => "chupri",
-			Self::Brokker => "brokker",
-			Self::Tipple => "tipple",
-			Self::Topple => "topple",
-			Self::Kispar => "kispar",
-			Self::Tapp => "tapp",
-			Self::Kaller => "kaller",
-			Self::Kappler => "kappler",
-			Self::Wumbus => "wumbus",
-			Self::Lero => "lero",
-			Self::Spibmom => "spibmom",
-			Self::Grener => "grener",
-			Self::Thumplus => "thumplus",
-			Self::Mistler => "mistler",
-			Self::Tuberwaber => "tuberwaber",
-		}
-	}
-}
+pub use characters::ConceptSpecies;
 
 /// Hard cap for the character display name.
 pub const CHARACTER_NAME_MAX_LEN: usize = 16;
@@ -295,30 +102,10 @@ impl CharacterMenu {
 	}
 
 	pub fn for_saved(name: String, appearance: &CharacterAppearance, inventory: Inventory) -> Self {
-		let mut menu = match appearance {
-			CharacterAppearance::Braidman(config) => {
-				Self::from_braidman(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Brodler(config) => {
-				Self::from_brodler(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Mygr(config) => {
-				Self::from_mygr(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Dui(config) => Self::from_dui(config, ConceptAnimation::default()),
-			CharacterAppearance::Wumbus(config) => {
-				Self::from_wumbus(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Lero(config) => {
-				Self::from_lero(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Spibmom(config) => {
-				Self::from_spibmom(config, ConceptAnimation::default())
-			}
-			CharacterAppearance::Tuberwaber(config) => {
-				Self::from_tuberwaber(config, ConceptAnimation::default())
-			}
-		};
+		let mut menu = Self::from_species_config(
+			&ConceptSpeciesConfig::from(appearance.clone()),
+			ConceptAnimation::default(),
+		);
 		menu.name = name;
 		menu.set_inventory(inventory);
 		menu.appearance_locked = true;
@@ -352,17 +139,10 @@ impl CharacterMenu {
 	}
 
 	pub fn appearance(&self) -> CharacterAppearance {
-		let mut appearance = match self.species.value {
-			ConceptSpecies::Braidman => CharacterAppearance::Braidman(self.braidman_config()),
-			ConceptSpecies::Brodler => CharacterAppearance::Brodler(self.brodler_config()),
-			ConceptSpecies::Mygr => CharacterAppearance::Mygr(self.mygr_config()),
-			ConceptSpecies::Dui => CharacterAppearance::Dui(self.dui_config()),
-			ConceptSpecies::Wumbus => CharacterAppearance::Wumbus(self.wumbus_config()),
-			ConceptSpecies::Lero => CharacterAppearance::Lero(self.lero_config()),
-			ConceptSpecies::Spibmom => CharacterAppearance::Spibmom(self.spibmom_config()),
-			ConceptSpecies::Tuberwaber => CharacterAppearance::Tuberwaber(self.tuberwaber_config()),
-			_ => CharacterAppearance::Braidman(self.braidman_config()),
-		};
+		let mut appearance = self
+			.species_config()
+			.appearance()
+			.unwrap_or_else(|| CharacterAppearance::Braidman(self.braidman_config()));
 		appearance.strip_clothing();
 		appearance
 	}
@@ -1441,6 +1221,39 @@ impl CharacterMenu {
 		}
 	}
 
+	pub fn from_species_config(config: &ConceptSpeciesConfig, animation: ConceptAnimation) -> Self {
+		match config {
+			ConceptSpeciesConfig::Braidman(config) => Self::from_braidman(config, animation),
+			ConceptSpeciesConfig::Brenal(config) => Self::from_brenal(config, animation),
+			ConceptSpeciesConfig::Caole(config) => Self::from_caole(config, animation),
+			ConceptSpeciesConfig::Epiphant(config) => Self::from_epiphant(config, animation),
+			ConceptSpeciesConfig::Hars(config) => Self::from_hars(config, animation),
+			ConceptSpeciesConfig::Yilter(config) => Self::from_ylter(config, animation),
+			ConceptSpeciesConfig::Sonyak(config) => Self::from_sonyak(config, animation),
+			ConceptSpeciesConfig::Claber(config) => Self::from_claber(config, animation),
+			ConceptSpeciesConfig::Croconot(config) => Self::from_croconot(config, animation),
+			ConceptSpeciesConfig::Brodler(config) => Self::from_brodler(config, animation),
+			ConceptSpeciesConfig::Mygr(config) => Self::from_mygr(config, animation),
+			ConceptSpeciesConfig::Dui(config) => Self::from_dui(config, animation),
+			ConceptSpeciesConfig::Lidder(config) => Self::from_lidder(config, animation),
+			ConceptSpeciesConfig::Chupri(config) => Self::from_chupri(config, animation),
+			ConceptSpeciesConfig::Brokker(config) => Self::from_brokker(config, animation),
+			ConceptSpeciesConfig::Tipple(config) => Self::from_tipple(config, animation),
+			ConceptSpeciesConfig::Topple(config) => Self::from_topple(config, animation),
+			ConceptSpeciesConfig::Kispar(config) => Self::from_kispar(config, animation),
+			ConceptSpeciesConfig::Tapp(config) => Self::from_tapp(config, animation),
+			ConceptSpeciesConfig::Kaller(config) => Self::from_kaller(config, animation),
+			ConceptSpeciesConfig::Kappler(config) => Self::from_kappler(config, animation),
+			ConceptSpeciesConfig::Wumbus(config) => Self::from_wumbus(config, animation),
+			ConceptSpeciesConfig::Lero(config) => Self::from_lero(config, animation),
+			ConceptSpeciesConfig::Spibmom(config) => Self::from_spibmom(config, animation),
+			ConceptSpeciesConfig::Grener(config) => Self::from_grener(config, animation),
+			ConceptSpeciesConfig::Thumplus(config) => Self::from_thumplus(config, animation),
+			ConceptSpeciesConfig::Mistler(config) => Self::from_mistler(config, animation),
+			ConceptSpeciesConfig::Tuberwaber(config) => Self::from_tuberwaber(config, animation),
+		}
+	}
+
 	/// Lowers the currently selected species menu; the other species' state is
 	/// retained but not part of the tree. When the bag is present, Clothing
 	/// lives under Inventory instead of the species subtree.
@@ -1512,6 +1325,41 @@ impl CharacterMenu {
 			ConceptSpecies::Thumplus => self.thumplus.animation(),
 			ConceptSpecies::Mistler => self.mistler.animation(),
 			ConceptSpecies::Tuberwaber => self.tuberwaber.animation(),
+		}
+	}
+
+	pub fn species_config(&self) -> ConceptSpeciesConfig {
+		match self.species.value {
+			ConceptSpecies::Braidman => ConceptSpeciesConfig::Braidman(self.braidman_config()),
+			ConceptSpecies::Brenal => ConceptSpeciesConfig::Brenal(self.brenal_config()),
+			ConceptSpecies::Caole => ConceptSpeciesConfig::Caole(self.caole_config()),
+			ConceptSpecies::Epiphant => ConceptSpeciesConfig::Epiphant(self.epiphant_config()),
+			ConceptSpecies::Hars => ConceptSpeciesConfig::Hars(self.hars_config()),
+			ConceptSpecies::Yilter => ConceptSpeciesConfig::Yilter(self.ylter_config()),
+			ConceptSpecies::Sonyak => ConceptSpeciesConfig::Sonyak(self.sonyak_config()),
+			ConceptSpecies::Claber => ConceptSpeciesConfig::Claber(self.claber_config()),
+			ConceptSpecies::Croconot => ConceptSpeciesConfig::Croconot(self.croconot_config()),
+			ConceptSpecies::Brodler => ConceptSpeciesConfig::Brodler(self.brodler_config()),
+			ConceptSpecies::Mygr => ConceptSpeciesConfig::Mygr(self.mygr_config()),
+			ConceptSpecies::Dui => ConceptSpeciesConfig::Dui(self.dui_config()),
+			ConceptSpecies::Lidder => ConceptSpeciesConfig::Lidder(self.lidder_config()),
+			ConceptSpecies::Chupri => ConceptSpeciesConfig::Chupri(self.chupri_config()),
+			ConceptSpecies::Brokker => ConceptSpeciesConfig::Brokker(self.brokker_config()),
+			ConceptSpecies::Tipple => ConceptSpeciesConfig::Tipple(self.tipple_config()),
+			ConceptSpecies::Topple => ConceptSpeciesConfig::Topple(self.topple_config()),
+			ConceptSpecies::Kispar => ConceptSpeciesConfig::Kispar(self.kispar_config()),
+			ConceptSpecies::Tapp => ConceptSpeciesConfig::Tapp(self.tapp_config()),
+			ConceptSpecies::Kaller => ConceptSpeciesConfig::Kaller(self.kaller_config()),
+			ConceptSpecies::Kappler => ConceptSpeciesConfig::Kappler(self.kappler_config()),
+			ConceptSpecies::Wumbus => ConceptSpeciesConfig::Wumbus(self.wumbus_config()),
+			ConceptSpecies::Lero => ConceptSpeciesConfig::Lero(self.lero_config()),
+			ConceptSpecies::Spibmom => ConceptSpeciesConfig::Spibmom(self.spibmom_config()),
+			ConceptSpecies::Grener => ConceptSpeciesConfig::Grener(self.grener_config()),
+			ConceptSpecies::Thumplus => ConceptSpeciesConfig::Thumplus(self.thumplus_config()),
+			ConceptSpecies::Mistler => ConceptSpeciesConfig::Mistler(self.mistler_config()),
+			ConceptSpecies::Tuberwaber => {
+				ConceptSpeciesConfig::Tuberwaber(self.tuberwaber_config())
+			}
 		}
 	}
 
@@ -1695,37 +1543,7 @@ impl CharacterMenu {
 	}
 
 	pub fn locomotion_capsule(&self) -> characters::LocomotionCapsule {
-		use characters::CharacterRecipe;
-		match self.species.value {
-			ConceptSpecies::Braidman => self.braidman_config().locomotion_capsule(),
-			ConceptSpecies::Brenal => self.brenal_config().locomotion_capsule(),
-			ConceptSpecies::Caole => self.caole_config().locomotion_capsule(),
-			ConceptSpecies::Epiphant => self.epiphant_config().locomotion_capsule(),
-			ConceptSpecies::Hars => self.hars_config().locomotion_capsule(),
-			ConceptSpecies::Yilter => self.ylter_config().locomotion_capsule(),
-			ConceptSpecies::Sonyak => self.sonyak_config().locomotion_capsule(),
-			ConceptSpecies::Claber => self.claber_config().locomotion_capsule(),
-			ConceptSpecies::Croconot => self.croconot_config().locomotion_capsule(),
-			ConceptSpecies::Brodler => self.brodler_config().locomotion_capsule(),
-			ConceptSpecies::Mygr => self.mygr_config().locomotion_capsule(),
-			ConceptSpecies::Dui => self.dui_config().locomotion_capsule(),
-			ConceptSpecies::Lidder => self.lidder_config().locomotion_capsule(),
-			ConceptSpecies::Chupri => self.chupri_config().locomotion_capsule(),
-			ConceptSpecies::Brokker => self.brokker_config().locomotion_capsule(),
-			ConceptSpecies::Tipple => self.tipple_config().locomotion_capsule(),
-			ConceptSpecies::Topple => self.topple_config().locomotion_capsule(),
-			ConceptSpecies::Kispar => self.kispar_config().locomotion_capsule(),
-			ConceptSpecies::Tapp => self.tapp_config().locomotion_capsule(),
-			ConceptSpecies::Kaller => self.kaller_config().locomotion_capsule(),
-			ConceptSpecies::Kappler => self.kappler_config().locomotion_capsule(),
-			ConceptSpecies::Wumbus => self.wumbus_config().locomotion_capsule(),
-			ConceptSpecies::Lero => self.lero_config().locomotion_capsule(),
-			ConceptSpecies::Spibmom => self.spibmom_config().locomotion_capsule(),
-			ConceptSpecies::Grener => self.grener_config().locomotion_capsule(),
-			ConceptSpecies::Thumplus => self.thumplus_config().locomotion_capsule(),
-			ConceptSpecies::Mistler => self.mistler_config().locomotion_capsule(),
-			ConceptSpecies::Tuberwaber => self.tuberwaber_config().locomotion_capsule(),
-		}
+		self.species_config().locomotion_capsule()
 	}
 
 	/// Rest-pose envelope used to frame the live preview for the selected species.
