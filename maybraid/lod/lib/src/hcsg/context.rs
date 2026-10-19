@@ -90,12 +90,6 @@ impl<'a> GenerationContext<'a> {
 		nodes.value(id).cloned()
 	}
 
-	/// Records `T` on reach and returns whether `id` is already stored.
-	pub(super) fn has_stored<T: HcsgValue>(&mut self, id: Id) -> bool {
-		self.touch::<T>();
-		self.typed_store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
-	}
-
 	/// Types this context read since it was created.
 	pub(super) fn take_reached(&mut self) -> HashSet<TypeId> {
 		std::mem::take(&mut self.reached)

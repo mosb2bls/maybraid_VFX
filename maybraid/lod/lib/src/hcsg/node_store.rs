@@ -79,7 +79,7 @@ impl<T> NodeStore<T> {
 		self.entries.get(&id).map(|entry| &entry.value)
 	}
 
-	pub(crate) fn contains(&self, id: Id) -> bool {
+	pub fn contains(&self, id: Id) -> bool {
 		self.entries.contains_key(&id)
 	}
 
