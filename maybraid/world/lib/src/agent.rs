@@ -7,23 +7,26 @@ use damage::{Health, Hit};
 use durham::{CascadeChunk, Durham, DurhamSurface, WorldBaseTerrain};
 use maybraid_agent::{
 	read_script_commands, take_leading_start, AgentArgs, AgentButton, AgentCommand, AgentEvent,
-	AgentEventBody, CommandStatus, EventSink, LineInbox, PadIntent, Playback, TickEffect, TickView,
-	SCRIPT_API_VERSION,
+	AgentEventBody, CommandStatus, EventSink, InventoryObservation, LineInbox, MenuObservation,
+	PadIntent, Playback, TickEffect, TickView, SCRIPT_API_VERSION,
 };
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
 use mob_characters::CharacterSceneRecipe;
 use mob_scenes::MobScene;
-use player::Player as MotorPlayer;
+use player::{MoveWish, Player as MotorPlayer};
 use player_camera::CameraController;
+use tanz_user::{ControlMode, TanzExecution, TanzId, TanzUser};
 use terrain_layer_model::TerrainStreaming;
 use threat_management_intelligence::ThreatManagementIntelligence;
 use world_player::player::{holding_elevation, player_spawn_point_at, AwaitingTerrainSurface};
 use world_player::Player as VegetationPlayer;
 
+use crate::agent_inventory::{publish_agent_inventory, AgentInventoryState, AgentLastPadIntent};
 use crate::commands::PlaygroundCommand;
 use crate::control::{WorldGameplayEnabled, WorldMenuShell, WorldSurfaceReady};
 use crate::map_view::WorldMapView;
 use crate::render_scale::{PresentationChurn, RequestVisualStyle, VisualStyle};
+use crate::screenshot::{GameplayScreenshotFinished, RequestGameplayScreenshot};
 use crate::PlayerSpawnXz;
 
 const DEFAULT_SAMPLE_PERIOD: f32 = 0.5;
@@ -46,6 +49,12 @@ impl AgentDrive {
 	}
 }
 
+/// Bevy-free menu snapshot filled by the game crate. World stays free of menu types.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct AgentMenuState {
+	pub observation: MenuObservation,
+}
+
 #[derive(Resource)]
 struct AgentRuntime {
 	playback: Playback,
@@ -61,6 +70,8 @@ struct AgentRuntime {
 	load_error: Option<String>,
 	ready_timeout: f32,
 	sample_period: f32,
+	last_menu: MenuObservation,
+	last_inventory: InventoryObservation,
 }
 
 pub(crate) struct WorldAgentPlugin;
@@ -112,6 +123,9 @@ impl Plugin for WorldAgentPlugin {
 			});
 
 		app.insert_resource(PadOverlay::default())
+			.init_resource::<AgentMenuState>()
+			.init_resource::<AgentInventoryState>()
+			.init_resource::<AgentLastPadIntent>()
 			.insert_resource(AgentRuntime {
 				playback,
 				sink,
@@ -126,6 +140,8 @@ impl Plugin for WorldAgentPlugin {
 				load_error,
 				ready_timeout: drive.ready_timeout,
 				sample_period: drive.sample_period,
+				last_menu: MenuObservation::default(),
+				last_inventory: InventoryObservation::default(),
 			})
 			.add_systems(
 				PreUpdate,
@@ -138,6 +154,8 @@ impl Plugin for WorldAgentPlugin {
 				(
 					agent_apply_world_ops,
 					agent_emit_presentation_churn,
+					agent_emit_tanz,
+					agent_screenshot_finished,
 					agent_sample_player,
 					agent_sample_picker,
 					agent_chunk_loads,
@@ -145,7 +163,8 @@ impl Plugin for WorldAgentPlugin {
 					agent_maybe_quit,
 				)
 					.chain(),
-			);
+			)
+			.add_systems(Last, (publish_agent_inventory, agent_emit_observation_churn).chain());
 	}
 }
 
@@ -217,6 +236,8 @@ fn agent_sync_ready(
 	mut runtime: ResMut<AgentRuntime>,
 	gameplay: Res<WorldGameplayEnabled>,
 	surface: Res<WorldSurfaceReady>,
+	menu: Res<AgentMenuState>,
+	spawn: Res<PlayerSpawnXz>,
 	streaming: Res<TerrainStreaming<Durham>>,
 	menu_shell: Option<Res<WorldMenuShell>>,
 	time: Res<Time>,
@@ -243,23 +264,20 @@ fn agent_sync_ready(
 	}
 	let elapsed = time.elapsed_secs();
 	let surface_ready = gameplay.0 && surface.0;
+	let observation_ready = spawn.0.is_none() && menu.observation.menu_ready;
 	// Prefer the shell bit the game writes from GameFlow. Streaming-off is a
 	// fallback, but Home has leaked streaming=on in live boots and that sat
-	// Home-first scripts on the 90 s timeout.
+	// Home-first scripts on the 90 s timeout. Observation fires as soon as
+	// the first menu screen is published (no 2 s wait).
 	let menu_shell_ready = elapsed >= MENU_READY_SECS
 		&& (menu_shell.is_some_and(|shell| shell.0) || !streaming.enabled);
+	let menu_ready = observation_ready || menu_shell_ready;
 	let timed_out = elapsed >= runtime.ready_timeout;
-	if !surface_ready && !menu_shell_ready && !timed_out {
+	if !surface_ready && !menu_ready && !timed_out {
 		return;
 	}
 	runtime.ready = true;
-	let detail = if surface_ready {
-		"surface"
-	} else if menu_shell_ready {
-		"menu"
-	} else {
-		"timeout"
-	};
+	let detail = ready_detail(surface_ready, menu_ready);
 	emit(
 		&runtime.sink,
 		AgentEvent {
@@ -270,9 +288,13 @@ fn agent_sync_ready(
 	);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn agent_tick_playback(
 	mut runtime: ResMut<AgentRuntime>,
 	mut overlay: ResMut<PadOverlay>,
+	mut last_pad: ResMut<AgentLastPadIntent>,
+	menu: Res<AgentMenuState>,
+	inventory: Res<AgentInventoryState>,
 	time: Res<Time>,
 	motors: Query<&Transform, With<MotorPlayer>>,
 	vegetation: Query<&Transform, (With<VegetationPlayer>, Without<MotorPlayer>)>,
@@ -290,9 +312,12 @@ fn agent_tick_playback(
 			[xz.x, xz.y]
 		}),
 		yaw: cameras.single().ok().map(|camera| camera.yaw).unwrap_or(0.0),
+		menu: menu.observation.clone(),
+		inventory: inventory.observation.clone(),
 	};
 	let tick = runtime.playback.tick(time.delta_secs(), &view);
 	runtime.last_intent = tick.intent.clone();
+	last_pad.0 = tick.intent.clone();
 	apply_intent(&mut overlay, &tick.intent);
 	let t = time.elapsed_secs();
 	let frame = runtime.frame;
@@ -324,19 +349,22 @@ fn agent_tick_playback(
 					},
 				},
 			),
-			TickEffect::Failed { id, cmd, detail } => emit(
-				&runtime.sink,
-				AgentEvent {
-					t,
-					frame,
-					body: AgentEventBody::Command {
-						id,
-						status: CommandStatus::Failed,
-						cmd,
-						detail: Some(detail),
+			TickEffect::Failed { id, cmd, detail } => {
+				emit(
+					&runtime.sink,
+					AgentEvent {
+						t,
+						frame,
+						body: AgentEventBody::Command {
+							id,
+							status: CommandStatus::Failed,
+							cmd,
+							detail: Some(detail),
+						},
 					},
-				},
-			),
+				);
+				runtime.quit = true;
+			}
 			TickEffect::Instant { id, command } => {
 				if matches!(command, AgentCommand::Quit) {
 					runtime.quit = true;
@@ -366,6 +394,139 @@ fn agent_tick_playback(
 	if tick.idle && runtime.quit_when_idle && runtime.inbox.is_none() {
 		runtime.quit = true;
 	}
+}
+
+fn ready_detail(surface_ready: bool, menu_ready: bool) -> &'static str {
+	if surface_ready {
+		"surface"
+	} else if menu_ready {
+		"menu"
+	} else {
+		"timeout"
+	}
+}
+
+fn agent_emit_observation_churn(
+	mut runtime: ResMut<AgentRuntime>,
+	menu: Res<AgentMenuState>,
+	inventory: Res<AgentInventoryState>,
+	time: Res<Time>,
+) {
+	let current = menu.observation.clone();
+	let last = runtime.last_menu.clone();
+	let t = time.elapsed_secs();
+	let frame = runtime.frame;
+	if current.screen != last.screen {
+		emit(
+			&runtime.sink,
+			AgentEvent { t, frame, body: AgentEventBody::Screen { name: current.screen.clone() } },
+		);
+	}
+	if current.modal != last.modal {
+		emit(
+			&runtime.sink,
+			AgentEvent { t, frame, body: AgentEventBody::Modal { name: current.modal.clone() } },
+		);
+	}
+	if current.focus_changed(&last) {
+		if let Some(row) = current.focus_row {
+			emit(
+				&runtime.sink,
+				AgentEvent {
+					t,
+					frame,
+					body: AgentEventBody::Focus {
+						screen: current.screen.clone(),
+						row,
+						label: current.focus_label.clone(),
+					},
+				},
+			);
+		}
+	}
+	if !current.flow.is_empty() && (current.flow != last.flow || current.pause != last.pause) {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Flow {
+					flow: current.flow.clone(),
+					pause: current.pause.clone(),
+				},
+			},
+		);
+	}
+	for detail in &current.invariants {
+		if !last.invariants.contains(detail) {
+			emit(
+				&runtime.sink,
+				AgentEvent { t, frame, body: AgentEventBody::Invariant { detail: detail.clone() } },
+			);
+		}
+	}
+	runtime.last_menu = current;
+
+	let current_inventory = inventory.observation.clone();
+	let last_inventory = runtime.last_inventory.clone();
+	if current_inventory.category_changed(&last_inventory) {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Cycle { category: current_inventory.cycle_category.clone() },
+			},
+		);
+	}
+	if current_inventory.weapon != last_inventory.weapon {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Equipped {
+					category: "weapons".into(),
+					item: current_inventory.weapon.clone(),
+				},
+			},
+		);
+	}
+	if current_inventory.skill_map != last_inventory.skill_map {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Equipped {
+					category: "skill_maps".into(),
+					item: current_inventory.skill_map.clone(),
+				},
+			},
+		);
+	}
+	if current_inventory.lubikan != last_inventory.lubikan {
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Equipped {
+					category: "lubikans".into(),
+					item: current_inventory.lubikan.clone(),
+				},
+			},
+		);
+	}
+	for detail in &current_inventory.invariants {
+		if !last_inventory.invariants.contains(detail) {
+			emit(
+				&runtime.sink,
+				AgentEvent { t, frame, body: AgentEventBody::Invariant { detail: detail.clone() } },
+			);
+		}
+	}
+	runtime.last_inventory = current_inventory;
 }
 
 fn apply_intent(overlay: &mut PadOverlay, intent: &PadIntent) {
@@ -429,6 +590,7 @@ fn agent_apply_world_ops(
 		),
 		With<MotorPlayer>,
 	>,
+	mut tanzers: Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
 ) {
 	let pending = std::mem::take(&mut runtime.pending);
 	let t = time.elapsed_secs();
@@ -490,6 +652,45 @@ fn agent_apply_world_ops(
 				if !console.is_empty() {
 					info!(target: "maybraid.agent", "{console}");
 				}
+			}
+			AgentCommand::TanzMode { mode } => {
+				let label = format!("tanz_mode {mode}");
+				let result = apply_tanz_mode(&mut tanzers, &mode);
+				let (status, detail) = match result {
+					Ok(detail) => (CommandStatus::Finished, Some(detail)),
+					Err(detail) => (CommandStatus::Failed, Some(detail)),
+				};
+				emit(
+					&runtime.sink,
+					AgentEvent {
+						t,
+						frame,
+						body: AgentEventBody::Command { id, status, cmd: label, detail },
+					},
+				);
+			}
+			AgentCommand::Tanz { id: tanz_id } => {
+				let label = format!("tanz {tanz_id}");
+				let result = apply_tanz(&mut tanzers, &tanz_id);
+				let (status, detail) = match result {
+					Ok(detail) => (CommandStatus::Finished, Some(detail)),
+					Err(detail) => (CommandStatus::Failed, Some(detail)),
+				};
+				emit(
+					&runtime.sink,
+					AgentEvent {
+						t,
+						frame,
+						body: AgentEventBody::Command { id, status, cmd: label, detail },
+					},
+				);
+			}
+			AgentCommand::Screenshot { path } => {
+				commands.spawn(RequestGameplayScreenshot {
+					path: std::path::PathBuf::from(&path),
+					command_id: Some(id),
+				});
+				info!(target: "maybraid.agent", "screenshot {path}: queued");
 			}
 			AgentCommand::VisualStyle { style } => {
 				if let Some(visual_style) = VisualStyle::from_script_id(&style) {
@@ -726,6 +927,110 @@ fn agent_actor_census(
 	);
 }
 
+fn apply_tanz_mode(
+	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	mode: &str,
+) -> Result<String, String> {
+	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
+	let next = if mode.trim().eq_ignore_ascii_case("toggle") {
+		user.0.mode.toggle()
+	} else {
+		ControlMode::from_script_id(mode).ok_or_else(|| format!("unknown tanz mode: {mode}"))?
+	};
+	let changed = user.0.set_mode(next, &mut user.1, &mut user.2);
+	Ok(if changed {
+		format!("mode {}", next.script_id())
+	} else {
+		format!("already {}", next.script_id())
+	})
+}
+
+fn apply_tanz(
+	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	id: &str,
+) -> Result<String, String> {
+	let tanz_id = TanzId::from_script_id(id).ok_or_else(|| format!("unknown tanz: {id}"))?;
+	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
+	if !user.0.mode.is_tanzer() {
+		user.0.set_mode(ControlMode::Tanzer, &mut user.1, &mut user.2);
+	}
+	user.1.submit(tanz_id);
+	Ok(format!("submitted {}", tanz_id.script_id()))
+}
+
+fn agent_emit_tanz(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	users: Query<(&TanzUser, &TanzExecution)>,
+	mut last_mode: Local<Option<ControlMode>>,
+	mut last_active: Local<Option<TanzId>>,
+) {
+	if !runtime.ready {
+		return;
+	}
+	let Some((user, execution)) = users.iter().next() else {
+		return;
+	};
+	let t = time.elapsed_secs();
+	let frame = runtime.frame;
+	if *last_mode != Some(user.mode) {
+		*last_mode = Some(user.mode);
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Tanz { mode: user.mode.script_id().into(), id: None },
+			},
+		);
+	}
+	let active = execution.active.map(|active| active.id);
+	if active != *last_active {
+		*last_active = active;
+		if let Some(id) = active {
+			emit(
+				&runtime.sink,
+				AgentEvent {
+					t,
+					frame,
+					body: AgentEventBody::Tanz {
+						mode: user.mode.script_id().into(),
+						id: Some(id.script_id().into()),
+					},
+				},
+			);
+		}
+	}
+}
+
+fn agent_screenshot_finished(
+	runtime: Res<AgentRuntime>,
+	time: Res<Time>,
+	mut finished: MessageReader<GameplayScreenshotFinished>,
+) {
+	let t = time.elapsed_secs();
+	let frame = runtime.frame;
+	for shot in finished.read() {
+		let Some(id) = shot.command_id else {
+			continue;
+		};
+		let status = if shot.ok { CommandStatus::Finished } else { CommandStatus::Failed };
+		emit(
+			&runtime.sink,
+			AgentEvent {
+				t,
+				frame,
+				body: AgentEventBody::Command {
+					id,
+					status,
+					cmd: format!("screenshot {}", shot.path.display()),
+					detail: Some(shot.detail.clone()),
+				},
+			},
+		);
+	}
+}
+
 fn agent_maybe_quit(
 	mut runtime: ResMut<AgentRuntime>,
 	mut exit: MessageWriter<AppExit>,
@@ -785,6 +1090,13 @@ mod tests {
 		assert_eq!(overlay.move_stick, Vec2::Y);
 	}
 
+	#[test]
+	fn ready_prefers_surface_then_menu() {
+		assert_eq!(ready_detail(true, true), "surface");
+		assert_eq!(ready_detail(false, true), "menu");
+		assert_eq!(ready_detail(false, false), "timeout");
+	}
+
 	fn idle_runtime() -> AgentRuntime {
 		AgentRuntime {
 			playback: Playback::new(),
@@ -800,6 +1112,8 @@ mod tests {
 			load_error: None,
 			ready_timeout: DEFAULT_READY_TIMEOUT,
 			sample_period: DEFAULT_SAMPLE_PERIOD,
+			last_menu: MenuObservation::default(),
+			last_inventory: InventoryObservation::default(),
 		}
 	}
 
@@ -809,6 +1123,11 @@ mod tests {
 		time
 	}
 
+	fn insert_ready_deps(world: &mut World) {
+		world.insert_resource(AgentMenuState::default());
+		world.insert_resource(PlayerSpawnXz(None));
+	}
+
 	#[test]
 	fn menu_shell_is_ready_before_discovery_surface() -> anyhow::Result<()> {
 		let mut world = World::new();
@@ -816,6 +1135,7 @@ mod tests {
 		world.insert_resource(WorldGameplayEnabled(false));
 		world.insert_resource(WorldSurfaceReady(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(false));
+		insert_ready_deps(&mut world);
 		world.insert_resource(advance_time(MENU_READY_SECS));
 		world
 			.run_system_once(agent_sync_ready)
@@ -831,6 +1151,7 @@ mod tests {
 		world.insert_resource(WorldGameplayEnabled(false));
 		world.insert_resource(WorldSurfaceReady(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		insert_ready_deps(&mut world);
 		world.insert_resource(advance_time(MENU_READY_SECS));
 		world
 			.run_system_once(agent_sync_ready)
@@ -847,6 +1168,7 @@ mod tests {
 		world.insert_resource(WorldSurfaceReady(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(true));
 		world.insert_resource(WorldMenuShell(true));
+		insert_ready_deps(&mut world);
 		world.insert_resource(advance_time(MENU_READY_SECS));
 		world
 			.run_system_once(agent_sync_ready)
@@ -862,7 +1184,27 @@ mod tests {
 		world.insert_resource(WorldGameplayEnabled(true));
 		world.insert_resource(WorldSurfaceReady(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(false));
+		insert_ready_deps(&mut world);
 		world.insert_resource(advance_time(MENU_READY_SECS));
+		world
+			.run_system_once(agent_sync_ready)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<AgentRuntime>().ready);
+		Ok(())
+	}
+
+	#[test]
+	fn first_menu_screen_is_ready_before_shell_timer() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(idle_runtime());
+		world.insert_resource(WorldGameplayEnabled(false));
+		world.insert_resource(WorldSurfaceReady(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		world.insert_resource(AgentMenuState {
+			observation: MenuObservation { menu_ready: true, ..Default::default() },
+		});
+		world.insert_resource(PlayerSpawnXz(None));
+		world.insert_resource(advance_time(0.1));
 		world
 			.run_system_once(agent_sync_ready)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

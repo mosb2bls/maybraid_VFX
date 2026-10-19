@@ -72,10 +72,8 @@ pub use plan_access::{
 	DOOR_WIDTH_MAX, MIN_GROUP_CONNECTIVITY, MIN_ROOM,
 };
 pub use plan_cells::{
-	cell_has_hall_frontage, cells_edge_adjacent, cells_well_connected, decompose_max_rects,
-	group_cells_to_apartments, hall_frontage_length, pack_apartments_to_targets, rect_in_union,
-	shared_edge_length, shared_edge_span, split_oversized_cells, split_toward_min_room,
-	subtract_aabb2, PlanCell,
+	decompose_max_rects, group_cells_to_apartments, pack_apartments_to_targets, rect_in_union,
+	shared_edge_span, split_oversized_cells, split_toward_min_room, subtract_aabb2, PlanCell,
 };
 pub use plan_geom::{confines_from_xz, host_xz};
 pub use rect_passage_cluster::{RectPassageCluster, RectPassageClusterParams};

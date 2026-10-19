@@ -1,0 +1,9 @@
+# Script API 6. CI e2e smoke: spawn one Guard next to the player. Assert the
+# `actors` host census increases (bodies stream in too slowly on lavapipe).
+# Tanz move commands are not on main.
+
+{"cmd":"start","xz":[0,0]}
+{"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"console","line":"mobs spawn guard 1 --at 0,0 --spacing 8 --seed 1"}
+{"cmd":"wait","secs":12}
+{"cmd":"quit"}

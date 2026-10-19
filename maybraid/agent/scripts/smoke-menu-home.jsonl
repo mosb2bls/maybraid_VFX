@@ -1,0 +1,12 @@
+# Script API 6. CI e2e smoke: Home boot + a couple of rows so confirm would
+# land on Characters (Reliquary is locked). No --start-at. Assert ready=menu
+# and a focus event on Characters.
+
+{"cmd":"wait_for","screen":"home","timeout":20}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait_for","screen":"home","focus_label":"Characters","timeout":5}
+{"cmd":"expect","screen":"home","focus_label":"Characters"}
+{"cmd":"quit"}

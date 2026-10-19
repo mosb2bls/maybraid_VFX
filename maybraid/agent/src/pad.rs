@@ -39,8 +39,14 @@ impl PadIntent {
 	}
 
 	pub fn press(button: AgentButton) -> Self {
+		Self::press_many(&[button])
+	}
+
+	pub fn press_many(buttons: &[AgentButton]) -> Self {
 		let mut intent = Self::default();
-		intent.hold_button(button);
+		for button in buttons {
+			intent.hold_button(*button);
+		}
 		intent
 	}
 

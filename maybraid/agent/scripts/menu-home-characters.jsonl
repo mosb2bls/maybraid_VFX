@@ -1,0 +1,17 @@
+# Script API 6. Home → Characters (gallery) → Back to Home. Empty roster.
+# `press.buttons` confirm is the same-frame chord form of a single confirm.
+
+{"cmd":"wait_for","screen":"home","timeout":15}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait_for","screen":"home","focus_label":"Characters","timeout":3}
+{"cmd":"press","buttons":["confirm"]}
+{"cmd":"wait_for","screen":"gallery","flow":"characters","timeout":10}
+{"cmd":"expect","screen":"gallery"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"back"}
+{"cmd":"wait_for","screen":"home","flow":"home","timeout":10}
+{"cmd":"expect","screen":"home"}
+{"cmd":"quit"}

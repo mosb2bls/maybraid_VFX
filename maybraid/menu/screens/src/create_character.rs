@@ -5,7 +5,8 @@ use character_items::{InventoryItem, ItemRng};
 use character_persist::CharacterId;
 
 use crate::spin_reveal::{
-	SpinRevealFinished, SpinRevealScreenPlugin, SpinRevealSystems, request_show_spin_reveal,
+	cancel_spin_reveal, request_show_spin_reveal, SpinRevealFinished, SpinRevealScreenPlugin,
+	SpinRevealSystems,
 };
 
 /// Queue the create-a-character flow (Starter Kit, then the body HUD).
@@ -32,9 +33,11 @@ pub fn request_show_create_character_id(commands: &mut Commands, id: CharacterId
 	commands.spawn(RequestShowCreateCharacter { id });
 }
 
-/// Drop an in-flight Starter Kit so Back from the grant screen does not create.
+/// Drop an in-flight Starter Kit so Back from the grant screen does not create
+/// and does not respawn the spinning screen after the gallery is up.
 pub fn cancel_pending_create(commands: &mut Commands) {
 	commands.remove_resource::<PendingCreate>();
+	cancel_spin_reveal(commands);
 }
 
 pub struct CreateCharacterPlugin;
@@ -88,7 +91,7 @@ fn forward_create_character_ready(
 #[cfg(test)]
 mod tests {
 	use super::{
-		PendingCreate, RequestShowCreateCharacter, cancel_pending_create, start_create_character,
+		cancel_pending_create, start_create_character, PendingCreate, RequestShowCreateCharacter,
 	};
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;

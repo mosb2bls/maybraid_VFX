@@ -109,6 +109,24 @@ mod tests {
 		"visual-style-traverse-native.jsonl",
 		"visual-style-traverse-sharp.jsonl",
 		"visual-style-traverse-antediluvian.jsonl",
+		"menu-editor-discard-start.jsonl",
+		"menu-editor-save-start.jsonl",
+		"menu-create-back-mid-spin.jsonl",
+		"menu-settings-cycle.jsonl",
+		"menu-leave-and-return.jsonl",
+		"menu-mash-home-42.jsonl",
+		"menu-mash-pause-42.jsonl",
+		"smoke-origin-walk.jsonl",
+		"smoke-player-down.jsonl",
+		"smoke-menu-home.jsonl",
+		"smoke-mobs-guard.jsonl",
+		"menu-home-focus.jsonl",
+		"menu-home-characters.jsonl",
+		"menu-home-settings.jsonl",
+		"menu-pause-back.jsonl",
+		"inventory-cycle-categories.jsonl",
+		"inventory-cycle-mash-42.jsonl",
+		"tanz-playtest.jsonl",
 	];
 
 	#[test]
@@ -171,7 +189,13 @@ mod tests {
 	#[test]
 	fn home_first_scripts_do_not_take_a_leading_start() -> anyhow::Result<()> {
 		let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts");
-		for name in ["character-switch-spawn.jsonl", "poi-picker-cycle.jsonl"] {
+		for name in [
+			"character-switch-spawn.jsonl",
+			"poi-picker-cycle.jsonl",
+			"menu-home-focus.jsonl",
+			"menu-create-back-mid-spin.jsonl",
+			"menu-mash-home-42.jsonl",
+		] {
 			let mut commands =
 				read_script_commands(&root.join(name)).map_err(|e| anyhow::anyhow!("{e}"))?;
 			assert_eq!(take_leading_start(&mut commands), None, "{name}");

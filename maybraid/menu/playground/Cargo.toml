@@ -18,6 +18,7 @@ characters-playground = { workspace = true }
 character-items = { workspace = true }
 character-model-user = { workspace = true }
 item-icons = { workspace = true }
+tanz-user = { workspace = true }
 character-persist = { workspace = true }
 character-creation-menus = { workspace = true }
 characters = { workspace = true }

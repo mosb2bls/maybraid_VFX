@@ -10,7 +10,7 @@ use bevy::math::DVec3;
 use crate::gen::{Id, OriginalId};
 
 use super::node_store::DEFAULT_BASE_SCALE;
-use super::storage::store::{read, ErasedStore, TypedStore};
+use super::storage::store::{ErasedStore, TypedStore};
 use super::storage::{HcsgStorage, HcsgValue};
 
 /// How one generated type is discovered and built.
@@ -86,14 +86,8 @@ impl<'a> GenerationContext<'a> {
 
 	fn stored<T: HcsgValue>(&mut self, id: Id) -> Option<Arc<T>> {
 		let store = self.typed_store::<T>()?;
-		let nodes = read(&store.nodes);
+		let nodes = store.read();
 		nodes.value(id).cloned()
-	}
-
-	/// Records `T` on reach and returns whether `id` is already stored.
-	pub(super) fn has_stored<T: HcsgValue>(&mut self, id: Id) -> bool {
-		self.touch::<T>();
-		self.typed_store::<T>().is_some_and(|store| read(&store.nodes).contains(id))
 	}
 
 	/// Types this context read since it was created.
@@ -105,7 +99,7 @@ impl<'a> GenerationContext<'a> {
 	pub fn stored_bounds<T: HcsgValue>(&mut self, id: Id) -> Option<Aabb3d> {
 		self.touch::<T>();
 		let store = self.typed_store::<T>()?;
-		let nodes = read(&store.nodes);
+		let nodes = store.read();
 		nodes.entry(id).map(|entry| entry.bounds)
 	}
 

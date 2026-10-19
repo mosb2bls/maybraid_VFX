@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 avian3d = { workspace = true }
 bevy = { workspace = true }
+building-shaders = { workspace = true }
 doric-column = { workspace = true }
 material-ref = { workspace = true }
 

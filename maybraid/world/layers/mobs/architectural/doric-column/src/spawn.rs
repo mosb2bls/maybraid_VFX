@@ -3,20 +3,18 @@
 use avian3d::prelude::{Collider, RigidBody};
 use bevy::prelude::*;
 use lod::scene::LodSceneLevel;
-use material_ref::{MaterialRefRoot, PropagateToDescendants};
 use lod_avian::PhysicsInteractionLayer;
+use material_ref::{MaterialRefRoot, PropagateToDescendants};
 use rigs::AssemblyRoot;
 
-use crate::anchors::{
-	names, DoricColumnAnchors, DoricColumnChainAnchor, DoricColumnGroundContact,
-};
+use crate::anchors::{names, DoricColumnAnchors, DoricColumnChainAnchor, DoricColumnGroundContact};
 use crate::colliders::cover_collider_shapes;
 use crate::parts::{DoricColumnComponents, DoricColumnPartNode};
 use crate::placeholder::{DoricColumnPartMesh, PlaceholderVisual};
-use scene_ref::{SceneRef, SceneRefRoot};
 use crate::spec::DoricColumnSpec;
 use crate::terrain::DoricColumnTerrainPlacement;
 use building_physics::BUILDING_FRICTION;
+use scene_ref::{SceneRef, SceneRefRoot};
 
 /// Domain marker on the column assembly root.
 #[derive(Component, Debug, Clone, Copy, Default)]
@@ -107,8 +105,7 @@ fn spawn_parts(commands: &mut Commands, root: Entity, spec: &DoricColumnSpec, us
 }
 
 fn part_nodes(spec: &DoricColumnSpec, use_glb: bool) -> Vec<DoricColumnPartNode> {
-	spec
-		.part_nodes_for_level(LodSceneLevel::High)
+	spec.part_nodes_for_level(LodSceneLevel::High)
 		.into_iter()
 		.map(|mut node| {
 			node.use_authored_glb = use_glb;
@@ -120,12 +117,8 @@ fn part_nodes(spec: &DoricColumnSpec, use_glb: bool) -> Vec<DoricColumnPartNode>
 fn spawn_anchors(commands: &mut Commands, root: Entity, spec: &DoricColumnSpec) {
 	let anchors = DoricColumnAnchors::for_spec(spec);
 	for (name, local) in anchors.transforms {
-		let mut entity = commands.spawn((
-			ChildOf(root),
-			Name::new(name),
-			local,
-			Visibility::Hidden,
-		));
+		let mut entity =
+			commands.spawn((ChildOf(root), Name::new(name), local, Visibility::Hidden));
 		if name == names::GROUND_CONTACT {
 			entity.insert(DoricColumnGroundContact);
 		}
@@ -192,11 +185,7 @@ mod tests {
 		};
 		app.update();
 		assert_ne!(a, b);
-		let encounters = app
-			.world_mut()
-			.query::<&DoricColumnEncounter>()
-			.iter(app.world())
-			.count();
+		let encounters = app.world_mut().query::<&DoricColumnEncounter>().iter(app.world()).count();
 		let summons = app.world_mut().query::<&DoricColumnSummon>().iter(app.world()).count();
 		assert_eq!(encounters, 1);
 		assert_eq!(summons, 1);

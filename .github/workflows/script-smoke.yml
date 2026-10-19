@@ -1,0 +1,130 @@
+# Full-game e2e smokes on lavapipe (Mesa CPU Vulkan) + Xvfb.
+# One job builds the real release binary; a matrix runs short agent scripts
+# and asserts events (reached / died / menu opened), never FPS.
+
+name: Script Smoke
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: script-smoke-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install link deps
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            build-essential pkg-config clang g++ \
+            libasound2-dev libudev-dev libwayland-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            libx11-dev libxcb1-dev
+
+      - name: Read Rust toolchain channel
+        id: rust_toolchain
+        run: echo "channel=$(./packaging/version.sh --rust)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.channel }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-${{ steps.rust_toolchain.outputs.channel }}-script-smoke
+          cache-all-crates: true
+          cache-on-failure: true
+
+      # Native Ubuntu link, not `nix develop`: a Nix-built ELF has a
+      # /nix/store interpreter and exits 127 on the lavapipe runners.
+      - name: Build release maybraid
+        run: cargo build -p maybraid --release --locked
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maybraid-linux-smoke
+          path: target/release/maybraid
+          if-no-files-found: error
+          retention-days: 3
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        script:
+          - smoke-origin-walk
+          - smoke-player-down
+          - smoke-menu-home
+          - smoke-mobs-guard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: maybraid-linux-smoke
+          path: target/release
+
+      - name: Install lavapipe and Xvfb
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            xvfb mesa-vulkan-drivers vulkan-tools \
+            libasound2 libudev1 libx11-6 \
+            libxkbcommon0 libxkbcommon-x11-0 libwayland-client0
+
+      - name: Run smoke ${{ matrix.script }}
+        env:
+          MAYBRAID_BIN: ${{ github.workspace }}/target/release/maybraid
+          MAYBRAID_SMOKE_COPY_LOGS: ${{ github.workspace }}/smoke-logs
+        run: |
+          chmod +x "$MAYBRAID_BIN" bin/script-smoke.sh
+          file "$MAYBRAID_BIN"
+          ldd "$MAYBRAID_BIN" | head -40
+          icd=""
+          for candidate in \
+            /usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+            /usr/share/vulkan/icd.d/lvp_icd.json
+          do
+            if [[ -f "$candidate" ]]; then
+              icd="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$icd" ]]; then
+            echo "missing lavapipe ICD" >&2
+            ls -la /usr/share/vulkan/icd.d/ || true
+            exit 2
+          fi
+          export VK_ICD_FILENAMES="$icd"
+          export VK_DRIVER_FILES="$icd"
+          export MAYBRAID_VSYNC=off
+          export MAYBRAID_FULLSCREEN=0
+          export MAYBRAID_RESOLUTION=960x540
+          export MAYBRAID_VISUAL_STYLE=sharp
+          export MAYBRAID_RENDER_SCALE=0.5
+          xvfb-run -a -s "-screen 0 1280x720x24 -ac +extension GLX +render -noreset" \
+            bin/script-smoke.sh "${{ matrix.script }}"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-logs-${{ matrix.script }}
+          path: smoke-logs/
+          if-no-files-found: ignore
+          retention-days: 5

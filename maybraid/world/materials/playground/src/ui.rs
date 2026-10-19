@@ -8,7 +8,7 @@ pub fn ui_config() -> GameCommandUiConfig {
 	GameCommandUiConfig {
 		title: "World materials — / cmd — WASD/Space/Shift — mouse look".into(),
 		empty_console_text:
-			"Console: `show pulse`, `mesh blast|ring|shell|core|cards`, `shoot`, `help`".into(),
+			"Console: `show pulse|doric`, `mesh blast|cylinder|taper`, `shoot`, `help`".into(),
 		root_background: Color::srgba(0.08, 0.09, 0.12, 0.86),
 		controls_hint: "help — mesh blast — show pulse — shoot — Enter — history".into(),
 	}

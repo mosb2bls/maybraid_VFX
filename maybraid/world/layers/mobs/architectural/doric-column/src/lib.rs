@@ -20,11 +20,11 @@ pub mod spawn;
 pub mod spec;
 pub mod terrain;
 
-pub use authoring::{
-	NORMALIZED_LOWER_SHAFT_DIAMETER, uniform_placement_scale, placement_scale_vec,
-};
 pub use anchors::{
-	CHAIN_ANCHOR_NAMES, DoricColumnAnchors, DoricColumnChainAnchor, DoricColumnGroundContact,
+	DoricColumnAnchors, DoricColumnChainAnchor, DoricColumnGroundContact, CHAIN_ANCHOR_NAMES,
+};
+pub use authoring::{
+	placement_scale_vec, uniform_placement_scale, NORMALIZED_LOWER_SHAFT_DIAMETER,
 };
 pub use colliders::{cover_aabb, cover_collider, cover_collider_shapes};
 pub use materials::DoricColumnMaterials;

@@ -14,6 +14,7 @@ avian3d = { workspace = true }
 bevy = { workspace = true }
 building-components = { workspace = true }
 building-physics = { workspace = true }
+building-shaders = { workspace = true }
 ground = { workspace = true }
 lod = { workspace = true }
 lod-avian = { workspace = true }

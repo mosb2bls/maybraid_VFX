@@ -11,10 +11,14 @@ rust-version = { workspace = true }
 
 [dependencies]
 bevy_math = { workspace = true }
+bevy_platform = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
+bevy_math = { workspace = true }
+bevy_platform = { workspace = true }
+gimme-bench-support = { workspace = true }
 
 [lints]
 workspace = true

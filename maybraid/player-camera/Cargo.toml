@@ -14,6 +14,7 @@ bevy = { workspace = true }
 characters = { workspace = true }
 lod = { workspace = true }
 maybraid-character-controller = { workspace = true }
+maybraid-spatial-rumble = { workspace = true }
 player = { workspace = true }
 
 [dev-dependencies]

@@ -25,8 +25,8 @@ pub mod shown;
 pub mod sync;
 
 pub use clip::{
-	AnimClip, AnimId, AnimRef, AnimRefRoot, JabParams, JumpParams, TuckParams, TuckedFlipParams,
-	TwoFootedTuckedFlipParams,
+	AnimClip, AnimId, AnimRef, AnimRefRoot, JabParams, JumpParams, PowerStrafeParams,
+	ThinkAgainParams, TuckParams, TuckedFlipParams, TwoFootedTuckedFlipParams,
 };
 pub use cue::{
 	advance_anim_clip_cues, AnimClipCues, AnimCueKind, AnimCueMarker, AnimCueSheet, cue_sheet,
@@ -46,8 +46,9 @@ pub use elevation::{
 	DrawTerrainPitchProbes,
 };
 pub use mailbox::{
-	apply_anim_mailbox, prepare_anim_mailbox, select_mailbox_applies, tick_anim_mailbox, AnimBone,
-	AnimMailbox, AnimProgress, MailboxApplyLimits, MailboxApplySet, mailbox_apply_allows,
+	apply_anim_mailbox, fingerprint_humanoid_clip, mailbox_apply_allows, prepare_anim_mailbox,
+	select_mailbox_applies, tick_anim_mailbox, AnimBone, AnimMailbox, AnimProgress,
+	MailboxApplyLimits, MailboxApplySet,
 };
 pub use markers::{
 	AnimateBones, AnimateEffects, ApplyTerrainPitch, SuspendAnimation, SuspendTerrainPitch,

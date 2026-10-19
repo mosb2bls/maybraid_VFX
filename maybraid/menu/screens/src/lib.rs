@@ -47,9 +47,9 @@ pub use settings::{
 };
 pub use show::{add_menu_show_systems, MenuScreenSystems, MenuScreens, MenuShowRequest};
 pub use spin_reveal::{
-	request_show_spin_reveal, RequestShowSpinReveal, SpinRevealChoice, SpinRevealCurrent,
-	SpinRevealFinished, SpinRevealItems, SpinRevealScreen, SpinRevealScreenPlugin,
-	SpinRevealSystems,
+	cancel_spin_reveal, request_show_spin_reveal, RequestShowSpinReveal, SpinRevealChoice,
+	SpinRevealCurrent, SpinRevealFinished, SpinRevealItems, SpinRevealScreen,
+	SpinRevealScreenPlugin, SpinRevealSystems,
 };
 
 /// Marker on every full-screen menu root so show-requests can replace each other.

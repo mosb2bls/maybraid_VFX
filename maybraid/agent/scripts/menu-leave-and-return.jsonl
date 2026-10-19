@@ -1,0 +1,27 @@
+# Script API 6. Pause → Leave → Home → Discovery → loading → world → pause.
+# Run with --start-at and a one-character fixture roster.
+
+{"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","screen":"in_game","timeout":10}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait_for","screen":"in_game","focus_label":"Leave","timeout":3}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait_for","screen":"home","flow":"home","timeout":20}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait_for","screen":"loading","timeout":15}
+{"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"start"}
+{"cmd":"wait_for","screen":"in_game","timeout":10}
+{"cmd":"expect","screen":"in_game"}
+{"cmd":"quit"}

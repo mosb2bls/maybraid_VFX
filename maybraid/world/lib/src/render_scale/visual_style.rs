@@ -17,15 +17,98 @@ pub enum VisualStyle {
 	PrePostModern,
 }
 
+/// Stable style identity shared by settings persistence and rendering.
+///
+/// Menu order, serialized names, script ids, and player-facing copy live here.
+/// [`VisualStyle`] methods for treatments and resolution stay on the render type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct VisualStyleIdentity {
+	pub style: VisualStyle,
+	pub script_id: &'static str,
+	pub label: &'static str,
+	pub description: &'static str,
+}
+
+impl VisualStyleIdentity {
+	/// Menu order, serialize names, and script ids. One list for settings and render.
+	pub const ALL: [Self; 7] = [
+		Self {
+			style: VisualStyle::Native,
+			script_id: "native",
+			label: "Native",
+			description:
+				"Native physical resolution, untreated, drawn direct to the window. Default.",
+		},
+		Self {
+			style: VisualStyle::Sharp,
+			script_id: "sharp",
+			label: "Sharp",
+			description: "Fixed 1080p offscreen, untreated, presented crisply. Height-fit (1080, or the window when shorter); width follows the window aspect. Opt-in.",
+		},
+		Self {
+			style: VisualStyle::Impressionist,
+			script_id: "impressionist",
+			label: "Impressionist",
+			description: "Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with a tighter wash than Watercolor. Opt-in.",
+		},
+		Self {
+			style: VisualStyle::Watercolor,
+			script_id: "watercolor",
+			label: "Watercolor",
+			description: "Wet wash at ~1280×720 (16:9). Same painterly blit as Impressionist at full strength, more source detail. Opt-in.",
+		},
+		Self {
+			style: VisualStyle::Retro,
+			script_id: "retro",
+			label: "Retro",
+			description: "Nearest-neighbor upscale from ~540×304 (16:9). Performance mode.",
+		},
+		Self {
+			style: VisualStyle::Antediluvian,
+			script_id: "antediluvian",
+			label: "Antediluvian",
+			description:
+				"Nearest-neighbor upscale from ~400×225 (16:9). Extreme performance mode.",
+		},
+		Self {
+			style: VisualStyle::PrePostModern,
+			script_id: "pre_post_modern",
+			label: "Pre-post-modern",
+			description: "Misregistered color-print effect at ~1280×720 (16:9). Slight color layer displacement and stable dithering.",
+		},
+	];
+
+	pub const SCRIPT_IDS: [&'static str; 7] = [
+		Self::ALL[0].script_id,
+		Self::ALL[1].script_id,
+		Self::ALL[2].script_id,
+		Self::ALL[3].script_id,
+		Self::ALL[4].script_id,
+		Self::ALL[5].script_id,
+		Self::ALL[6].script_id,
+	];
+
+	pub fn of(style: VisualStyle) -> Self {
+		Self::ALL
+			.into_iter()
+			.find(|identity| identity.style == style)
+			.unwrap_or(Self::ALL[0])
+	}
+
+	pub fn from_script_id(id: &str) -> Option<Self> {
+		Self::ALL.into_iter().find(|identity| identity.script_id == id)
+	}
+}
+
 impl VisualStyle {
 	pub const ALL: [Self; 7] = [
-		Self::Native,
-		Self::Sharp,
-		Self::Impressionist,
-		Self::Watercolor,
-		Self::Retro,
-		Self::Antediluvian,
-		Self::PrePostModern,
+		VisualStyleIdentity::ALL[0].style,
+		VisualStyleIdentity::ALL[1].style,
+		VisualStyleIdentity::ALL[2].style,
+		VisualStyleIdentity::ALL[3].style,
+		VisualStyleIdentity::ALL[4].style,
+		VisualStyleIdentity::ALL[5].style,
+		VisualStyleIdentity::ALL[6].style,
 	];
 
 	/// Sharp's reference height. Width follows the window aspect (`width = height * aspect`).
@@ -34,40 +117,16 @@ impl VisualStyle {
 	/// because the target shares the window's aspect.
 	pub const SHARP_REFERENCE_HEIGHT: u32 = 1080;
 
+	pub fn identity(self) -> VisualStyleIdentity {
+		VisualStyleIdentity::of(self)
+	}
+
 	pub fn label(self) -> &'static str {
-		match self {
-			Self::Native => "Native",
-			Self::Impressionist => "Impressionist",
-			Self::Watercolor => "Watercolor",
-			Self::Sharp => "Sharp",
-			Self::Retro => "Retro",
-			Self::Antediluvian => "Antediluvian",
-			Self::PrePostModern => "Pre-post-modern",
-		}
+		self.identity().label
 	}
 
 	pub fn description(self) -> &'static str {
-		match self {
-			Self::Native => {
-				"Native physical resolution, untreated, drawn direct to the window. Default."
-			}
-			Self::Impressionist => {
-				"Painterly softening at ~700×394 (16:9). Inexpensive linear upscale with a tighter wash than Watercolor. Opt-in."
-			}
-			Self::Watercolor => {
-				"Wet wash at ~1280×720 (16:9). Same painterly blit as Impressionist at full strength, more source detail. Opt-in."
-			}
-			Self::Sharp => {
-				"Fixed 1080p offscreen, untreated, presented crisply. Height-fit (1080, or the window when shorter); width follows the window aspect. Opt-in."
-			}
-			Self::Retro => "Nearest-neighbor upscale from ~540×304 (16:9). Performance mode.",
-			Self::Antediluvian => {
-				"Nearest-neighbor upscale from ~400×225 (16:9). Extreme performance mode."
-			}
-			Self::PrePostModern => {
-				"Misregistered color-print effect at ~1280×720 (16:9). Slight color layer displacement and stable dithering."
-			}
-		}
+		self.identity().description
 	}
 
 	/// Scales the shared painterly kernel. Watercolor is the 1.0 wash;
@@ -94,29 +153,12 @@ impl VisualStyle {
 
 	/// Parse a stable identifier from the agent scripting API.
 	pub fn from_script_id(id: &str) -> Option<Self> {
-		match id {
-			"native" => Some(Self::Native),
-			"impressionist" => Some(Self::Impressionist),
-			"watercolor" => Some(Self::Watercolor),
-			"sharp" => Some(Self::Sharp),
-			"retro" => Some(Self::Retro),
-			"antediluvian" => Some(Self::Antediluvian),
-			"pre_post_modern" => Some(Self::PrePostModern),
-			_ => None,
-		}
+		VisualStyleIdentity::from_script_id(id).map(|identity| identity.style)
 	}
 
 	/// Stable identifier for the agent scripting API.
 	pub fn script_id(self) -> &'static str {
-		match self {
-			Self::Native => "native",
-			Self::Impressionist => "impressionist",
-			Self::Watercolor => "watercolor",
-			Self::Sharp => "sharp",
-			Self::Retro => "retro",
-			Self::Antediluvian => "antediluvian",
-			Self::PrePostModern => "pre_post_modern",
-		}
+		self.identity().script_id
 	}
 
 	/// Migrate a legacy InGameRenderScale value to a VisualStyle.
@@ -251,6 +293,31 @@ mod tests {
 			assert!(!style.label().is_empty());
 			assert!(!style.description().is_empty());
 		}
+	}
+
+	#[test]
+	fn identity_table_covers_every_style_once() -> anyhow::Result<()> {
+		assert_eq!(VisualStyle::ALL.len(), VisualStyleIdentity::ALL.len());
+		for (index, style) in VisualStyle::ALL.into_iter().enumerate() {
+			let identity = VisualStyleIdentity::ALL[index];
+			assert_eq!(identity.style, style);
+			assert_eq!(VisualStyleIdentity::of(style), identity);
+			assert_eq!(style.identity(), identity);
+			assert_eq!(style.script_id(), identity.script_id);
+			assert_eq!(style.label(), identity.label);
+			assert_eq!(style.description(), identity.description);
+		}
+		let mut seen = [false; 7];
+		for identity in VisualStyleIdentity::ALL {
+			let Some(index) = VisualStyle::ALL.iter().position(|&style| style == identity.style)
+			else {
+				return Err(anyhow::anyhow!("identity style missing from VisualStyle::ALL"));
+			};
+			assert!(!seen[index], "duplicate style in identity table");
+			seen[index] = true;
+		}
+		assert!(seen.iter().all(|&present| present));
+		Ok(())
 	}
 
 	#[test]

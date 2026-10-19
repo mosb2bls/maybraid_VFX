@@ -21,9 +21,9 @@ pub fn snap_doric_columns_to_terrain<P: ElevationProbe>(
 	child_of: Query<&ChildOf>,
 ) {
 	for (root, mut transform, children) in columns {
-		let contact = children.iter().find_map(|child| {
-			contacts.get(child).ok().map(|gt| (child, gt.translation()))
-		});
+		let contact = children
+			.iter()
+			.find_map(|child| contacts.get(child).ok().map(|gt| (child, gt.translation())));
 		let Some((contact_entity, world_contact)) = contact else {
 			continue;
 		};

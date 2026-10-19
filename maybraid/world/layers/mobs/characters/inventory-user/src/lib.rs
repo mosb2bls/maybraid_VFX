@@ -6,13 +6,13 @@ use character_items::{
 	FirearmKitSpec, FirearmLooks, FirearmMaterial, FirearmMesh, FirearmScales, FirearmSight,
 	FirearmSpec, FirearmStats, FirearmStock, FirearmTriggerBox, GrenadeMesh, GrenadeRecharge,
 	GrenadeSpec, GrenadeStats, Inventory, InventoryItem, InventorySlot, ItemColor, SkillMapKind,
-	SkillMapSpec, WORN_CLOTHING_LIMIT,
+	SkillMapSpec, TanzId, WORN_CLOTHING_LIMIT,
 };
 use character_persist::{CharacterId, PersistError, SaveRoot};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 
 /// Capsule/session using an inventory bag.
 ///
@@ -65,6 +65,8 @@ struct InventoryFile {
 	weapons: Vec<usize>,
 	#[serde(default)]
 	skills: Vec<usize>,
+	#[serde(default)]
+	tanzes: Vec<usize>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -113,6 +115,9 @@ enum InventoryItemFile {
 		stats: Option<GrenadeStats>,
 		#[serde(default)]
 		recharge: f32,
+	},
+	Tanz {
+		id: TanzId,
 	},
 }
 
@@ -182,6 +187,7 @@ impl InventoryItemFile {
 			InventoryItem::Grenade { spec, stats, recharge } => {
 				Self::Grenade { mesh: spec.mesh, stats: Some(*stats), recharge: recharge.remaining }
 			}
+			InventoryItem::Tanz { id } => Self::Tanz { id: *id },
 		}
 	}
 
@@ -217,6 +223,7 @@ impl InventoryItemFile {
 				stats: stats.unwrap_or_else(GrenadeStats::standard),
 				recharge: GrenadeRecharge { remaining: recharge },
 			},
+			Self::Tanz { id } => InventoryItem::Tanz { id },
 		}
 	}
 }
@@ -242,6 +249,16 @@ fn sanitize_selection(
 		}
 		if selected.contains(&index) {
 			continue;
+		}
+		if slot == InventorySlot::Tanzes {
+			if let Some(id) = items[index].tanz_id() {
+				if selected
+					.iter()
+					.any(|&chosen| items.get(chosen).and_then(InventoryItem::tanz_id) == Some(id))
+				{
+					continue;
+				}
+			}
 		}
 		selected.push(index);
 		if selected.len() >= slot.capacity() {
@@ -273,6 +290,11 @@ pub fn save(root: &SaveRoot, id: CharacterId, inventory: &Inventory) -> Result<(
 			inventory.skills.iter().copied(),
 			InventorySlot::Skills,
 		),
+		tanzes: sanitize_selection(
+			&inventory.items,
+			inventory.tanzes.iter().copied(),
+			InventorySlot::Tanzes,
+		),
 	};
 	let json = serde_json::to_string_pretty(&file)?;
 	fs::write(root.inventory_path(id), json)?;
@@ -298,13 +320,16 @@ pub fn load(root: &SaveRoot, id: CharacterId) -> Result<Inventory, PersistError>
 		let clothing = sanitize_selection(&items, file.clothing, InventorySlot::Clothing);
 		let weapons = sanitize_selection(&items, file.weapons, InventorySlot::Weapons);
 		let skills = sanitize_selection(&items, file.skills, InventorySlot::Skills);
-		return Ok(Inventory { items, clothing, weapons, skills });
+		let tanzes = sanitize_selection(&items, file.tanzes, InventorySlot::Tanzes);
+		let mut inventory = Inventory { items, clothing, weapons, skills, tanzes };
+		inventory.dedup_tanz_kinds();
+		return Ok(inventory);
 	}
 	let file: InventoryFileV1 = serde_json::from_value(value)?;
 	let items: Vec<InventoryItem> =
 		file.items.into_iter().map(ClothingItemFile::into_item).collect();
 	let clothing = sanitize_selection(&items, file.worn, InventorySlot::Clothing);
-	Ok(Inventory { items, clothing, weapons: Vec::new(), skills: Vec::new() })
+	Ok(Inventory { items, clothing, weapons: Vec::new(), skills: Vec::new(), tanzes: Vec::new() })
 }
 
 pub fn spawn_bag(commands: &mut Commands, host: Entity, inventory: Inventory) -> Entity {
@@ -367,8 +392,13 @@ mod tests {
 			InventoryItem::firearm(FirearmMesh::Bullpup),
 			InventoryItem::firearm(FirearmMesh::Reltor),
 		];
-		let inventory =
-			Inventory { items, clothing: vec![0], weapons: vec![1, 2], skills: Vec::new() };
+		let inventory = Inventory {
+			items,
+			clothing: vec![0],
+			weapons: vec![1, 2],
+			skills: Vec::new(),
+			tanzes: Vec::new(),
+		};
 		save(&root, id, &inventory).expect("save");
 		let json = fs::read_to_string(root.inventory_path(id)).expect("read");
 		assert!(json.contains("\"kind\": \"firearm\""));
@@ -447,8 +477,13 @@ mod tests {
 			),
 			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 0xA11A_5EED)),
 		];
-		let inventory =
-			Inventory { items, clothing: vec![0], weapons: Vec::new(), skills: vec![1] };
+		let inventory = Inventory {
+			items,
+			clothing: vec![0],
+			weapons: Vec::new(),
+			skills: vec![1],
+			tanzes: Vec::new(),
+		};
 		save(&root, id, &inventory).expect("save");
 		let json = fs::read_to_string(root.inventory_path(id)).expect("read");
 		assert!(json.contains("\"kind\": \"skill-map\""));
@@ -466,8 +501,13 @@ mod tests {
 			stats: GrenadeStats::standard(),
 			recharge: GrenadeRecharge { remaining: 2.5 },
 		}];
-		let inventory =
-			Inventory { items, clothing: Vec::new(), weapons: vec![0], skills: Vec::new() };
+		let inventory = Inventory {
+			items,
+			clothing: Vec::new(),
+			weapons: vec![0],
+			skills: Vec::new(),
+			tanzes: Vec::new(),
+		};
 		save(&root, id, &inventory).expect("save");
 		let json = fs::read_to_string(root.inventory_path(id)).expect("read");
 		assert!(json.contains("\"kind\": \"grenade\""));
@@ -493,6 +533,83 @@ mod tests {
 		fs::write(root.inventory_path(id), json).expect("write");
 		let loaded = load(&root, id).expect("load");
 		assert!(loaded.skills.is_empty());
+		assert!(loaded.tanzes.is_empty());
 		assert_eq!(loaded.clothing, vec![0]);
+	}
+
+	#[test]
+	fn tanz_selection_round_trips() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		let id = CharacterId(21);
+		let items = vec![
+			InventoryItem::tanz(TanzId::HealingSalute),
+			InventoryItem::tanz(TanzId::LeftStrafe),
+			InventoryItem::tanz(TanzId::RightStrafe),
+			InventoryItem::tanz(TanzId::ForwardDash),
+		];
+		let inventory = Inventory {
+			items,
+			clothing: Vec::new(),
+			weapons: Vec::new(),
+			skills: Vec::new(),
+			tanzes: vec![3, 0, 1],
+		};
+		save(&root, id, &inventory).expect("save");
+		let json = fs::read_to_string(root.inventory_path(id)).expect("read");
+		assert!(json.contains("\"kind\": \"tanz\""));
+		assert!(json.contains("\"healing_salute\""));
+		assert_eq!(load(&root, id).expect("load"), inventory);
+	}
+
+	#[test]
+	fn older_saves_without_tanzes_load_empty() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		root.ensure_dirs().expect("dirs");
+		let id = CharacterId(22);
+		let json = r#"{
+			"version": 5,
+			"id": "00000000000000000000000000000016",
+			"items": [
+				{ "kind": "clothing", "mesh": "pants", "material": "cloth", "color": "natural" },
+				{ "kind": "tanz", "id": "healing_salute" }
+			],
+			"clothing": [0],
+			"weapons": [],
+			"skills": []
+		}"#;
+		fs::write(root.inventory_path(id), json).expect("write");
+		let loaded = load(&root, id).expect("load");
+		assert_eq!(loaded.items.len(), 2);
+		assert!(loaded.tanzes.is_empty());
+		assert_eq!(loaded.items[1].tanz_id(), Some(TanzId::HealingSalute));
+	}
+
+	#[test]
+	fn tanz_selection_drops_malformed_wrong_slot_and_repeats() {
+		let dir = tempfile::tempdir().expect("tempdir");
+		let root = SaveRoot::at(dir.path());
+		root.ensure_dirs().expect("dirs");
+		let id = CharacterId(23);
+		let json = r#"{
+			"version": 6,
+			"id": "00000000000000000000000000000017",
+			"items": [
+				{ "kind": "clothing", "mesh": "pants", "material": "cloth", "color": "natural" },
+				{ "kind": "tanz", "id": "left_strafe" },
+				{ "kind": "tanz", "id": "right_strafe" },
+				{ "kind": "tanz", "id": "left_strafe" }
+			],
+			"clothing": [0],
+			"weapons": [],
+			"skills": [],
+			"tanzes": [99, 0, 1, 1, 2, 3]
+		}"#;
+		fs::write(root.inventory_path(id), json).expect("write");
+		let loaded = load(&root, id).expect("load");
+		assert_eq!(loaded.items.len(), 3, "duplicate Tanz kinds are dropped from the bag");
+		assert_eq!(loaded.tanzes, vec![1, 2]);
+		assert_eq!(loaded.equipped_tanzes(), vec![TanzId::LeftStrafe, TanzId::RightStrafe]);
 	}
 }

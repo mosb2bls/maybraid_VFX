@@ -10,6 +10,8 @@ pub mod land;
 pub mod lateral_undulation;
 pub mod leap;
 pub mod mix;
+pub mod power_dash;
+pub mod power_strafe;
 pub mod prone;
 pub mod quadruped_bray;
 pub mod quadruped_gallop;
@@ -22,12 +24,14 @@ pub mod soaring;
 pub mod spring;
 pub mod squat;
 pub mod squat_descent;
+pub mod think_again;
 pub mod transition;
 pub mod tuck;
 pub mod tucked_flip;
 pub mod two_footed_jump;
 pub mod two_footed_tucked_flip;
 pub mod upright_leap;
+pub mod upright_power_dash;
 pub mod upright_run;
 pub mod upright_walk;
 pub mod walk;
@@ -44,6 +48,8 @@ pub use land::Land;
 pub use lateral_undulation::LateralUndulation;
 pub use leap::{Leap, LeapPhase, LeapTimeline, AIR_END, TAKEOFF_END};
 pub use mix::{burst_envelope, smoothstep, LinearBlend, Mix, Smooth, DEFAULT_BURST_EDGE};
+pub use power_dash::{PowerDash, BRAKE_END, COMPRESS_END, HOLD_END, PUSH_END};
+pub use power_strafe::PowerStrafe;
 pub use prone::Prone;
 pub use quadruped_bray::{
 	EpiphantBray, MOUTH_EMIT_NECK_LOCAL, MOUTH_EMIT_SOCKET, SONIC_EMIT_NORM,
@@ -60,6 +66,9 @@ pub use soaring::Soaring;
 pub use spring::Spring;
 pub use squat::{vertical_drop, Squat};
 pub use squat_descent::{SquatDescent, DEFAULT_DESCENT_SPEED};
+pub use think_again::{
+	ThinkAgain, DEFAULT_SPEED as THINK_AGAIN_SPEED, DURATION as THINK_AGAIN_DURATION,
+};
 pub use transition::{BlendCurve, Transition, TransitionCurve};
 pub use tuck::{Tuck, TuckProfile};
 pub use tucked_flip::{FlipDirection, TuckedFlip};
@@ -70,6 +79,7 @@ pub use two_footed_jump::{
 };
 pub use two_footed_tucked_flip::TwoFootedTuckedFlip;
 pub use upright_leap::UprightLeap;
+pub use upright_power_dash::UprightPowerDash;
 pub use upright_run::UprightRun;
 pub use upright_walk::UprightWalk;
 pub use walk::Walk;

@@ -1,0 +1,26 @@
+# Script API 6. Home → Settings → cycle Shadows / Visual Style → Back to Home.
+# No --start-at. Empty roster is fine (Settings is never locked).
+
+{"cmd":"wait_for","screen":"home","timeout":15}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait_for","screen":"home","focus_label":"Settings","timeout":3}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait_for","screen":"settings","timeout":10}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_right"}
+{"cmd":"wait","secs":0.3}
+{"cmd":"press","button":"back"}
+{"cmd":"wait_for","screen":"home","flow":"home","timeout":10}
+{"cmd":"expect","screen":"home","modal":null}
+{"cmd":"quit"}

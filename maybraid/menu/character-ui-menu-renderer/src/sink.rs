@@ -95,8 +95,8 @@ impl<T> RenderContext<'_, T> {
 				"Inventory"
 					| "Starter Kit" | "Clothing"
 					| "Weapons" | "Tools"
-					| "Skill Maps" | "Lubikan"
-					| "Loadout"
+					| "Skill Maps" | "Tanzes"
+					| "Lubikan" | "Loadout"
 			) {
 			TEXT_YELLOW_FAINT
 		} else {

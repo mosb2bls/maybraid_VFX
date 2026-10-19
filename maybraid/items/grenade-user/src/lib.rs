@@ -9,9 +9,10 @@ use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
 use character_items::{Inventory, InventoryItem};
 use characters::CharacterMotionSystems;
+use maybraid_spatial_rumble::{SpatialRumblePlugin, SpatialRumbleSystems};
 use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 
-pub use feel::{blast_presence, blast_rumble, rumble_presence};
+pub use feel::{blast_presence, blast_rumble, rumble_presence, GrenadeBlastFeel};
 pub use hold::{spawn_held_grenade, HeldGrenade, HoldingGrenade};
 pub use throw::{
 	landing_range, landing_time, launch_velocity, throw_aim, GrenadePhase, GrenadeThrow,
@@ -29,6 +30,9 @@ impl Plugin for GrenadeUserPlugin {
 	fn build(&self, app: &mut App) {
 		if !app.is_plugin_added::<grenades::GrenadesPlugin>() {
 			app.add_plugins(grenades::GrenadesPlugin);
+		}
+		if !app.is_plugin_added::<SpatialRumblePlugin>() {
+			app.add_plugins(SpatialRumblePlugin);
 		}
 		app.add_systems(Update, throw::apply_throw_intents.in_set(PlayerSystems::Intent))
 			.add_systems(Startup, cook_hud::spawn_cook_fuse_hud)
@@ -64,7 +68,12 @@ impl Plugin for GrenadeUserPlugin {
 					.after(damage::DamageSystems::Down),
 			)
 			.add_systems(Update, cook_hud::sync_cook_fuse_hud.after(throw::advance_throw))
-			.add_systems(Update, feel::pulse_blast_feel.after(grenades::apply_grenade_blasts))
+			.add_systems(
+				Update,
+				feel::pulse_blast_feel
+					.after(grenades::apply_grenade_blasts)
+					.before(SpatialRumbleSystems::Ingest),
+			)
 			.add_systems(
 				Update,
 				(
@@ -73,8 +82,7 @@ impl Plugin for GrenadeUserPlugin {
 					despawn_orphaned_held_grenades,
 				)
 					.chain(),
-			)
-			.add_message::<maybraid_input::PadRumble>();
+			);
 	}
 }
 
@@ -147,6 +155,7 @@ mod tests {
 			clothing: Vec::new(),
 			weapons: vec![0],
 			skills: Vec::new(),
+			tanzes: Vec::new(),
 		});
 		world
 			.run_system_once(tick_owned_recharge)
@@ -178,6 +187,7 @@ mod tests {
 				clothing: Vec::new(),
 				weapons: vec![0],
 				skills: Vec::new(),
+				tanzes: Vec::new(),
 			})
 			.id();
 		world.clear_trackers();

@@ -35,7 +35,7 @@ pub struct PendingCharacterAssembly {
 
 /// Kit spawned [`Visibility::Hidden`] until its [`WorldAssetRoot`] is ready.
 #[derive(Component)]
-pub(crate) struct HiddenUntilSceneReady;
+pub struct HiddenUntilSceneReady;
 
 /// Per-frame admission for [`drain_character_assembly`].
 #[derive(Resource, Debug, Clone, Copy)]
@@ -181,6 +181,36 @@ pub fn drain_character_assembly(world: &mut World) {
 	}
 }
 
+/// Drain every listed assembly in this call — no world-streaming weight or
+/// wall-clock budget. Isolated capture hosts need the full kit tree before
+/// [`crate::HiddenUntilSceneReady`] can clear, not leftover admission from
+/// nearby mobs.
+pub fn drain_character_assembly_now(world: &mut World, roots: impl IntoIterator<Item = Entity>) {
+	for root in roots {
+		if world.get::<PendingCharacterAssembly>(root).is_none() {
+			continue;
+		}
+		loop {
+			let Some((_weight, scene)) = world
+				.get_mut::<PendingCharacterAssembly>(root)
+				.and_then(|mut pending| pull_primitive(&mut pending.queue))
+			else {
+				world.entity_mut(root).remove::<PendingCharacterAssembly>();
+				break;
+			};
+			match world.spawn_scene(scene) {
+				Ok(spawned) => {
+					let child = spawned.id();
+					world.entity_mut(child).insert((ChildOf(root), HiddenUntilSceneReady));
+				}
+				Err(err) => {
+					warn!(?err, root = ?root, "fixed character assembly spawn_scene failed");
+				}
+			}
+		}
+	}
+}
+
 pub(crate) fn reveal_ready_fixed_members(
 	mut commands: Commands,
 	mut visibilities: Query<
@@ -249,5 +279,13 @@ mod tests {
 		let mut queue = fixed_character_assembly_chunks(&clothed).into_fulfill_queue();
 		let (weight, _) = pull_primitive(&mut queue).expect("first kit");
 		assert_eq!(weight, FIXED_ASSEMBLY_CHUNK_WEIGHT);
+	}
+
+	#[test]
+	fn drain_now_is_a_noop_without_pending() {
+		let mut world = World::new();
+		let entity = world.spawn_empty().id();
+		drain_character_assembly_now(&mut world, [entity]);
+		assert!(world.get_entity(entity).is_ok());
 	}
 }

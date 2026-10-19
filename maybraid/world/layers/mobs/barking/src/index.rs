@@ -3,9 +3,8 @@
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
 use lod::gen::{Id, OriginalId};
-use urbanization_cells::UrbanizationKind;
 
-use crate::generation::{GroupKind, MobGroup, MobPlantHost};
+use crate::generation::MobGroup;
 
 pub const MOB_CELL_EXTENT: f32 = 400.0;
 pub const MOB_WORLD_SEED: u64 = 42;
@@ -114,48 +113,6 @@ impl MobCellExtent {
 	}
 }
 
-pub(crate) fn urbanization_weight(kind: UrbanizationKind) -> f32 {
-	match kind {
-		UrbanizationKind::None => 0.0,
-		UrbanizationKind::RuralLife => 0.2,
-		UrbanizationKind::Frontier => 0.4,
-		UrbanizationKind::Townships => 0.55,
-		UrbanizationKind::Colony => 0.7,
-		UrbanizationKind::MixedAgeCity => 0.85,
-		UrbanizationKind::ModernCity => 1.0,
-	}
-}
-
-pub(crate) fn group_kind(kind: UrbanizationKind, seed: u64) -> GroupKind {
-	match kind {
-		UrbanizationKind::None => GroupKind::Wild,
-		UrbanizationKind::RuralLife => GroupKind::Peaceful,
-		UrbanizationKind::Townships | UrbanizationKind::Frontier => GroupKind::Frontier,
-		UrbanizationKind::Colony => GroupKind::Warfront,
-		UrbanizationKind::MixedAgeCity => {
-			if mixed(seed) & 1 == 0 {
-				GroupKind::Warfront
-			} else {
-				GroupKind::Dystopian
-			}
-		}
-		UrbanizationKind::ModernCity => GroupKind::Dystopian,
-	}
-}
-
-/// The hosts a group of `extent` around `origin` can reach.
-pub(crate) fn hosts_near(hosts: &[MobPlantHost], origin: Vec2, extent: f32) -> Vec<MobPlantHost> {
-	let half = extent * 0.5;
-	hosts
-		.iter()
-		.copied()
-		.filter(|host| {
-			(host.xz.x - origin.x).abs() <= half + host.arrival_radius
-				&& (host.xz.y - origin.y).abs() <= half + host.arrival_radius
-		})
-		.collect()
-}
-
 #[derive(Clone, Debug)]
 pub struct MobCell {
 	pub extent: MobCellExtent,
@@ -172,8 +129,4 @@ pub fn mixed(mut value: u64) -> u64 {
 	value ^= value >> 27;
 	value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
 	value ^ (value >> 31)
-}
-
-pub fn urban_leaf_arrival_radius(bounds: Aabb3d) -> f32 {
-	((bounds.max.x - bounds.min.x).min(bounds.max.z - bounds.min.z) * 0.25).clamp(8.0, 128.0)
 }

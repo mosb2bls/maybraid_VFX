@@ -32,7 +32,9 @@ pub use burst::{
 	launch_vy, COSIMO_BURST_DAMAGE, COSIMO_BURST_RADIUS, COSIMO_LAUNCH_HEIGHT, ROCKADDER_DAMAGE,
 	ROCKADDER_RADIUS,
 };
-pub use controller::{skill_map_steer_held, SkillMapController, SkillMapFlick};
+pub use controller::{
+	skill_map_steer_held, SkillMapController, SkillMapFlick, SkillMapSteerPolicy,
+};
 pub use effects::{
 	forget_chance, FIREBALL_COLOR, FIREBALL_GRAVITY, FIREBALL_RADIUS, FIREBALL_SPEED,
 };
@@ -105,6 +107,7 @@ impl Plugin for SkillMapPlugin {
 			.add_systems(Startup, fireball_embers::setup_fireball_effects)
 			.add_systems(Startup, burst::setup_burst_assets)
 			.init_resource::<SkillMapEnabled>()
+			.init_resource::<controller::SkillMapSteerPolicy>()
 			.init_resource::<controller::SkillMapController>()
 			.init_resource::<icon::SkillMapPaintSlots>()
 			.init_resource::<icon::SkillMapIconSubmitted>()

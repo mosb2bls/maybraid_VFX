@@ -1,0 +1,22 @@
+# Script API 6. Home → Characters → Create → Back while the reveal spins →
+# expect gallery, then wait past the spin time and expect gallery again.
+# No --start-at. Empty roster is fine (Discovery stays locked). Reliquary is
+# locked, so confirm only after focus_label Characters.
+
+{"cmd":"wait_for","screen":"home","timeout":15}
+{"cmd":"wait","secs":0.4}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait_for","screen":"home","focus_label":"Characters","timeout":3}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait_for","screen":"gallery","timeout":10}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"confirm"}
+{"cmd":"wait_for","screen":"spin_reveal","timeout":10}
+{"cmd":"press","button":"back"}
+{"cmd":"wait_for","screen":"gallery","timeout":5}
+{"cmd":"expect","screen":"gallery"}
+{"cmd":"wait","secs":2}
+{"cmd":"expect","screen":"gallery"}
+{"cmd":"quit"}
