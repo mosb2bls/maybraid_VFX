@@ -8577,7 +8577,7 @@ dependencies = [
 
 [[package]]
 name = "occupancy-rewards"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",

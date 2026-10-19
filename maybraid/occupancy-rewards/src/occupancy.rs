@@ -31,6 +31,8 @@ pub struct OccupancySession {
 	pub identity: Option<OccupancyIdentity>,
 	timers: BTreeMap<TimerKey, OccupancyTimer>,
 	persisted: BTreeMap<TimerKey, OccupancyTimer>,
+	/// Closed sessions never award. Used for retiring bodies and ended play.
+	closed: bool,
 }
 
 impl OccupancySession {
@@ -40,6 +42,20 @@ impl OccupancySession {
 
 	pub fn timer_count(&self) -> usize {
 		self.timers.len()
+	}
+
+	/// True after [`Self::close`]. Closed sessions skip identity and awards.
+	pub fn is_closed(&self) -> bool {
+		self.closed
+	}
+
+	/// End this occupancy session. Timers and identity are dropped so a
+	/// retiring body or torn-down play session cannot keep accruing.
+	pub fn close(&mut self) {
+		self.identity = None;
+		self.timers.clear();
+		self.persisted.clear();
+		self.closed = true;
 	}
 
 	pub fn bind_timer(&mut self, key: TimerKey, reentry: ReentryPolicy) -> &mut OccupancyTimer {
@@ -137,6 +153,17 @@ mod tests {
 				.ok_or_else(|| anyhow::anyhow!("session should keep identity"))?,
 			OccupancyIdentity::from_position(Vec3::new(150.0, 0.0, 0.0)).grove
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn close_drops_timers_and_blocks_rebind() -> anyhow::Result<()> {
+		let mut session = OccupancySession::default();
+		session.sync_identity(Entity::from_bits(3), OccupancyIdentity::from_position(Vec3::ZERO));
+		session.close();
+		assert!(session.is_closed());
+		assert!(session.identity.is_none());
+		assert_eq!(session.timer_count(), 0);
 		Ok(())
 	}
 }

@@ -50,6 +50,9 @@ pub fn step_occupancy(
 	dt: Duration,
 	paused: bool,
 ) -> OccupancyStep {
+	if session.is_closed() {
+		return OccupancyStep::default();
+	}
 	let events = session.sync_identity(actor, identity);
 	session.drop_unoccupied(&identity, |key| {
 		rules.rule(key.rule).map(|rule| rule.reentry).unwrap_or(ReentryPolicy::Reset)
@@ -480,6 +483,41 @@ mod tests {
 		let stepped = step(&mut session, Vec3::ZERO, &store, &rules, Duration::from_millis(12_500));
 		assert_eq!(stepped.award_count(), 2);
 		assert_eq!(stepped.award_total(), 2.0);
+		Ok(())
+	}
+
+	#[test]
+	fn closed_session_never_awards() -> anyhow::Result<()> {
+		let store = grove_construction(Vec3::ZERO, &[ConstructionTag::SOPES_BANYAN]);
+		let rules = RewardRuleSet::new([RewardRule::self_demonstration()]);
+		let mut session = OccupancySession::default();
+		session.close();
+		assert_eq!(
+			step(&mut session, Vec3::ZERO, &store, &rules, Duration::from_secs(5)).award_count(),
+			0
+		);
+		assert!(session.is_closed());
+		Ok(())
+	}
+
+	#[test]
+	fn pause_does_not_bank_time_for_resume() -> anyhow::Result<()> {
+		let store = grove_construction(Vec3::ZERO, &[ConstructionTag::SOPES_BANYAN]);
+		let rules = RewardRuleSet::new([RewardRule::self_demonstration()]);
+		let mut session = OccupancySession::default();
+		step(&mut session, Vec3::ZERO, &store, &rules, Duration::from_secs(4));
+		let paused = step_occupancy(
+			actor(),
+			&mut session,
+			OccupancyIdentity::resolve(Vec3::ZERO, &store),
+			&store,
+			&rules,
+			Duration::from_secs(10),
+			true,
+		);
+		assert_eq!(paused.award_count(), 0);
+		let resumed = step(&mut session, Vec3::ZERO, &store, &rules, Duration::from_secs(1));
+		assert_eq!(resumed.award_count(), 1);
 		Ok(())
 	}
 

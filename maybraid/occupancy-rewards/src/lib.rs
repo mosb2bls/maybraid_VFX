@@ -37,8 +37,8 @@ pub use plugin::{
 	OccupancyRewardsSystems, OccupancyRewardsUser,
 };
 pub use rule::{
-	ConstructionMatch, ConstructionScope, ForestMatch, GroveMatch, LayerFilter, OccupancyMatch,
-	OverlapPolicy, ReentryPolicy, RewardRule, RewardRuleSet, RuleId, TagFilter,
+	ConstructionMatch, ConstructionScope, ForestMatch, GroveMatch, LayerFilter, OccupancyDemoConfig,
+	OccupancyMatch, OverlapPolicy, ReentryPolicy, RewardRule, RewardRuleSet, RuleId, TagFilter,
 };
 pub use tag::{AffiliationTag, ConstructionTag, GroveKindTag, LayeringTag};
 pub use timer::{OccupancyTimer, TimerKey};

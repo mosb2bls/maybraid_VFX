@@ -60,6 +60,11 @@ Actors without a ledger that frame are skipped.
 
 - [`OccupancyRewardsPaused`](src/plugin.rs) and `OccupancyRewardsUser.enabled`
   freeze timers; identity still updates so leaving while paused is recorded.
+  The world adapter copies [`WorldGameplayEnabled`](../world/lib/src/control.rs)
+  onto that gate **before** Evaluate, so pause cannot credit a frame.
+- [`OccupancySession::close`](src/occupancy.rs) ends a session. Retiring
+  (downed) bodies and [`WorldPlaySessionEnded`](../world/lib/src/control.rs)
+  close the user so leftover timers cannot award.
 - Leaving a geometric cell drops Reset timers. Persist keeps leftover
   progress for the same `(rule, cell)` key.
 - Metadata eviction does **not** drop timers. Republishing the same cell
@@ -74,11 +79,16 @@ The ordinary world (`maybraid-world`) registers this plugin through
 `WorldOccupancyPlugin` next to [`WorldLubikanPlugin`](../world/lib/src/world_lubikan.rs).
 That publisher fills `CellMetadataStore` from HCSG `ChicoForest` / `ChicoGrove`
 cell facts — not vegetation meshes — and inserts only `OccupancyRewardsUser`.
+It reads **only the forest / grove cells the occupancy actors occupy**, and
+rewrites the projection only when those cells or HCSG membership change.
 Ledgers and Award come from [`LubikansPlugin`](../lubikans) via the world
-Lubikan adapter. Evaluation skips a player until a ledger is present.
+Lubikan adapter. Evaluation skips a player until a ledger and
+[`LubikanOwner`](../lubikans/src/ledger.rs) are present.
 Self works without Bikanwarda; gameplay works with `combat-hud` absent.
 
-Self demonstration interval and amount stay on `RewardRule` (`with_interval` /
-`with_amount`). [#1111](https://github.com/ramate-io/maybraid/issues/1111)
+Self demonstration interval and amount stay on
+[`OccupancyDemoConfig`](src/rule.rs) / `RewardRule` (`with_interval` /
+`with_amount`, or `MAYBRAID_OCCUPANCY_DEMO_INTERVAL_SECS` /
+`MAYBRAID_OCCUPANCY_DEMO_AMOUNT`). [#1111](https://github.com/ramate-io/maybraid/issues/1111)
 does not agree a production rate, so the 5 s / +1 defaults are a configurable
 demo only.

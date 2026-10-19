@@ -1,14 +1,16 @@
 //! Bevy plugin: resolve occupancy from transforms and emit awards / requests.
 
 use bevy::prelude::*;
-use lubikans::{LubikanChargeRequest, LubikanInterfacePlugin, LubikanLedger, LubikanSystems};
+use lubikans::{
+	LubikanChargeRequest, LubikanInterfacePlugin, LubikanLedger, LubikanOwner, LubikanSystems,
+};
 
 use crate::charge::adapt_award;
 use crate::evaluate::step_occupancy;
 use crate::identity::OccupancyIdentity;
 use crate::metadata::CellMetadataStore;
 use crate::occupancy::{OccupancyAward, OccupancyEvent, OccupancySession};
-use crate::rule::RewardRuleSet;
+use crate::rule::{OccupancyDemoConfig, RewardRuleSet};
 
 /// Occupancy evaluation. Runs in PostUpdate after [`LubikanSystems::Owner`]
 /// (PreUpdate) and before [`LubikanSystems::Award`].
@@ -40,6 +42,13 @@ impl OccupancyRewardsUser {
 	pub fn new() -> Self {
 		Self::default()
 	}
+
+	/// Local pause plus a closed session. Retiring bodies and ended play
+	/// sessions use this so leftover timers cannot credit after teardown.
+	pub fn close(&mut self) {
+		self.enabled = false;
+		self.session.close();
+	}
 }
 
 /// Occupancy tracking and the Self demonstration rule. Cadence-neutral: the
@@ -50,7 +59,7 @@ pub struct OccupancyRewardsPlugin {
 
 impl Default for OccupancyRewardsPlugin {
 	fn default() -> Self {
-		Self { rules: RewardRuleSet::demonstration() }
+		Self { rules: OccupancyDemoConfig::from_env().rule_set() }
 	}
 }
 
@@ -81,17 +90,19 @@ pub fn evaluate_occupancy_rewards(
 	paused: Res<OccupancyRewardsPaused>,
 	store: Res<CellMetadataStore>,
 	rules: Res<RewardRuleSet>,
-	mut users: Query<(Entity, &GlobalTransform, &mut OccupancyRewardsUser, Option<&LubikanLedger>)>,
+	mut users: Query<
+		(Entity, &GlobalTransform, &mut OccupancyRewardsUser, &LubikanLedger),
+		With<LubikanOwner>,
+	>,
 	mut events: MessageWriter<OccupancyEvent>,
 	mut awards: MessageWriter<OccupancyAward>,
 	mut charges: MessageWriter<LubikanChargeRequest>,
 ) {
 	let dt = time.delta();
 	for (entity, transform, mut user, ledger) in &mut users {
-		// [`LubikansPlugin`] owns ledger attach/restore. Skip until it has.
-		let Some(ledger) = ledger else {
+		if user.session.is_closed() {
 			continue;
-		};
+		}
 		let identity = OccupancyIdentity::resolve(transform.translation(), store.as_ref());
 		let locally_paused = paused.0 || !user.enabled;
 		let stepped = step_occupancy(
@@ -276,6 +287,27 @@ mod tests {
 		assert_eq!(changed[0].lubikan, LubikanAccountId::SELF);
 		assert_eq!(changed[0].amount, 1.0);
 		assert_eq!(changed[0].points_earned, 1.0);
+		Ok(())
+	}
+
+	#[test]
+	fn closed_user_does_not_award() -> anyhow::Result<()> {
+		let mut store = CellMetadataStore::default();
+		publish_demo(&mut store, Vec3::ZERO);
+		let mut app = app_with(store, RewardRuleSet::new([RewardRule::self_demonstration()]));
+		let fixture = LubikanFixture::spawn_in(&mut app);
+		app.world_mut().entity_mut(fixture.owner).insert((
+			GlobalTransform::from_translation(Vec3::ZERO),
+			OccupancyRewardsUser::default(),
+		));
+		app.world_mut()
+			.get_mut::<OccupancyRewardsUser>(fixture.owner)
+			.ok_or_else(|| anyhow::anyhow!("user"))?
+			.close();
+		app.world_mut()
+			.run_system_once(evaluate_occupancy_rewards)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(drain_requests(app.world_mut()).is_empty());
 		Ok(())
 	}
 

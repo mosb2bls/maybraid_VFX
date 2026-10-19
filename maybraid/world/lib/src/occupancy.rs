@@ -8,21 +8,28 @@
 //! [`crate::world_lubikan::WorldLubikanPlugin`] /
 //! [`LubikansPlugin`]. This adapter only publishes cell facts and inserts
 //! [`OccupancyRewardsUser`].
+//!
+//! Pause copies [`WorldGameplayEnabled`] onto [`OccupancyRewardsPaused`]
+//! **before** occupancy evaluate. Retiring bodies and ended play sessions
+//! close the occupancy user so they cannot credit.
 
 use std::collections::BTreeSet;
 
-use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
-use chico::{ChicoForest, ChicoGrove, ForestGroveKind, ForestLayer, GROVE_PRESENT_RADIUS_M};
+use chico::{ChicoForest, ChicoGrove, ForestExtent, ForestGroveKind, ForestLayer};
+use damage::{DamageSystems, Downed};
+use lod::gen::Id;
 use lod::hcsg::{Busy, HcsgStorage};
-use lod::LodViewer;
 use lubikans::LubikansPlugin;
 use occupancy_rewards::{
-	CellMetadata, CellMetadataStore, ConstructionTag, ForestInfo, GroveInfo, GroveKindTag,
-	GroveLayerId, GroveTileId, LayeringTag, OccupancyRewardsPlugin, OccupancyRewardsUser,
+	CellMetadata, CellMetadataStore, ConstructionTag, ForestCellId, ForestInfo, GroveInfo,
+	GroveKindTag, GroveLayerId, GroveTileId, LayeringTag, OccupancyDemoConfig,
+	OccupancyRewardsPaused, OccupancyRewardsPlugin, OccupancyRewardsSystems, OccupancyRewardsUser,
 	SemanticCellKey, VegetationLayer,
 };
 use world_player::Player as VegetationPlayer;
+
+use crate::control::{WorldGameplayEnabled, WorldPlaySessionEnded};
 
 /// Occupancy metadata publish and player mark.
 ///
@@ -32,6 +39,8 @@ use world_player::Player as VegetationPlayer;
 pub enum WorldOccupancySystems {
 	Publish,
 	Attach,
+	/// Copy world pause / session-end onto occupancy **before** Evaluate.
+	Gate,
 }
 
 /// Registers occupancy in the ordinary world and fills the metadata store
@@ -43,13 +52,26 @@ impl Plugin for WorldOccupancyPlugin {
 		if !app.is_plugin_added::<LubikansPlugin>() {
 			app.add_plugins(LubikansPlugin);
 		}
+		if app.world().get_resource::<OccupancyDemoConfig>().is_none() {
+			app.insert_resource(OccupancyDemoConfig::from_env());
+		}
 		if !app.is_plugin_added::<OccupancyRewardsPlugin>() {
-			app.add_plugins(OccupancyRewardsPlugin::default());
+			let demo = *app.world().resource::<OccupancyDemoConfig>();
+			app.add_plugins(OccupancyRewardsPlugin { rules: demo.rule_set() });
 		}
 		app.init_resource::<WorldOccupancyPublishState>()
+			.init_resource::<WorldOccupancySessionClosed>()
+			.init_resource::<WorldGameplayEnabled>()
+			.add_message::<WorldPlaySessionEnded>()
 			.configure_sets(
 				Update,
 				WorldOccupancySystems::Attach.after(WorldOccupancySystems::Publish),
+			)
+			.configure_sets(
+				PostUpdate,
+				WorldOccupancySystems::Gate
+					.after(DamageSystems::Down)
+					.before(OccupancyRewardsSystems::Evaluate),
 			)
 			.add_systems(
 				Update,
@@ -58,21 +80,62 @@ impl Plugin for WorldOccupancyPlugin {
 			.add_systems(
 				Update,
 				attach_world_occupancy_player.in_set(WorldOccupancySystems::Attach),
+			)
+			.add_systems(
+				PostUpdate,
+				(
+					sync_occupancy_rewards_paused,
+					close_occupancy_on_session_end,
+					close_occupancy_on_retired_bodies,
+				)
+					.in_set(WorldOccupancySystems::Gate),
 			);
 	}
 }
 
-/// Keys published from the last successful HCSG scan.
+/// Last successful actor-cell projection. Re-reads HCSG only when the occupied
+/// cells or HCSG membership revisions change.
 #[derive(Resource, Default)]
 pub(crate) struct WorldOccupancyPublishState {
 	keys: BTreeSet<SemanticCellKey>,
+	actor_cells: BTreeSet<ActorCellId>,
+	forest_revision: Option<u64>,
+	grove_revision: Option<u64>,
 }
 
-type OccupancyViewers<'w, 's> = Query<
+/// Latch: play-session teardown keeps occupancy paused after the message drains.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WorldOccupancySessionClosed(pub bool);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct ActorCellId {
+	forest: ForestCellId,
+	grove: GroveTileId,
+}
+
+impl ActorCellId {
+	fn from_position(position: Vec3) -> Self {
+		Self { forest: ForestCellId::containing(position), grove: GroveTileId::containing(position) }
+	}
+
+	fn forest_id(self) -> Id {
+		ForestExtent::from_cell_index(self.forest.ix, self.forest.iz).id()
+	}
+
+	fn grove_ids(self) -> [Id; 4] {
+		std::array::from_fn(|index| {
+			Id::from_cell(
+				GroveLayerId { tile: self.grove, layer: VegetationLayer::ALL[index] }.aabb(),
+			)
+		})
+	}
+}
+
+type OccupancyActors<'w, 's> = Query<
 	'w,
 	's,
 	&'static GlobalTransform,
-	Or<(With<VegetationPlayer>, With<OccupancyRewardsUser>, With<LodViewer>)>,
+	Or<(With<VegetationPlayer>, With<OccupancyRewardsUser>)>,
 >;
 
 type OccupancyPlayers<'w, 's> =
@@ -80,24 +143,41 @@ type OccupancyPlayers<'w, 's> =
 
 /// Copy selected forest / grove facts into [`CellMetadataStore`].
 ///
-/// [`Busy`] means try again next frame; the store is left unchanged so a
-/// contended lock cannot evict live occupancy.
+/// Reads only the forest cell and grove layers the occupancy actors occupy.
+/// [`Busy`] leaves the store unchanged so a contended lock cannot evict live
+/// occupancy. Equal cells + unchanged HCSG membership skip the read.
 pub fn publish_world_occupancy_metadata(
 	storage: Option<Res<HcsgStorage>>,
 	mut store: ResMut<CellMetadataStore>,
 	mut published: ResMut<WorldOccupancyPublishState>,
-	viewers: OccupancyViewers,
+	actors: OccupancyActors,
 ) {
 	let Some(storage) = storage else {
 		return;
 	};
-	let Some(region) = occupancy_scan_region(&viewers) else {
+	let cells = occupancy_actor_cells(&actors);
+	if cells.is_empty() {
+		return;
+	}
+	let Ok(forest_revision) = storage.try_membership_revision::<ChicoForest>() else {
 		return;
 	};
-	let Ok(scan) = OccupancyHcsgScan::try_collect(storage.as_ref(), region) else {
+	let Ok(grove_revision) = storage.try_membership_revision::<ChicoGrove>() else {
+		return;
+	};
+	if published.actor_cells == cells
+		&& published.forest_revision == Some(forest_revision)
+		&& published.grove_revision == Some(grove_revision)
+	{
+		return;
+	}
+	let Ok(scan) = OccupancyHcsgScan::try_collect(storage.as_ref(), &cells) else {
 		return;
 	};
 	scan.publish(&mut store, &mut published);
+	published.actor_cells = cells;
+	published.forest_revision = Some(forest_revision);
+	published.grove_revision = Some(grove_revision);
 }
 
 /// Mark the world player for occupancy. Does not create a ledger.
@@ -109,18 +189,56 @@ pub fn attach_world_occupancy_player(mut commands: Commands, players: OccupancyP
 	}
 }
 
+/// World pause and ended-session latch, applied before occupancy Evaluate.
+pub fn sync_occupancy_rewards_paused(
+	gameplay: Res<WorldGameplayEnabled>,
+	closed: Res<WorldOccupancySessionClosed>,
+	mut paused: ResMut<OccupancyRewardsPaused>,
+) {
+	let should_pause = !gameplay.0 || closed.0;
+	if paused.0 != should_pause {
+		paused.0 = should_pause;
+	}
+}
+
+/// Play-session teardown closes every occupancy user and latches the pause.
+pub fn close_occupancy_on_session_end(
+	mut ended: MessageReader<WorldPlaySessionEnded>,
+	mut closed: ResMut<WorldOccupancySessionClosed>,
+	mut users: Query<&mut OccupancyRewardsUser>,
+) {
+	if ended.read().next().is_none() {
+		return;
+	}
+	closed.0 = true;
+	for mut user in &mut users {
+		user.close();
+	}
+}
+
+/// Downed / retiring bodies cannot keep accruing occupancy.
+pub fn close_occupancy_on_retired_bodies(
+	mut users: Query<&mut OccupancyRewardsUser, Added<Downed>>,
+) {
+	for mut user in &mut users {
+		user.close();
+	}
+}
+
 struct OccupancyHcsgScan {
 	forests: Vec<CellMetadata>,
 	groves: Vec<CellMetadata>,
 }
 
 impl OccupancyHcsgScan {
-	fn try_collect(storage: &HcsgStorage, region: Aabb3d) -> Result<Self, Busy> {
+	fn try_collect(storage: &HcsgStorage, cells: &BTreeSet<ActorCellId>) -> Result<Self, Busy> {
+		let forest_ids: Vec<Id> = cells.iter().map(|cell| cell.forest_id()).collect();
+		let grove_ids: Vec<Id> = cells.iter().flat_map(|cell| cell.grove_ids()).collect();
 		Ok(Self {
-			forests: collect_published::<ChicoForest, _>(storage, region, |forest| {
+			forests: collect_entries::<ChicoForest, _>(storage, &forest_ids, |forest| {
 				OccupancyForest(forest).metadata()
 			})?,
-			groves: collect_published::<ChicoGrove, _>(storage, region, |grove| {
+			groves: collect_entries::<ChicoGrove, _>(storage, &grove_ids, |grove| {
 				OccupancyGrove(grove).metadata()
 			})?,
 		})
@@ -139,18 +257,18 @@ impl OccupancyHcsgScan {
 	}
 }
 
-fn collect_published<T, F>(
+fn collect_entries<T, F>(
 	storage: &HcsgStorage,
-	region: Aabb3d,
+	ids: &[Id],
 	into_meta: F,
 ) -> Result<Vec<CellMetadata>, Busy>
 where
-	T: Send + Sync + 'static,
+	T: lod::hcsg::HcsgValue,
 	F: Fn(&T) -> CellMetadata,
 {
 	let mut metas = Vec::new();
-	for id in storage.try_overlapping::<T>(region)? {
-		let Some(entry) = storage.try_entry::<T>(id)? else {
+	for entry in storage.try_entries::<T>(ids)? {
+		let Some(entry) = entry else {
 			continue;
 		};
 		metas.push(into_meta(entry.value.as_ref()));
@@ -158,28 +276,8 @@ where
 	Ok(metas)
 }
 
-fn occupancy_scan_region(viewers: &OccupancyViewers) -> Option<Aabb3d> {
-	let mut region = None;
-	for transform in viewers {
-		let next = scan_region_around(transform.translation());
-		region = Some(match region {
-			None => next,
-			Some(current) => union_aabb(current, next),
-		});
-	}
-	region
-}
-
-fn scan_region_around(position: Vec3) -> Aabb3d {
-	let radius = GROVE_PRESENT_RADIUS_M;
-	Aabb3d::from_min_max(
-		Vec3::new(position.x - radius, -1.0, position.z - radius),
-		Vec3::new(position.x + radius, 5.0, position.z + radius),
-	)
-}
-
-fn union_aabb(a: Aabb3d, b: Aabb3d) -> Aabb3d {
-	Aabb3d::from_min_max(a.min.min(b.min), a.max.max(b.max))
+fn occupancy_actor_cells(actors: &OccupancyActors) -> BTreeSet<ActorCellId> {
+	actors.iter().map(|transform| ActorCellId::from_position(transform.translation())).collect()
 }
 
 struct OccupancyForest<'a>(&'a ChicoForest);
@@ -402,12 +500,64 @@ mod tests {
 	}
 
 	fn occupancy_app_with_self(storage: HcsgStorage, self_config: LubikanSelfConfig) -> App {
+		occupancy_app_with_demo(storage, self_config, OccupancyDemoConfig::default())
+	}
+
+	fn occupancy_app_with_demo(
+		storage: HcsgStorage,
+		self_config: LubikanSelfConfig,
+		demo: OccupancyDemoConfig,
+	) -> App {
 		let mut app = App::new();
 		app.insert_resource(self_config)
+			.insert_resource(demo)
 			.add_plugins(MinimalPlugins)
 			.add_plugins(WorldOccupancyPlugin)
 			.insert_resource(storage);
 		app
+	}
+
+	fn far_grove_region() -> Aabb3d {
+		Aabb3d::from_min_max(Vec3::new(301.0, 0.0, 301.0), Vec3::new(399.0, 4.0, 399.0))
+	}
+
+	fn publish_lush_stand_and_far_cells() -> anyhow::Result<HcsgStorage> {
+		let storage = publish_lush_origin_cells()?;
+		let mut cx = GenerationContext::new(&storage);
+		let groves = cx.get_or_generate_in::<ChicoGrove>(far_grove_region());
+		anyhow::ensure!(!groves.is_empty(), "far grove tiles should select under LushJungle");
+		Ok(storage)
+	}
+
+	fn publish_lush_forest_only() -> anyhow::Result<HcsgStorage> {
+		let storage = HcsgStorage::default();
+		storage.seed(lush_selection(), universal_bounds());
+		let mut cx = GenerationContext::new(&storage);
+		anyhow::ensure!(cx
+			.get_or_generate::<ChicoForest>(ForestExtent::default_cell().id())
+			.is_some());
+		Ok(storage)
+	}
+
+	fn ready_occupancy_player(app: &mut App, at: Vec3) -> anyhow::Result<Entity> {
+		let player = spawn_player(app, at);
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		app.world_mut()
+			.run_system_once(attach_world_occupancy_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		attach_runtime_ledger(app);
+		let _ = drain_requests(app.world_mut());
+		let _ = drain_changes(app.world_mut());
+		Ok(player)
+	}
+
+	fn gate_before_evaluate(app: &mut App, dt: Duration) -> anyhow::Result<()> {
+		app.world_mut()
+			.run_system_once(sync_occupancy_rewards_paused)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		evaluate_with(app, dt)
 	}
 
 	fn spawn_player(app: &mut App, at: Vec3) -> Entity {
@@ -622,6 +772,283 @@ mod tests {
 			.charge()
 			.current();
 		anyhow::ensure!(charge == requested, "overflow must not raise charge past stock");
+		Ok(())
+	}
+
+	#[test]
+	fn publisher_reads_only_actor_cells_not_lod_neighborhood() -> anyhow::Result<()> {
+		let storage = publish_lush_stand_and_far_cells()?;
+		let mut app = occupancy_app(storage);
+		let _ = spawn_player(&mut app, STAND);
+		app.world_mut().spawn((
+			lod::LodViewer,
+			Transform::from_translation(Vec3::new(350.0, 0.0, 350.0)),
+			GlobalTransform::from_translation(Vec3::new(350.0, 0.0, 350.0)),
+		));
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let actor = OccupancyIdentity::from_position(STAND);
+		let far = OccupancyIdentity::from_position(Vec3::new(350.0, 0.0, 350.0));
+		let store = app.world().resource::<CellMetadataStore>();
+		anyhow::ensure!(store.get(SemanticCellKey::Forest(actor.forest)).is_some());
+		anyhow::ensure!(store.view(&actor).grove_loaded, "actor grove should be projected");
+		anyhow::ensure!(
+			!store.view(&far).grove_loaded,
+			"LodViewer neighborhood must not pull far grove tiles"
+		);
+		for key in app.world().resource::<WorldOccupancyPublishState>().keys.iter() {
+			if let SemanticCellKey::GroveLayer(id) = *key {
+				anyhow::ensure!(id.tile == actor.grove, "projection must stay on the actor tile");
+			}
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn publisher_skips_reread_when_cells_and_membership_are_unchanged() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(storage);
+		let _ = spawn_player(&mut app, STAND);
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let revision = app.world().resource::<CellMetadataStore>().revision();
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(
+			app.world().resource::<CellMetadataStore>().revision(),
+			revision,
+			"unchanged actor cells must not rewrite the projection"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn cell_transition_evicts_the_previous_grove() -> anyhow::Result<()> {
+		let storage = publish_lush_stand_and_far_cells()?;
+		let mut app = occupancy_app(storage);
+		let player = spawn_player(&mut app, STAND);
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let first = OccupancyIdentity::from_position(STAND);
+		anyhow::ensure!(app.world().resource::<CellMetadataStore>().view(&first).grove_loaded);
+		app.world_mut().entity_mut(player).insert((
+			Transform::from_translation(Vec3::new(350.0, 0.0, 350.0)),
+			GlobalTransform::from_translation(Vec3::new(350.0, 0.0, 350.0)),
+		));
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let next = OccupancyIdentity::from_position(Vec3::new(350.0, 0.0, 350.0));
+		let store = app.world().resource::<CellMetadataStore>();
+		anyhow::ensure!(store.view(&next).grove_loaded);
+		anyhow::ensure!(!store.view(&first).grove_loaded, "left grove must be evicted");
+		Ok(())
+	}
+
+	#[test]
+	fn streaming_gap_unloads_grove_without_duplicate_credit() -> anyhow::Result<()> {
+		let full = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(full);
+		let player = ready_occupancy_player(&mut app, STAND)?;
+		evaluate_with(&mut app, Duration::from_secs(4))?;
+		app.insert_resource(publish_lush_forest_only()?);
+		app.world_mut().resource_mut::<WorldOccupancyPublishState>().forest_revision = None;
+		app.world_mut().resource_mut::<WorldOccupancyPublishState>().grove_revision = None;
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		anyhow::ensure!(
+			!app.world()
+				.resource::<CellMetadataStore>()
+				.view(&OccupancyIdentity::from_position(STAND))
+				.grove_loaded
+		);
+		evaluate_with(&mut app, Duration::from_secs(4))?;
+		flush_award(&mut app);
+		anyhow::ensure!(drain_changes(app.world_mut()).is_empty());
+		app.insert_resource(publish_lush_origin_cells()?);
+		app.world_mut().resource_mut::<WorldOccupancyPublishState>().forest_revision = None;
+		app.world_mut().resource_mut::<WorldOccupancyPublishState>().grove_revision = None;
+		app.world_mut()
+			.run_system_once(publish_world_occupancy_metadata)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		evaluate_with(&mut app, Duration::from_secs(1))?;
+		flush_award(&mut app);
+		let changed = drain_changes(app.world_mut());
+		anyhow::ensure!(changed.len() == 1, "timer must survive streaming eviction");
+		assert_eq!(changed[0].recipient, player);
+		assert_eq!(changed[0].reason, LubikanChargeReason::OCCUPANCY);
+		Ok(())
+	}
+
+	#[test]
+	fn world_pause_is_applied_before_evaluate() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(storage);
+		let _ = ready_occupancy_player(&mut app, STAND)?;
+		app.world_mut().resource_mut::<WorldGameplayEnabled>().0 = false;
+		gate_before_evaluate(&mut app, Duration::from_secs(5))?;
+		anyhow::ensure!(app.world().resource::<OccupancyRewardsPaused>().0);
+		flush_award(&mut app);
+		anyhow::ensure!(
+			drain_changes(app.world_mut()).is_empty(),
+			"paused world must not credit occupancy"
+		);
+		app.world_mut().resource_mut::<WorldGameplayEnabled>().0 = true;
+		gate_before_evaluate(&mut app, Duration::from_secs(5))?;
+		flush_award(&mut app);
+		anyhow::ensure!(
+			drain_changes(app.world_mut()).len() == 1,
+			"resume must credit one interval, not paused time"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn large_frame_delta_awards_one_credit_per_interval() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(storage);
+		let _ = ready_occupancy_player(&mut app, STAND)?;
+		evaluate_with(&mut app, Duration::from_millis(12_500))?;
+		flush_award(&mut app);
+		let changed = drain_changes(app.world_mut());
+		anyhow::ensure!(changed.len() == 2, "12.5 s at 5 s should apply two occupancy awards");
+		assert!(changed.iter().all(|change| change.reason == LubikanChargeReason::OCCUPANCY));
+		Ok(())
+	}
+
+	#[test]
+	fn retiring_downed_body_does_not_credit() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(storage);
+		let player = ready_occupancy_player(&mut app, STAND)?;
+		evaluate_with(&mut app, Duration::from_secs(4))?;
+		app.world_mut().entity_mut(player).insert(damage::Downed {
+			source: None,
+			point: STAND,
+			at: 0.0,
+		});
+		app.world_mut()
+			.run_system_once(close_occupancy_on_retired_bodies)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		evaluate_with(&mut app, Duration::from_secs(5))?;
+		flush_award(&mut app);
+		anyhow::ensure!(
+			drain_changes(app.world_mut()).is_empty(),
+			"a retiring body must not keep occupancy credit"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn body_replace_starts_a_fresh_occupancy_timer() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(storage);
+		let previous = ready_occupancy_player(&mut app, STAND)?;
+		evaluate_with(&mut app, Duration::from_secs(4))?;
+		app.world_mut()
+			.get_mut::<OccupancyRewardsUser>(previous)
+			.ok_or_else(|| anyhow::anyhow!("previous user"))?
+			.close();
+		app.world_mut().entity_mut(previous).remove::<(
+			VegetationPlayer,
+			player::Player,
+			lubikans::LubikanOwner,
+			OccupancyRewardsUser,
+		)>();
+		let replacement = ready_occupancy_player(&mut app, STAND)?;
+		evaluate_with(&mut app, Duration::from_secs(4))?;
+		flush_award(&mut app);
+		anyhow::ensure!(
+			drain_changes(app.world_mut()).is_empty(),
+			"replacement must not inherit the retired body's leftover interval"
+		);
+		evaluate_with(&mut app, Duration::from_secs(1))?;
+		flush_award(&mut app);
+		let changed = drain_changes(app.world_mut());
+		anyhow::ensure!(changed.len() == 1);
+		assert_eq!(changed[0].recipient, replacement);
+		assert_eq!(changed[0].reason, LubikanChargeReason::OCCUPANCY);
+		Ok(())
+	}
+
+	#[test]
+	fn ended_session_latches_pause_and_closes_users() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(storage);
+		let player = ready_occupancy_player(&mut app, STAND)?;
+		app.world_mut().write_message(WorldPlaySessionEnded);
+		app.world_mut()
+			.run_system_once(close_occupancy_on_session_end)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		gate_before_evaluate(&mut app, Duration::from_secs(5))?;
+		anyhow::ensure!(app.world().resource::<WorldOccupancySessionClosed>().0);
+		anyhow::ensure!(app.world().resource::<OccupancyRewardsPaused>().0);
+		anyhow::ensure!(
+			app.world()
+				.get::<OccupancyRewardsUser>(player)
+				.is_some_and(|user| user.session.is_closed())
+		);
+		flush_award(&mut app);
+		anyhow::ensure!(drain_changes(app.world_mut()).is_empty());
+		Ok(())
+	}
+
+	#[test]
+	fn demo_config_overrides_self_interval_and_amount() -> anyhow::Result<()> {
+		let storage = publish_lush_origin_cells()?;
+		let demo = OccupancyDemoConfig::default().with_interval_secs(1.0).with_amount(3.0);
+		let mut app = occupancy_app_with_demo(storage, LubikanSelfConfig::default(), demo);
+		let _ = ready_occupancy_player(&mut app, STAND)?;
+		let rule = app
+			.world()
+			.resource::<RewardRuleSet>()
+			.rule(occupancy_rewards::RuleId::SELF_DEMONSTRATION)
+			.ok_or_else(|| anyhow::anyhow!("demo rule"))?;
+		assert_eq!(rule.interval, Duration::from_secs(1));
+		assert_eq!(rule.amount, 3.0);
+		evaluate_with(&mut app, Duration::from_secs(1))?;
+		flush_award(&mut app);
+		let changed = drain_changes(app.world_mut());
+		anyhow::ensure!(changed.len() == 1);
+		assert_eq!(changed[0].amount, 3.0);
+		assert_eq!(changed[0].points_earned, 3.0);
+		Ok(())
+	}
+
+	fn occupancy_changes_with_hud(visible: bool) -> anyhow::Result<Vec<LubikanChargeChanged>> {
+		let storage = publish_lush_origin_cells()?;
+		let mut app = occupancy_app(storage);
+		app.add_plugins(combat_hud::CombatHudPlugin {
+			hit_markers: false,
+			directional_damage: false,
+			player_vitals: false,
+			lubikan_charge: true,
+			lubikan_point_feedback: true,
+			score: false,
+		});
+		app.insert_resource(combat_hud::CombatHudVisible(visible));
+		let player = ready_occupancy_player(&mut app, STAND)?;
+		evaluate_with(&mut app, Duration::from_secs(5))?;
+		flush_award(&mut app);
+		let changed = drain_changes(app.world_mut());
+		anyhow::ensure!(changed.len() == 1, "HUD {visible} must not change Award");
+		assert_eq!(changed[0].recipient, player);
+		assert_eq!(changed[0].reason, LubikanChargeReason::OCCUPANCY);
+		assert_eq!(changed[0].points_earned, RewardRule::self_demonstration().amount);
+		Ok(changed)
+	}
+
+	#[test]
+	fn occupancy_self_loop_awards_with_hud_enabled_and_disabled() -> anyhow::Result<()> {
+		let on = occupancy_changes_with_hud(true)?;
+		let off = occupancy_changes_with_hud(false)?;
+		assert_eq!(on[0].amount, off[0].amount);
+		assert_eq!(on[0].points_earned, off[0].points_earned);
 		Ok(())
 	}
 }

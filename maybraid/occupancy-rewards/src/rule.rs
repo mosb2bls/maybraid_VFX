@@ -227,13 +227,76 @@ pub struct RewardRuleSet {
 	rules: Vec<RewardRule>,
 }
 
+/// Configurable Self demonstration rates. **Not** production occupancy balance.
+///
+/// [#1111](https://github.com/ramate-io/maybraid/issues/1111) does not agree a
+/// live interval or amount. Override with [`Self::with_interval_secs`] /
+/// [`Self::with_amount`], or the `MAYBRAID_OCCUPANCY_DEMO_*` env vars, for
+/// tests and Self-without-Bikanwarda development only.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct OccupancyDemoConfig {
+	pub interval: Duration,
+	pub amount: f32,
+}
+
+impl Default for OccupancyDemoConfig {
+	fn default() -> Self {
+		Self { interval: Duration::from_secs(5), amount: 1.0 }
+	}
+}
+
+impl OccupancyDemoConfig {
+	/// `MAYBRAID_OCCUPANCY_DEMO_INTERVAL_SECS` and `MAYBRAID_OCCUPANCY_DEMO_AMOUNT`.
+	pub fn from_env() -> Self {
+		let mut config = Self::default();
+		if let Ok(raw) = std::env::var("MAYBRAID_OCCUPANCY_DEMO_INTERVAL_SECS") {
+			if let Ok(secs) = raw.parse::<f32>() {
+				if secs.is_finite() && secs > 0.0 {
+					config.interval = Duration::from_secs_f32(secs);
+				}
+			}
+		}
+		if let Ok(raw) = std::env::var("MAYBRAID_OCCUPANCY_DEMO_AMOUNT") {
+			if let Ok(amount) = raw.parse::<f32>() {
+				if amount.is_finite() {
+					config.amount = amount;
+				}
+			}
+		}
+		config
+	}
+
+	pub fn with_interval_secs(mut self, secs: f32) -> Self {
+		if secs.is_finite() && secs > 0.0 {
+			self.interval = Duration::from_secs_f32(secs);
+		}
+		self
+	}
+
+	pub fn with_amount(mut self, amount: f32) -> Self {
+		if amount.is_finite() {
+			self.amount = amount;
+		}
+		self
+	}
+
+	/// Self demonstration rule using these demo rates.
+	pub fn self_rule(self) -> RewardRule {
+		RewardRule::self_demonstration().with_interval(self.interval).with_amount(self.amount)
+	}
+
+	pub fn rule_set(self) -> RewardRuleSet {
+		RewardRuleSet::new([self.self_rule()])
+	}
+}
+
 impl RewardRuleSet {
 	pub fn new(rules: impl IntoIterator<Item = RewardRule>) -> Self {
 		Self { rules: rules.into_iter().collect() }
 	}
 
 	pub fn demonstration() -> Self {
-		Self::new([RewardRule::self_demonstration()])
+		OccupancyDemoConfig::default().rule_set()
 	}
 
 	pub fn rules(&self) -> &[RewardRule] {
@@ -252,6 +315,21 @@ impl RewardRuleSet {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn demo_config_is_explicitly_not_production_balance() -> anyhow::Result<()> {
+		let demo = OccupancyDemoConfig::default().with_interval_secs(0.25).with_amount(7.0);
+		let rule = demo.self_rule();
+		assert_eq!(rule.id, RuleId::SELF_DEMONSTRATION);
+		assert_eq!(rule.interval, Duration::from_millis(250));
+		assert_eq!(rule.amount, 7.0);
+		assert_ne!(
+			demo.interval,
+			Duration::ZERO,
+			"demo interval is a development default, not a live economy"
+		);
+		Ok(())
+	}
 
 	#[test]
 	fn self_demonstration_uses_grove_tile_construction_scope() -> anyhow::Result<()> {
