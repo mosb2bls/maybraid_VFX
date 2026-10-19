@@ -8,8 +8,9 @@
 //! - [`StandardMaterialLib`] / [`StandardMaterialRefPlugin`] — reference implementor
 //!
 //! Domain crates add their own SystemParam libs (e.g. Chico leaf + stick) that
-//! [`MaterialLib::try_fulfill`] only the recipes they own. App crates compose those
-//! libs in one [`MaterialRefPlugin`] so two fulfills never race the same root.
+//! [`MaterialLib::try_fulfill`] only the recipes they own. App composition roots
+//! install exactly one [`MaterialRefPlugin`] over those composed libs so two
+//! fulfills never race the same root.
 
 mod fulfill;
 mod key;
@@ -220,15 +221,13 @@ mod tests {
 	}
 
 	#[test]
-	fn second_material_ref_plugin_does_not_panic_schedule() -> anyhow::Result<()> {
+	#[should_panic(expected = "second MaterialRefPlugin")]
+	fn second_material_ref_plugin_is_a_loud_error() {
 		let mut app = App::new();
 		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
 			.init_asset::<StandardMaterial>()
 			.init_resource::<StandardMaterialRefCache>()
 			.add_plugins(MaterialRefPlugin::<StandardMaterialLib<'_>>::default())
-			.add_plugins(MaterialRefPlugin::<NoopMaterialLib>::default())
-			.add_plugins(StandardMaterialRefPlugin);
-		app.update();
-		Ok(())
+			.add_plugins(MaterialRefPlugin::<NoopMaterialLib>::default());
 	}
 }

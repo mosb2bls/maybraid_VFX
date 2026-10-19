@@ -15,7 +15,7 @@ use firearms::{
 use furniture_shaders::{
 	init_furniture_material_caches, FurnitureMaterialLib, FurnitureShadersPlugin,
 };
-use material_ref::{material_ref_plugin_installed, MaterialLib, MaterialRef, MaterialRefPlugin};
+use material_ref::{MaterialLib, MaterialRef, MaterialRefPlugin};
 use vegetation_bumpout::init_bump_out_material_caches;
 use vegetation_shaders::{init_vegetation_material_caches, VegetationShadersPlugin};
 
@@ -58,17 +58,13 @@ impl MaterialLib for WorldMaterialLib<'_> {
 	}
 }
 
-/// Installs [`WorldMaterialLib`] as the single [`MaterialRefPlugin`] for Maybraid World.
+/// Maybraid World composition-root plugin: domain caches + [`WorldMaterialLib`].
 ///
-/// Add this before vegetation layer `Present` so the nested vegetation
-/// material plugin skips installing a second [`MaterialRefPlugin`].
-/// [`characters::material_lib::CharacterMaterialRefPlugin`] and
-/// [`building_shaders::UrbanMaterialRefPlugin`] also skip; face / urban
-/// recipes are claimed here.
+/// Domain material plugins initialize caches and shaders only. This plugin
+/// installs the unique resolver. Isolated hosts (the materials playground)
+/// also add [`WorldMaterialsShadersPlugin`].
 ///
 /// Does not register domain [`MaterialPlugin`]s — layers still do that.
-/// Isolated hosts (the materials playground) also add
-/// [`WorldMaterialsShadersPlugin`].
 pub struct WorldMaterialRefPlugin;
 
 impl Plugin for WorldMaterialRefPlugin {
@@ -80,9 +76,6 @@ impl Plugin for WorldMaterialRefPlugin {
 		init_energy_material_caches(app);
 		init_vegetation_material_caches(app);
 		init_bump_out_material_caches(app);
-		if material_ref_plugin_installed(app) {
-			return;
-		}
 		app.add_plugins(MaterialRefPlugin::<WorldMaterialLib<'_>>::default());
 	}
 }
@@ -127,20 +120,62 @@ impl Plugin for WorldMaterialsPlugin {
 #[cfg(test)]
 mod tests {
 	use bevy::prelude::*;
-	use characters::material_lib::{ClothingShaderMaterialRefCache, FaceShaderMaterialRefCache};
-
-	use building_shaders::{ColumnSurfaceMaterialRefCache, UrbanSurfaceMaterialRefCache};
-	use firearms::{EnergyMaterialRefCache, MuzzleFlameMaterialRefCache};
-	use furniture_shaders::FurnitureSurfaceMaterialRefCache;
-	use vegetation_bumpout::BumpOutMaterialRefCache;
-	use vegetation_shaders::{FrondMaterialRefCache, LeafMaterialRefCache, StickMaterialRefCache};
+	use building_shaders::{
+		ColumnSurfaceMaterial, ColumnSurfaceMaterialRefCache, UrbanMaterialRefPlugin,
+		UrbanSurfaceMaterial, UrbanSurfaceMaterialRefCache, RECIPE_DORIC_COLUMN, RECIPE_WOOD,
+	};
+	use character_shaders::{ClothingShaderMaterial, FaceShaderMaterial, RECIPE_FACE_EYE};
+	use characters::material_lib::{
+		CharacterMaterialRefPlugin, ClothingShaderMaterialRefCache, FaceShaderMaterialRefCache,
+	};
+	use chico::VegetationOnTerrainMaterialRefPlugin;
+	use firearms::{
+		EnergyMaterial, EnergyMaterialRefCache, MuzzleFlameMaterial, MuzzleFlameMaterialRefCache,
+		LASER_HEX_RECIPE, MUZZLE_FLAME_RECIPE,
+	};
+	use furniture_shaders::{
+		FurnitureMaterialRefPlugin, FurnitureSurfaceMaterial, FurnitureSurfaceMaterialRefCache,
+		RECIPE_FURNITURE_WOOD,
+	};
+	use material_ref::{
+		material_ref_plugin_installed, MaterialRef, MaterialRefApplied, MaterialRefRoot,
+	};
+	use vegetation_bumpout::{BumpOutMaterial, BumpOutMaterialRefCache, BUMP_OUT_MATERIAL};
+	use vegetation_shaders::{
+		FrondMaterial, FrondMaterialRefCache, LeafMaterial, LeafMaterialRefCache, StickMaterial,
+		StickMaterialRefCache, VegetationMaterialRefPlugin,
+	};
 
 	use crate::material_lib::WorldMaterialRefPlugin;
+
+	fn world_fulfill_app() -> App {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<StandardMaterial>()
+			.init_asset::<FurnitureSurfaceMaterial>()
+			.init_asset::<FaceShaderMaterial>()
+			.init_asset::<ClothingShaderMaterial>()
+			.init_asset::<UrbanSurfaceMaterial>()
+			.init_asset::<ColumnSurfaceMaterial>()
+			.init_asset::<MuzzleFlameMaterial>()
+			.init_asset::<EnergyMaterial>()
+			.init_asset::<BumpOutMaterial>()
+			.init_asset::<LeafMaterial>()
+			.init_asset::<StickMaterial>()
+			.init_asset::<FrondMaterial>()
+			.add_plugins(WorldMaterialRefPlugin);
+		app
+	}
+
+	fn spawn_named(app: &mut App, name: &str) -> Entity {
+		app.world_mut().spawn(MaterialRefRoot(MaterialRef::named(name))).id()
+	}
 
 	#[test]
 	fn world_material_plugin_initializes_character_material_caches() {
 		let mut app = App::new();
 		app.add_plugins(WorldMaterialRefPlugin);
+		assert!(material_ref_plugin_installed(&app));
 		assert!(app.world().contains_resource::<ClothingShaderMaterialRefCache>());
 		assert!(app.world().contains_resource::<FaceShaderMaterialRefCache>());
 		assert!(app.world().contains_resource::<UrbanSurfaceMaterialRefCache>());
@@ -152,5 +187,46 @@ mod tests {
 		assert!(app.world().contains_resource::<StickMaterialRefCache>());
 		assert!(app.world().contains_resource::<FrondMaterialRefCache>());
 		assert!(app.world().contains_resource::<BumpOutMaterialRefCache>());
+	}
+
+	#[test]
+	fn domain_cache_plugins_after_world_keep_the_world_resolver() {
+		let mut app = App::new();
+		app.add_plugins(WorldMaterialRefPlugin)
+			.add_plugins(CharacterMaterialRefPlugin)
+			.add_plugins(UrbanMaterialRefPlugin)
+			.add_plugins(FurnitureMaterialRefPlugin)
+			.add_plugins(VegetationMaterialRefPlugin)
+			.add_plugins(VegetationOnTerrainMaterialRefPlugin);
+		assert!(material_ref_plugin_installed(&app));
+	}
+
+	#[test]
+	fn world_lib_preserves_composed_recipe_priority() {
+		let mut app = world_fulfill_app();
+		let furniture = spawn_named(&mut app, RECIPE_FURNITURE_WOOD);
+		let face = spawn_named(&mut app, RECIPE_FACE_EYE);
+		let urban = spawn_named(&mut app, RECIPE_WOOD);
+		let column = spawn_named(&mut app, RECIPE_DORIC_COLUMN);
+		let flame = spawn_named(&mut app, MUZZLE_FLAME_RECIPE);
+		let energy = spawn_named(&mut app, LASER_HEX_RECIPE);
+		let bump = spawn_named(&mut app, BUMP_OUT_MATERIAL);
+		let leaf = spawn_named(&mut app, "CHICO_LEAF_MATERIAL");
+		let fallback = spawn_named(&mut app, "tuft");
+		app.update();
+
+		assert!(app.world().get::<MaterialRefApplied>(furniture).is_some());
+		assert!(app.world().get::<MeshMaterial3d<FurnitureSurfaceMaterial>>(furniture).is_some());
+		assert!(app.world().get::<MeshMaterial3d<FaceShaderMaterial>>(face).is_some());
+		assert!(app.world().get::<MeshMaterial3d<UrbanSurfaceMaterial>>(urban).is_some());
+		assert!(app.world().get::<MeshMaterial3d<ColumnSurfaceMaterial>>(column).is_some());
+		assert!(app.world().get::<MeshMaterial3d<MuzzleFlameMaterial>>(flame).is_some());
+		assert!(app.world().get::<MeshMaterial3d<EnergyMaterial>>(energy).is_some());
+		assert!(app.world().get::<MeshMaterial3d<BumpOutMaterial>>(bump).is_some());
+		assert!(app.world().get::<MeshMaterial3d<LeafMaterial>>(leaf).is_some());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(fallback).is_some());
+		assert!(app.world().get::<MeshMaterial3d<UrbanSurfaceMaterial>>(furniture).is_none());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(urban).is_none());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(column).is_none());
 	}
 }

@@ -30,8 +30,8 @@ pub use vegetation_shaders::{
 
 /// Registers the bump-out shader and caches. Does not install a [`material_ref::MaterialRefPlugin`].
 ///
-/// Standalone apps add [`BumpOutMaterialRefPlugin`]. Composed apps (vegetation / world)
-/// install one parent lib instead.
+/// The bump-out playground adds [`BumpOutMaterialRefPlugin`] at its composition root.
+/// Composed apps (vegetation / world) nest [`BumpOutMaterialLib`] in a parent resolver.
 pub struct BumpOutPlugin;
 
 impl Plugin for BumpOutPlugin {

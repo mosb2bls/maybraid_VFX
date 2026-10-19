@@ -3,8 +3,8 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use material_ref::{
-	material_ref_plugin_installed, MaterialId, MaterialLib, MaterialRef, MaterialRefCache,
-	MaterialRefKey, MaterialRefPlugin, StandardMaterialLib, StandardMaterialRefCache,
+	MaterialId, MaterialLib, MaterialRef, MaterialRefCache, MaterialRefKey, StandardMaterialLib,
+	StandardMaterialRefCache,
 };
 
 use crate::{
@@ -130,16 +130,15 @@ impl MaterialLib for UrbanMaterialLib<'_> {
 	}
 }
 
-/// Registers caches + [`MaterialRefPlugin`] for [`UrbanMaterialLib`].
+/// Idempotent urban / column cache initializer. Does not install a resolver.
+///
+/// Standalone urban hosts install [`MaterialRefPlugin`]`<`[`UrbanMaterialLib`]`>`
+/// at their composition root. Maybraid World nests [`UrbanSurfaceMaterialLib`].
 pub struct UrbanMaterialRefPlugin;
 
 impl Plugin for UrbanMaterialRefPlugin {
 	fn build(&self, app: &mut App) {
 		init_urban_material_caches(app);
-		if material_ref_plugin_installed(app) {
-			return;
-		}
-		app.add_plugins(MaterialRefPlugin::<UrbanMaterialLib<'_>>::default());
 	}
 }
 
@@ -198,6 +197,35 @@ mod tests {
 		assert!(app.world().get::<MeshMaterial3d<ColumnSurfaceMaterial>>(entity).is_some());
 		assert!(app.world().get::<MeshMaterial3d<UrbanSurfaceMaterial>>(entity).is_none());
 		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(entity).is_none());
+	}
+
+	#[test]
+	fn urban_material_ref_plugin_is_cache_only() {
+		let mut app = App::new();
+		app.add_plugins(UrbanMaterialRefPlugin);
+		assert!(app.world().contains_resource::<UrbanSurfaceMaterialRefCache>());
+		assert!(app.world().contains_resource::<ColumnSurfaceMaterialRefCache>());
+		assert!(!material_ref::material_ref_plugin_installed(&app));
+	}
+
+	#[test]
+	fn urban_standalone_lib_falls_through_to_standard() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<StandardMaterial>()
+			.init_asset::<UrbanSurfaceMaterial>()
+			.init_asset::<ColumnSurfaceMaterial>()
+			.init_resource::<StandardMaterialRefCache>()
+			.init_resource::<UrbanSurfaceMaterialRefCache>()
+			.init_resource::<ColumnSurfaceMaterialRefCache>()
+			.add_plugins(MaterialRefPlugin::<UrbanMaterialLib<'_>>::default());
+
+		let entity = app.world_mut().spawn(MaterialRefRoot(MaterialRef::named("tuft"))).id();
+		app.update();
+
+		assert!(app.world().get::<MaterialRefApplied>(entity).is_some());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(entity).is_some());
+		assert!(app.world().get::<MeshMaterial3d<UrbanSurfaceMaterial>>(entity).is_none());
 	}
 
 	#[test]

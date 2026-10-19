@@ -71,6 +71,10 @@ pub use fixed::{
 };
 pub use hosts::CharacterHostsPlugin;
 pub use layer::{Layer, Layers};
+pub use material_lib::{
+	init_character_material_caches, CharacterMaterialLib, CharacterMaterialRefPlugin,
+	StandaloneCharacterMaterialLib, StandaloneCharacterMaterialRefPlugin,
+};
 pub use material_ref::{MaterialRef, MaterialRefRoot, PropagateToDescendants};
 pub use member::{
 	attach_part_node, find_member_rig, find_part_member, hide_socketed_parts,

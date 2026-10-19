@@ -35,9 +35,9 @@ const WORLD_SEED: u32 = 42;
 
 /// Every world layer at world defaults.
 ///
-/// Add after [`crate::WorldMaterialRefPlugin`], which must install the world
-/// material library before any layer installs its own, and after
-/// `PlayerCameraPlugin`, since mob presentation adds `PlayerPlugin` when missing.
+/// Add after [`crate::WorldMaterialRefPlugin`], which installs the unique world
+/// material resolver, and after `PlayerCameraPlugin`, since mob presentation
+/// adds `PlayerPlugin` when missing.
 pub struct WorldLayersPlugin;
 
 impl Plugin for WorldLayersPlugin {

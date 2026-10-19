@@ -28,7 +28,7 @@ use building_physics::BuildingWalkColliderPlugin;
 use buildings_lod::FiringRangeBuildingsLodPlugin;
 use character_items::ItemRng;
 use character_ragdoll::{CharacterRagdollPlugin, CharacterRagdollSettings};
-use characters::CharacterHostsPlugin;
+use characters::{CharacterHostsPlugin, StandaloneCharacterMaterialRefPlugin};
 use combat_hud::CombatHudPlugin;
 use diagnostics::FiringRangeDiagnosticsPlugin;
 use evasion_intelligence::{EvasionPlugin, EvasionSystems};
@@ -78,6 +78,7 @@ impl Plugin for FiringRangePlugin {
 		.add_plugins(FirearmHostsPlugin);
 		add_firearm_components_host::<firearm_user::GeneratedFirearm>(app);
 		app.add_plugins(FirearmWeaponsPlugin)
+			.add_plugins(StandaloneCharacterMaterialRefPlugin)
 			.add_plugins(CharacterHostsPlugin)
 			.add_plugins(CharacterControllerPlugin)
 			.add_plugins(PlayerPlugin)

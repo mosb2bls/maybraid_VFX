@@ -29,7 +29,9 @@ impl Default for DoricColumnMaterials {
 
 #[cfg(test)]
 mod tests {
-	use building_shaders::{is_column_surface_recipe, ColumnSurfaceMaterial, DEFAULT_RELIEF_DEPTH_D};
+	use building_shaders::{
+		is_column_surface_recipe, ColumnSurfaceMaterial, DEFAULT_RELIEF_DEPTH_D,
+	};
 	use material_ref::MaterialRefPlugin;
 
 	use super::*;
@@ -40,10 +42,7 @@ mod tests {
 		use material_ref::MaterialId;
 
 		let shaft = DoricColumnMaterials::default().shaft;
-		assert_eq!(
-			shaft.name,
-			MaterialId::named(building_shaders::RECIPE_DORIC_COLUMN_SHAFT_KIT)
-		);
+		assert_eq!(shaft.name, MaterialId::named(building_shaders::RECIPE_DORIC_COLUMN_SHAFT_KIT));
 		let MaterialId::Name(name) = &shaft.name else {
 			panic!("shaft recipe must be named");
 		};
@@ -60,7 +59,7 @@ mod tests {
 			AssetPlugin::default(),
 			building_shaders::BuildingShadersPlugin,
 			building_shaders::UrbanMaterialRefPlugin,
-			MaterialRefPlugin::<building_shaders::UrbanSurfaceMaterialLib<'_>>::default(),
+			MaterialRefPlugin::<building_shaders::UrbanMaterialLib<'_>>::default(),
 		))
 		.init_asset::<StandardMaterial>()
 		.init_asset::<building_shaders::UrbanSurfaceMaterial>()

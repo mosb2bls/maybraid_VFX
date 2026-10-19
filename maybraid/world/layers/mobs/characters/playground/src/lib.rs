@@ -15,7 +15,10 @@ use animation::{apply_joint_preview, draw_authoring_gizmos, AnimationPlayback};
 use bevy::prelude::*;
 use camera_controls::look::CameraLookPlugin;
 use character::CharacterConfig;
-use characters::{CharacterHostSystems, CharacterHostsPlugin, CharacterMotionSystems};
+use characters::{
+	CharacterHostSystems, CharacterHostsPlugin, CharacterMotionSystems,
+	StandaloneCharacterMaterialRefPlugin,
+};
 use game_commands::command::{capture_command_line_input, GameCommandPlugin};
 use skinning::{dump_bones_to_console, DumpBonesRequest};
 
@@ -28,6 +31,7 @@ impl Plugin for CharactersPlaygroundPlugin {
 			.init_resource::<AnimationPlayback>()
 			.init_resource::<DumpBonesRequest>()
 			.add_plugins(CameraLookPlugin::default())
+			.add_plugins(StandaloneCharacterMaterialRefPlugin)
 			.add_plugins(CharacterHostsPlugin)
 			.add_plugins(GameCommandPlugin::<PlaygroundCommand>::with_config(ui::ui_config()))
 			.add_systems(Startup, (camera::setup_camera, setup_lighting))

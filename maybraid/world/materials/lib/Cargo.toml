@@ -20,5 +20,8 @@ material-ref = { workspace = true }
 vegetation-bumpout = { workspace = true }
 vegetation-shaders = { workspace = true }
 
+[dev-dependencies]
+character-shaders = { workspace = true }
+
 [lints]
 workspace = true

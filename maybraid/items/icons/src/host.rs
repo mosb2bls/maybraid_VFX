@@ -32,7 +32,7 @@ use lod::{
 	add_lod_refresh_chunk_for, LodLevelRootPending, LodLevelSpawnRequest, LodRefreshCorePlugin,
 	LodRefreshDomain, LodRefreshMembership,
 };
-use material_ref::{MaterialRefApplied, StandardMaterialRefPlugin};
+use material_ref::MaterialRefApplied;
 use scene_ref::SceneRefRoot;
 use screen_capture::{
 	CaptureHostReady, CaptureHostRoot, CaptureId, CaptureSilhouetteRoot, CAPTURE_RENDER_LAYER,
@@ -167,9 +167,6 @@ pub fn install_capture_hosts(app: &mut App) {
 	}
 	if !app.is_plugin_added::<CharacterMaterialRefPlugin>() {
 		app.add_plugins(CharacterMaterialRefPlugin);
-	}
-	if !app.is_plugin_added::<StandardMaterialRefPlugin>() {
-		app.add_plugins(StandardMaterialRefPlugin);
 	}
 	if !app.is_plugin_added::<FirearmComponentsPlugin>() {
 		app.add_plugins(FirearmComponentsPlugin);

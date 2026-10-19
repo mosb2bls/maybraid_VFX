@@ -3,7 +3,6 @@
 use bevy::prelude::*;
 use character_shaders::CharacterShadersPlugin;
 use lod::{add_lod_refresh_chunk_for, LodRefreshCorePlugin};
-use material_ref::StandardMaterialRefPlugin;
 use scene_ref::SceneRefPlugin;
 
 use character_motion::{CharacterMotionPlugin, CharacterMotionSystems};
@@ -39,9 +38,6 @@ impl Plugin for CharacterHostsPlugin {
 		}
 		if !app.is_plugin_added::<CharacterMaterialRefPlugin>() {
 			app.add_plugins(CharacterMaterialRefPlugin);
-		}
-		if !app.is_plugin_added::<StandardMaterialRefPlugin>() {
-			app.add_plugins(StandardMaterialRefPlugin);
 		}
 		if !app.is_plugin_added::<LodRefreshCorePlugin>() {
 			app.add_plugins(LodRefreshCorePlugin);

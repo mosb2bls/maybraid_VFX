@@ -34,7 +34,7 @@ use game_commands::command::{capture_command_line_input, GameCommandPlugin};
 
 use camera_focus::{apply_camera_suggestion, PendingCameraFocus};
 use character_lod::CharacterLodPlugin;
-use characters::CharacterHostSystems;
+use characters::{CharacterHostSystems, StandaloneCharacterMaterialRefPlugin};
 use focus::animate_focused_preview_asset;
 use focus_reference::{sync_focus_reference, FocusReferenceSyncState};
 use lod::LodViewer;
@@ -80,6 +80,7 @@ impl Plugin for CharacterConceptsPlaygroundPlugin {
 				enabled_at_start: false,
 				..CameraLookConfig::default()
 			}))
+			.add_plugins(StandaloneCharacterMaterialRefPlugin)
 			.add_plugins(CharacterLodPlugin)
 			.add_plugins(
 				GameCommandPlugin::<ConceptsCommand>::with_config(ui::ui_config())

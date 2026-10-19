@@ -22,6 +22,7 @@ use character_items::{
 	InventoryItem, ItemColor, ItemRng, SkillMapKind, SkillMapSpec,
 };
 use character_ui_menu::MenuComponent;
+use characters::StandaloneCharacterMaterialRefPlugin;
 use item_icons::{
 	request_inventory_icons, CaptureCacheRoot, CaptureClient, CaptureCompleted, CaptureFailed,
 	CaptureHostReady, CaptureHostRealized, CaptureHostRoot, ItemCaptureSubjects, ItemIconCache,
@@ -57,6 +58,7 @@ fn main() {
 				.set(AssetPlugin { file_path: assets_path().to_string_lossy().into(), ..default() })
 				.disable::<AudioPlugin>(),
 		)
+		.add_plugins(StandaloneCharacterMaterialRefPlugin)
 		.add_plugins(ItemIconPlugin)
 		.insert_resource(ClearColor(Color::srgb(0.07, 0.08, 0.10)))
 		.insert_resource(CaptureDir(shot_dir()))
