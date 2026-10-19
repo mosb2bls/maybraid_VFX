@@ -21,7 +21,7 @@
 //! Frame parity rotates class order; leftovers cascade.
 //!
 //! Pipeline (within [`crate::LodRefreshSystems::Fulfill`]):
-//! reset budget → cancel unstarted cull on desired pending → begin (per `T`) →
+//! reset budget → cancel unstarted cull on desired pending → begin →
 //! drain → complete.
 
 mod begin;
@@ -45,14 +45,11 @@ use super::super::viewer::LodViewer;
 use super::super::{ensure_refresh_core, LodRefreshSystems};
 use super::cull::{apply_lod_cull_requests, cull_lod_level_roots, drain_lod_cull, LodCullRequest};
 
+pub use begin::begin_chunk_lod_fulfill_erased;
 use begin::LodChunkBeginCandidateScratch;
-pub use begin::{begin_chunk_lod_fulfill, begin_chunk_lod_fulfill_erased};
 pub use complete::{bump_nested_streamed_progress, complete_chunk_lod_fulfill};
 pub use drain::drain_chunk_lod_fulfill;
-pub use resume::{
-	cancel_unstarted_cull_for_desired_pending_roots,
-	cancel_unstarted_cull_for_desired_pending_roots_erased,
-};
+pub use resume::cancel_unstarted_cull_for_desired_pending_roots_erased;
 pub use schedule::reset_lod_chunk_budget;
 pub use types::{
 	FulfillClass, LodChunkAtomicOverrun, LodChunkBeginClock, LodChunkBeginScanCursor,
