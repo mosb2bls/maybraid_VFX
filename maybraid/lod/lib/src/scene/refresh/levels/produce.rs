@@ -10,7 +10,7 @@ use bevy::platform::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 
 use crate::lod_ref::{
-	collect_node_snapshots, lod_refs_from_snapshots, LodNode, LodNodeBounds, LodNodePose,
+	collect_node_snapshots_into, lod_refs_from_snapshots, LodNode, LodNodeBounds, LodNodePose,
 	LodNodeSnapshot,
 };
 use crate::scene::host::{
@@ -170,6 +170,11 @@ impl LodProduceCache {
 		self.snapshots.clear();
 		self.domains.clear();
 	}
+
+	/// Hosts retained for `domain` after the last fill (membership-filtered).
+	pub fn hits_for(&self, domain: LodRefreshDomain) -> Option<&HashSet<Entity>> {
+		self.domains.get(&domain).map(|hits| &hits.hits)
+	}
 }
 
 fn remove_contained_regions(regions: &mut Vec<Aabb3d>) {
@@ -225,7 +230,7 @@ pub fn fill_lod_produce_cache<I>(
 		return;
 	}
 
-	cache.snapshots = collect_node_snapshots(&nodes);
+	collect_node_snapshots_into(&nodes, &mut cache.snapshots);
 	if cache.snapshots.is_empty() {
 		return;
 	}
@@ -235,12 +240,9 @@ pub fn fill_lod_produce_cache<I>(
 		remove_contained_regions(&mut regions);
 		let mut hits = HashSet::new();
 		for region in &regions {
-			for entity in index.hosts_in_region(*region) {
-				if membership_allows(membership.get(entity).ok(), domain) {
-					hits.insert(entity);
-				}
-			}
+			index.extend_hosts_in_region(*region, &mut hits);
 		}
+		hits.retain(|entity| membership_allows(membership.get(*entity).ok(), domain));
 		cache.domains.insert(domain, DomainHits { hits });
 	}
 }

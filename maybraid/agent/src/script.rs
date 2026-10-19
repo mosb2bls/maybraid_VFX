@@ -109,6 +109,7 @@ mod tests {
 		"visual-style-traverse-native.jsonl",
 		"visual-style-traverse-sharp.jsonl",
 		"visual-style-traverse-antediluvian.jsonl",
+		"tanz-playtest.jsonl",
 	];
 
 	#[test]

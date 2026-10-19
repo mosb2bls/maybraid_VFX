@@ -547,6 +547,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "attacks"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "avian3d",
+ "bevy",
+ "combat-targeting",
+ "damage",
+ "lod-avian",
+]
+
+[[package]]
+name = "attacks-playground"
+version = "0.1.5"
+dependencies = [
+ "attacks",
+ "avian3d",
+ "bevy",
+ "combat-targeting",
+ "damage",
+ "lod-avian",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2776,6 +2800,7 @@ dependencies = [
  "character-items",
  "character-ui-menu",
  "characters",
+ "tanz-user",
 ]
 
 [[package]]
@@ -5218,11 +5243,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "gimme-bench-support"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bevy_math",
+ "bevy_platform",
+ "gimme-core",
+]
+
+[[package]]
 name = "gimme-core"
 version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy_math",
+ "bevy_platform",
+ "gimme-bench-support",
  "thiserror 1.0.69",
 ]
 
@@ -5397,6 +5435,7 @@ dependencies = [
  "maybraid-audio",
  "maybraid-character-controller",
  "maybraid-input",
+ "maybraid-spatial-rumble",
  "player",
  "player-camera",
 ]
@@ -6610,7 +6649,9 @@ dependencies = [
 name = "lod-gimme"
 version = "0.1.5"
 dependencies = [
+ "anyhow",
  "bevy",
+ "gimme-bench-support",
  "gimme-core",
  "lod",
 ]
@@ -7016,6 +7057,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "maybraid-spatial-rumble"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "maybraid-input",
+]
+
+[[package]]
 name = "maybraid-vfx"
 version = "0.1.5"
 dependencies = [
@@ -7081,6 +7131,7 @@ dependencies = [
  "maybraid-sky",
  "maybraid-vfx",
  "maybraid-weather",
+ "maybraid-world-controller",
  "meandering-intelligence",
  "menu-components",
  "mob-characters",
@@ -7097,9 +7148,11 @@ dependencies = [
  "poi-intelligence",
  "richmond",
  "routing-intelligence",
+ "screen-capture",
  "serde",
  "serde_json",
  "spotting-intelligence",
+ "tanz-user",
  "tempfile",
  "terrain-layer-model",
  "tether-intelligence",
@@ -7112,6 +7165,14 @@ dependencies = [
  "vegetation-layer-model",
  "world-materials",
  "world-player",
+]
+
+[[package]]
+name = "maybraid-world-controller"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
 ]
 
 [[package]]
@@ -7192,6 +7253,7 @@ dependencies = [
  "menu-components",
  "menu-screens",
  "player",
+ "tanz-user",
 ]
 
 [[package]]
@@ -7214,6 +7276,7 @@ dependencies = [
  "menu-components",
  "serde",
  "serde_json",
+ "tanz-user",
  "tempfile",
 ]
 
@@ -9031,6 +9094,7 @@ dependencies = [
  "characters",
  "lod",
  "maybraid-character-controller",
+ "maybraid-spatial-rumble",
  "player",
 ]
 
@@ -9273,6 +9337,7 @@ dependencies = [
 name = "projectiles"
 version = "0.1.5"
 dependencies = [
+ "anyhow",
  "avian3d",
  "bevy",
  "lod-avian",
@@ -10928,6 +10993,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "spatial-rumble-playground"
+version = "0.1.5"
+dependencies = [
+ "bevy",
+ "maybraid-input",
+ "maybraid-spatial-rumble",
+]
+
+[[package]]
 name = "spin"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11399,6 +11473,25 @@ dependencies = [
  "grid",
  "serde",
  "slotmap",
+]
+
+[[package]]
+name = "tanz-user"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "character-animations",
+ "character-items",
+ "characters",
+ "damage",
+ "item-icons",
+ "maybraid-character-controller",
+ "maybraid-input",
+ "maybraid-skill-map",
+ "menu-components",
+ "player",
+ "screen-capture",
 ]
 
 [[package]]

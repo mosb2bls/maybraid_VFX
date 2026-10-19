@@ -1,7 +1,7 @@
 //! Items that map onto characters.
 //!
 //! This crate owns the catalog of wearable and carried items (clothing,
-//! firearms, grenades, and skill maps), the shared item color palette, clothing surface
+//! firearms, grenades, skill maps, and Tanzes), the shared item color palette, clothing surface
 //! recipes, hashed display names, and the inventory bag used at character
 //! creation. Species
 //! crates describe *how* an item attaches to a particular character (rig, slot,
@@ -22,6 +22,7 @@ pub mod names;
 pub mod palette;
 pub mod skill_map;
 pub mod stats;
+pub mod tanz;
 
 mod menu_traits;
 
@@ -53,8 +54,10 @@ pub use inventory::{
 	icon_catalog_key_for_label, self_lubikan_catalog_key, Inventory, InventoryItem, InventorySlot,
 	ItemRng, LootFraction, MaterialRefParams, ITEM_ICON_CATALOG_TAG, SELF_LUBIKAN_CAPTURE_LABEL,
 	SKILL_MAP_BAG_LIMIT, SKILL_MAP_QUEUE_LIMIT, STARTER_CLOTHING_COUNT, STARTER_GRENADE_COUNT,
-	STARTER_SKILL_MAP_COUNT, STARTER_WEAPON_COUNT, WEAPON_QUEUE_LIMIT, WORN_CLOTHING_LIMIT,
+	STARTER_SKILL_MAP_COUNT, STARTER_WEAPON_COUNT, TANZ_QUEUE_LIMIT, WEAPON_QUEUE_LIMIT,
+	WORN_CLOTHING_LIMIT,
 };
 pub use palette::ItemColor;
 pub use skill_map::{SkillMapKind, SkillMapSpec};
 pub use stats::{CharacterSheet, ClothingStats, FireMode, FirearmStats, ProjectileKind};
+pub use tanz::TanzId;

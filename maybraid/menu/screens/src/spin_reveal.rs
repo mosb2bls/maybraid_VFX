@@ -7,7 +7,7 @@ use character_creation_menus::{
 use character_items::{self_lubikan_catalog_key, Inventory, InventoryItem};
 use item_icons::{
 	request_inventory_icons, CaptureClient, ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery,
-	ItemIconPlugin,
+	ItemIconPlugin, PoseCaptureSubjects,
 };
 use maybraid_character_ui_menu_renderer::{
 	fill_inventory_layout, fill_inventory_loading, spawn_starter_kit_shell, MenuThumbnailContext,
@@ -19,6 +19,7 @@ use menu_components::{
 	KeyboardMenuNav, MenuComponentsPlugin, ScreenBack, TextMenuInputLock, MENU_CLEAR, TEXT_YELLOW,
 };
 use std::time::Duration;
+use tanz_user::request_inventory_tanz_icons;
 
 use crate::input::add_menu_input;
 use crate::show::{add_menu_show_systems, MenuScreens, MenuShowRequest};
@@ -115,6 +116,7 @@ fn apply_show_spin_reveal(
 	time: Res<Time>,
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut subjects: ResMut<ItemCaptureSubjects>,
+	mut poses: ResMut<PoseCaptureSubjects>,
 	mut client: CaptureClient,
 ) {
 	if screens.take(&mut commands, &requests).is_none() {
@@ -125,6 +127,7 @@ fn apply_show_spin_reveal(
 	};
 	let bag = Inventory { items: items.0.clone(), ..Inventory::default() };
 	request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client);
+	request_inventory_tanz_icons(&bag, &mut discovery, &mut poses, &mut client);
 	spawn_starter_kit(&mut commands, &items, &HudFonts::load(assets.as_ref()), time.elapsed());
 }
 
@@ -242,12 +245,7 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 	}
 
 	fn image_for_key(&mut self, key: u64) -> Option<Handle<Image>> {
-		let cache = self.icons?;
-		if key == self_lubikan_catalog_key() {
-			cache.silhouette_for_key(key)
-		} else {
-			cache.shaded_for_key(key)
-		}
+		self.icons?.catalog_for_key(key)
 	}
 
 	fn tint_for_key(&mut self, key: u64) -> Color {
@@ -539,6 +537,9 @@ mod tests {
 		assert_eq!(layout.mode, InventoryLayoutMode::ReadOnly);
 		assert!(!layout.allows(character_creation_menus::MenuEvent::ToggleInventory(0)));
 		assert!(!layout.allows(character_creation_menus::MenuEvent::DropInventory(0)));
-		assert_eq!(layout.section_labels(), ["Clothing", "Tools", "Skill Maps", "Lubikan"]);
+		assert_eq!(
+			layout.section_labels(),
+			["Clothing", "Tools", "Skill Maps", "Tanzes", "Lubikan"]
+		);
 	}
 }

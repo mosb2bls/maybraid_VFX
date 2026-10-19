@@ -6,12 +6,11 @@ mod look;
 use bevy::prelude::*;
 use bevy::window::WindowFocused;
 use maybraid_character_controller::CharacterControlSystems;
+use maybraid_spatial_rumble::{SpatialRumbleListener, SpatialRumblePlugin, SpatialRumbleSystems};
 use player::{PlayerPlugin, PlayerPoseSystems, PlayerSystems};
 use std::f32::consts::FRAC_PI_2;
 
-pub use follow::{
-	apply_camera_shake, map_pose, sync_camera_fov, sync_first_person_head_visibility, CameraShake,
-};
+pub use follow::{map_pose, sync_camera_fov, sync_first_person_head_visibility};
 pub use look::{CameraController, CameraLookSuppressed, CameraPov, CameraPovLocked};
 
 /// Camera schedule. Item crates add aim writers to [`PlayerCameraSystems::Aim`].
@@ -92,6 +91,9 @@ pub struct PlayerCameraPlugin;
 
 impl Plugin for PlayerCameraPlugin {
 	fn build(&self, app: &mut App) {
+		if !app.is_plugin_added::<SpatialRumblePlugin>() {
+			app.add_plugins(SpatialRumblePlugin);
+		}
 		app.init_resource::<CameraPovLocked>()
 			.init_resource::<look::CameraLookSuppressed>()
 			.configure_sets(
@@ -106,6 +108,10 @@ impl Plugin for PlayerCameraPlugin {
 					PlayerCameraSystems::Aim.after(PlayerPoseSystems::Overlay),
 					PlayerCameraSystems::Follow.after(PlayerCameraSystems::Aim),
 					PlayerCameraSystems::Apply.after(PlayerCameraSystems::Follow),
+					// Present is the only camera-offset writer; follow pose is rest.
+					SpatialRumbleSystems::Present
+						.after(PlayerCameraSystems::Follow)
+						.before(PlayerCameraSystems::Apply),
 				),
 			)
 			.add_systems(
@@ -126,11 +132,7 @@ impl Plugin for PlayerCameraPlugin {
 			)
 			.add_systems(
 				Update,
-				(
-					follow::sync_camera_fov,
-					follow::sync_first_person_head_visibility,
-					follow::apply_camera_shake,
-				)
+				(follow::sync_camera_fov, follow::sync_first_person_head_visibility)
 					.in_set(PlayerCameraSystems::Apply),
 			)
 			.add_systems(Update, release_modifiers_on_focus_change);
@@ -167,7 +169,7 @@ pub fn spawn_follow_camera(commands: &mut Commands) -> Entity {
 				..default()
 			}),
 			CameraController { yaw, pitch, ..default() },
-			CameraShake::default(),
+			SpatialRumbleListener::default().rewriting_pose(),
 		))
 		.id()
 }
@@ -200,19 +202,74 @@ mod tests {
 	use maybraid_character_controller::CharacterIntent;
 
 	#[test]
-	fn follow_camera_carries_a_spatial_listener() {
+	fn follow_camera_carries_a_spatial_listener() -> anyhow::Result<()> {
 		let mut world = World::new();
 		let camera = spawn_follow_camera(&mut world.commands());
 		world.flush();
-		let listener = world.get::<SpatialListener>(camera).cloned();
-		assert!(listener.is_some());
-		if let Some(listener) = listener {
-			assert!(
-				(listener.right_ear_offset.x - listener.left_ear_offset.x - SPATIAL_LISTENER_GAP)
-					.abs() < 1e-5
-			);
+		let listener = world
+			.get::<SpatialListener>(camera)
+			.cloned()
+			.ok_or_else(|| anyhow::anyhow!("spatial audio listener"))?;
+		assert!(
+			(listener.right_ear_offset.x - listener.left_ear_offset.x - SPATIAL_LISTENER_GAP).abs()
+				< 1e-5
+		);
+		let rumble = world
+			.get::<SpatialRumbleListener>(camera)
+			.ok_or_else(|| anyhow::anyhow!("spatial rumble listener"))?;
+		assert!(rumble.host_rewrites_pose);
+		Ok(())
+	}
+
+	#[test]
+	fn spatial_rumble_present_runs_after_follow_pose() -> anyhow::Result<()> {
+		use bevy::time::TimeUpdateStrategy;
+		use maybraid_spatial_rumble::{AppliedCameraRumble, SpatialRumble};
+		use std::time::Duration;
+
+		const REST: Vec3 = Vec3::new(3.0, 1.5, -2.0);
+
+		fn write_follow_pose(mut cameras: Query<&mut Transform, With<Camera3d>>) {
+			if let Ok(mut transform) = cameras.single_mut() {
+				*transform = Transform::from_translation(REST);
+			}
 		}
-		assert!(world.get::<CameraShake>(camera).is_some());
+
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.add_plugins(SpatialRumblePlugin)
+			.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+				1.0 / 60.0,
+			)))
+			.configure_sets(
+				Update,
+				(
+					PlayerCameraSystems::Follow,
+					PlayerCameraSystems::Apply,
+					SpatialRumbleSystems::Present
+						.after(PlayerCameraSystems::Follow)
+						.before(PlayerCameraSystems::Apply),
+				),
+			)
+			.add_systems(Update, write_follow_pose.in_set(PlayerCameraSystems::Follow));
+		let camera = spawn_follow_camera(&mut app.world_mut().commands());
+		app.world_mut().flush();
+		app.world_mut()
+			.write_message(SpatialRumble::heavy_landing(Vec3::ZERO).with_seed(7));
+		app.update();
+		app.update();
+		let shaken =
+			*app.world().get::<Transform>(camera).ok_or_else(|| anyhow::anyhow!("camera"))?;
+		assert!((shaken.translation - REST).length() > 1e-4);
+		for _ in 0..80 {
+			app.update();
+		}
+		let restored =
+			*app.world().get::<Transform>(camera).ok_or_else(|| anyhow::anyhow!("camera"))?;
+		assert!((restored.translation - REST).length() < 1e-4);
+		let applied = app.world().get::<AppliedCameraRumble>(camera).copied().unwrap_or_default();
+		assert!(applied.is_zero());
+		Ok(())
 	}
 
 	#[test]

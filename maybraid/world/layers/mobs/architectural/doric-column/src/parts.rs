@@ -48,7 +48,11 @@ pub struct DoricColumnPartNode {
 }
 
 impl DoricColumnPartNode {
-	pub fn for_spec(spec: &DoricColumnSpec, slot: DoricColumnPartSlot, placement: Placement) -> Self {
+	pub fn for_spec(
+		spec: &DoricColumnSpec,
+		slot: DoricColumnPartSlot,
+		placement: Placement,
+	) -> Self {
 		let material = match slot {
 			DoricColumnPartSlot::Pedestal => spec.materials.pedestal.clone(),
 			DoricColumnPartSlot::Shaft => spec.materials.shaft.clone(),
@@ -59,11 +63,7 @@ impl DoricColumnPartNode {
 
 	pub fn transform(&self) -> Transform {
 		let p = self.placement;
-		Transform {
-			translation: p.translation,
-			rotation: p.rotation(),
-			scale: p.scale,
-		}
+		Transform { translation: p.translation, rotation: p.rotation(), scale: p.scale }
 	}
 }
 
@@ -83,4 +83,3 @@ impl DoricColumnComponents for DoricColumnSpec {
 		]
 	}
 }
-

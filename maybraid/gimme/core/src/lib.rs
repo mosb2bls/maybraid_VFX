@@ -7,12 +7,16 @@ mod spatial_index;
 pub use cell::Cell;
 pub use error::SpatialIndexError;
 pub use spatial_index::{
-	BaseScale, HashMapStore, Level, SpatialId, SpatialIndex, SpatialStore, TypedIndex,
+	BaseScale, HashMapStore, Level, SpatialId, SpatialIndex, SpatialIndexQuery, SpatialStore,
+	TypedIndex,
 };
 
 use bevy_math::bounding::Aabb3d;
 
 /// Typed spatial query and insert over a backing store.
+///
+/// Regional ID queries live on [`SpatialIndexQuery`]. This trait stays
+/// payload-oriented (`read_one`, `insert`).
 pub trait TypedSpatialIndex<T> {
 	fn read_one(&self, region: &Aabb3d) -> Result<Option<&T>, SpatialIndexError>;
 

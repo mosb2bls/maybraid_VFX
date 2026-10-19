@@ -31,8 +31,79 @@ pub(super) struct Registry {
 	pub nested_rebuilds: AtomicU64,
 }
 
+impl Registry {
+	pub(super) fn read_stores(&self) -> RwLockReadGuard<'_, HashMap<TypeId, Arc<dyn ErasedStore>>> {
+		self.stores.read().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	pub(super) fn write_stores(
+		&self,
+	) -> RwLockWriteGuard<'_, HashMap<TypeId, Arc<dyn ErasedStore>>> {
+		self.stores.write().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	pub(super) fn try_read_stores(
+		&self,
+	) -> Result<RwLockReadGuard<'_, HashMap<TypeId, Arc<dyn ErasedStore>>>, Busy> {
+		match self.stores.try_read() {
+			Ok(guard) => Ok(guard),
+			Err(TryLockError::Poisoned(poisoned)) => Ok(poisoned.into_inner()),
+			Err(TryLockError::WouldBlock) => Err(Busy),
+		}
+	}
+
+	pub(super) fn read_base_scales(&self) -> RwLockReadGuard<'_, HashMap<TypeId, DVec3>> {
+		self.base_scales.read().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	pub(super) fn write_base_scales(&self) -> RwLockWriteGuard<'_, HashMap<TypeId, DVec3>> {
+		self.base_scales.write().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	pub(super) fn read_retention_margins(&self) -> RwLockReadGuard<'_, HashMap<TypeId, DVec3>> {
+		self.retention_margins.read().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	pub(super) fn write_retention_margins(&self) -> RwLockWriteGuard<'_, HashMap<TypeId, DVec3>> {
+		self.retention_margins.write().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	#[cfg(debug_assertions)]
+	pub(super) fn lock_evicted(&self) -> MutexGuard<'_, HashSet<(TypeId, Id)>> {
+		self.evicted.lock().unwrap_or_else(PoisonError::into_inner)
+	}
+}
+
 pub(in crate::hcsg) struct TypedStore<T> {
-	pub nodes: RwLock<NodeStore<Arc<T>>>,
+	nodes: RwLock<NodeStore<Arc<T>>>,
+}
+
+impl<T> TypedStore<T> {
+	pub(in crate::hcsg) fn new(base_scale: DVec3) -> Self {
+		Self { nodes: RwLock::new(NodeStore::new(base_scale)) }
+	}
+
+	/// Values are immutable and published whole, so a poisoned lock still guards
+	/// a consistent store.
+	pub(in crate::hcsg) fn read(&self) -> RwLockReadGuard<'_, NodeStore<Arc<T>>> {
+		self.nodes.read().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	/// Values are immutable and published whole, so a poisoned lock still guards
+	/// a consistent store.
+	pub(in crate::hcsg) fn write(&self) -> RwLockWriteGuard<'_, NodeStore<Arc<T>>> {
+		self.nodes.write().unwrap_or_else(PoisonError::into_inner)
+	}
+
+	pub(in crate::hcsg) fn try_read(
+		&self,
+	) -> Result<RwLockReadGuard<'_, NodeStore<Arc<T>>>, Busy> {
+		match self.nodes.try_read() {
+			Ok(guard) => Ok(guard),
+			Err(TryLockError::Poisoned(poisoned)) => Ok(poisoned.into_inner()),
+			Err(TryLockError::WouldBlock) => Err(Busy),
+		}
+	}
 }
 
 pub(in crate::hcsg) trait ErasedStore: Send + Sync {
@@ -52,19 +123,19 @@ impl<T: HcsgValue> ErasedStore for TypedStore<T> {
 	}
 
 	fn reset(&self, revision: u64) {
-		write(&self.nodes).reset(revision);
+		self.write().reset(revision);
 	}
 
 	fn evict_outside(&self, regions: &[Aabb3d], revision: u64) -> Vec<Id> {
-		write(&self.nodes).evict_outside(regions, revision)
+		self.write().evict_outside(regions, revision)
 	}
 
 	fn clear_non_universal(&self, revision: u64) -> Vec<Id> {
-		write(&self.nodes).clear_non_universal(revision)
+		self.write().clear_non_universal(revision)
 	}
 
 	fn len(&self) -> usize {
-		read(&self.nodes).len()
+		self.read().len()
 	}
 
 	fn type_name(&self) -> &'static str {
@@ -72,48 +143,24 @@ impl<T: HcsgValue> ErasedStore for TypedStore<T> {
 	}
 }
 
-/// Values are immutable and published whole, so a poisoned lock still guards
-/// a consistent store.
-pub(in crate::hcsg) fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
-	lock.read().unwrap_or_else(PoisonError::into_inner)
-}
-
-pub(super) fn write<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
-	lock.write().unwrap_or_else(PoisonError::into_inner)
-}
-
-pub(super) fn try_read<T>(lock: &RwLock<T>) -> Result<RwLockReadGuard<'_, T>, Busy> {
-	match lock.try_read() {
-		Ok(guard) => Ok(guard),
-		Err(TryLockError::Poisoned(poisoned)) => Ok(poisoned.into_inner()),
-		Err(TryLockError::WouldBlock) => Err(Busy),
-	}
-}
-
-#[cfg(debug_assertions)]
-pub(super) fn lock_mutex<T>(lock: &Mutex<T>) -> MutexGuard<'_, T> {
-	lock.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 impl HcsgStorage {
 	/// Records `T`'s index scale and retention margin before its first publish.
 	/// A scale set earlier through [`Self::configure`] wins.
 	pub(crate) fn register_scheme<T: GenerationScheme>(&self) {
 		let type_id = TypeId::of::<T>();
-		if !read(&self.0.base_scales).contains_key(&type_id) {
-			write(&self.0.base_scales).entry(type_id).or_insert(T::INDEX_SCALE);
+		if !self.0.read_base_scales().contains_key(&type_id) {
+			self.0.write_base_scales().entry(type_id).or_insert(T::INDEX_SCALE);
 		}
-		if !read(&self.0.retention_margins).contains_key(&type_id) {
-			write(&self.0.retention_margins).entry(type_id).or_insert(T::RETENTION_MARGIN);
+		if !self.0.read_retention_margins().contains_key(&type_id) {
+			self.0.write_retention_margins().entry(type_id).or_insert(T::RETENTION_MARGIN);
 		}
 	}
 
 	/// Sets `T`'s spatial base scale, rebuilding its index if it exists.
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn configure<T: HcsgValue>(&self, base_scale: DVec3) -> &Self {
-		write(&self.0.base_scales).insert(TypeId::of::<T>(), base_scale);
+		self.0.write_base_scales().insert(TypeId::of::<T>(), base_scale);
 		if let Some(store) = self.store::<T>() {
-			write(&store.nodes).rebuild_index(base_scale);
+			store.write().rebuild_index(base_scale);
 		}
 		self
 	}
@@ -125,12 +172,12 @@ impl HcsgStorage {
 	}
 
 	pub(in crate::hcsg) fn store<T: HcsgValue>(&self) -> Option<Arc<TypedStore<T>>> {
-		let store = read(&self.0.stores).get(&TypeId::of::<T>()).cloned()?;
+		let store = self.0.read_stores().get(&TypeId::of::<T>()).cloned()?;
 		Self::downcast(store)
 	}
 
 	pub(super) fn try_store<T: HcsgValue>(&self) -> Result<Option<Arc<TypedStore<T>>>, Busy> {
-		let store = try_read(&self.0.stores)?.get(&TypeId::of::<T>()).cloned();
+		let store = self.0.try_read_stores()?.get(&TypeId::of::<T>()).cloned();
 		Ok(store.and_then(Self::downcast))
 	}
 
@@ -139,11 +186,11 @@ impl HcsgStorage {
 			return Some(store);
 		}
 		let base_scale = self.base_scale_of(TypeId::of::<T>());
-		let store = write(&self.0.stores)
+		let store = self
+			.0
+			.write_stores()
 			.entry(TypeId::of::<T>())
-			.or_insert_with(|| {
-				Arc::new(TypedStore::<T> { nodes: RwLock::new(NodeStore::new(base_scale)) })
-			})
+			.or_insert_with(|| Arc::new(TypedStore::<T>::new(base_scale)))
 			.clone();
 		Self::downcast(store)
 	}
@@ -153,11 +200,12 @@ impl HcsgStorage {
 	}
 
 	pub(super) fn base_scale_of(&self, type_id: TypeId) -> DVec3 {
-		read(&self.0.base_scales).get(&type_id).copied().unwrap_or(DEFAULT_BASE_SCALE)
+		self.0.read_base_scales().get(&type_id).copied().unwrap_or(DEFAULT_BASE_SCALE)
 	}
 
 	pub(super) fn retention_margin_of(&self, type_id: TypeId) -> DVec3 {
-		read(&self.0.retention_margins)
+		self.0
+			.read_retention_margins()
 			.get(&type_id)
 			.copied()
 			.unwrap_or_else(|| self.base_scale_of(type_id))
@@ -170,6 +218,6 @@ impl HcsgStorage {
 
 	/// How many values of `T` are stored, including `Id::Universal`.
 	pub fn len<T: HcsgValue>(&self) -> usize {
-		self.store::<T>().map_or(0, |store| read(&store.nodes).len())
+		self.store::<T>().map_or(0, |store| store.read().len())
 	}
 }

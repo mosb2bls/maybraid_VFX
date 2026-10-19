@@ -22,6 +22,7 @@ grenades = { workspace = true }
 maybraid-audio = { workspace = true }
 maybraid-character-controller = { workspace = true }
 maybraid-input = { workspace = true }
+maybraid-spatial-rumble = { workspace = true }
 player = { workspace = true }
 player-camera = { workspace = true }
 

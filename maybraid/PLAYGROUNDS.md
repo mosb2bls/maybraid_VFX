@@ -1,6 +1,6 @@
 # Playgrounds
 
-A playground is a **single-layer** developer app next to the crate it inspects (`buildings-playground`, `furniture-playground`, `durham-playground`, [`world-materials-playground`](world/materials/playground/), [`vfx-playground`](vfx/playground/), …). Assembled world — Durham terrain, streamed forest, urbanization, character — lives in [`maybraid-world`](world/) and runs as [`maybraid-world-playground`](world/playground/).
+A playground is a **single-layer** developer app next to the crate it inspects (`buildings-playground`, `furniture-playground`, `durham-playground`, [`world-materials-playground`](world/materials/playground/), [`vfx-playground`](vfx/playground/), [`spatial-rumble-playground`](spatial-rumble/playground/), …). Assembled world — Durham terrain, streamed forest, urbanization, character — lives in [`maybraid-world`](world/) and runs as [`maybraid-world-playground`](world/playground/).
 
 Do not keep a second assembled-world app. Parameters and streaming knobs belong on `WorldPlugin` / `maybraid-world`, not on a parallel vegetation-on-terrain binary.
 

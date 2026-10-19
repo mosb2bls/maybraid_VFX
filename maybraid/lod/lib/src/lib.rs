@@ -22,9 +22,9 @@ pub use scene::region_index;
 
 pub use jobs::{ensure_lod_job_counter, LodJobCounter};
 pub use lod_ref::{
-	collect_node_snapshots, lod_refs_from_snapshots, point_bounds, track_lod_nodes, FineLod,
-	LodNode, LodNodeBounds, LodNodePlugin, LodNodePose, LodNodeSnapshot, LodNodeSystems, LodRef,
-	LodRequest,
+	collect_node_snapshots, collect_node_snapshots_into, lod_refs_from_snapshots, point_bounds,
+	track_lod_nodes, FineLod, LodNode, LodNodeBounds, LodNodePlugin, LodNodePose, LodNodeSnapshot,
+	LodNodeSystems, LodRef, LodRequest,
 };
 pub use scene::{
 	add_lod_refresh_chunk_for, add_lod_refresh_chunk_full_for, add_lod_refresh_cull_for,

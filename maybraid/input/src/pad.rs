@@ -70,6 +70,14 @@ impl VirtualPad {
 		self.button_hold_secs[button.index()]
 	}
 
+	/// True while both shoulder bumpers are down (LB + RB).
+	///
+	/// Used as the Standard ↔ Tanzer chord so individual bumper actions stay
+	/// live unless both buttons are participating.
+	pub fn bumper_chord_held(&self) -> bool {
+		self.pressed(PadButton::BumperFocus) && self.pressed(PadButton::BumperFire)
+	}
+
 	pub fn key_hold_secs(&self, key: KeyCode) -> f32 {
 		self.key_hold_secs.get(&key).copied().unwrap_or(0.0)
 	}
@@ -279,6 +287,22 @@ mod tests {
 		frame(&mut pad, &[], true);
 		frame(&mut pad, &[PadButton::A], false);
 		assert!(pad.just_pressed(PadButton::A));
+	}
+
+	#[test]
+	fn bumper_chord_needs_both_shoulders() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.hold_digital(PadButton::BumperFocus);
+		pad.finish_digital();
+		assert!(!pad.bumper_chord_held());
+
+		pad.begin_frame();
+		pad.hold_digital(PadButton::BumperFocus);
+		pad.hold_digital(PadButton::BumperFire);
+		pad.finish_digital();
+		assert!(pad.bumper_chord_held());
+		Ok(())
 	}
 
 	#[test]

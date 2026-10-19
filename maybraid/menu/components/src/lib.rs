@@ -30,9 +30,8 @@ pub use controls::{
 	FocusTag, HoverTile, HudFonts, HudMenu, HudMenuIgnoresLock, HudMenuItem, HudOverlayMenu,
 	HudScroll, HudScrollThumb, HudScrollTrack, HudScrollViewport, InputPromptDevice,
 	InventoryActionPrompts, InventoryPromptGlyph, InventoryPromptKind, OverlayHeader,
-	OverlayHeaderKey, ShortTextChange,
-	ShortTextField, ShortTextKey, ShortTextModal, ShortTextModalRoot, ShortTextPad,
-	ShortTextToggle, ShortTextValue, SlotRank,
+	OverlayHeaderKey, ShortTextChange, ShortTextField, ShortTextKey, ShortTextModal,
+	ShortTextModalRoot, ShortTextPad, ShortTextToggle, ShortTextValue, SlotRank,
 };
 pub use icons::{spin_icons, Icon, SpinningIcon};
 pub use info::{

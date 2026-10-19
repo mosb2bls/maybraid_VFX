@@ -113,7 +113,7 @@ pub struct StoredEntry<T> {
 - The registry lock is held only long enough to clone the store's `Arc`. The guard is released before the store is touched.
 - A store's lock is held only for lookup and publication. It is **never** held during generation or during recursive dependency calls.
 - A value and its spatial entry are published together, under one write.
-- The main thread uses `try_read` only (`try_entry`, `try_overlapping`, `try_membership_revision`). A failed read returns `Err(Busy)`, which means "nothing new this frame", never "empty". Blocking reads (`get`, `entry`, `overlapping`, `membership_revision`, `contains`) are `pub(crate)` inside `lod` (generation worker and unit tests) and, outside `lod`, only with the `test-support` feature.
+- The main thread uses `try_read` only (`try_entry`, `try_overlapping`, `try_membership_revision`). A failed read returns `Err(Busy)`, which means "nothing new this frame", never "empty". Blocking reads (`get`, `entry`, `overlapping`, `membership_revision`, `contains`) are for the generation worker and for tests that drive storage directly; production frame code should still prefer the `try_*` methods.
 - A poisoned lock is read through. Values are immutable and published whole, so the store is still consistent.
 
 ## Generation

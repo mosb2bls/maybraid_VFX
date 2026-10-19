@@ -140,11 +140,11 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 	}
 
 	fn image_for_key(&mut self, key: u64) -> Option<Handle<Image>> {
-		let cache = self.icons?;
+		let icons = self.icons?;
 		if key == self_lubikan_catalog_key() {
-			cache.silhouette_for_key(key)
+			icons.silhouette_for_key(key)
 		} else {
-			cache.shaded_for_key(key)
+			icons.catalog_for_key(key)
 		}
 	}
 
@@ -578,7 +578,7 @@ mod tests {
 		);
 		for inventory in capture_icon_inventories() {
 			for item in &inventory.items {
-				if matches!(item, InventoryItem::SkillMap { .. }) {
+				if matches!(item, InventoryItem::SkillMap { .. } | InventoryItem::Tanz { .. }) {
 					continue;
 				}
 				let Some(label) = item.capture_id_label() else {

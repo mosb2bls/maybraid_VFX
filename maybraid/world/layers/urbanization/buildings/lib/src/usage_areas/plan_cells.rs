@@ -37,61 +37,57 @@ impl PlanCell {
 	pub fn center(self) -> Vec2 {
 		0.5 * (self.bounds.min + self.bounds.max)
 	}
-}
 
-/// True when two cells share an edge (closed contact with positive overlap length).
-pub fn cells_edge_adjacent(a: &PlanCell, b: &PlanCell, eps: f32) -> bool {
-	shared_edge_length(a.bounds, b.bounds, eps).is_some_and(|len| len > eps)
-}
-
-/// True when two cells share an edge of at least `min_length` (well-connected).
-pub fn cells_well_connected(a: &PlanCell, b: &PlanCell, min_length: f32, eps: f32) -> bool {
-	let min_length = min_length.max(eps);
-	shared_edge_length(a.bounds, b.bounds, eps).is_some_and(|len| len + eps >= min_length)
-}
-
-/// Length of the shared edge between two AABBs, if they touch with positive overlap.
-pub fn shared_edge_length(a: Aabb2d, b: Aabb2d, eps: f32) -> Option<f32> {
-	let touch_x = (a.max.x - b.min.x).abs() <= eps || (b.max.x - a.min.x).abs() <= eps;
-	if touch_x {
-		let lo = a.min.y.max(b.min.y);
-		let hi = a.max.y.min(b.max.y);
-		let len = hi - lo;
-		if len > eps {
-			return Some(len);
-		}
+	/// True when two cells share an edge (closed contact with positive overlap length).
+	pub fn edge_adjacent_to(self, other: &PlanCell, eps: f32) -> bool {
+		Self::shared_edge_length(self.bounds, other.bounds, eps).is_some_and(|len| len > eps)
 	}
-	let touch_y = (a.max.y - b.min.y).abs() <= eps || (b.max.y - a.min.y).abs() <= eps;
-	if touch_y {
-		let lo = a.min.x.max(b.min.x);
-		let hi = a.max.x.min(b.max.x);
-		let len = hi - lo;
-		if len > eps {
-			return Some(len);
-		}
+
+	/// True when two cells share an edge of at least `min_length` (well-connected).
+	pub fn well_connected_to(self, other: &PlanCell, min_length: f32, eps: f32) -> bool {
+		let min_length = min_length.max(eps);
+		Self::shared_edge_length(self.bounds, other.bounds, eps)
+			.is_some_and(|len| len + eps >= min_length)
 	}
-	None
-}
 
-/// Longest shared-edge length between `cell` and any hallway band.
-pub fn hall_frontage_length(cell: &PlanCell, halls: &[Aabb2d], eps: f32) -> f32 {
-	halls
-		.iter()
-		.filter_map(|h| shared_edge_length(cell.bounds, *h, eps))
-		.fold(0.0_f32, f32::max)
-}
+	/// Longest shared-edge length between this cell and any hallway band.
+	pub fn hall_frontage_length(self, halls: &[Aabb2d], eps: f32) -> f32 {
+		halls
+			.iter()
+			.filter_map(|h| Self::shared_edge_length(self.bounds, *h, eps))
+			.fold(0.0_f32, f32::max)
+	}
 
-/// True when `cell` shares an edge of at least `min_length` with a hallway band.
-///
-/// Same pinch rule as inter-cell [`cells_well_connected`]: a point/kiss contact
-/// is not real frontage for seeding or doors.
-pub fn cell_has_hall_frontage(
-	cell: &PlanCell,
-	halls: &[Aabb2d],
-	min_length: f32,
-	eps: f32,
-) -> bool {
-	hall_frontage_length(cell, halls, eps) + eps >= min_length.max(eps)
+	/// True when this cell shares an edge of at least `min_length` with a hallway band.
+	///
+	/// Same pinch rule as inter-cell [`Self::well_connected_to`]: a point/kiss contact
+	/// is not real frontage for seeding or doors.
+	pub fn has_hall_frontage(self, halls: &[Aabb2d], min_length: f32, eps: f32) -> bool {
+		self.hall_frontage_length(halls, eps) + eps >= min_length.max(eps)
+	}
+
+	/// Length of the shared edge between two AABBs, if they touch with positive overlap.
+	pub fn shared_edge_length(a: Aabb2d, b: Aabb2d, eps: f32) -> Option<f32> {
+		let touch_x = (a.max.x - b.min.x).abs() <= eps || (b.max.x - a.min.x).abs() <= eps;
+		if touch_x {
+			let lo = a.min.y.max(b.min.y);
+			let hi = a.max.y.min(b.max.y);
+			let len = hi - lo;
+			if len > eps {
+				return Some(len);
+			}
+		}
+		let touch_y = (a.max.y - b.min.y).abs() <= eps || (b.max.y - a.min.y).abs() <= eps;
+		if touch_y {
+			let lo = a.min.x.max(b.min.x);
+			let hi = a.max.x.min(b.max.x);
+			let len = hi - lo;
+			if len > eps {
+				return Some(len);
+			}
+		}
+		None
+	}
 }
 
 /// Guillotine-split oversized cells toward `min_room` extents.
@@ -166,10 +162,8 @@ pub fn pack_apartments_to_targets(
 		return Vec::new();
 	}
 
-	let frontage: Vec<bool> = eligible
-		.iter()
-		.map(|c| cell_has_hall_frontage(c, halls, min_conn, EPS))
-		.collect();
+	let frontage: Vec<bool> =
+		eligible.iter().map(|c| c.has_hall_frontage(halls, min_conn, EPS)).collect();
 
 	let mut assigned = vec![false; eligible.len()];
 	let mut groups: Vec<Vec<usize>> = Vec::new();
@@ -331,7 +325,7 @@ fn max_pinch_safe_shared(
 	let mut shared = 0.0_f32;
 	let mut well = false;
 	for &gi in group {
-		let Some(len) = shared_edge_length(cells[gi].bounds, bounds, EPS) else {
+		let Some(len) = PlanCell::shared_edge_length(cells[gi].bounds, bounds, EPS) else {
 			continue;
 		};
 		if len + EPS >= min_conn {
@@ -349,7 +343,8 @@ fn groups_can_merge(cells: &[PlanCell], a: &[usize], b: &[usize], min_conn: f32)
 	let mut well = false;
 	for &ai in a {
 		for &bi in b {
-			let Some(len) = shared_edge_length(cells[ai].bounds, cells[bi].bounds, EPS) else {
+			let Some(len) = PlanCell::shared_edge_length(cells[ai].bounds, cells[bi].bounds, EPS)
+			else {
 				continue;
 			};
 			if len + EPS >= min_conn {
@@ -674,8 +669,8 @@ mod tests {
 		let a = cell(0, Vec2::new(0.0, 0.0), Vec2::new(4.0, 4.0));
 		let b = cell(1, Vec2::new(4.0, 0.0), Vec2::new(8.0, 4.0));
 		let c = cell(2, Vec2::new(5.0, 0.0), Vec2::new(9.0, 4.0));
-		assert!(cells_edge_adjacent(&a, &b, EPS));
-		assert!(!cells_edge_adjacent(&a, &c, EPS));
+		assert!(a.edge_adjacent_to(&b, EPS));
+		assert!(!a.edge_adjacent_to(&c, EPS));
 	}
 
 	#[test]
@@ -706,7 +701,7 @@ mod tests {
 		for g in &groups {
 			assert!(g.iter().any(|&id| {
 				let c = rooms.iter().find(|c| c.id == id).unwrap();
-				cell_has_hall_frontage(c, &[hall], MIN_GROUP_CONNECTIVITY, EPS)
+				c.has_hall_frontage(&[hall], MIN_GROUP_CONNECTIVITY, EPS)
 			}));
 		}
 	}
@@ -742,9 +737,9 @@ mod tests {
 			cell(2, Vec2::new(4.0, 3.6), Vec2::new(8.0, 7.6)), // 0.4 m pinch with cell 0
 		];
 		let hall = Aabb2d { min: Vec2::new(0.0, -2.0), max: Vec2::new(8.0, 0.0) };
-		assert!(cells_edge_adjacent(&rooms[0], &rooms[2], EPS));
-		assert!(!cells_well_connected(&rooms[0], &rooms[2], MIN_GROUP_CONNECTIVITY, EPS));
-		assert!(cells_well_connected(&rooms[0], &rooms[1], MIN_GROUP_CONNECTIVITY, EPS));
+		assert!(rooms[0].edge_adjacent_to(&rooms[2], EPS));
+		assert!(!rooms[0].well_connected_to(&rooms[2], MIN_GROUP_CONNECTIVITY, EPS));
+		assert!(rooms[0].well_connected_to(&rooms[1], MIN_GROUP_CONNECTIVITY, EPS));
 
 		let groups = pack_apartments_to_targets(
 			&rooms,

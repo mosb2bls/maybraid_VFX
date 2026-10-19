@@ -33,6 +33,7 @@ mod player_lifecycle;
 mod player_position;
 mod poi;
 pub mod render_scale;
+mod screenshot;
 mod spawn_surface;
 mod start;
 mod stash;
@@ -96,9 +97,9 @@ pub use render_scale::{
 	parse_render_scale_env, parse_visual_style_env, pick_default_visual_style,
 	target_physical_size, window_above_1080p, AdapterKind, DeviceTier, RenderScale,
 	RequestForceOffscreen, RequestRenderScale, RequestVisualStyle, VisualStyle,
-	VisualStyleAutoReason, VisualStylePick, VisualStyleSetting, VisualStyleSignals,
-	DEVICE_TIER_ENV, FORCE_OFFSCREEN_ENV, PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV,
-	UNIFIED_MEMORY_NATIVE_BYTES, VISUAL_STYLE_ENV,
+	VisualStyleAutoReason, VisualStyleIdentity, VisualStylePick, VisualStyleSetting,
+	VisualStyleSignals, DEVICE_TIER_ENV, FORCE_OFFSCREEN_ENV, PRESENTATION_TREATMENT_ENV,
+	RENDER_SCALE_ENV, UNIFIED_MEMORY_NATIVE_BYTES, VISUAL_STYLE_ENV,
 };
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
@@ -133,6 +134,7 @@ use maybraid_skill_map::{SkillMapPlugin, SkillMapSystems};
 use maybraid_sky::SkyDomePlugin;
 use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
+use maybraid_world_controller::WorldControllerPlugin;
 use player::{
 	register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin, PlayerSystems,
 };
@@ -218,6 +220,7 @@ impl Plugin for WorldPlugin {
 				..default()
 			}))
 			.add_plugins(CharacterControllerPlugin)
+			.add_plugins(WorldControllerPlugin)
 			.add_plugins(PlayerPresentationPlugin)
 			.add_plugins(PlayerCameraPlugin)
 			.add_plugins(WORLD_COMBAT_HUD)
@@ -244,7 +247,6 @@ impl Plugin for WorldPlugin {
 			.insert_resource(VegetationPlayerMotor(false))
 			.insert_resource(CharacterCameraFollowEnabled(false))
 			.add_message::<control::WorldPlaySessionEnded>()
-			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
 			.init_resource::<crate::WorldMenuShell>()
@@ -282,6 +284,7 @@ impl Plugin for WorldPlugin {
 			),
 		);
 		render_scale::configure(app);
+		screenshot::configure(app);
 		app.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,

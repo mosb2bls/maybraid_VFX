@@ -16,6 +16,7 @@ bevy-character-ui-menu-renderer = { workspace = true }
 character-ui-menu = { workspace = true }
 character-items = { workspace = true }
 characters = { workspace = true }
+tanz-user = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

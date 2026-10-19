@@ -151,10 +151,7 @@ mod tests {
 
 	#[test]
 	fn uniform_scale_multiplies_height() {
-		let spec = DoricColumnSpec {
-			scale: Vec3::splat(2.0),
-			..DoricColumnSpec::default()
-		};
+		let spec = DoricColumnSpec { scale: Vec3::splat(2.0), ..DoricColumnSpec::default() };
 		let layout = spec.layout();
 		let expected = DoricColumnSpec::default().layout().shaft.height * 2.0;
 		assert!((layout.shaft.height - expected).abs() < 1e-4);
