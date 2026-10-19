@@ -29,7 +29,6 @@ pub use execute::{
 	ActiveTanz, BufferedTanz, TanzExecution, TanzPhase,
 };
 pub use input::{
-	advance_mode_charge, mode_charge_hold_target, mode_charge_rest, mode_charge_step_toward,
 	CommittedGesture, ModeToggle, TanzButton, TanzInput, TanzRecognizer, TanzRecognizerConfig,
 	TANZ_B_HOLD_SECS, TANZ_TOGGLE_SECS,
 };

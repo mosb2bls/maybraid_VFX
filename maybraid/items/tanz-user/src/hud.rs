@@ -168,7 +168,7 @@ pub fn sync_tanz_mode_hud(
 		}
 	}
 	for mut fill in &mut fills {
-		fill.progress = user.toggle.progress;
+		fill.progress = user.toggle.bar(user.mode);
 	}
 }
 
