@@ -310,8 +310,7 @@ pub(crate) fn toggle_map_view(
 	for intent in intents.read() {
 		match intent {
 			CharacterIntent::ToggleMap if map.open => close = true,
-			CharacterIntent::ToggleMap | CharacterIntent::OpenMap => open = true,
-			CharacterIntent::CloseMap => close = true,
+			CharacterIntent::ToggleMap => open = true,
 			_ => {}
 		}
 	}
@@ -2032,7 +2031,7 @@ mod tests {
 	}
 
 	#[test]
-	fn dpad_down_closes_an_unlocked_map() -> anyhow::Result<()> {
+	fn toggle_map_closes_an_unlocked_map() -> anyhow::Result<()> {
 		let mut world = World::new();
 		world.insert_resource(PlaygroundMode::Character);
 		world.insert_resource(WorldGameplayEnabled(true));
@@ -2045,7 +2044,7 @@ mod tests {
 			begin_life: false,
 		});
 		world.init_resource::<Messages<CharacterIntent>>();
-		world.write_message(CharacterIntent::CloseMap);
+		world.write_message(CharacterIntent::ToggleMap);
 		world
 			.run_system_once(toggle_map_view)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

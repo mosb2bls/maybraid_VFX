@@ -18,8 +18,6 @@ use crate::developments::site::DevelopmentSite;
 use crate::developments::RichmondDevelopment;
 use crate::ground::RichmondGround;
 use crate::host::DevelopmentHosts;
-use crate::storage::column_bounds;
-
 /// Buildings fitted to one filled [`RichmondDevelopment`] over ground `G`.
 pub struct Built<G> {
 	pub development: BuiltDevelopment,
@@ -54,25 +52,13 @@ impl<G: RichmondGround> hcsg::GenerationScheme for Built<G> {
 	fn original_ids_for(cx: &mut GenerationContext, region: Aabb3d) -> Vec<OriginalId> {
 		cx.original_ids_for::<DevelopmentSite>(region)
 			.into_iter()
-			.filter(|OriginalId(id)| {
-				if let Some(development) = cx.get::<RichmondDevelopment<G>>(*id) {
-					return development.is_filled();
-				}
-				let Some(site) = cx.get_or_generate::<DevelopmentSite>(*id) else {
-					return false;
-				};
-				if !site.is_filled() {
-					return false;
-				}
-				cx.get_or_generate::<RichmondDevelopment<G>>(*id)
-					.is_some_and(|development| development.is_filled())
-			})
+			.filter(|OriginalId(id)| RichmondDevelopment::<G>::builds_filled(cx, *id))
 			.collect()
 	}
 
 	fn build_with_id(cx: &mut GenerationContext, id: Id) -> Option<(Self, Aabb3d)> {
-		let development = cx.get_or_generate::<RichmondDevelopment<G>>(id)?;
-		Some((Self::fit(id, &development)?, column_bounds(development.cell())))
+		let (development, bounds) = cx.get_or_generate_stored::<RichmondDevelopment<G>>(id)?;
+		Some((Self::fit(id, &development)?, bounds))
 	}
 }
 

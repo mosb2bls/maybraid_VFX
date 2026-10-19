@@ -681,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "barking"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -732,7 +732,7 @@ dependencies = [
 
 [[package]]
 name = "bevy-character-ui-menu-renderer"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "character-ui-menu",
@@ -2425,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "building-components"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "building-physics"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -2451,7 +2451,7 @@ dependencies = [
 
 [[package]]
 name = "building-shaders"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "material-ref",
@@ -2459,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "buildings"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2472,7 +2472,7 @@ dependencies = [
 
 [[package]]
 name = "buildings-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -2601,7 +2601,7 @@ dependencies = [
 
 [[package]]
 name = "camera-controls"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
 ]
@@ -2758,7 +2758,7 @@ dependencies = [
 
 [[package]]
 name = "character-animations"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2770,7 +2770,7 @@ dependencies = [
 
 [[package]]
 name = "character-concepts-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "bevy-character-ui-menu-renderer",
@@ -2791,7 +2791,7 @@ dependencies = [
 
 [[package]]
 name = "character-creation-menus"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2804,7 +2804,7 @@ dependencies = [
 
 [[package]]
 name = "character-inventory-user"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "character-items",
@@ -2816,19 +2816,20 @@ dependencies = [
 
 [[package]]
 name = "character-items"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
  "bevy_math",
  "character-ui-menu",
  "clap",
+ "procedural-common",
  "serde",
 ]
 
 [[package]]
 name = "character-model-user"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "character-items",
@@ -2841,7 +2842,7 @@ dependencies = [
 
 [[package]]
 name = "character-motion"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2855,7 +2856,7 @@ dependencies = [
 
 [[package]]
 name = "character-persist"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "serde",
@@ -2866,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "character-ragdoll"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -2882,7 +2883,7 @@ dependencies = [
 
 [[package]]
 name = "character-rigs"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2894,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "character-shaders"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "material-ref",
@@ -2902,14 +2903,14 @@ dependencies = [
 
 [[package]]
 name = "character-ui-menu"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy_math",
 ]
 
 [[package]]
 name = "characters"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2929,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "characters-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "camera-controls",
@@ -2951,7 +2952,7 @@ dependencies = [
 
 [[package]]
 name = "chico"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -2999,7 +3000,7 @@ dependencies = [
 
 [[package]]
 name = "chunk"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -3145,7 +3146,7 @@ checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
 
 [[package]]
 name = "combat-hud"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -3157,7 +3158,7 @@ dependencies = [
 
 [[package]]
 name = "combat-hud-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "clap",
@@ -3169,7 +3170,7 @@ dependencies = [
 
 [[package]]
 name = "combat-targeting"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -3202,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "comproc"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy_math",
@@ -3705,7 +3706,7 @@ checksum = "5614204febbc33cc07a2806aa6440b904ac012b68eecc37f4493ea4a76455a3d"
 
 [[package]]
 name = "damage"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4061,6 +4062,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "doric-column"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "avian3d",
+ "bevy",
+ "building-components",
+ "building-physics",
+ "ground",
+ "lod",
+ "lod-avian",
+ "material-ref",
+ "rigs",
+ "scene-ref",
+]
+
+[[package]]
+name = "doric-column-playground"
+version = "0.1.5"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "doric-column",
+ "material-ref",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4101,7 +4129,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
 name = "durham"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -4126,7 +4154,7 @@ dependencies = [
 
 [[package]]
 name = "durham-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -4373,7 +4401,7 @@ dependencies = [
 
 [[package]]
 name = "evasion-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4495,7 +4523,7 @@ checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
 name = "firearm-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -4515,7 +4543,7 @@ dependencies = [
 
 [[package]]
 name = "firearm-user"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -4537,7 +4565,7 @@ dependencies = [
 
 [[package]]
 name = "firearms"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -4556,7 +4584,7 @@ dependencies = [
 
 [[package]]
 name = "firearms-components"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "lod",
@@ -4567,7 +4595,7 @@ dependencies = [
 
 [[package]]
 name = "firing-range-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "building-components",
@@ -4629,7 +4657,7 @@ dependencies = [
 
 [[package]]
 name = "fleeing-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4745,7 +4773,7 @@ checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "furnishing-layer-model"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4756,7 +4784,7 @@ dependencies = [
 
 [[package]]
 name = "furniture-assemblies"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4771,7 +4799,7 @@ dependencies = [
 
 [[package]]
 name = "furniture-components"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4783,7 +4811,7 @@ dependencies = [
 
 [[package]]
 name = "furniture-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -4803,7 +4831,7 @@ dependencies = [
 
 [[package]]
 name = "furniture-shaders"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "material-ref",
@@ -4811,7 +4839,7 @@ dependencies = [
 
 [[package]]
 name = "furniture-usage-areas"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "building-components",
@@ -4950,7 +4978,7 @@ dependencies = [
 
 [[package]]
 name = "game-commands"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -5088,7 +5116,7 @@ dependencies = [
 
 [[package]]
 name = "geneva"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -5215,7 +5243,7 @@ dependencies = [
 
 [[package]]
 name = "gimme-core"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy_math",
@@ -5224,7 +5252,7 @@ dependencies = [
 
 [[package]]
 name = "gimme-gen"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy_math",
@@ -5378,7 +5406,7 @@ dependencies = [
 
 [[package]]
 name = "grenade-user"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -5387,6 +5415,7 @@ dependencies = [
  "character-items",
  "character-rigs",
  "characters",
+ "damage",
  "firearm-user",
  "grenades",
  "maybraid-audio",
@@ -5398,7 +5427,7 @@ dependencies = [
 
 [[package]]
 name = "grenades"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -5416,14 +5445,14 @@ checksum = "f9e2d4c0a8296178d8802098410ca05d86b17a10bb5ab559b3fb404c1f948220"
 
 [[package]]
 name = "ground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
 ]
 
 [[package]]
 name = "ground-avian"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -5618,7 +5647,7 @@ dependencies = [
 
 [[package]]
 name = "hiding-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -6067,7 +6096,7 @@ dependencies = [
 
 [[package]]
 name = "intelligence-lod"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6141,7 +6170,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "item-icons"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6155,13 +6184,14 @@ dependencies = [
  "grenades",
  "lod",
  "material-ref",
+ "scene-ref",
  "screen-capture",
  "tempfile",
 ]
 
 [[package]]
 name = "items-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "camera-controls",
@@ -6328,10 +6358,11 @@ dependencies = [
 
 [[package]]
 name = "journeying-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
+ "lod",
  "meandering-intelligence",
  "poi-intelligence",
 ]
@@ -6385,7 +6416,7 @@ dependencies = [
 
 [[package]]
 name = "language-layer-model"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6397,7 +6428,7 @@ dependencies = [
 
 [[package]]
 name = "layer-stack"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6418,7 +6449,7 @@ checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 
 [[package]]
 name = "les-halles-arena"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -6563,7 +6594,7 @@ dependencies = [
 
 [[package]]
 name = "lod"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6575,7 +6606,7 @@ dependencies = [
 
 [[package]]
 name = "lod-avian"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -6585,14 +6616,14 @@ dependencies = [
 
 [[package]]
 name = "lod-cascade"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy_math",
 ]
 
 [[package]]
 name = "lod-cascade-system"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6601,7 +6632,7 @@ dependencies = [
 
 [[package]]
 name = "lod-gimme"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "gimme-core",
@@ -6610,7 +6641,7 @@ dependencies = [
 
 [[package]]
 name = "lod-lazy-refs"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6654,7 +6685,7 @@ checksum = "4050469837a6ff301cd14c1f8f24f88549e6d548f24f64e2148eb0f72cebc51f"
 
 [[package]]
 name = "lubikans"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6664,7 +6695,7 @@ dependencies = [
 
 [[package]]
 name = "lubikans-damage"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6732,7 +6763,7 @@ dependencies = [
 
 [[package]]
 name = "maputo"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -6791,7 +6822,7 @@ dependencies = [
 
 [[package]]
 name = "material-ref"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6820,7 +6851,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6847,7 +6878,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-agent"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -6858,7 +6889,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-audio"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "cpal 0.15.3",
@@ -6871,7 +6902,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-character-controller"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6880,7 +6911,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-character-ui-menu-renderer"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "character-ui-menu",
@@ -6890,7 +6921,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-game-mode-discover"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6903,14 +6934,14 @@ dependencies = [
 
 [[package]]
 name = "maybraid-game-mode-reliquary"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
 ]
 
 [[package]]
 name = "maybraid-input"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6922,7 +6953,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-language"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -6934,7 +6965,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-language-core"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "slotmap",
@@ -6946,7 +6977,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-language-grammars"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "maybraid-language-core",
@@ -6954,7 +6985,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-language-mistral"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "maybraid-language-core",
@@ -6967,7 +6998,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-menu-controller"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -6977,7 +7008,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-skill-map"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -7002,7 +7033,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-sky"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7010,7 +7041,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-vfx"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "bevy_hanabi",
@@ -7018,7 +7049,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-weather"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "maybraid-audio",
@@ -7026,7 +7057,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-world"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -7108,7 +7139,7 @@ dependencies = [
 
 [[package]]
 name = "maybraid-world-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "maybraid-agent",
@@ -7118,7 +7149,7 @@ dependencies = [
 
 [[package]]
 name = "meandering-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7149,7 +7180,7 @@ checksum = "5449c8c750f1a07ea702bbd212bd999fceece9b3d1508b17023b3e174583124b"
 
 [[package]]
 name = "menu-components"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "maybraid-input",
@@ -7157,7 +7188,7 @@ dependencies = [
 
 [[package]]
 name = "menu-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7188,15 +7219,19 @@ dependencies = [
 
 [[package]]
 name = "menu-screens"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
+ "character-creation-menus",
  "character-items",
  "character-model-user",
  "character-persist",
+ "character-ui-menu",
  "game-commands",
  "item-icons",
+ "maybraid-character-ui-menu-renderer",
+ "maybraid-input",
  "maybraid-menu-controller",
  "maybraid-world",
  "menu-components",
@@ -7574,7 +7609,7 @@ dependencies = [
 
 [[package]]
 name = "mob-brain-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -7604,7 +7639,7 @@ dependencies = [
 
 [[package]]
 name = "mob-characters"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7627,7 +7662,7 @@ dependencies = [
 
 [[package]]
 name = "mob-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7648,7 +7683,7 @@ dependencies = [
 
 [[package]]
 name = "mob-layer-model"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7659,7 +7694,7 @@ dependencies = [
 
 [[package]]
 name = "mob-scenes"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7702,7 +7737,7 @@ dependencies = [
 
 [[package]]
 name = "movement-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7712,7 +7747,7 @@ dependencies = [
 
 [[package]]
 name = "movement-intelligence-avian"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -7723,7 +7758,7 @@ dependencies = [
 
 [[package]]
 name = "movement-intelligence-richmond"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -7736,7 +7771,7 @@ dependencies = [
 
 [[package]]
 name = "movement-realization"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -7991,7 +8026,7 @@ checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
 
 [[package]]
 name = "npc-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -8842,7 +8877,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "personalities-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -8985,7 +9020,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "player"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -9002,7 +9037,7 @@ dependencies = [
 
 [[package]]
 name = "player-camera"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -9068,19 +9103,20 @@ dependencies = [
 
 [[package]]
 name = "poi-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
  "gimme-core",
  "intelligence-lod",
+ "lod",
  "movement-intelligence",
  "routing-intelligence",
 ]
 
 [[package]]
 name = "poi-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "journeying-intelligence",
@@ -9216,7 +9252,7 @@ dependencies = [
 
 [[package]]
 name = "procedural-common"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy_math",
@@ -9248,7 +9284,7 @@ dependencies = [
 
 [[package]]
 name = "projectiles"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "avian3d",
  "bevy",
@@ -9797,7 +9833,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "render-item"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -9917,7 +9953,7 @@ checksum = "47b34b781b31e5d73e9fbc8689c70551fd1ade9a19e3e28cfec8580a79290cc4"
 
 [[package]]
 name = "richmond"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -9947,7 +9983,7 @@ dependencies = [
 
 [[package]]
 name = "rigs"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
 ]
@@ -10002,7 +10038,7 @@ dependencies = [
 
 [[package]]
 name = "routing-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -10257,7 +10293,7 @@ dependencies = [
 
 [[package]]
 name = "sbs-geometry"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -10270,7 +10306,7 @@ dependencies = [
 
 [[package]]
 name = "sbs-trees"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -10285,7 +10321,7 @@ dependencies = [
 
 [[package]]
 name = "scene-ref"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -10366,11 +10402,12 @@ dependencies = [
 
 [[package]]
 name = "screen-capture"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
  "png 0.17.16",
+ "procedural-common",
  "scene-ref",
  "tempfile",
  "thiserror 1.0.69",
@@ -10391,7 +10428,7 @@ dependencies = [
 
 [[package]]
 name = "sdf"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -10406,7 +10443,7 @@ dependencies = [
 
 [[package]]
 name = "sdf-common"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -10420,7 +10457,7 @@ dependencies = [
 
 [[package]]
 name = "sdf-common-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -10935,7 +10972,7 @@ dependencies = [
 
 [[package]]
 name = "spotting-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -10943,7 +10980,7 @@ dependencies = [
 
 [[package]]
 name = "spotting-intelligence-avian"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",
@@ -11431,7 +11468,7 @@ dependencies = [
 
 [[package]]
 name = "terrain-chunk-ref"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -11442,7 +11479,7 @@ dependencies = [
 
 [[package]]
 name = "terrain-layer-model"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -11452,14 +11489,14 @@ dependencies = [
 
 [[package]]
 name = "terrain-shaders"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
 ]
 
 [[package]]
 name = "terrain-stamps"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy_math",
@@ -11468,7 +11505,7 @@ dependencies = [
 
 [[package]]
 name = "terrain-watersheds"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy_math",
@@ -11478,7 +11515,7 @@ dependencies = [
 
 [[package]]
 name = "tether-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -11537,7 +11574,7 @@ dependencies = [
 
 [[package]]
 name = "threat-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -11548,7 +11585,7 @@ dependencies = [
 
 [[package]]
 name = "threat-intelligence-damage"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -11558,7 +11595,7 @@ dependencies = [
 
 [[package]]
 name = "threat-management-intelligence"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12243,7 +12280,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "urbanization-cells"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12254,7 +12291,7 @@ dependencies = [
 
 [[package]]
 name = "urbanization-developments"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12269,7 +12306,7 @@ dependencies = [
 
 [[package]]
 name = "urbanization-layer-model"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12462,7 +12499,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "vegetation-bumpout"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12474,7 +12511,7 @@ dependencies = [
 
 [[package]]
 name = "vegetation-bumpout-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "camera-controls",
@@ -12491,7 +12528,7 @@ dependencies = [
 
 [[package]]
 name = "vegetation-components"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12503,7 +12540,7 @@ dependencies = [
 
 [[package]]
 name = "vegetation-groves"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12522,7 +12559,7 @@ dependencies = [
 
 [[package]]
 name = "vegetation-layer-model"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
@@ -12533,7 +12570,7 @@ dependencies = [
 
 [[package]]
 name = "vegetation-shaders"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "material-ref",
@@ -12548,7 +12585,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vfx-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "clap",
@@ -12558,7 +12595,7 @@ dependencies = [
 
 [[package]]
 name = "visual-geometry-core"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "lod-lazy-refs",
@@ -13720,7 +13757,7 @@ checksum = "99cdc77ac580700f64d314e2c30d2e8ec1c93ce981f66a62a894a671d1036af3"
 
 [[package]]
 name = "world-materials"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "building-shaders",
@@ -13735,7 +13772,7 @@ dependencies = [
 
 [[package]]
 name = "world-materials-playground"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "bevy",
  "clap",
@@ -13747,7 +13784,7 @@ dependencies = [
 
 [[package]]
 name = "world-player"
-version = "0.1.3"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "avian3d",

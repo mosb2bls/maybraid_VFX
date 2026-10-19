@@ -90,6 +90,13 @@ impl Affiliations {
 			.retain(|_, strength| strength.effective(now) >= MIN_STRENGTH);
 		self.known_allies.retain(|_, strength| strength.effective(now) >= MIN_STRENGTH);
 	}
+
+	/// Replace `self` with `next` only when the affiliation snapshot differs.
+	pub fn replace_if_changed(&mut self, next: &Self) {
+		if self != next {
+			*self = next.clone();
+		}
+	}
 }
 
 fn overlap_weight(

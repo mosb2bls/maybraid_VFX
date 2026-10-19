@@ -142,13 +142,12 @@ impl GenerationContext {
     pub fn get_or_generate_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Vec<Arc<T>>;
     /// Like `get_or_generate_in`, but `None` if any origin doesn't build.
     pub fn get_or_generate_all_in<T: GenerationScheme>(&mut self, region: Aabb3d) -> Option<Vec<Arc<T>>>;
-    pub fn overlapping<T: HcsgValue>(&self, region: Aabb3d) -> Vec<Id>;
 }
 ```
 
 `get_or_generate` looks the value up, and if it is missing, builds it (recursively resolving that value's dependencies) and publishes it before returning. The context tracks which `(TypeId, Id)` pairs it is currently generating, and treats a repeat as a cycle (`None`).
 
-Region pulls read origins only, never whatever happens to be stored in the region, so a value doesn't depend on which of its neighbors the worker built first.
+Region pulls read origins only, never whatever happens to be stored in the region, so a value doesn't depend on which of its neighbors the worker built first. [`GenerationContext`] does not expose spatial store queries; schemes discover through `original_ids_for` and dependencies through `get` / `get_or_generate`.
 
 The worker builds its context with a staleness check (`GenerationContext::with_stale`). Once the subscription is cancelled, the context generates nothing more and drops whatever it just built instead of publishing it. The final check happens under the store's write lock (`HcsgStorage::publish_unless`), so a value finished just as its session ends either lands before that session's stores are cleared or is dropped.
 
@@ -232,7 +231,7 @@ Subscription ids come from the `AtomicU64`. A presentation system holds exactly 
 ### Worker
 
 There is one dedicated worker thread. It schedules live subscriptions by
-[`HcsgClass`](shared/bounds.rs) weight (stride `pass`, lowest first, newest
+[`HcsgClass`](bounds.rs) weight (stride `pass`, lowest first, newest
 among ties) and runs each for a quantum of about 32 ids or 30 ms:
 
 ```text
@@ -362,7 +361,7 @@ Each frame:
 4. **Sweep.** Once a new session's subscription is read through to `done`, retire every host that session did not publish. A new session leaves no value behind, so this is the only time presentation retires by what was published.
 5. **Retire.** Retire any host whose entry bounds intersect none of the regions, along with its owned scene subtree. Within a session, retirement depends only on bounds, never on what discovery returned. Hosts are only rechecked when the regions change or new hosts were spawned.
 
-Retiring marks the host `RetiredHost`. The runtime despawns retired hosts in `Last`, so commands other systems queue for the host through `PostUpdate` still land.
+Retiring marks the host `RetiredHost` and hides it (`Visibility::Hidden`) so leftover trees do not extract while they wait. The runtime recursive-despawns a budgeted prefix in `Last` — [`LodChunkFulfillBudget::retired_host_despawns_per_frame`] (the cull-root cap, at least one) and [`LodChunkFulfillBudget::retired_host_time_per_frame`] (the exclusive drain clock) — so commands other systems queue for the host through `PostUpdate` still land, and Leave cannot retire a whole cascade on one frame.
 
 Notes:
 - When the subscription is replaced, existing hosts stay. Ids the new subscription publishes that are already in `hosts` are skipped.
@@ -461,9 +460,7 @@ The shared runtime provides everything else.
 
 ## What this replaces
 
-The legacy per-layer runtime is gone: `gen::runtime`, `GenerateOn`, producers and queues, `Seed` invalidation, bespoke spatial indexes, terrain replacement machinery, and synchronous generation in Bevy systems. Every app now generates and presents on this shared worker path. Session roots, epochs, and store clears on mode exit replace the old restart hooks.
-
-Legacy per-layer presenters (Durham terrain and water, Richmond hosts, Chico, Barking, Maputo, mobs) still compile in place; a final pass removes those modules once nothing references them.
+The legacy per-layer runtime is gone: `gen::runtime`, `GenerateOn`, producers and queues, `Seed` invalidation, bespoke spatial indexes, terrain replacement machinery, synchronous generation in Bevy systems, and the old per-layer presenters (Durham terrain and water, Richmond hosts, Chico, Barking, Maputo, mobs). Every app now generates and presents on this shared worker path. Session roots, epochs, and store clears on mode exit replace the old restart hooks.
 
 ## Migration
 
@@ -476,7 +473,7 @@ The public API is `lod::hcsg`: `HcsgStorage`, `HcsgDemand`, `GenerationContext`,
 4. **Modes and removal** (done).
    - **7a.** Training ground removed (to be rebuilt later).
    - **7b.** Discovery runs on this runtime: gated bounds channels, streamed terrain rings, gameplay through `DurhamSurface`.
-   - **7c.** Legacy runtime, indexes, and layer-stack generation machinery deleted. Retired playgrounds per [`maybraid/PLAYGROUNDS.md`](../../../PLAYGROUNDS.md) (`routing-playground`, `barking-playground`, `character-world-movements-playground`, `richmond-playground`). Leftover per-layer presenter modules come out in a final 7c pass.
+   - **7c.** Legacy runtime, indexes, layer-stack generation machinery, and per-layer presenters deleted. Retired playgrounds per [`maybraid/PLAYGROUNDS.md`](../../../../PLAYGROUNDS.md) (`routing-playground`, `barking-playground`, `character-world-movements-playground`, `richmond-playground`).
 
 ## Later
 

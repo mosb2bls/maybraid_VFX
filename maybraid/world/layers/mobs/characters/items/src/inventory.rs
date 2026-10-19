@@ -5,6 +5,7 @@
 //! indices (clothing wear order, weapons switch queue, skill-map queue).
 
 use bevy::prelude::*;
+use procedural_common::Fnv1a64;
 
 use crate::{
 	ClothingKind, ClothingMaterial, ClothingMesh, ClothingStats, FirearmMesh, FirearmSpec,
@@ -14,6 +15,11 @@ use crate::{
 
 /// How many garments character creation rolls before the body editor.
 pub const STARTER_CLOTHING_COUNT: usize = 3;
+
+/// Capture-id label for the always-equipped Self Lubikan catalog tile.
+///
+/// Lubikans are not bag items; this label only keys the scene-captured icon.
+pub const SELF_LUBIKAN_CAPTURE_LABEL: &str = "self-lubikan";
 
 /// How many firearms character creation rolls into the bag.
 pub const STARTER_WEAPON_COUNT: usize = 2;
@@ -443,10 +449,19 @@ impl Inventory {
 	/// No-op when fewer than two weapons are queued. Returns whether the
 	/// primary changed.
 	pub fn swap_active(&mut self) -> bool {
+		self.cycle_weapons(1)
+	}
+
+	/// Rotate the equipped weapon queue. `dir >= 0` advances; `dir < 0` goes back.
+	pub fn cycle_weapons(&mut self, dir: i8) -> bool {
 		if self.weapons.len() < 2 {
 			return false;
 		}
-		self.weapons.rotate_left(1);
+		if dir < 0 {
+			self.weapons.rotate_right(1);
+		} else {
+			self.weapons.rotate_left(1);
+		}
 		true
 	}
 
@@ -506,7 +521,7 @@ impl Inventory {
 		self.take_indices(&keep)
 	}
 
-	fn take_indices(&mut self, keep: &[usize]) -> Self {
+	pub(crate) fn take_indices(&mut self, keep: &[usize]) -> Self {
 		let len = self.items.len();
 		let is_kept = |index: usize| keep.binary_search(&index).is_ok();
 		let clothing = std::mem::take(&mut self.clothing);
@@ -757,17 +772,15 @@ impl ItemRng {
 
 /// High-word tag so item-icon keys never collide with [`SkillMapSpec::catalog_key`].
 pub const ITEM_ICON_CATALOG_TAG: u64 = 0xC0DE_0000_0000_0000;
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0100_0000_01b3;
 
 /// FNV-1a catalog key for a capture-id label.
 pub fn icon_catalog_key_for_label(label: &str) -> u64 {
-	let mut hash = FNV_OFFSET;
-	for byte in label.as_bytes() {
-		hash ^= u64::from(*byte);
-		hash = hash.wrapping_mul(FNV_PRIME);
-	}
-	ITEM_ICON_CATALOG_TAG | (hash & 0x0000_FFFF_FFFF_FFFF)
+	ITEM_ICON_CATALOG_TAG | (Fnv1a64::digest(label.as_bytes()) & 0x0000_FFFF_FFFF_FFFF)
+}
+
+/// Catalog thumbnail key for the Self Lubikan tile.
+pub fn self_lubikan_catalog_key() -> u64 {
+	icon_catalog_key_for_label(SELF_LUBIKAN_CAPTURE_LABEL)
 }
 
 fn remap_selected(selected: &[usize], remap: &[Option<usize>]) -> Vec<usize> {
@@ -893,6 +906,7 @@ mod tests {
 		assert_eq!(items.iter().filter_map(InventoryItem::grenade_spec).count(), 1);
 		let blast = items.iter().find_map(InventoryItem::grenade_stats).expect("grenade");
 		assert!((crate::BLAST_RADIUS_MIN..=crate::BLAST_RADIUS_MAX).contains(&blast.blast_radius));
+		assert!((crate::LAUNCH_SPEED_MIN..=crate::LAUNCH_SPEED_MAX).contains(&blast.launch_speed));
 		assert_eq!(items.iter().filter(|item| item.slot() == InventorySlot::Skills).count(), 1);
 		let mut guns: Vec<_> = items.iter().filter_map(InventoryItem::firearm_mesh).collect();
 		guns.sort_by_key(|mesh| mesh.label());
@@ -1218,6 +1232,11 @@ mod tests {
 			),
 			key
 		);
+		assert_eq!(
+			self_lubikan_catalog_key(),
+			icon_catalog_key_for_label(SELF_LUBIKAN_CAPTURE_LABEL)
+		);
+		assert_ne!(self_lubikan_catalog_key(), key);
 		Ok(())
 	}
 

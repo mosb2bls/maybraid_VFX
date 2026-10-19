@@ -1,7 +1,7 @@
-# Stationary Sharp with forced native offscreen (same apparatus, scale 1.0).
-# Isolates present-path overhead against Sharp's direct-window path.
+# Stationary Native with forced offscreen (same apparatus, window size).
+# Isolates present-path overhead against Native's direct-window path.
 
-{"cmd":"visual_style","style":"sharp"}
+{"cmd":"visual_style","style":"native"}
 {"cmd":"console","line":"render offscreen on"}
 {"cmd":"scenario","name":"visual-style-idle-offscreen-warmup","mark":"start"}
 {"cmd":"console","line":"sky noon"}

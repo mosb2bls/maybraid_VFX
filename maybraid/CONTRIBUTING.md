@@ -18,17 +18,16 @@ Character crates live under [`world/layers/mobs/characters/`](./world/layers/mob
 
 The term "model" and suffix `-models` is used to refer to a layer that defining the base behavior of a game object. Typically, this means taking a lower-order asset, such as tree from [`sbs-trees`](./world/layers/vegetation/sbs-trees/), and integrating it with standard game systems such as LOD, generation, and physics. Accordingly, models should typically define plugins that idempotently make available the needed systems for base behaviors.
 
-**Plugin shape:** define one idempotent resource plugin **per model** (e.g. `TerrainResourcesPlugin` beside the terrain types), then compose those plugins at the **crate root** (e.g. `DurhamTerrainModelsPlugin` that only registers each model plugin). World-facing fill lives on `Generate<Mode, OnTerrain<Durham>>` ([`install_durham_generation`](world/layers/terrain/durham/src/terrain/host.rs)); raw present is `Present<Mode, OnTerrain<Durham>>`. Model crates hold contracts and generation; if it draws, it lives in a presentation crate. Apps should add the crate-root or layer plugin once rather than wiring individual model plugins ad hoc—unless they intentionally need a subset.
+**Plugin shape:** define one idempotent resource plugin **per model** (e.g. `TerrainResourcesPlugin` beside the terrain types), then compose those plugins at the **crate root** (e.g. `DurhamTerrainModelsPlugin` that only registers each model plugin). World-facing fill and presentation run on the shared [`lod::hcsg`](lod/lib/src/hcsg.rs) runtime: implement [`GenerationScheme`](lod/lib/src/hcsg/context.rs) beside each generated type, register bounds with [`HcsgBoundsPlugin`](lod/lib/src/hcsg/bounds.rs), and present with [`PresentationPlugin::<C, T>`](lod/lib/src/hcsg/presentation.rs). Durham wires this through [`DurhamWorldPlugin`](world/layers/terrain/durham/src/hcsg.rs) (session roots + stream layout) and [`DurhamPresentationPlugin`](world/layers/terrain/durham/src/hcsg.rs) / [`StreamPresentationPlugin`](world/layers/terrain/durham/src/hcsg/stream.rs); composed Discovery streaming lives in [`WorldLayersPlugin`](world/lib/src/world_layers.rs). Model crates hold schemes and scene contracts. Apps should add the crate-root or layer plugin once rather than wiring individual model plugins ad hoc—unless they intentionally need a subset.
 
 Particularly bespoke systems, like player damage, movement, and inventory, are not necessarily considered parts of models until the underlying API is generalized. Before that point, they are expected to be implemented as separate systems acting on the types that the models define.
 
 At the time of writing, building models refers to defining behavior with respect to...
 
-- [`lod`](./lod/lib)
-- [`generation`](./lod/lib/src/gen.rs)
+- [`lod`](./lod/lib) — spatial ids, LOD scene refresh, and [`hcsg`](lod/lib/src/hcsg/README.md)
 - [Avian Physics](https://github.com/avianphysics/avian)
 
-...and mostly consists of implementing the traits from [`generation`](./lod/lib/src/gen.rs) with the added colliders.
+...and mostly consists of implementing [`GenerationScheme`](lod/lib/src/hcsg/context.rs) with colliders or other gameplay components attached at presentation time where needed.
 
 Sometimes, particularly during early development of a model, the game object may only be defined within the `*-models` crate. However, generally, things like the composition of a game object will be defined in another crate and then extended with the model. This pattern keeps the `*-models` crate focused on the behavior of the game object rather than its internal structure. For example, rather than defining the procedure to give all branches on a tree, the `*-models` crate implementation of the tree can simply focus on which branches are visible at a given LOD. Conversely, the crate implementing the tree does not have to worry about plugging into the generation dependency system from the start.
 

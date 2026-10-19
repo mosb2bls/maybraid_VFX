@@ -485,12 +485,9 @@ fn relief_edge_distance(
 // Near physical height field
 //---------------------------------------------------------
 
-fn relief_height(
-    p: vec2<f32>
+fn relief_height_from_edge(
+    edge: f32
 ) -> f32 {
-    let edge =
-        relief_edge_distance(p);
-
     return smoothstep(
         0.0,
         CRACK_WIDTH_M,
@@ -499,17 +496,23 @@ fn relief_height(
 }
 
 
+fn relief_height(
+    p: vec2<f32>
+) -> f32 {
+    return relief_height_from_edge(
+        relief_edge_distance(p)
+    );
+}
+
+
 //---------------------------------------------------------
 // Far visual-only height field
 //---------------------------------------------------------
 
-fn relief_visual_height(
-    p: vec2<f32>,
+fn relief_visual_height_from_edge(
+    edge: f32,
     distance_m: f32
 ) -> f32 {
-    let edge =
-        relief_edge_distance(p);
-
     let width_t = smoothstep(
         CRACK_FAR_WIDTH_START_M,
         CRACK_FAR_WIDTH_END_M,
@@ -553,8 +556,18 @@ struct ReliefHit {
 fn trace_relief(
     p: vec2<f32>,
     N: vec3<f32>,
-    V: vec3<f32>
+    V: vec3<f32>,
+    h0: f32
 ) -> ReliefHit {
+    // Far visual cracks already evaluated the Voronoi at p.
+    // Plateau pixels skip ray setup as well as the march.
+    if (h0 >= 1.0) {
+        return ReliefHit(
+            vec3<f32>(0.0),
+            h0
+        );
+    }
+
     // Limit ray travel at extreme grazing angles.
     let ray =
         -V * (
@@ -579,16 +592,6 @@ fn trace_relief(
             f32(CRACK_MAX_STEPS)
         )
     );
-
-    let h0 =
-        relief_height(p);
-
-    if (h0 >= 1.0) {
-        return ReliefHit(
-            vec3<f32>(0.0),
-            h0
-        );
-    }
 
     var lo = 0.0;
     var hi = 1.0;
@@ -1389,9 +1392,14 @@ fn fragment(
     // This stays active after POM disappears.
     //-----------------------------------------------------
 
+    // One 9-cell Voronoi at the surface sample. Far coloration
+    // and the POM h0 test share it; only the march walks new p.
+    let surface_edge =
+        relief_edge_distance(relief_p);
+
     let visual_height =
-        relief_visual_height(
-            relief_p,
+        relief_visual_height_from_edge(
+            surface_edge,
             camera_distance
         );
 
@@ -1492,7 +1500,8 @@ fn fragment(
             trace_relief(
                 relief_p,
                 macro_n,
-                V
+                V,
+                relief_height_from_edge(surface_edge)
             );
 
         let q =
@@ -1539,14 +1548,15 @@ fn fragment(
 
 
         //-------------------------------------------------
-        // POM displaced color lookup
+        // POM cavity
+        //
+        // March for cavity and relief normal only — do
+        // not resample the world-space palette at q.
+        // Default band wavelengths are 10 m–100 km, while
+        // a hit moves at most CRACK_DEPTH_M / 0.06 ≈ 3 m.
+        // On plateaus the offset is zero, so a second
+        // ground_color_at would be an exact duplicate.
         //-------------------------------------------------
-
-        let hit_palette =
-            ground_color_at(
-                q
-                + WORLD_COLOR_SHIFT
-            );
 
         let cavity =
             mix(
@@ -1556,7 +1566,7 @@ fn fragment(
             );
 
         let hit_ground =
-            hit_palette
+            base_palette
             * base_color.rgb
             * cavity;
 

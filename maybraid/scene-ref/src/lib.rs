@@ -23,7 +23,6 @@ use bevy::prelude::{App, Plugin, Resource, Update};
 
 pub use gltf_scale::{bake_odd_scales_in_world, GltfNodeScale};
 pub use handles::SceneRefHandles;
-pub use mirror::{mirror_mesh, mirror_transform};
 pub use multi_merge::{
 	MultiSceneMerge, MultiSceneMergeHandles, MultiSceneMergeRoot, MultiScenePart, TransformKey,
 };
@@ -130,7 +129,7 @@ mod tests {
 		);
 		mesh.insert_indices(Indices::U32(vec![0, 1, 2]));
 
-		let mirrored = mirror_mesh(&mesh, MirrorAxis::X);
+		let mirrored = MirrorAxis::X.mirror_mesh(&mesh);
 
 		let Some(VertexAttributeValues::Float32x3(positions)) =
 			mirrored.attribute(Mesh::ATTRIBUTE_POSITION)

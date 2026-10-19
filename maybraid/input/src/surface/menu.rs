@@ -31,6 +31,18 @@ pub enum MenuNav {
 	Right,
 }
 
+/// Pad faces that fire [`MenuNav::Select`] (catalog equip / unequip).
+pub const MENU_SELECT_PAD: [PadButton; 2] = [PadButton::A, PadButton::Start];
+
+/// Menu-map keys that become [`PadButton::Start`], then [`MenuNav::Select`].
+pub const MENU_SELECT_KEYS: [KeyCode; 1] = [KeyCode::Enter];
+
+/// Pad face that asks to drop the focused inventory tile (`#1297`).
+pub const INVENTORY_DROP_PAD: PadButton = PadButton::X;
+
+/// Keys that hold [`PadButton::X`] so drop matches world interact (E / X).
+pub const INVENTORY_DROP_KEYS: [KeyCode; 2] = [KeyCode::KeyE, KeyCode::KeyX];
+
 impl MenuNav {
 	pub fn from_cardinal(cardinal: Cardinal) -> Self {
 		match cardinal {
@@ -183,6 +195,8 @@ mod tests {
 		Ok(())
 	}
 
+	/// Gamepad left stick still navigates. Keyboard WASD does not — it never
+	/// reaches the stick under [`crate::KeyboardPadMap::Menu`].
 	#[test]
 	fn stick_becomes_cardinal() -> anyhow::Result<()> {
 		let mut pad = VirtualPad::default();

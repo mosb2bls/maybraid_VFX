@@ -462,6 +462,105 @@ mod tests {
 	}
 
 	#[test]
+	fn flyers_label_points_earned_when_stock_caps_applied_amount() -> Result<()> {
+		let (mut app, owner) = flyer_app();
+		app.update();
+		set_dock_physical(app.world_mut(), Vec2::new(80.0, 600.0), 1.0)?;
+		emit_capped_hit(&mut app, owner, Some(Vec3::ZERO))?;
+		app.update();
+		let world = app.world_mut();
+		assert!(
+			world.query::<&Text>().iter(world).any(|text| text.0 == "+3 hit MAX"),
+			"flyer must show points_earned when amount is zero at stock cap"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn hidden_hud_despawns_flyers_and_drops_pending_changes() -> Result<()> {
+		let (mut app, owner) = flyer_app();
+		app.update();
+		set_dock_physical(app.world_mut(), Vec2::new(80.0, 600.0), 1.0)?;
+		emit_hit(&mut app, owner, None)?;
+		app.update();
+		assert_eq!(app.world_mut().query::<&LubikanPointFlyer>().iter(app.world()).count(), 1);
+		app.world_mut().insert_resource(CombatHudVisible(false));
+		emit_hit(&mut app, owner, None)?;
+		app.update();
+		assert_eq!(
+			app.world_mut().query::<&LubikanPointFlyer>().iter(app.world()).count(),
+			0,
+			"pause must clear in-flight presentation without touching the ledger"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn ingest_respects_max_flyer_budget() -> Result<()> {
+		let (mut app, owner) = flyer_app();
+		app.update();
+		set_dock_physical(app.world_mut(), Vec2::new(80.0, 600.0), 1.0)?;
+		for _ in 0..MAX_FLYERS + 8 {
+			emit_hit(&mut app, owner, None)?;
+		}
+		app.update();
+		assert_eq!(
+			app.world_mut().query::<&LubikanPointFlyer>().iter(app.world()).count(),
+			MAX_FLYERS,
+			"multi-hit bursts must stay bounded"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn flyer_retains_credited_account_after_equipped_switch() -> Result<()> {
+		let (mut app, owner) = flyer_app();
+		app.update();
+		let self_account = app
+			.world()
+			.get::<lubikans::LubikanLedger>(owner)
+			.ok_or_else(|| anyhow!("ledger"))?
+			.equipped()
+			.id();
+		let extra = lubikans::LubikanDefinition::new(
+			lubikans::LubikanDefinitionId::from_raw(4),
+			40.0,
+			10.0,
+		);
+		app.world_mut().resource_mut::<lubikans::LubikanCatalog>().register(extra);
+		let other = {
+			let mut ledger = app
+				.world_mut()
+				.get_mut::<lubikans::LubikanLedger>(owner)
+				.ok_or_else(|| anyhow!("ledger"))?;
+			let other = ledger.ensure_owned(extra);
+			if !ledger.select(Some(other)) {
+				return Err(anyhow!("select"));
+			}
+			other
+		};
+		set_dock_physical(app.world_mut(), Vec2::new(80.0, 600.0), 1.0)?;
+		app.world_mut().write_message(LubikanChargeChanged::new(
+			owner,
+			self_account,
+			2.0,
+			LubikanChargeReason::COMBAT_HIT,
+			None,
+		));
+		app.update();
+		let credited = app
+			.world_mut()
+			.query::<&LubikanPointFlyer>()
+			.iter(app.world())
+			.map(|flyer| flyer.credited)
+			.next()
+			.ok_or_else(|| anyhow!("flyer"))?;
+		assert_eq!(credited, self_account);
+		assert_ne!(credited, other);
+		Ok(())
+	}
+
+	#[test]
 	fn flyers_still_spawn_when_charge_is_already_full() -> Result<()> {
 		let (mut app, owner) = flyer_app();
 		app.update();
