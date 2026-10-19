@@ -146,7 +146,6 @@ impl<T> NodeStore<T> {
 		self.membership_revision = revision;
 	}
 
-	#[cfg(any(test, feature = "test-support"))]
 	pub(super) fn remove(&mut self, id: Id, revision: u64) -> Option<StoredEntry<T>> {
 		let entry = self.entries.remove(&id)?;
 		if let Some(spatial) = self.spatial.as_mut() {
