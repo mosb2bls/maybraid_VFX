@@ -2101,7 +2101,7 @@ fn build_livable_quarters_examples<T, P>(
 	label: &str,
 	specs: &[LivableQuartersExampleSpec],
 	cols: usize,
-	params: impl Fn(f32, f32) -> P,
+	params: impl Fn(usize, f32, f32) -> P,
 	fit: impl Fn(&Confines, NoiseParams, P) -> Result<(T, FillableRegions), FitError>,
 ) -> (Vec<GalleryExampleCell<T>>, Vec<(Aabb3d, Vec3)>) {
 	let gap = STALL_GALLERY_GAP;
@@ -2112,7 +2112,7 @@ fn build_livable_quarters_examples<T, P>(
 		let confines = demo_common_bedroom_confines(*extent, *door);
 		passages.extend(passage_aabbs_at(&confines, offset));
 		let noise = NoiseParams { seed: *seed, ..NoiseParams::default() };
-		match fit(&confines, noise, params(*spaciousness, *occupancy)) {
+		match fit(&confines, noise, params(i, *spaciousness, *occupancy)) {
 			Ok((room, _)) => cells.push(GalleryExampleCell { offset, room }),
 			Err(err) => bevy::log::error!("{label} ({extent:?} seed={seed}) failed: {err}"),
 		}
@@ -2142,25 +2142,16 @@ fn build_kitchen_examples() -> (Vec<GalleryExampleCell<Kitchen>>, Vec<(Aabb3d, V
 		KitchenCounterLayout::Peninsula,
 		KitchenCounterLayout::Galley,
 	];
-	let specs = kitchen_examples_specs();
-	let gap = STALL_GALLERY_GAP;
-	let mut cells = Vec::new();
-	let mut passages = Vec::new();
-	for (i, (extent, seed, spaciousness, occupancy, door)) in specs.iter().enumerate() {
-		let offset = gallery_grid_offset(|j| specs[j].0, specs.len(), i, 3, gap);
-		let confines = demo_common_bedroom_confines(*extent, *door);
-		passages.extend(passage_aabbs_at(&confines, offset));
-		let noise = NoiseParams { seed: *seed, ..NoiseParams::default() };
-		let params = buildings::KitchenParameterized::with_fill(*spaciousness, *occupancy)
-			.with_layout(layouts[i % layouts.len()]);
-		match Kitchen::fit_with_fill(&confines, noise, params) {
-			Ok((room, _)) => cells.push(GalleryExampleCell { offset, room }),
-			Err(err) => {
-				bevy::log::error!("kitchen-examples ({extent:?} seed={seed}) failed: {err}")
-			}
-		}
-	}
-	(cells, passages)
+	build_livable_quarters_examples(
+		"kitchen-examples",
+		&kitchen_examples_specs(),
+		3,
+		|i, spaciousness, occupancy| {
+			buildings::KitchenParameterized::with_fill(spaciousness, occupancy)
+				.with_layout(layouts[i % layouts.len()])
+		},
+		Kitchen::fit_with_fill,
+	)
 }
 
 fn dining_room_examples_specs() -> Vec<LivableQuartersExampleSpec> {
@@ -2181,7 +2172,7 @@ fn build_dining_room_examples() -> (Vec<GalleryExampleCell<DiningRoom>>, Vec<(Aa
 		"dining-room-examples",
 		&dining_room_examples_specs(),
 		3,
-		buildings::DiningRoomParameterized::with_fill,
+		|_, s, o| buildings::DiningRoomParameterized::with_fill(s, o),
 		DiningRoom::fit_with_fill,
 	)
 }
@@ -2202,7 +2193,7 @@ fn build_living_room_examples() -> (Vec<GalleryExampleCell<LivingRoom>>, Vec<(Aa
 		"living-room-examples",
 		&living_room_examples_specs(),
 		3,
-		buildings::LivingRoomParameterized::with_fill,
+		|_, s, o| buildings::LivingRoomParameterized::with_fill(s, o),
 		LivingRoom::fit_with_fill,
 	)
 }
@@ -2223,7 +2214,7 @@ fn build_sitting_room_examples() -> (Vec<GalleryExampleCell<SittingRoom>>, Vec<(
 		"sitting-room-examples",
 		&sitting_room_examples_specs(),
 		3,
-		buildings::SittingRoomParameterized::with_fill,
+		|_, s, o| buildings::SittingRoomParameterized::with_fill(s, o),
 		SittingRoom::fit_with_fill,
 	)
 }
@@ -2244,7 +2235,7 @@ fn build_study_examples() -> (Vec<GalleryExampleCell<Study>>, Vec<(Aabb3d, Vec3)
 		"study-examples",
 		&study_examples_specs(),
 		3,
-		buildings::StudyParameterized::with_fill,
+		|_, s, o| buildings::StudyParameterized::with_fill(s, o),
 		Study::fit_with_fill,
 	)
 }

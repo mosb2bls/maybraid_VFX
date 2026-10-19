@@ -143,96 +143,39 @@ pub trait BuildingComponents {
 	}
 }
 
-impl<T: BuildingComponents + ?Sized> BuildingComponents for &T {
-	fn panel_nodes_for_level(&self, level: LodSceneLevel) -> Layers<PanelNode> {
-		(**self).panel_nodes_for_level(level)
-	}
-
-	fn partition_nodes_for_level(&self, level: LodSceneLevel) -> Layers<PartitionNode> {
-		(**self).partition_nodes_for_level(level)
-	}
-
-	fn floor_nodes_for_level(&self, level: LodSceneLevel) -> Layers<FloorNode> {
-		(**self).floor_nodes_for_level(level)
-	}
-
-	fn roof_nodes_for_level(&self, level: LodSceneLevel) -> Layers<RoofNode> {
-		(**self).roof_nodes_for_level(level)
-	}
-
-	fn stair_nodes_for_level(&self, level: LodSceneLevel) -> Layers<StairNode> {
-		(**self).stair_nodes_for_level(level)
-	}
-
-	fn door_nodes_for_level(&self, level: LodSceneLevel) -> Layers<DoorNode> {
-		(**self).door_nodes_for_level(level)
-	}
-
-	fn joint_nodes_for_level(&self, level: LodSceneLevel) -> Layers<JointNode> {
-		(**self).joint_nodes_for_level(level)
-	}
-
-	fn furniture_nodes_for_level(&self, level: LodSceneLevel) -> Layers<FurnitureNode> {
-		(**self).furniture_nodes_for_level(level)
-	}
-
-	fn furniture_usage_nodes_for_level(&self, level: LodSceneLevel) -> Layers<FurnitureUsageNode> {
-		(**self).furniture_usage_nodes_for_level(level)
-	}
-
-	fn label_nodes_for_level(&self, level: LodSceneLevel) -> Layers<LabelNode> {
-		(**self).label_nodes_for_level(level)
-	}
-
-	fn structural_lod(&self) -> Option<BuildingStructuralLodProbe> {
-		(**self).structural_lod()
-	}
+/// Mechanical `(**self).method(...)` forwarding for `&T` and `Arc<T>`.
+macro_rules! impl_building_components_forward {
+	($receiver:ty, $($rest_receivers:ty),+; $($methods:tt)*) => {
+		impl_building_components_forward!(@impl $receiver; $($methods)*);
+		impl_building_components_forward!($($rest_receivers),+; $($methods)*);
+	};
+	($receiver:ty; $($methods:tt)*) => {
+		impl_building_components_forward!(@impl $receiver; $($methods)*);
+	};
+	(@impl $receiver:ty; $($method:ident($($arg:ident: $arg_ty:ty),*) -> $ret:ty),+ $(,)?) => {
+		impl<T: BuildingComponents + ?Sized> BuildingComponents for $receiver {
+			$(
+				fn $method(&self $(, $arg: $arg_ty)*) -> $ret {
+					(**self).$method($($arg),*)
+				}
+			)+
+		}
+	};
 }
 
-impl<T: BuildingComponents + ?Sized> BuildingComponents for Arc<T> {
-	fn panel_nodes_for_level(&self, level: LodSceneLevel) -> Layers<PanelNode> {
-		(**self).panel_nodes_for_level(level)
-	}
-
-	fn partition_nodes_for_level(&self, level: LodSceneLevel) -> Layers<PartitionNode> {
-		(**self).partition_nodes_for_level(level)
-	}
-
-	fn floor_nodes_for_level(&self, level: LodSceneLevel) -> Layers<FloorNode> {
-		(**self).floor_nodes_for_level(level)
-	}
-
-	fn roof_nodes_for_level(&self, level: LodSceneLevel) -> Layers<RoofNode> {
-		(**self).roof_nodes_for_level(level)
-	}
-
-	fn stair_nodes_for_level(&self, level: LodSceneLevel) -> Layers<StairNode> {
-		(**self).stair_nodes_for_level(level)
-	}
-
-	fn door_nodes_for_level(&self, level: LodSceneLevel) -> Layers<DoorNode> {
-		(**self).door_nodes_for_level(level)
-	}
-
-	fn joint_nodes_for_level(&self, level: LodSceneLevel) -> Layers<JointNode> {
-		(**self).joint_nodes_for_level(level)
-	}
-
-	fn furniture_nodes_for_level(&self, level: LodSceneLevel) -> Layers<FurnitureNode> {
-		(**self).furniture_nodes_for_level(level)
-	}
-
-	fn furniture_usage_nodes_for_level(&self, level: LodSceneLevel) -> Layers<FurnitureUsageNode> {
-		(**self).furniture_usage_nodes_for_level(level)
-	}
-
-	fn label_nodes_for_level(&self, level: LodSceneLevel) -> Layers<LabelNode> {
-		(**self).label_nodes_for_level(level)
-	}
-
-	fn structural_lod(&self) -> Option<BuildingStructuralLodProbe> {
-		(**self).structural_lod()
-	}
+impl_building_components_forward! {
+	&T, Arc<T>;
+	panel_nodes_for_level(level: LodSceneLevel) -> Layers<PanelNode>,
+	partition_nodes_for_level(level: LodSceneLevel) -> Layers<PartitionNode>,
+	floor_nodes_for_level(level: LodSceneLevel) -> Layers<FloorNode>,
+	roof_nodes_for_level(level: LodSceneLevel) -> Layers<RoofNode>,
+	stair_nodes_for_level(level: LodSceneLevel) -> Layers<StairNode>,
+	door_nodes_for_level(level: LodSceneLevel) -> Layers<DoorNode>,
+	joint_nodes_for_level(level: LodSceneLevel) -> Layers<JointNode>,
+	furniture_nodes_for_level(level: LodSceneLevel) -> Layers<FurnitureNode>,
+	furniture_usage_nodes_for_level(level: LodSceneLevel) -> Layers<FurnitureUsageNode>,
+	label_nodes_for_level(level: LodSceneLevel) -> Layers<LabelNode>,
+	structural_lod() -> Option<BuildingStructuralLodProbe>,
 }
 
 /// Newtype: present a [`BuildingComponents`] value as a structural [`LodScene`] host.
@@ -800,9 +743,19 @@ mod flatten_tests {
 		let building = sample();
 		let tf = Transform::IDENTITY;
 		let bounds = Aabb3d::from_min_max(Vec3::ZERO, Vec3::ONE);
-		let chunks = building_scene_chunks(&building, &lod_ref(&tf, &bounds), LodSceneLevel::High);
+		let lod = lod_ref(&tf, &bounds);
+		let chunks = building_scene_chunks(&building, &lod, LodSceneLevel::High);
 		assert_eq!(chunks.total_primitives(), 1);
 		assert_eq!(chunks.total_weight(), FLATTENED_KIT_CHUNK_WEIGHT);
+		assert_eq!(
+			building_scene_chunks(&&building, &lod, LodSceneLevel::High).total_primitives(),
+			1
+		);
+		assert_eq!(
+			building_scene_chunks(&Arc::new(sample()), &lod, LodSceneLevel::High)
+				.total_primitives(),
+			1
+		);
 	}
 
 	#[test]
