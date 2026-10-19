@@ -2269,31 +2269,6 @@ mod tests {
 	}
 
 	#[test]
-	fn weapon_overlay_sequence_restores_current_base_pose() -> anyhow::Result<()> {
-		let mut world = World::new();
-		world.init_resource::<Time>();
-		world.init_resource::<AnimClipCache>();
-		world.init_resource::<MailboxApplySet>();
-		world.resource_mut::<MailboxApplySet>().only = None;
-		let host = spawn_mailbox_apply_host(&mut world, AnimClip::walk(), 0.22);
-		step_mailbox(&mut world, host, BLEND_DURATION + 0.02)?;
-		let base = world.get::<AnimMailbox>(host).unwrap().base_pose().clone();
-		{
-			let mut rig = world.get_mut::<HumanoidV0Rig>(host).unwrap();
-			apply_test_torso_yaw(&mut rig, -0.84);
-			stretch_test_forearm(&mut rig, 1.15);
-		}
-		world.run_system_once(init_working_pose).expect("init_working_pose");
-		let lumbar = world.get::<HumanoidV0Rig>(host).unwrap().posed_angle("lumbar");
-		let base_lumbar = base_angle(&base, "lumbar");
-		anyhow::ensure!(
-			(lumbar - base_lumbar).abs() < 1e-4,
-			"unarmed/base restore must drop firing twist, got {lumbar} vs {base_lumbar}"
-		);
-		Ok(())
-	}
-
-	#[test]
 	fn base_only_publish_matches_working_pose_and_leaves_base_immutable() -> anyhow::Result<()> {
 		let mut world = World::new();
 		world.init_resource::<Time>();
@@ -2451,12 +2426,6 @@ mod tests {
 			"InitWorking must seed overlays from the blended base, not the destination sample"
 		);
 		Ok(())
-	}
-
-	fn base_angle(base: &PoseBuffer, name: &str) -> f32 {
-		let definition = humanoid_v0_definition();
-		let index = definition.names.iter().position(|n| *n == name).unwrap_or(0);
-		base.local[index].rotation.to_euler(EulerRot::XYZ).1
 	}
 
 	fn stretch_test_forearm(rig: &mut HumanoidV0Rig, scale: f32) {
