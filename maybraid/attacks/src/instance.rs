@@ -222,42 +222,12 @@ impl AttackInstance {
 		wave: WavefrontSpec,
 		candidates: &[HitCandidate],
 	) -> Vec<damage::Hit> {
-		let prev = self.pulse_from_age;
-		let execute_age = self.execute_age;
-		let mut motions = Vec::new();
-		for wave_index in 0..wave.wave_count() {
-			if let Some(motion) =
-				self.wave_motion(spec_index, spec.origin, wave, wave_index, prev, execute_age)
-			{
-				motions.push((wave_index, motion));
-			}
-		}
+		let motions = self.live_wave_motions(spec_index, spec, wave);
 		let mut hits = Vec::new();
 		for (wave_index, motion) in motions {
-			hits.extend(
-				crate::hazard::HazardHitPass {
-					owner: self.owner,
-					friendly_fire: self.friendly_fire,
-					allies: &self.allies,
-					now,
-					spec,
-					pose: wave.pose(motion.emission, motion.heading, motion.to),
-					candidates,
-					hit_clock: &mut self.hit_clock,
-					sweep: Some(WavefrontSweep {
-						emission: motion.emission,
-						heading: motion.heading,
-						from: motion.from,
-						to: motion.to,
-					}),
-					wave: Some(WaveHitClock {
-						spec_index,
-						wave_index,
-						hits: &mut self.wave_hits,
-					}),
-				}
-				.collect(),
-			);
+			hits.extend(self.collect_one_wave(
+				now, spec_index, spec, wave, wave_index, motion, candidates,
+			));
 		}
 		hits
 	}
@@ -560,7 +530,7 @@ impl AttackInstance {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{AttackId, HazardOrigin, HazardShape};
+	use crate::{AttackId, HazardOrigin, HazardShape, HazardSpec, HitCandidate};
 
 	fn column() -> AttackDefinition {
 		AttackDefinition::with_authored_defaults(
@@ -687,6 +657,67 @@ mod tests {
 			if wave.wave_index == 1
 		)) {
 			return Err(anyhow::anyhow!("wave 1 should spawn after the interval"));
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn collect_hits_wavefront_matches_live_motions_and_one_wave() -> anyhow::Result<()> {
+		let wave = WavefrontSpec::new(1.2, 4.0, 8.0).with_waves(2, 0.4).with_half_depth(0.3);
+		let spec = HazardSpec {
+			shape: HazardShape::Wavefront(wave),
+			origin: HazardOrigin::Emission,
+			damage: crate::DamageSpec::once(20.0),
+		};
+		let def = AttackDefinition::with_authored_defaults(
+			AttackId::new("wave"),
+			0.2,
+			1.2,
+			0.2,
+			AimPolicy::TargetAtWindup,
+		)
+		.with_hazard(spec);
+		let snapshot = AimSnapshot::toward(Vec3::ZERO, Vec3::Z, None).with_emission(Vec3::ZERO);
+		let owner = Entity::from_bits(1);
+		let mut via_hits = AttackInstance::new(AttackInstanceId(1), &def, owner, snapshot, None, Vec::new());
+		let mut via_helper =
+			AttackInstance::new(AttackInstanceId(2), &def, owner, snapshot, None, Vec::new());
+		via_hits.execute_age = 0.55;
+		via_hits.pulse_from_age = 0.0;
+		via_helper.execute_age = 0.55;
+		via_helper.pulse_from_age = 0.0;
+		let target = Entity::from_bits(3);
+		let candidates = [HitCandidate {
+			entity: target,
+			parent: None,
+			has_health: true,
+			parent_has_health: false,
+			point: Vec3::new(0.0, 0.0, 2.0),
+			confirmed: false,
+		}];
+		let composed = via_hits.collect_hits(0.55, 0, spec, &candidates);
+		let mut expected = Vec::new();
+		let motions = via_helper.live_wave_motions(0, spec, wave);
+		for (wave_index, motion) in motions {
+			expected.extend(via_helper.collect_one_wave(
+				0.55, 0, spec, wave, wave_index, motion, &candidates,
+			));
+		}
+		if composed.len() != expected.len() {
+			return Err(anyhow::anyhow!(
+				"collect_hits should match live_wave_motions + collect_one_wave, got {} vs {}",
+				composed.len(),
+				expected.len()
+			));
+		}
+		if via_hits.wave_emissions != via_helper.wave_emissions {
+			return Err(anyhow::anyhow!("per-wave emission snapshots should match"));
+		}
+		if via_hits.wave_hits != via_helper.wave_hits {
+			return Err(anyhow::anyhow!("per-wave hit clocks should match"));
+		}
+		if !via_hits.wave_hits.contains_key(&(0, 0, target)) {
+			return Err(anyhow::anyhow!("wave 0 should record a distinct clock key"));
 		}
 		Ok(())
 	}
