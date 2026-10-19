@@ -95,9 +95,9 @@ pub use render_scale::{
 	parse_render_scale_env, parse_visual_style_env, pick_default_visual_style,
 	target_physical_size, window_above_1080p, AdapterKind, DeviceTier, RenderScale,
 	RequestForceOffscreen, RequestRenderScale, RequestVisualStyle, VisualStyle,
-	VisualStyleAutoReason, VisualStylePick, VisualStyleSetting, VisualStyleSignals,
-	DEVICE_TIER_ENV, FORCE_OFFSCREEN_ENV, PRESENTATION_TREATMENT_ENV, RENDER_SCALE_ENV,
-	UNIFIED_MEMORY_NATIVE_BYTES, VISUAL_STYLE_ENV,
+	VisualStyleAutoReason, VisualStyleIdentity, VisualStylePick, VisualStyleSetting,
+	VisualStyleSignals, DEVICE_TIER_ENV, FORCE_OFFSCREEN_ENV, PRESENTATION_TREATMENT_ENV,
+	RENDER_SCALE_ENV, UNIFIED_MEMORY_NATIVE_BYTES, VISUAL_STYLE_ENV,
 };
 pub use start::{
 	parse_xz_metres, player_spawn_xz, resolve_start_at, start_at_from_env, take_start_at_from_args,
