@@ -19,8 +19,10 @@ use crate::focus_reference::FocusReferenceRig;
 use crate::animation::ConceptAnimation;
 use crate::preview::{ConceptPreviewConfig, ConceptPreviewRoot};
 
-/// Boss-scale Bikanwarda assembly (~2 m preview hull × 10 ≈ 20 m).
-pub const BOSS_ENCOUNTER_SCALE: f32 = 10.0;
+/// Boss-scale Bikanwarda assembly (see `bikanwarda_character::encounter_uniform_scale`).
+pub fn boss_encounter_scale() -> f32 {
+	bikanwarda_character::encounter_uniform_scale()
+}
 
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct CaptureCameraLocked;
