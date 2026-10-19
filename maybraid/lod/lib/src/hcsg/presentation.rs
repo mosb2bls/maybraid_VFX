@@ -21,10 +21,11 @@ use crate::scene::{
 	add_lod_refresh_chunk_for, lod_host_scene_pending, LodChunkFulfillBudget, SemanticLodScene,
 };
 
-use super::bounds::{HcsgClass, HcsgRegions};
+use super::bounds::HcsgRegions;
 use super::context::GenerationScheme;
-use super::demand::{HcsgDemand, SubscriptionId};
+use super::demand::HcsgDemand;
 use super::node::HcsgNode;
+use super::request::HcsgRequest;
 use super::runtime::{ensure_runtime, HcsgSystems};
 use super::storage::{Busy, HcsgStorage};
 
@@ -39,12 +40,7 @@ struct Host {
 /// Per-system state for [`presentation`]: its subscription, how far it has
 /// read, and the hosts it spawned.
 pub struct Presented<T> {
-	/// The channel's latest regions.
-	wanted: Vec<Aabb3d>,
-	focus: Option<Vec3>,
-	class: HcsgClass,
-	subscription: Option<SubscriptionId>,
-	requested: Vec<Aabb3d>,
+	request: HcsgRequest,
 	cursor: usize,
 	hosts: HashMap<Id, Host>,
 	/// Regions hosts were last retired against; `None` until first run.
@@ -59,11 +55,7 @@ pub struct Presented<T> {
 impl<T> Default for Presented<T> {
 	fn default() -> Self {
 		Self {
-			wanted: Vec::new(),
-			focus: None,
-			class: HcsgClass::Near,
-			subscription: None,
-			requested: Vec::new(),
+			request: HcsgRequest::default(),
 			cursor: 0,
 			hosts: HashMap::new(),
 			retired_against: None,
@@ -98,9 +90,7 @@ pub fn presentation<C, T>(
 	T: GenerationScheme + SemanticLodScene,
 {
 	if let Some(latest) = regions.read().last() {
-		state.wanted = latest.boxes.clone();
-		state.focus = latest.focus;
-		state.class = latest.class;
+		state.request.apply_regions(latest);
 	}
 	if !state.request(&demand) {
 		return;
@@ -112,43 +102,29 @@ pub fn presentation<C, T>(
 impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
 	/// `false` when demand is busy; defer the rest of the frame.
 	fn request(&mut self, demand: &HcsgDemand) -> bool {
-		let live = match self.subscription {
-			Some(subscription) => match demand.try_is_live(subscription) {
-				Ok(live) => live,
-				Err(Busy) => return false,
-			},
-			None => false,
-		};
-		let wants = !self.wanted.is_empty();
-		if self.wanted == self.requested && live == wants {
-			return true;
+		match self.request.sync::<T>(demand) {
+			Ok(None) => true,
+			Ok(Some(sync)) => {
+				// Same transition as [`Self::spawn`] on `Ok(None)`: the id is gone after an epoch.
+				if sync.epoch_advanced {
+					self.session += 1;
+					self.sweep_pending = !self.hosts.is_empty();
+				}
+				self.cursor = 0;
+				true
+			}
+			Err(Busy) => false,
 		}
-		// Same transition as [`Self::spawn`] on `Ok(None)`: the id is gone after an epoch.
-		if self.subscription.is_some() && !live {
-			self.subscription = None;
-			self.session += 1;
-			self.sweep_pending = !self.hosts.is_empty();
-		}
-		self.requested = self.wanted.clone();
-		self.cursor = 0;
-		if wants {
-			let regions = self.wanted.clone();
-			self.subscription =
-				Some(demand.subscribe::<T>(self.subscription, regions, self.focus, self.class));
-		} else if let Some(subscription) = self.subscription.take() {
-			demand.unsubscribe(subscription);
-		}
-		true
 	}
 
 	fn spawn(&mut self, storage: &HcsgStorage, demand: &HcsgDemand, commands: &mut Commands) {
-		let Some(subscription) = self.subscription else {
+		let Some(subscription) = self.request.subscription() else {
 			return;
 		};
 		let published = match demand.try_read(subscription, self.cursor) {
 			Ok(Some(published)) => published,
 			Ok(None) => {
-				self.subscription = None;
+				self.request.clear_subscription();
 				self.session += 1;
 				self.sweep_pending = !self.hosts.is_empty();
 				return;
@@ -177,7 +153,7 @@ impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
 				retire_host(commands, stale.entity);
 			}
 			let (bounds, version) = (entry.bounds, entry.version);
-			let entity = spawn_host(commands, *id, entry, self.focus);
+			let entity = spawn_host(commands, *id, entry, self.request.focus());
 			self.hosts.insert(*id, Host { entity, bounds, version, session: self.session });
 			self.retired_against = None;
 		}
@@ -195,11 +171,15 @@ impl<T: GenerationScheme + SemanticLodScene> Presented<T> {
 	}
 
 	fn retire(&mut self, commands: &mut Commands) {
-		if self.retired_against.as_ref() == Some(&self.wanted) {
+		if self
+			.retired_against
+			.as_ref()
+			.is_some_and(|retired| retired == self.request.wanted())
+		{
 			return;
 		}
-		self.retired_against = Some(self.wanted.clone());
-		let wanted = &self.wanted;
+		self.retired_against = Some(self.request.wanted().to_vec());
+		let wanted = self.request.wanted();
 		self.hosts.retain(|_, host| {
 			let keep = wanted.iter().any(|region| region.intersects(&host.bounds));
 			if !keep {
