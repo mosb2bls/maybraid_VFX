@@ -119,30 +119,9 @@ pub struct CaptureClient<'w> {
 
 impl CaptureClient<'_> {
 	pub fn request(&mut self, request: crate::CaptureRequest) -> crate::CaptureTicket {
-		match self.queue.request(&self.cache.cache, &mut self.images, request) {
-			Ok((ticket, completed, failed)) => {
-				if let Some(completed) = completed {
-					self.completed.write(completed);
-				}
-				if let Some(failed) = failed {
-					self.failed.write(failed);
-				}
-				ticket
-			}
-			Err(_) => crate::CaptureTicket {
-				key: crate::CaptureCacheKey::from_request(&crate::CaptureRequest::from_subject(
-					&crate::MeshCaptureSubject::cuboid([0.0, 0.0, 0.0, 0.0]),
-					crate::CaptureMode::Shaded,
-					crate::CaptureResolution::ICON,
-					crate::CaptureLighting::studio(),
-					crate::CaptureRevision::CURRENT,
-				)),
-				image: self
-					.images
-					.add(crate::png::placeholder_image(crate::CaptureResolution::ICON)),
-				source: None,
-			},
-		}
+		self.queue
+			.request(&self.cache.cache, &mut self.images, request)
+			.forward(&mut self.completed, &mut self.failed)
 	}
 
 	pub fn cached(&self, key: &crate::CaptureCacheKey) -> Option<Handle<Image>> {
@@ -159,22 +138,9 @@ fn ingest_requests(
 	mut failed: MessageWriter<CaptureFailed>,
 ) {
 	for RequestCapture(request) in messages.read() {
-		match queue.request(&cache.cache, &mut images, request.clone()) {
-			Ok((.., done, fail)) => {
-				if let Some(done) = done {
-					completed.write(done);
-				}
-				if let Some(fail) = fail {
-					failed.write(fail);
-				}
-			}
-			Err(error) => {
-				failed.write(CaptureFailed {
-					key: crate::CaptureCacheKey::from_request(request),
-					error,
-				});
-			}
-		}
+		queue
+			.request(&cache.cache, &mut images, request.clone())
+			.forward(&mut completed, &mut failed);
 	}
 }
 

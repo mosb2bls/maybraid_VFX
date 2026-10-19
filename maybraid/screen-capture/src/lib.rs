@@ -33,7 +33,7 @@ pub use plugin::{CaptureCacheRoot, CaptureClient, ScreenCapturePlugin, ScreenCap
 pub use pose::{
 	pose_capture_label, representative_pose_view, RepresentativePose, HOST_REPRESENTATIVE_POSE,
 };
-pub use queue::CaptureTicket;
+pub use queue::{CaptureRequestNotification, CaptureRequestOutcome, CaptureTicket};
 pub use request::{CaptureRequest, CaptureResolution, CaptureRevision};
 pub use session::{
 	CaptureExtents, CaptureHostReady, CaptureHostRoot, CaptureSilhouetteRoot, CAPTURE_RENDER_LAYER,
@@ -156,6 +156,71 @@ mod tests {
 			.ok_or_else(|| anyhow::anyhow!("material asset"))?
 			.base_color;
 		assert_eq!(live_color, Color::srgb(1.0, 0.0, 0.0));
+		Ok(())
+	}
+
+	#[test]
+	fn invalid_request_forwards_one_failure_with_the_real_key() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let mut app = plugin_app(dir.path());
+		let mut request = CaptureRequest::from_subject(
+			&MeshCaptureSubject::cuboid([0.1, 0.2, 0.3, 1.0]),
+			CaptureMode::Shaded,
+			CaptureResolution::ICON,
+			CaptureLighting::studio(),
+			CaptureRevision::CURRENT,
+		);
+		request.id = CaptureId::new("");
+		let key = CaptureCacheKey::from_request(&request);
+		app.world_mut().write_message(RequestCapture(request));
+		app.update();
+
+		let completed = app
+			.world_mut()
+			.resource_mut::<Messages<CaptureCompleted>>()
+			.drain()
+			.collect::<Vec<_>>();
+		let failed = app
+			.world_mut()
+			.resource_mut::<Messages<CaptureFailed>>()
+			.drain()
+			.collect::<Vec<_>>();
+		assert!(completed.is_empty());
+		assert_eq!(failed.len(), 1);
+		assert_eq!(failed[0].key, key);
+		assert!(matches!(failed[0].error, CaptureError::InvalidRequest { .. }));
+		assert_eq!(app.world().resource::<crate::queue::CaptureQueue>().pending_len(), 0);
+		Ok(())
+	}
+
+	#[test]
+	fn pending_and_in_flight_requests_forward_no_notification() -> anyhow::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let mut app = plugin_app(dir.path());
+		for color in [[0.4, 0.5, 0.6, 1.0], [0.7, 0.1, 0.2, 1.0]] {
+			app.world_mut().write_message(RequestCapture(CaptureRequest::from_subject(
+				&MeshCaptureSubject::cuboid(color),
+				CaptureMode::Shaded,
+				CaptureResolution::new(8, 8),
+				CaptureLighting::studio(),
+				CaptureRevision::CURRENT,
+			)));
+		}
+		app.update();
+
+		let completed = app
+			.world_mut()
+			.resource_mut::<Messages<CaptureCompleted>>()
+			.drain()
+			.collect::<Vec<_>>();
+		let failed = app
+			.world_mut()
+			.resource_mut::<Messages<CaptureFailed>>()
+			.drain()
+			.collect::<Vec<_>>();
+		assert!(completed.is_empty());
+		assert!(failed.is_empty());
+		assert_eq!(app.world().resource::<crate::queue::CaptureQueue>().pending_len(), 1);
 		Ok(())
 	}
 }
