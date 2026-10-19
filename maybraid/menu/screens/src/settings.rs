@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::scene::prelude::{bsn, template_value, Scene};
 use character_persist::SaveRoot;
 use maybraid_menu_controller::MenuController;
-use maybraid_world::render_scale::{VisualStyle, VisualStyleAutoReason};
+use maybraid_world::render_scale::{VisualStyle, VisualStyleAutoReason, VisualStyleIdentity};
 use menu_components::single_select::republish_menu_activate;
 use menu_components::single_select::text_cursor::TextCursorColumn;
 use menu_components::{
@@ -72,33 +72,32 @@ impl InGameShadowQuality {
 
 /// Visual style presentation mode. Machine-scoped.
 ///
-/// Persist values are lowercase (`native`, `sharp`, …). Settings files at
-/// version 1 stored today's direct-window path as `sharp`; load remaps that
-/// string to [`Self::Native`] so existing players keep the same look. Version 2
-/// writes `native` / `sharp` with the new meanings.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum InGameVisualStyle {
-	#[default]
-	Native,
-	Sharp,
-	Impressionist,
-	Watercolor,
-	Retro,
-	Antediluvian,
-	#[serde(rename = "pre_post_modern")]
-	PrePostModern,
-}
+/// Persist values are the shared [`VisualStyleIdentity::script_id`] names
+/// (`native`, `sharp`, …). Settings files at version 1 stored today's
+/// direct-window path as `sharp`; load remaps that string to [`Self::Native`]
+/// so existing players keep the same look. Version 2 writes `native` / `sharp`
+/// with the new meanings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InGameVisualStyle(VisualStyle);
 
+#[allow(non_upper_case_globals)]
 impl InGameVisualStyle {
+	pub const Native: Self = Self(VisualStyle::Native);
+	pub const Sharp: Self = Self(VisualStyle::Sharp);
+	pub const Impressionist: Self = Self(VisualStyle::Impressionist);
+	pub const Watercolor: Self = Self(VisualStyle::Watercolor);
+	pub const Retro: Self = Self(VisualStyle::Retro);
+	pub const Antediluvian: Self = Self(VisualStyle::Antediluvian);
+	pub const PrePostModern: Self = Self(VisualStyle::PrePostModern);
+
 	pub const ALL: [Self; 7] = [
-		Self::Native,
-		Self::Sharp,
-		Self::Impressionist,
-		Self::Watercolor,
-		Self::Retro,
-		Self::Antediluvian,
-		Self::PrePostModern,
+		Self(VisualStyle::ALL[0]),
+		Self(VisualStyle::ALL[1]),
+		Self(VisualStyle::ALL[2]),
+		Self(VisualStyle::ALL[3]),
+		Self(VisualStyle::ALL[4]),
+		Self(VisualStyle::ALL[5]),
+		Self(VisualStyle::ALL[6]),
 	];
 
 	pub fn step(self, delta: i32) -> Self {
@@ -111,40 +110,20 @@ impl InGameVisualStyle {
 		self.step(1)
 	}
 
+	pub fn identity(self) -> VisualStyleIdentity {
+		self.0.identity()
+	}
+
 	pub fn label(self) -> &'static str {
-		match self {
-			Self::Native => "Native",
-			Self::Impressionist => "Impressionist",
-			Self::Watercolor => "Watercolor",
-			Self::Sharp => "Sharp",
-			Self::Retro => "Retro",
-			Self::Antediluvian => "Antediluvian",
-			Self::PrePostModern => "Pre-post-modern",
-		}
+		self.identity().label
 	}
 
 	pub fn to_visual_style(self) -> VisualStyle {
-		match self {
-			Self::Native => VisualStyle::Native,
-			Self::Impressionist => VisualStyle::Impressionist,
-			Self::Watercolor => VisualStyle::Watercolor,
-			Self::Sharp => VisualStyle::Sharp,
-			Self::Retro => VisualStyle::Retro,
-			Self::Antediluvian => VisualStyle::Antediluvian,
-			Self::PrePostModern => VisualStyle::PrePostModern,
-		}
+		self.0
 	}
 
 	pub fn from_visual_style(style: VisualStyle) -> Self {
-		match style {
-			VisualStyle::Native => Self::Native,
-			VisualStyle::Impressionist => Self::Impressionist,
-			VisualStyle::Watercolor => Self::Watercolor,
-			VisualStyle::Sharp => Self::Sharp,
-			VisualStyle::Retro => Self::Retro,
-			VisualStyle::Antediluvian => Self::Antediluvian,
-			VisualStyle::PrePostModern => Self::PrePostModern,
-		}
+		Self(style)
 	}
 
 	pub fn subtext(self) -> String {
@@ -158,6 +137,21 @@ impl InGameVisualStyle {
 			InGameRenderScale::Half => Self::Impressionist,
 			InGameRenderScale::ThreeQuarter => Self::PrePostModern,
 		}
+	}
+}
+
+impl Serialize for InGameVisualStyle {
+	fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+		serializer.serialize_str(self.identity().script_id)
+	}
+}
+
+impl<'de> Deserialize<'de> for InGameVisualStyle {
+	fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+		let raw = String::deserialize(deserializer)?;
+		VisualStyle::from_script_id(&raw).map(Self).ok_or_else(|| {
+			serde::de::Error::unknown_variant(&raw, &VisualStyleIdentity::SCRIPT_IDS)
+		})
 	}
 }
 
@@ -741,6 +735,27 @@ mod tests {
 			InGameSettings::default().state_label(InGameSettingsChoice::VisualStyle),
 			"Native"
 		);
+	}
+
+	#[test]
+	fn persisted_visual_style_names_match_shared_identity() -> anyhow::Result<()> {
+		use maybraid_world::VisualStyleIdentity;
+
+		assert_eq!(InGameVisualStyle::ALL.len(), VisualStyleIdentity::ALL.len());
+		for (style, identity) in InGameVisualStyle::ALL.into_iter().zip(VisualStyleIdentity::ALL) {
+			assert_eq!(style.to_visual_style(), identity.style);
+			assert_eq!(InGameVisualStyle::from_visual_style(identity.style), style);
+			assert_eq!(style.label(), identity.label);
+			let json = serde_json::to_string(&style)?;
+			assert_eq!(json, format!("\"{}\"", identity.script_id));
+			assert_eq!(serde_json::from_str::<InGameVisualStyle>(&json)?, style);
+		}
+		assert_eq!(
+			serde_json::from_str::<InGameVisualStyle>("\"pre_post_modern\"")?,
+			InGameVisualStyle::PrePostModern
+		);
+		assert!(serde_json::from_str::<InGameVisualStyle>("\"PrePostModern\"").is_err());
+		Ok(())
 	}
 
 	#[test]

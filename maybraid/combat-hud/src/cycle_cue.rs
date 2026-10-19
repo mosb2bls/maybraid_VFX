@@ -103,15 +103,6 @@ mod tests {
 	}
 
 	#[test]
-	fn exactly_one_panel_has_the_teal_border() {
-		let mut app = cycle_app();
-		spawn_cycle_panels(app.world_mut());
-		app.world_mut().insert_resource(CombatHudInventoryCycleCategory::Weapons);
-		app.update();
-		assert_only(app.world_mut(), CombatHudInventoryCycleCategory::Weapons);
-	}
-
-	#[test]
 	fn teal_border_follows_dpad_category_selection() {
 		let mut app = cycle_app();
 		spawn_cycle_panels(app.world_mut());
@@ -120,18 +111,5 @@ mod tests {
 			app.update();
 			assert_only(app.world_mut(), expected);
 		}
-	}
-
-	#[test]
-	fn y_cycling_within_a_category_does_not_move_the_border() {
-		let mut app = cycle_app();
-		spawn_cycle_panels(app.world_mut());
-		app.world_mut().insert_resource(CombatHudInventoryCycleCategory::SkillMaps);
-		app.update();
-		assert_only(app.world_mut(), CombatHudInventoryCycleCategory::SkillMaps);
-		// Y / SwapActive cycles the equipped queue; the HUD category is unchanged.
-		app.world_mut().insert_resource(CombatHudInventoryCycleCategory::SkillMaps);
-		app.update();
-		assert_only(app.world_mut(), CombatHudInventoryCycleCategory::SkillMaps);
 	}
 }

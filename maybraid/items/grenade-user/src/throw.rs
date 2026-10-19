@@ -502,6 +502,7 @@ mod tests {
 				clothing: Vec::new(),
 				weapons: vec![0],
 				skills: Vec::new(),
+				tanzes: Vec::new(),
 			})
 			.id();
 		let held = world
@@ -610,6 +611,7 @@ mod tests {
 				clothing: Vec::new(),
 				weapons: vec![0],
 				skills: Vec::new(),
+				tanzes: Vec::new(),
 			})
 			.id();
 		let held = world.spawn_empty().id();

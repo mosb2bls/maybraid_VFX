@@ -127,7 +127,7 @@ pub fn overlay_summary_value<E>(node: &MenuNode<E>) -> String {
 		}
 		MenuNode::GridCatalog { label, choices, .. } => {
 			let count = choices.iter().filter(|choice| choice.selected).count();
-			if matches!(*label, "Weapons" | "Skill Maps" | "Tools") {
+			if matches!(*label, "Weapons" | "Skill Maps" | "Tools" | "Tanzes") {
 				format!("{count} queued")
 			} else {
 				format!("{count} worn")
@@ -286,7 +286,7 @@ pub fn spawn_overlay_shell(
 ///
 /// A root [`MenuNode::Section`] unwraps so the overlay chrome can own the
 /// title; nested sections paint their own headers (Inventory / Starter Kit →
-/// Clothing / Tools / Skill Maps / Lubikan).
+/// Clothing / Tools / Skill Maps / Tanzes / Lubikan).
 pub fn render_overlay_body<E: Copy + Send + Sync + 'static, C: MenuThumbnailContext>(
 	node: &MenuNode<E>,
 	parent: &mut ChildSpawnerCommands,

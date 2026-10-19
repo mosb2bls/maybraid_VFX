@@ -14,5 +14,11 @@ avian3d = { workspace = true }
 bevy = { workspace = true }
 lod-avian = { workspace = true }
 
+[dev-dependencies]
+anyhow = { workspace = true }
+avian3d = { workspace = true }
+bevy = { workspace = true }
+lod-avian = { workspace = true }
+
 [lints]
 workspace = true

@@ -6,57 +6,55 @@ mod gizmos;
 mod ground;
 mod preview;
 
+use avian3d::prelude::PhysicsPlugins;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, Window, WindowResolution};
 use building_shaders::{
 	BuildingShadersPlugin, ColumnSurfaceMaterial, UrbanMaterialRefPlugin, UrbanSurfaceMaterial,
 };
 use doric_column::DoricColumnPlugin;
-use avian3d::prelude::PhysicsPlugins;
 use material_ref::MaterialRefPlugin;
 
 pub fn run() {
 	let capturing = capture::CaptureSession::from_env();
 	let mut app = App::new();
-	app.add_plugins(
-		DefaultPlugins.set(WindowPlugin {
-			primary_window: Some(Window {
-				title: "doric-column-playground".into(),
-				resolution: WindowResolution::new(1280, 720),
-				present_mode: PresentMode::AutoNoVsync,
-				decorations: false,
-				..default()
-			}),
+	app.add_plugins(DefaultPlugins.set(WindowPlugin {
+		primary_window: Some(Window {
+			title: "doric-column-playground".into(),
+			resolution: WindowResolution::new(1280, 720),
+			present_mode: PresentMode::AutoNoVsync,
+			decorations: false,
 			..default()
 		}),
-	)
-		.add_plugins((
-			PhysicsPlugins::default(),
-			BuildingShadersPlugin,
-			DoricColumnPlugin,
-			UrbanMaterialRefPlugin,
-			MaterialRefPlugin::<building_shaders::UrbanSurfaceMaterialLib<'_>>::default(),
-		))
-		.init_asset::<StandardMaterial>()
-		.init_asset::<UrbanSurfaceMaterial>()
-		.init_asset::<ColumnSurfaceMaterial>();
-	app.insert_resource(if capturing.is_some() {
+		..default()
+	}))
+	.add_plugins((
+		PhysicsPlugins::default(),
+		BuildingShadersPlugin,
+		DoricColumnPlugin,
+		UrbanMaterialRefPlugin,
+		MaterialRefPlugin::<building_shaders::UrbanSurfaceMaterialLib<'_>>::default(),
+	))
+	.init_asset::<StandardMaterial>()
+	.init_asset::<UrbanSurfaceMaterial>()
+	.init_asset::<ColumnSurfaceMaterial>()
+	.insert_resource(if capturing.is_some() {
 		gizmos::DrawDoricColumnDebug(false)
 	} else {
 		gizmos::DrawDoricColumnDebug::default()
 	})
-		.insert_resource(ClearColor(Color::srgb(0.52, 0.58, 0.64)))
-		.add_systems(
-			Startup,
-			(setup_lighting, camera::setup_camera, ground::setup_ground, preview::spawn_preview),
-		)
-		.add_systems(
-			Update,
-			(
-				camera::camera_controller.run_if(not(resource_exists::<capture::CaptureSession>)),
-				gizmos::draw_debug,
-			),
-		);
+	.insert_resource(ClearColor(Color::srgb(0.52, 0.58, 0.64)))
+	.add_systems(
+		Startup,
+		(setup_lighting, camera::setup_camera, ground::setup_ground, preview::spawn_preview),
+	)
+	.add_systems(
+		Update,
+		(
+			camera::camera_controller.run_if(not(resource_exists::<capture::CaptureSession>)),
+			gizmos::draw_debug,
+		),
+	);
 	if let Some(session) = capturing {
 		app.insert_resource(session)
 			.add_systems(Update, capture::tick_capture.after(preview::spawn_preview));

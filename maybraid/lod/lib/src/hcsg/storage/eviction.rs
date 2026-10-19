@@ -10,27 +10,22 @@ use bevy::math::bounding::Aabb3d;
 use crate::gen::Id;
 
 use super::super::node_store::expand_region;
-#[cfg(debug_assertions)]
-use super::store::lock_mutex;
-use super::store::{read, ErasedStore};
-use super::HcsgStorage;
-#[cfg(any(test, feature = "test-support"))]
-use super::HcsgValue;
+use super::store::ErasedStore;
+use super::{HcsgStorage, HcsgValue};
 
 pub(super) fn record_evictions(storage: &HcsgStorage, removed: Vec<(TypeId, Id)>) {
 	if removed.is_empty() {
 		return;
 	}
 	#[cfg(debug_assertions)]
-	lock_mutex(&storage.0.evicted).extend(removed);
+	storage.0.lock_evicted().extend(removed);
 	#[cfg(not(debug_assertions))]
 	let _ = (storage, removed);
 }
 
-#[cfg(any(test, feature = "test-support"))]
 pub(super) fn forget_evictions_of(storage: &HcsgStorage, type_id: TypeId) {
 	#[cfg(debug_assertions)]
-	lock_mutex(&storage.0.evicted).retain(|(stored, _)| *stored != type_id);
+	storage.0.lock_evicted().retain(|(stored, _)| *stored != type_id);
 	#[cfg(not(debug_assertions))]
 	let _ = (storage, type_id);
 }
@@ -38,7 +33,6 @@ pub(super) fn forget_evictions_of(storage: &HcsgStorage, type_id: TypeId) {
 impl HcsgStorage {
 	/// Removes every `T` whose bounds overlap none of `regions`. `Id::Universal`
 	/// is kept. Removal bumps the membership revision as [`Self::remove`] does.
-	#[cfg(any(test, feature = "test-support"))]
 	pub fn retain_overlapping<T: HcsgValue>(&self, regions: &[Aabb3d]) {
 		let Some(store) = self.store::<T>() else {
 			return;
@@ -58,7 +52,9 @@ impl HcsgStorage {
 		if regions_by_type.is_empty() {
 			self.clear_evictions();
 		}
-		let stores: Vec<(TypeId, Arc<dyn ErasedStore>)> = read(&self.0.stores)
+		let stores: Vec<(TypeId, Arc<dyn ErasedStore>)> = self
+			.0
+			.read_stores()
 			.iter()
 			.map(|(type_id, store)| (*type_id, store.clone()))
 			.collect();
@@ -87,7 +83,7 @@ impl HcsgStorage {
 	pub(in crate::hcsg) fn take_evicted(&self, type_id: TypeId, id: Id) -> bool {
 		#[cfg(debug_assertions)]
 		{
-			lock_mutex(&self.0.evicted).remove(&(type_id, id))
+			self.0.lock_evicted().remove(&(type_id, id))
 		}
 		#[cfg(not(debug_assertions))]
 		{
@@ -108,6 +104,6 @@ impl HcsgStorage {
 	/// (epoch or last unsubscribe) so a new session does not count as rebuilds.
 	pub(crate) fn clear_evictions(&self) {
 		#[cfg(debug_assertions)]
-		lock_mutex(&self.0.evicted).clear();
+		self.0.lock_evicted().clear();
 	}
 }

@@ -4,10 +4,11 @@
 //! cells it intersects at the coarsest level that can bound it, so a large
 //! AABB does not fan out across a fine grid.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet as CellSet};
 
 use bevy_math::bounding::{Aabb3d, IntersectsVolume};
 use bevy_math::{DVec3, IVec3};
+use bevy_platform::collections::HashSet;
 
 use crate::error::SpatialIndexError;
 
@@ -19,7 +20,7 @@ type GridKey = (Level, IVec3);
 #[derive(Debug, Clone)]
 pub struct SpatialIndex<Id> {
 	base_scale: BaseScale,
-	cells: HashMap<GridKey, HashSet<Id>>,
+	cells: HashMap<GridKey, CellSet<Id>>,
 	bounds: HashMap<Id, Aabb3d>,
 	id_cells: HashMap<Id, Vec<GridKey>>,
 	max_level: Level,
@@ -106,10 +107,27 @@ where
 			.filter_map(|id| self.bounds.get(&id).copied().map(|bounds| (id, bounds)))
 	}
 
+	/// Union intersecting ids into `out` without sorting or an extra hit `Vec`.
+	///
+	/// `out` is also the uniqueness filter, so refresh/cull fills can reuse
+	/// their destination `HashSet` across several AABBs. The
+	/// [`crate::SpatialIndexQuery`] impl forwards here.
+	pub fn extend_intersecting(&self, region: Aabb3d, out: &mut HashSet<Id>) {
+		self.extend_intersecting_in(region, BaseScale::levels_through(self.max_level), out);
+	}
+
 	/// All objects whose AABB intersects `region`, including larger objects
 	/// stored at coarser levels than the query itself.
+	///
+	/// Results are sorted by `Id` for deterministic replay. Prefer
+	/// [`Self::extend_intersecting`] when the caller only needs the set. The
+	/// [`crate::SpatialIndexQuery`] impl forwards here.
 	pub fn query(&self, region: Aabb3d) -> Vec<Id> {
-		self.query_ids(region, BaseScale::levels_through(self.max_level))
+		let mut ids = HashSet::new();
+		self.extend_intersecting(region, &mut ids);
+		let mut result: Vec<_> = ids.into_iter().collect();
+		result.sort();
+		result
 	}
 
 	pub fn query_iter(
@@ -132,8 +150,30 @@ where
 		Ok(sub)
 	}
 
-	fn query_ids(&self, region: Aabb3d, levels: impl IntoIterator<Item = Level>) -> Vec<Id> {
-		self.query_pairs(region, levels).into_iter().map(|(id, _)| id).collect()
+	fn extend_intersecting_in(
+		&self,
+		region: Aabb3d,
+		levels: impl IntoIterator<Item = Level>,
+		out: &mut HashSet<Id>,
+	) {
+		for level in levels {
+			self.base_scale.for_each_coord(&region, level, |coord| {
+				let Some(bucket) = self.cells.get(&(level, coord)) else {
+					return;
+				};
+				for &id in bucket {
+					if out.contains(&id) {
+						continue;
+					}
+					let Some(&bounds) = self.bounds.get(&id) else {
+						continue;
+					};
+					if bounds.intersects(&region) {
+						out.insert(id);
+					}
+				}
+			});
+		}
 	}
 
 	fn query_pairs(
@@ -141,7 +181,7 @@ where
 		region: Aabb3d,
 		levels: impl IntoIterator<Item = Level>,
 	) -> Vec<(Id, Aabb3d)> {
-		let mut seen = HashSet::new();
+		let mut seen = CellSet::new();
 		let mut result = Vec::new();
 
 		for level in levels {
@@ -283,6 +323,107 @@ mod tests {
 		assert_eq!(idx.remove(1), Some(aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])));
 		assert!(idx.query(aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])).is_empty());
 		assert_eq!(idx.cell_count(), 0);
+		Ok(())
+	}
+
+	fn sorted(out: &HashSet<u32>) -> Vec<u32> {
+		let mut got: Vec<_> = out.iter().copied().collect();
+		got.sort();
+		got
+	}
+
+	fn query_union(idx: &SpatialIndex<u32>, regions: &[Aabb3d]) -> Vec<u32> {
+		let mut expected = HashSet::new();
+		for region in regions {
+			expected.extend(idx.query(*region));
+		}
+		sorted(&expected)
+	}
+
+	#[test]
+	fn extend_intersecting_unions_without_duplicates() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([1.5, 0.0, 0.0], [2.5, 1.0, 1.0]))?;
+		let mut out = HashSet::new();
+		idx.extend_intersecting(aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), &mut out);
+		idx.extend_intersecting(aabb([0.0, 0.0, 0.0], [3.0, 1.0, 1.0]), &mut out);
+		assert_eq!(
+			sorted(&out),
+			query_union(
+				&idx,
+				&[aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]), aabb([0.0, 0.0, 0.0], [3.0, 1.0, 1.0])]
+			)
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn extend_intersecting_preserves_existing_ids() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([1.5, 0.0, 0.0], [2.5, 1.0, 1.0]))?;
+		let mut out = HashSet::from_iter([1, 99]);
+		idx.extend_intersecting(aabb([1.4, 0.0, 0.0], [2.6, 1.0, 1.0]), &mut out);
+		assert_eq!(sorted(&out), vec![1, 2, 99]);
+		Ok(())
+	}
+
+	#[test]
+	fn extend_intersecting_overlapping_regions_match_query_union() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(3, aabb([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]))?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]))?;
+		idx.insert(9, aabb([8.0, 0.0, 0.0], [9.0, 1.0, 1.0]))?;
+		let regions =
+			[aabb([0.0, 0.0, 0.0], [1.2, 2.0, 2.0]), aabb([0.8, 0.0, 0.0], [2.0, 2.0, 2.0])];
+		let mut out = HashSet::new();
+		for region in regions {
+			idx.extend_intersecting(region, &mut out);
+		}
+		assert_eq!(sorted(&out), query_union(&idx, &regions));
+		assert_eq!(query_union(&idx, &regions), vec![1, 2, 3]);
+		Ok(())
+	}
+
+	#[test]
+	fn extend_intersecting_dedups_span_and_coarse_hosts() -> Result<()> {
+		let mut idx = index()?;
+		// Spans two level-1 cells (extent 2 on X).
+		idx.insert(7, aabb([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]))?;
+		// Coarse host stored above the query's own cells.
+		idx.insert(8, aabb([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]))?;
+		let regions =
+			[aabb([0.1, 0.1, 0.1], [0.2, 0.2, 0.2]), aabb([1.1, 0.1, 0.1], [1.9, 0.2, 0.2])];
+		let mut out = HashSet::from_iter([99]);
+		for region in regions {
+			idx.extend_intersecting(region, &mut out);
+		}
+		let mut expected = HashSet::from_iter([99]);
+		expected.extend(query_union(&idx, &regions));
+		assert_eq!(sorted(&out), sorted(&expected));
+		assert_eq!(query_union(&idx, &regions), vec![7, 8]);
+		Ok(())
+	}
+
+	#[test]
+	fn query_is_sorted_and_matches_pair_walk() -> Result<()> {
+		let mut idx = index()?;
+		idx.insert(3, aabb([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]))?;
+		idx.insert(1, aabb([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]))?;
+		idx.insert(2, aabb([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]))?;
+		let region = aabb([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+		let a = idx.query(region);
+		let b = idx.query(region);
+		assert_eq!(a, b);
+		assert_eq!(a, vec![1, 2, 3]);
+		assert_eq!(
+			a,
+			idx.query_iter(region, 0..=idx.max_level())
+				.map(|(id, _)| id)
+				.collect::<Vec<_>>()
+		);
 		Ok(())
 	}
 }

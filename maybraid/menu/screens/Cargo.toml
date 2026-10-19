@@ -17,6 +17,7 @@ character-ui-menu = { workspace = true }
 character-model-user = { workspace = true }
 character-persist = { workspace = true }
 item-icons = { workspace = true }
+tanz-user = { workspace = true }
 game-commands = { workspace = true }
 maybraid-character-ui-menu-renderer = { workspace = true }
 maybraid-input = { workspace = true }

@@ -3,11 +3,11 @@
 
 use bevy::prelude::*;
 
-use crate::HudFonts;
 use crate::theme::{
 	PANEL_GROUP_FONT_SIZE, PANEL_ROW_GAP, PROMPT_KEY_DROP, PROMPT_KEY_SELECT, PROMPT_PAD_DROP,
 	PROMPT_PAD_SELECT, TEXT_YELLOW,
 };
+use crate::HudFonts;
 
 /// Last device that produced a press. Starts on keyboard so headless shots
 /// show key chips until a pad speaks.
@@ -178,11 +178,11 @@ pub fn sync_inventory_prompt_glyphs(
 
 #[cfg(test)]
 mod tests {
-	use super::{INVENTORY_PROMPT_KINDS, InputPromptDevice, InventoryPromptKind};
+	use super::{InputPromptDevice, InventoryPromptKind, INVENTORY_PROMPT_KINDS};
 	use crate::theme::{PROMPT_KEY_DROP, PROMPT_KEY_SELECT, PROMPT_PAD_DROP, PROMPT_PAD_SELECT};
 	use bevy::prelude::KeyCode;
 	use maybraid_input::{
-		INVENTORY_DROP_KEYS, INVENTORY_DROP_PAD, MENU_SELECT_KEYS, MENU_SELECT_PAD, PadButton,
+		PadButton, INVENTORY_DROP_KEYS, INVENTORY_DROP_PAD, MENU_SELECT_KEYS, MENU_SELECT_PAD,
 	};
 
 	#[test]

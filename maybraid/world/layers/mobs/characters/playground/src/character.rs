@@ -30,7 +30,7 @@ pub struct PlaygroundCharacter;
 pub struct CharacterConfig {
 	pub species: CharacterSpecies,
 	pub animation: AnimationMode,
-	/// Sided gestures (`jab`) read this. Ignored by symmetric clips.
+	/// Sided gestures (`jab`, `think-again`) read this. Ignored by symmetric clips.
 	pub side: Side,
 	pub transform: Transform,
 }
@@ -133,8 +133,14 @@ pub(crate) fn drive_playback(
 	roots: Query<&CharacterMembers, With<CharacterRoot>>,
 	rigs: Query<&CharacterRig>,
 ) {
-	playback.advance(time.delta_secs());
-	let progress = config.animation.mailbox_progress(playback.elapsed + playback.phase);
+	playback.advance(
+		time.delta_secs(),
+		config.animation.clip_duration(),
+		config.animation.clip_speed(),
+	);
+	let progress = config
+		.animation
+		.mailbox_progress(playback.elapsed + playback.phase, playback.looping);
 	for members in &roots {
 		for member in members.iter() {
 			if rigs.get(member).is_ok_and(|rig| rig.role == CharacterRigRole::Body) {

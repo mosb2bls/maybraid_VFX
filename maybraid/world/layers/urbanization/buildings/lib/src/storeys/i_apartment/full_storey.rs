@@ -151,7 +151,7 @@ mod tests {
 	use super::*;
 	use crate::openings::OpeningLabel;
 	use crate::storeys::i_apartment::{IApartmentFloorPlan, IApartmentParameterized};
-	use crate::usage_areas::plan_cells::{hall_frontage_length, PlanCell, MIN_GROUP_CONNECTIVITY};
+	use crate::usage_areas::plan_cells::{PlanCell, MIN_GROUP_CONNECTIVITY};
 	use crate::usage_areas::plan_geom::host_xz;
 	use bevy::prelude::Transform;
 	use bevy_math::bounding::Aabb3d;
@@ -237,7 +237,7 @@ mod tests {
 				let mut best = 0.0_f32;
 				for part in apt.cells.iter() {
 					let cell = PlanCell::new(0, host_xz(&part.confines.bounds));
-					best = best.max(hall_frontage_length(&cell, &block.halls.hall_bands, 1e-3));
+					best = best.max(cell.hall_frontage_length(&block.halls.hall_bands, 1e-3));
 				}
 				assert!(
 					best + 1e-3 >= MIN_GROUP_CONNECTIVITY,

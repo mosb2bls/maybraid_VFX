@@ -107,6 +107,12 @@ impl Jab {
 		self.side.opposite()
 	}
 
+	/// Salute / hold still (mid-hold after full extend). Tanz Healing Salute
+	/// reads this so the icon beat stays on the live jab clip.
+	pub fn representative_progress() -> f32 {
+		(EXTEND_END + HOLD_END) * 0.5
+	}
+
 	/// Reach scale from [`Self::target`].z vs [`DEFAULT_JAB_TARGET`].z.
 	pub fn reach_scale(&self) -> f32 {
 		let reference = DEFAULT_JAB_TARGET.z.max(f32::EPSILON);
@@ -277,7 +283,7 @@ mod tests {
 	const HOLD_PUNCH_TIP_X: f32 = -0.0424;
 
 	fn peak() -> f32 {
-		(EXTEND_END + HOLD_END) * 0.5
+		Jab::representative_progress()
 	}
 
 	fn forearm_hand_tip(rig: &HumanoidV0Rig, side: Side) -> Vec3 {
@@ -352,7 +358,8 @@ mod tests {
 		let hold = peak();
 		let cover = cover_tip(&jab, hold);
 		assert!(
-			(cover.x - -0.1203).abs() < 1e-3 && (cover.y - 0.9349).abs() < 1e-3
+			(cover.x - -0.1203).abs() < 1e-3
+				&& (cover.y - 0.9349).abs() < 1e-3
 				&& (cover.z - 0.5251).abs() < 1e-3,
 			"cover hand tip at hold should stay tucked, got {:?}",
 			cover

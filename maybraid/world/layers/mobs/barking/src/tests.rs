@@ -1,5 +1,5 @@
 use crate::generation::{GroupKind, MobGroup, MobPlantHost, MobWorldHosts, MobWorldSample};
-use crate::index::{urban_leaf_arrival_radius, MobCellExtent};
+use crate::index::MobCellExtent;
 use bevy::math::bounding::Aabb3d;
 use bevy::math::{Vec2, Vec3};
 use mob_scenes::MobKind;
@@ -64,5 +64,5 @@ fn frontier_hosts_keep_urban_families_inside_the_arrival_disk() {
 #[test]
 fn urban_leaf_arrival_matches_setting_formula() {
 	let bounds = Aabb3d::from_min_max(Vec3::new(-40.0, 0.0, -20.0), Vec3::new(40.0, 1.0, 20.0));
-	assert_eq!(urban_leaf_arrival_radius(bounds), 10.0);
+	assert_eq!(MobPlantHost::from_bounds(bounds).arrival_radius, 10.0);
 }

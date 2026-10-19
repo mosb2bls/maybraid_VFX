@@ -79,7 +79,7 @@ impl<T> NodeStore<T> {
 		self.entries.get(&id).map(|entry| &entry.value)
 	}
 
-	pub(crate) fn contains(&self, id: Id) -> bool {
+	pub fn contains(&self, id: Id) -> bool {
 		self.entries.contains_key(&id)
 	}
 
@@ -146,7 +146,6 @@ impl<T> NodeStore<T> {
 		self.membership_revision = revision;
 	}
 
-	#[cfg(any(test, feature = "test-support"))]
 	pub(super) fn remove(&mut self, id: Id, revision: u64) -> Option<StoredEntry<T>> {
 		let entry = self.entries.remove(&id)?;
 		if let Some(spatial) = self.spatial.as_mut() {

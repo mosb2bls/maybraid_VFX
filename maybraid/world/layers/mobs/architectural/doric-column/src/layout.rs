@@ -127,11 +127,8 @@ mod tests {
 	#[test]
 	fn scaled_spec_preserves_height_ratios() {
 		let base = DoricColumnSpec::default().layout();
-		let scaled = DoricColumnSpec {
-			scale: Vec3::splat(0.85),
-			..DoricColumnSpec::default()
-		}
-		.layout();
+		let scaled =
+			DoricColumnSpec { scale: Vec3::splat(0.85), ..DoricColumnSpec::default() }.layout();
 		let ratio = scaled.shaft.height / scaled.plinth.height;
 		let base_ratio = base.shaft.height / base.plinth.height;
 		assert!((ratio - base_ratio).abs() < 1e-4);

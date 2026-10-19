@@ -2,13 +2,12 @@
 
 use std::sync::atomic::Ordering;
 
-use super::store::read;
 use super::HcsgStorage;
 
 impl HcsgStorage {
 	/// `(type name, len)` for every store, sorted by name. Diagnostics.
 	pub fn store_sizes(&self) -> Vec<(&'static str, usize)> {
-		let mut sizes: Vec<_> = read(&self.0.stores)
+		let mut sizes: Vec<_> = self.0.read_stores()
 			.values()
 			.map(|store| (store.type_name(), store.len()))
 			.collect();

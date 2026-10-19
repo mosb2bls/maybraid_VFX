@@ -10,7 +10,7 @@ use lod::hcsg::{Busy, HcsgStorage, StoredEntry};
 use procedural_common::NoiseParams;
 
 use crate::{
-	DevelopmentLeaf, SelectedUrbanization, UrbanDevelopmentKind, UrbanizationExtent,
+	select_kind, DevelopmentLeaf, SelectedUrbanization, UrbanDevelopmentKind, UrbanizationExtent,
 	UrbanizationKind, DEFAULT_URBANIZATION_EXTENT_XZ,
 };
 
@@ -23,6 +23,19 @@ pub struct UrbanizationSelection {
 }
 
 lod::seeded_root!(UrbanizationSelection);
+
+impl UrbanizationSelection {
+	/// Kind at `xz`: the playground pin when set, otherwise Hopscotch on the
+	/// urbanization cell that contains the point.
+	pub fn kind_at(&self, xz: Vec2) -> UrbanizationKind {
+		if let Some(kind) = self.kind {
+			return kind;
+		}
+		let position = Vec3::new(xz.x, 0.0, xz.y);
+		let (ix, iz) = UrbanizationExtent::cell_index_containing(position);
+		select_kind(UrbanizationExtent::from_cell_index(ix, iz), self.noise)
+	}
+}
 
 /// Selections are bucketed one extent (1600 m) apart.
 pub(crate) const SELECTION_INDEX_SCALE: DVec3 =
@@ -156,6 +169,30 @@ mod tests {
 			"nothing is selected before the root is seeded"
 		);
 		Ok(())
+	}
+
+	#[test]
+	fn kind_at_honors_the_pin() {
+		let selection = UrbanizationSelection {
+			kind: Some(UrbanizationKind::Frontier),
+			..UrbanizationSelection::default()
+		};
+		assert_eq!(selection.kind_at(Vec2::ZERO), UrbanizationKind::Frontier);
+		assert_eq!(selection.kind_at(Vec2::new(10_000.0, -10_000.0)), UrbanizationKind::Frontier);
+	}
+
+	#[test]
+	fn kind_at_matches_hopscotch_on_the_containing_cell() {
+		let selection = UrbanizationSelection {
+			noise: NoiseParams::from_scalar(1337.0, 0.0005, 1.0, 1),
+			kind: None,
+		};
+		let xz = Vec2::new(100.0, -50.0);
+		let (ix, iz) = UrbanizationExtent::cell_index_containing(Vec3::new(xz.x, 0.0, xz.y));
+		assert_eq!(
+			selection.kind_at(xz),
+			select_kind(UrbanizationExtent::from_cell_index(ix, iz), selection.noise)
+		);
 	}
 
 	#[test]

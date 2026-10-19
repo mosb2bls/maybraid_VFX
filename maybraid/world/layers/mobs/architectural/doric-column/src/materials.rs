@@ -40,7 +40,10 @@ mod tests {
 		use material_ref::MaterialId;
 
 		let shaft = DoricColumnMaterials::default().shaft;
-		assert_eq!(shaft.name, MaterialId::named(RECIPE_DORIC_COLUMN_SHAFT_KIT));
+		assert_eq!(
+			shaft.name,
+			MaterialId::named(building_shaders::RECIPE_DORIC_COLUMN_SHAFT_KIT)
+		);
 		let MaterialId::Name(name) = &shaft.name else {
 			panic!("shaft recipe must be named");
 		};

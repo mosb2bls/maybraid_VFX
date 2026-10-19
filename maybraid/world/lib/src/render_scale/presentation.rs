@@ -225,19 +225,17 @@ mod tests {
 		let mut impressionist = Assets::<ImpressionistMaterial>::default();
 		let mut pre_post_modern = Assets::<PrePostModernMaterial>::default();
 		let mut nearest_neighbor = Assets::<NearestNeighborMaterial>::default();
-		assert!(
-			create_presentation_material(
-				PresentationTreatment::None,
-				Handle::default(),
-				UVec2::new(700, 394),
-				UVec2::new(1920, 1080),
-				1.0,
-				&mut impressionist,
-				&mut pre_post_modern,
-				&mut nearest_neighbor,
-			)
-			.is_none()
-		);
+		assert!(create_presentation_material(
+			PresentationTreatment::None,
+			Handle::default(),
+			UVec2::new(700, 394),
+			UVec2::new(1920, 1080),
+			1.0,
+			&mut impressionist,
+			&mut pre_post_modern,
+			&mut nearest_neighbor,
+		)
+		.is_none());
 	}
 
 	#[test]

@@ -478,10 +478,7 @@ mod tests {
 				},
 				universal_bounds(),
 			);
-			storage.seed(
-				AuthoredDevelopments(vec![authored(height)]),
-				universal_bounds(),
-			);
+			storage.seed(AuthoredDevelopments(vec![authored(height)]), universal_bounds());
 		}
 
 		fn furnished_cell_ids_via_slots(
