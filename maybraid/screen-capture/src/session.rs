@@ -84,10 +84,18 @@ pub(crate) struct CaptureReadback {
 #[derive(Component)]
 pub(crate) struct CapturePixels(pub Vec<u8>);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CapturePhase {
-	Load { frames: u32 },
+	Load { frames: u32, framed: bool },
 	Settle { remaining: u32 },
-	Readback { frames: u32 },
+	Readback { frames: u32, entity: Entity },
+}
+
+/// Isolated subject for a session. Image captures have no camera, root, or lights.
+#[derive(Debug)]
+pub(crate) enum CaptureSessionSource {
+	Image,
+	RenderedScene { root: Entity, camera: Entity, extras: Vec<Entity> },
 }
 
 pub(crate) struct CaptureSession {
@@ -95,20 +103,51 @@ pub(crate) struct CaptureSession {
 	pub request: CaptureRequest,
 	pub ticket: Handle<Image>,
 	pub target: Handle<Image>,
-	pub root: Entity,
-	pub camera: Entity,
-	pub extras: Vec<Entity>,
-	pub readback: Option<Entity>,
+	pub source: CaptureSessionSource,
 	pub phase: CapturePhase,
-	pub framed: bool,
 }
 
 impl CaptureSession {
+	pub fn scene_root(&self) -> Option<Entity> {
+		match self.source {
+			CaptureSessionSource::RenderedScene { root, .. } => Some(root),
+			CaptureSessionSource::Image => None,
+		}
+	}
+
+	pub fn scene_camera(&self) -> Option<Entity> {
+		match self.source {
+			CaptureSessionSource::RenderedScene { camera, .. } => Some(camera),
+			CaptureSessionSource::Image => None,
+		}
+	}
+
+	pub fn readback_entity(&self) -> Option<Entity> {
+		match self.phase {
+			CapturePhase::Readback { entity, .. } => Some(entity),
+			_ => None,
+		}
+	}
+
 	pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
-		std::iter::once(self.root)
-			.chain(std::iter::once(self.camera))
-			.chain(self.extras.iter().copied())
-			.chain(self.readback)
+		self.collect_entities().into_iter()
+	}
+
+	fn collect_entities(&self) -> Vec<Entity> {
+		let mut entities = match &self.source {
+			CaptureSessionSource::Image => Vec::new(),
+			CaptureSessionSource::RenderedScene { root, camera, extras } => {
+				let mut scene = Vec::with_capacity(2 + extras.len());
+				scene.push(*root);
+				scene.push(*camera);
+				scene.extend(extras.iter().copied());
+				scene
+			}
+		};
+		if let Some(entity) = self.readback_entity() {
+			entities.push(entity);
+		}
+		entities
 	}
 }
 
@@ -127,20 +166,13 @@ pub(crate) fn spawn_session(
 		_ => None,
 	};
 	if let Some(target) = image_target {
-		let root = commands
-			.spawn((Name::new("capture_image"), CaptureRoot, Visibility::Hidden))
-			.id();
 		return CaptureSession {
 			key: CaptureCacheKey::from_request(&request),
 			request,
 			ticket: queued.image,
 			target,
-			root,
-			camera: root,
-			extras: Vec::new(),
-			readback: None,
-			phase: CapturePhase::Load { frames: 0 },
-			framed: true,
+			source: CaptureSessionSource::Image,
+			phase: CapturePhase::Load { frames: 0, framed: true },
 		};
 	}
 	let framed = matches!(request.framing, CaptureFraming::Authored);
@@ -171,12 +203,8 @@ pub(crate) fn spawn_session(
 		request,
 		ticket: queued.image,
 		target,
-		root,
-		camera,
-		extras,
-		readback: None,
-		phase: CapturePhase::Load { frames: 0 },
-		framed,
+		source: CaptureSessionSource::RenderedScene { root, camera, extras },
+		phase: CapturePhase::Load { frames: 0, framed },
 	}
 }
 
@@ -250,9 +278,9 @@ fn spawn_subject(
 				Name::new("capture_host"),
 			))
 			.id(),
-		CaptureScene::Image(_) => commands
-			.spawn((Name::new("capture_image"), transform, Visibility::Hidden, layers, CaptureRoot))
-			.id(),
+		CaptureScene::Image(_) => {
+			unreachable!("image captures return before spawn_subject")
+		}
 	};
 	if silhouette {
 		commands.entity(root).try_insert(CaptureSilhouetteRoot);
@@ -337,9 +365,15 @@ pub(crate) fn apply_fit_framing(
 		return true;
 	};
 	let globals = sources.globals;
-	let aabb = match sources.authored.get(session.root) {
+	let Some(root) = session.scene_root() else {
+		return true;
+	};
+	let Some(camera) = session.scene_camera() else {
+		return true;
+	};
+	let aabb = match sources.authored.get(root) {
 		Ok(extents) => extents.0,
-		Err(_) => match subject_local_aabb(session.root, sources) {
+		Err(_) => match subject_local_aabb(root, sources) {
 			Some(aabb) => aabb,
 			None => return false,
 		},
@@ -347,12 +381,9 @@ pub(crate) fn apply_fit_framing(
 	let aspect =
 		session.request.resolution.width as f32 / session.request.resolution.height.max(1) as f32;
 	let fitted = session.request.view.fit_extents(aabb, aspect, padding.max(FIT_SCENE_PADDING));
-	let origin = globals
-		.get(session.root)
-		.map(|transform| transform.translation())
-		.unwrap_or(Vec3::ZERO);
+	let origin = globals.get(root).map(|transform| transform.translation()).unwrap_or(Vec3::ZERO);
 	let (transform, projection) = camera_pose(origin, fitted);
-	commands.entity(session.camera).try_insert((transform, projection));
+	commands.entity(camera).try_insert((transform, projection));
 	session.request.view = fitted;
 	true
 }
@@ -492,21 +523,24 @@ pub(crate) fn scene_ready(
 	hosts: &Query<(), With<CaptureHostReady>>,
 	images: &Assets<Image>,
 ) -> bool {
-	match &session.request.scene {
-		CaptureScene::Mesh(_) => mesh_entities.get(session.root).is_ok(),
-		CaptureScene::SceneRef(_) => {
-			if world_roots.get(session.root).is_err() {
-				return false;
+	match &session.source {
+		CaptureSessionSource::Image => match &session.request.scene {
+			CaptureScene::Image(handle) => {
+				images.get(handle).is_some_and(|image| image.width() > 0 && image.height() > 0)
 			}
-			descendant_has_mesh(session.root, children, mesh_entities)
-		}
-		CaptureScene::Host { .. } => {
-			hosts.get(session.root).is_ok()
-				&& descendant_has_mesh(session.root, children, mesh_entities)
-		}
-		CaptureScene::Image(handle) => {
-			images.get(handle).is_some_and(|image| image.width() > 0 && image.height() > 0)
-		}
+			_ => false,
+		},
+		CaptureSessionSource::RenderedScene { root, .. } => match &session.request.scene {
+			CaptureScene::Mesh(_) => mesh_entities.get(*root).is_ok(),
+			CaptureScene::SceneRef(_) => {
+				world_roots.get(*root).is_ok()
+					&& descendant_has_mesh(*root, children, mesh_entities)
+			}
+			CaptureScene::Host { .. } => {
+				hosts.get(*root).is_ok() && descendant_has_mesh(*root, children, mesh_entities)
+			}
+			CaptureScene::Image(_) => false,
+		},
 	}
 }
 
@@ -535,13 +569,13 @@ pub(crate) fn apply_silhouette(
 	if session.request.mode != CaptureMode::Silhouette {
 		return Ok(None);
 	}
-	if matches!(session.request.scene, CaptureScene::Image(_)) {
+	let Some(root) = session.scene_root() else {
 		return Ok(None);
-	}
+	};
 	let mut warning = None;
 	let mut converted = 0_u32;
 	let mut custom = 0_u32;
-	visit_descendants(session.root, children, &mut |entity| {
+	visit_descendants(root, children, &mut |entity| {
 		if meshes.get(entity).is_err() {
 			return;
 		}
@@ -617,9 +651,9 @@ fn visit_descendants(root: Entity, children: &Query<&Children>, visit: &mut impl
 	}
 }
 
-pub(crate) fn spawn_readback(commands: &mut Commands, session: &mut CaptureSession) {
+pub(crate) fn spawn_readback(commands: &mut Commands, session: &CaptureSession) -> Entity {
 	let render = render_resolution(&session.request);
-	let entity = commands
+	commands
 		.spawn((
 			Readback::texture(session.target.clone()),
 			CaptureReadback {
@@ -631,14 +665,13 @@ pub(crate) fn spawn_readback(commands: &mut Commands, session: &mut CaptureSessi
 				render_height: render.height,
 				crop: crop_padding(session.request.framing),
 				mode: session.request.mode,
-				from_image: matches!(session.request.scene, CaptureScene::Image(_)),
+				from_image: matches!(session.source, CaptureSessionSource::Image),
 			},
 			CaptureRoot,
 			Name::new("capture_readback"),
 		))
 		.observe(on_readback_complete)
-		.id();
-	session.readback = Some(entity);
+		.id()
 }
 
 fn on_readback_complete(
@@ -880,6 +913,53 @@ mod tests {
 		assert!(
 			endpoint_error > 1e-3,
 			"this fixture must prove min/max endpoints are insufficient"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn image_session_has_no_scene_entities() -> anyhow::Result<()> {
+		use crate::png::placeholder_image;
+		use crate::queue::QueuedCapture;
+		use crate::{CaptureId, CaptureResolution, CaptureRevision};
+
+		let mut app = App::new();
+		let mut images = Assets::<Image>::default();
+		let mut meshes = Assets::<Mesh>::default();
+		let mut materials = Assets::<StandardMaterial>::default();
+		let handle = images.add(placeholder_image(CaptureResolution::ICON));
+		let request = CaptureRequest::from_image_handle(
+			CaptureId::new("image-session"),
+			handle,
+			CaptureMode::Shaded,
+			CaptureResolution::ICON,
+			CaptureRevision::CURRENT,
+		);
+		let queued = QueuedCapture {
+			request,
+			image: images.add(placeholder_image(CaptureResolution::ICON)),
+		};
+		let session = spawn_session(
+			&mut app.world_mut().commands(),
+			&mut images,
+			&mut meshes,
+			&mut materials,
+			queued,
+			0,
+			CAPTURE_RENDER_LAYER,
+		);
+		app.world_mut().flush();
+		assert!(matches!(session.source, CaptureSessionSource::Image));
+		assert_eq!(session.phase, CapturePhase::Load { frames: 0, framed: true });
+		assert!(session.scene_root().is_none());
+		assert!(session.scene_camera().is_none());
+		assert!(session.entities().next().is_none());
+		assert_eq!(
+			app.world()
+				.iter_entities()
+				.filter(|entity| entity.contains::<CaptureRoot>())
+				.count(),
+			0
 		);
 		Ok(())
 	}
