@@ -9264,6 +9264,7 @@ dependencies = [
 name = "projectiles"
 version = "0.1.5"
 dependencies = [
+ "anyhow",
  "avian3d",
  "bevy",
  "lod-avian",
