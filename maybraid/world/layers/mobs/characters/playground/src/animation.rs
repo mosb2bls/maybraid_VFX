@@ -1,7 +1,9 @@
 use bevy::prelude::*;
-use character_animations::animations::{DEFAULT_BACKSWING, DEFAULT_JAB_TARGET};
+use character_animations::animations::{
+	DEFAULT_BACKSWING, DEFAULT_JAB_TARGET, THINK_AGAIN_DURATION, THINK_AGAIN_SPEED,
+};
 use character_rigs::{articulation::compose_parent_rotation, authoring::humanoid_bone_axis, Side};
-use characters::{AnimBone, AnimClip, AnimRef, JabParams};
+use characters::{AnimBone, AnimClip, AnimRef, JabParams, ThinkAgainParams};
 use clap::ValueEnum;
 
 use crate::character::CharacterConfig;
@@ -25,6 +27,7 @@ pub enum AnimationMode {
 	Soaring,
 	Flapping,
 	Jab,
+	ThinkAgain,
 	PowerStrafe,
 	PowerDash,
 	Prone,
@@ -32,7 +35,7 @@ pub enum AnimationMode {
 
 impl AnimationMode {
 	pub const fn uses_side(self) -> bool {
-		matches!(self, Self::Jab | Self::PowerStrafe)
+		matches!(self, Self::Jab | Self::ThinkAgain | Self::PowerStrafe)
 	}
 
 	pub const fn label(self) -> &'static str {
@@ -51,6 +54,7 @@ impl AnimationMode {
 			Self::Soaring => "soaring",
 			Self::Flapping => "flapping",
 			Self::Jab => "jab",
+			Self::ThinkAgain => "think-again",
 			Self::PowerStrafe => "power-strafe",
 			Self::PowerDash => "power-dash",
 			Self::Prone => "prone",
@@ -76,6 +80,7 @@ impl AnimationMode {
 				backswing: DEFAULT_BACKSWING,
 				target: DEFAULT_JAB_TARGET,
 			}),
+			Self::ThinkAgain => AnimClip::ThinkAgain(ThinkAgainParams { side }),
 			Self::PowerStrafe => AnimClip::power_strafe(side),
 			Self::PowerDash => AnimClip::power_dash(),
 			Self::Prone => AnimClip::prone(),
@@ -87,11 +92,39 @@ impl AnimationMode {
 	}
 
 	/// Mailbox sample coordinate. Held tuck stays at full fold.
-	pub fn mailbox_progress(self, elapsed: f32) -> f32 {
-		match self {
-			Self::FixedTuck => 1.0,
-			_ => elapsed,
+	///
+	/// One-shots clamp in the clip. When the playground is looping, wrap on
+	/// [`Self::clip_duration`] so `think-again` repeats all four beats.
+	pub fn mailbox_progress(self, elapsed: f32, looping: bool) -> f32 {
+		if matches!(self, Self::FixedTuck) {
+			return 1.0;
 		}
+		let duration = self.clip_duration();
+		if looping && self.wraps_when_looping() {
+			elapsed.rem_euclid(duration)
+		} else if self.wraps_when_looping() {
+			elapsed.min(duration)
+		} else {
+			elapsed
+		}
+	}
+
+	pub const fn clip_duration(self) -> f32 {
+		match self {
+			Self::ThinkAgain => THINK_AGAIN_DURATION,
+			_ => 1.0,
+		}
+	}
+
+	pub const fn clip_speed(self) -> f32 {
+		match self {
+			Self::ThinkAgain => THINK_AGAIN_SPEED,
+			_ => 1.0,
+		}
+	}
+
+	const fn wraps_when_looping(self) -> bool {
+		!matches!(self, Self::Still | Self::Soaring | Self::Flapping)
 	}
 }
 
@@ -99,7 +132,7 @@ impl AnimationMode {
 pub struct AnimationPlayback {
 	pub paused: bool,
 	pub speed: f32,
-	/// When false, the sample clock stops at one second.
+	/// When false, the sample clock stops at the clip duration.
 	pub looping: bool,
 	pub elapsed: f32,
 	/// Set by `/character playback --progress`. Consumed on the next sample.
@@ -141,7 +174,7 @@ impl Default for AnimationPlayback {
 }
 
 impl AnimationPlayback {
-	pub fn advance(&mut self, delta_seconds: f32) {
+	pub fn advance(&mut self, delta_seconds: f32, duration: f32, clip_speed: f32) {
 		if let Some(progress) = self.scrub.take() {
 			self.elapsed = progress.max(0.0);
 			return;
@@ -149,9 +182,9 @@ impl AnimationPlayback {
 		if self.paused {
 			return;
 		}
-		self.elapsed += delta_seconds * self.speed;
+		self.elapsed += delta_seconds * self.speed * clip_speed;
 		if !self.looping {
-			self.elapsed = self.elapsed.min(1.0);
+			self.elapsed = self.elapsed.min(duration);
 		}
 	}
 }

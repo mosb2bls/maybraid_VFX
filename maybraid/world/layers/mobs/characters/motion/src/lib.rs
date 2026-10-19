@@ -23,8 +23,8 @@ pub mod shown;
 pub mod sync;
 
 pub use clip::{
-	AnimClip, AnimId, AnimRef, AnimRefRoot, JabParams, JumpParams, PowerStrafeParams, TuckParams,
-	TuckedFlipParams, TwoFootedTuckedFlipParams,
+	AnimClip, AnimId, AnimRef, AnimRefRoot, JabParams, JumpParams, PowerStrafeParams,
+	ThinkAgainParams, TuckParams, TuckedFlipParams, TwoFootedTuckedFlipParams,
 };
 pub use clip_cache::{
 	apply_evaluated_sample, clip_bone_mask, parameters_key, AnimClipCache, AnimClipCacheSettings,

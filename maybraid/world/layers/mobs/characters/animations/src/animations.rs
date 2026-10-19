@@ -22,6 +22,7 @@ pub mod soaring;
 pub mod spring;
 pub mod squat;
 pub mod squat_descent;
+pub mod think_again;
 pub mod transition;
 pub mod tuck;
 pub mod tucked_flip;
@@ -57,6 +58,9 @@ pub use soaring::Soaring;
 pub use spring::Spring;
 pub use squat::{vertical_drop, Squat};
 pub use squat_descent::{SquatDescent, DEFAULT_DESCENT_SPEED};
+pub use think_again::{
+	ThinkAgain, DEFAULT_SPEED as THINK_AGAIN_SPEED, DURATION as THINK_AGAIN_DURATION,
+};
 pub use transition::{BlendCurve, Transition, TransitionCurve};
 pub use tuck::{Tuck, TuckProfile};
 pub use tucked_flip::{FlipDirection, TuckedFlip};

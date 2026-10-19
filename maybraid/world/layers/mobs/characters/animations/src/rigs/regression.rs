@@ -4,7 +4,7 @@
 use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
 use character_rigs::rigs::quadruped_v0::QuadrupedV0Rig;
 
-use crate::animations::{Flapping, Jab, QuadrupedRun, Squat, Walk};
+use crate::animations::{Flapping, Jab, QuadrupedRun, Squat, ThinkAgain, Walk};
 use crate::Animation;
 
 #[test]
@@ -60,6 +60,24 @@ fn jab_cover_elbow_tucks_in_y_not_as_a_roll() {
 	assert!(
 		(cover - rest_cover).length() > 0.2,
 		"cover is not a length-axis roll, {cover:?} vs {rest_cover:?}"
+	);
+}
+
+#[test]
+fn think_again_sweeps_forearm_beside_the_head() {
+	let rest = HumanoidV0Rig::for_clip_test();
+	let mut think = HumanoidV0Rig::for_clip_test();
+	let mut again = HumanoidV0Rig::for_clip_test();
+	ThinkAgain::default().apply(&mut think, 1.50);
+	ThinkAgain::default().apply(&mut again, 3.40);
+	let rest_dir = rest.character_length("forearm.R");
+	let think_dir = think.character_length("forearm.R");
+	let again_dir = again.character_length("forearm.R");
+	assert!(think_dir.y > rest_dir.y + 0.3, "Think forearm rises, {think_dir:?}");
+	assert!(again_dir.y > rest_dir.y + 0.3, "Again forearm stays up, {again_dir:?}");
+	assert!(
+		again_dir.y > think_dir.y,
+		"Again is closer to vertical than Think, think {think_dir:?} again {again_dir:?}"
 	);
 }
 

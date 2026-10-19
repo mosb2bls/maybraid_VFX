@@ -35,7 +35,7 @@ pub struct AssembleArgs {
 	#[arg(long, value_enum, default_value_t = AnimationMode::Run)]
 	pub animation: AnimationMode,
 
-	/// Lead side for sided gestures (`jab`). Ignored by symmetric clips.
+	/// Lead side for sided gestures (`jab`, `think-again`). Ignored by symmetric clips.
 	#[arg(long, value_enum, default_value_t = GestureSide::Right)]
 	pub side: GestureSide,
 
@@ -209,7 +209,7 @@ pub struct AnimateArgs {
 	#[arg(value_enum)]
 	pub animation: AnimationMode,
 
-	/// Lead side for sided gestures (`jab`).
+	/// Lead side for sided gestures (`jab`, `think-again`).
 	#[arg(long, value_enum, default_value_t = GestureSide::Right)]
 	pub side: GestureSide,
 }
@@ -245,7 +245,7 @@ pub struct PlaybackArgs {
 	/// Scale femur and shin rest length. `0.75` is short, `1.25` is long.
 	#[arg(long)]
 	pub leg_scale: Option<f32>,
-	/// Stop the clock at one second.
+	/// Stop the clock at the clip duration.
 	#[arg(long)]
 	pub once: bool,
 	/// Keep the clock running.
