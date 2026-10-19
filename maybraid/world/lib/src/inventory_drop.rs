@@ -94,12 +94,11 @@ pub(crate) fn apply_inventory_drop_requests(
 		};
 		match bag.try_drop(request.index, request.policy) {
 			Ok(outcome) => {
-				let snapshot = bag.clone();
 				if is_player {
 					if let Some(loadout) = loadout.as_deref_mut() {
 						// Leave AppliedWorldPlayerLoadout stale so arm_world_player
 						// re-holds the promoted primary and refreshes clothing/stats.
-						loadout.retarget_inventory(snapshot.clone());
+						loadout.retarget_inventory(bag.clone());
 					}
 				}
 				dropped.write(InventoryDropped { owner, bag: user.bag, outcome });
