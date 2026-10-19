@@ -1,0 +1,14 @@
+{
+  "version": 5,
+  "id": "00000000000000000000000000000001",
+  "items": [
+    { "kind": "firearm", "mesh": "bullpup" },
+    { "kind": "firearm", "mesh": "reltor" },
+    { "kind": "grenade" },
+    { "kind": "skill-map", "skill": "fireball", "seed": 1 },
+    { "kind": "skill-map", "skill": "dumbwave", "seed": 2 }
+  ],
+  "clothing": [],
+  "weapons": [0, 1, 2],
+  "skills": [3, 4]
+}

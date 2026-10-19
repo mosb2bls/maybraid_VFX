@@ -50,8 +50,11 @@ with `"cmd"`.
 |---|---|---|
 | `start` | `xz` | spawn point when leading; otherwise like `teleport` |
 | `hold` | `move`, `look` (`[x,y]`, gamepad-style −1..1), `focus`, `fire`, `buttons`, `secs` | holds for `secs` |
-| `press` | `button` | one frame |
+| `press` | `button` and/or `buttons` | one frame; `buttons` is a same-frame chord |
 | `wait` | `secs` | idle |
+| `wait_for` | `screen`, `modal`, `flow`, `pause`, `focus_row`, `focus_label`, `cycle_category`, `weapon`, `skill_map`, `lubikan`, `timeout` (default 10) | idle until the snapshot matches; fails with `detail` on timeout |
+| `expect` | same matcher as `wait_for` | instant; `failed` on mismatch |
+| `mash` | `buttons`, `rate_hz` (default 15), `secs`, `seed` | seeded random presses and chords |
 | `goto` | `xz`, `timeout` (default 30), `radius` (default 3), `sprint`, optional `look` | steer until reached; stall jumps / strafes then fails `stuck` |
 | `teleport` | `xz`, optional `y` | instant (utility) |
 | `console` | `line` (`stats vsync`, `sky noon`, …) | instant |
@@ -62,9 +65,41 @@ with `"cmd"`.
 | `scenario` | `name`, `mark` (`start` / `end`) | instant; Tracy message |
 | `quit` | | request process exit |
 
-Buttons: `jump` (`a`), `sprint` (`l3`), `stance` (`b`), `interact` (`x`),
-`swap` (`y`), `ads` (`lb`), `fire` (`rt`), `focus` (`lt`), `menu`, `map`,
-`swap_pov` (`r3`), d-pad.
+Buttons: `jump` (`a`, `confirm`), `sprint` (`l3`), `stance` (`b`, `back`),
+`interact` (`x`), `swap` (`y`), `ads` (`lb`), `fire` (`rt`), `focus` (`lt`),
+`menu` (`start`), `map` (`select` / `view`), `swap_pov` (`r3`), d-pad.
+
+A script with no leading `start` and no `--start-at` boots to Home. Ready
+emits `detail: "menu"` once the first menu screen is up. World scripts still
+wait for surface + gameplay (`detail: "surface"`).
+
+Menu playtest scripts live in [`scripts/menu-*.jsonl`](scripts/) and are
+regression tests, not Traces assets. Inventory-cycle scripts
+([`scripts/inventory-cycle-*.jsonl`](scripts/)) use the same runner and the
+same `wait_for` / `expect` / `invariant` path, plus `cycle` / `equipped`
+events. Run them with [`bin/menu-playtest.sh`](../../bin/menu-playtest.sh)
+so saves and logs stay in a temp dir. See
+[CONTRIBUTING.md → Menu playtest scripts](../../CONTRIBUTING.md#menu-playtest-scripts).
+
+Short CI e2e smokes (`scripts/smoke-*.jsonl`) drive the **full** game on
+Xvfb + lavapipe. Locally:
+
+```bash
+Xvfb :99 -screen 0 1280x720x24 -ac +extension GLX +render -noreset &
+export DISPLAY=:99
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+export MAYBRAID_VSYNC=off
+export MAYBRAID_VISUAL_STYLE=sharp
+export MAYBRAID_RENDER_SCALE=0.5
+cargo build -p maybraid --release
+bin/script-smoke.sh smoke-menu-home
+bin/script-smoke.sh smoke-origin-walk
+```
+
+The GitHub [Script Smoke](../../.github/workflows/script-smoke.yml) workflow
+builds the release binary once and runs the four smokes in parallel. It
+asserts events (`waypoint.reached`, picker/died, menu opened, actor bodies),
+never frame time. Logs upload only on failure. Do not commit captures.
 
 See [`scripts/origin-walk.jsonl`](scripts/origin-walk.jsonl),
 [`scripts/origin-idle.jsonl`](scripts/origin-idle.jsonl),
@@ -97,10 +132,12 @@ there and terrain streams in there — no origin load followed by a teleport.
 The game logs `script start X,Z replaces --start-at`. A `start` after the
 first duration command, or one sent over `--agent-pipe`, behaves like
 `teleport`. Without a `start`, the script runs from `--start-at` when that
-flag is set (the flight scripts pass `0,0`). Omit both to stay on Home and
-drive Discovery through the menu — needed to reproduce leave + pick another
-character. See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl)
-and [`scripts/character-switch-spawn.jsonl`](scripts/character-switch-spawn.jsonl).
+flag is set (the flight scripts pass `0,0`). Omit both: the executable boots
+Home, the agent becomes ready on the first menu screen (`ready` detail
+`menu`), and scripts can drive Discovery — needed to reproduce leave + pick
+another character. See [`scripts/remote-start.jsonl`](scripts/remote-start.jsonl),
+[`scripts/character-switch-spawn.jsonl`](scripts/character-switch-spawn.jsonl),
+and [`scripts/menu-create-back-mid-spin.jsonl`](scripts/menu-create-back-mid-spin.jsonl).
 
 ## Script API version
 
@@ -115,7 +152,8 @@ published outside the repo (Traces releases) state the version they target.
 | 3 | `visual_style` — set presentation mode (`impressionist`, `sharp`, `retro`, `antediluvian`, `pre_post_modern`) |
 | 4 | `visual_style` also accepts `watercolor` (720p painterly wash) |
 | 5 | `visual_style` adds `native` (direct window). `sharp` is now untreated 1080p offscreen (height-fit); v4 `sharp` was today's Native |
-| 6 | `tanz_mode`, `tanz`, and `screenshot` (GPU readback of the presented 3D surface). Tanz mode / active Tanz also emit `kind: tanz` events |
+| 6 | Menu playtests: Home boot ready (`detail: "menu"`), `confirm` / `back` / `start` aliases, `press.buttons` chords, `wait_for` / `expect` / `mash` (including `focus_row` / `focus_label`), and `screen` / `modal` / `focus` / `flow` / `invariant` events |
+| 7 | Inventory cycling: `wait_for` / `expect` also match `cycle_category` / `weapon` / `skill_map` / `lubikan`; `cycle` and `equipped` events; per-frame cycling invariants (Y vs category, D-pad vs item, queue membership). Also `tanz_mode`, `tanz`, and `screenshot` (GPU readback of the presented 3D surface); Tanz mode / active Tanz emit `kind: tanz` events |
 
 ## Events
 
@@ -124,7 +162,7 @@ and `frame`.
 
 | `kind` | When |
 |---|---|
-| `ready` | world surface + gameplay are up (or ready-timeout) |
+| `ready` | world surface + gameplay (`surface`), first menu screen (`menu`), or ready-timeout |
 | `player` | periodic pose (`x,y,z`, `yaw`, `move`); optional `ground` (composed Y), `map_open`, `picker` |
 | `command` | `acknowledged` / `started` / `finished` / `failed` |
 | `waypoint` | `goto` reached, timed out, or stuck |
@@ -133,6 +171,13 @@ and `frame`.
 | `actors` | `hosts` / `bodies` / `brains` plus `min_y` / `max_y` / `ground_at_min_y` when the census or Y band changes |
 | `picker` | locked spawn picker opened or closed (`open`) |
 | `presentation` | offscreen `resize` / `recreate` (`window`, `target`) — must be zero in a measure window |
+| `screen` | live menu screen (`home`, `gallery`, `spin_reveal`, `character`, `in_game`, `settings`, `loading`, `none`) |
+| `modal` | leave prompt (`save` / `save_failed` / `discard`), `name`, catalog overlay key, or `null` when closed |
+| `focus` | focused row (`screen`, `row`, optional `label`) |
+| `flow` | `GameFlow` / `WorldPause` (`flow`, `pause`) |
+| `invariant` | a menu or cycling invariant broke — always a playtest failure |
+| `cycle` | D-pad-selected inventory category (`weapons`, `skill_maps`, `lubikans`) |
+| `equipped` | active item in a cycle category changed (`category`, optional `item`) |
 | `tanz` | Tanzer mode change and/or the Tanz that just became active (`mode`, optional `id`) |
 | `quit` | process is exiting |
 

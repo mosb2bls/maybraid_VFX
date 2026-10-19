@@ -1,5 +1,6 @@
 //! Maybraid game executable: home shell over the world playground.
 
+mod agent_observe;
 mod flow;
 mod load;
 mod panic_log;
@@ -38,11 +39,12 @@ use maybraid_input::{MenuNav, MenuNavPad, PadButton, VirtualPad};
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	host_memory_bytes, parse_device_tier_env, parse_visual_style_env, reset_first_spawn_offer,
-	resume_discovery_from_saved_waypoints, AdapterKind, Durham, InventoryEditCameraFollow,
-	PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality, TerrainStreaming, VisualStyle,
-	VisualStyleAutoReason, VisualStyleSetting, VisualStyleSignals, WorldGameplayEnabled,
-	WorldMenuShell, WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
-	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
+	resume_discovery_from_saved_waypoints, AdapterKind, AgentDrive, Durham,
+	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, ShadowQuality,
+	TerrainStreaming, VisualStyle, VisualStyleAutoReason, VisualStyleSetting, VisualStyleSignals,
+	WorldGameplayEnabled, WorldMenuShell, WorldMobHudEnabled, WorldPlaySessionEnded,
+	WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet,
+	DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
 	consume_screen_back, MenuModalStack, ScreenBackPressed, TextMenuSystems, MENU_CLEAR,
@@ -147,49 +149,59 @@ impl Plugin for GamePlugin {
 						.chain(),
 				),
 			)
-			.add_systems(PreUpdate, sync_inventory_edit_follow.run_if(in_state(WorldPause::Menu)))
-			.add_systems(
+			.add_systems(PreUpdate, sync_inventory_edit_follow.run_if(in_state(WorldPause::Menu)));
+		if app.world().contains_resource::<AgentDrive>() {
+			app.init_resource::<crate::agent_observe::AgentShowRequestMemory>().add_systems(
 				Update,
 				(
-					stamp_preview_render_layers,
-					crate::load::finish_world_loading
-						.run_if(in_state(GameFlow::LoadingWorld))
-						.after(WorldSurfaceSet)
-						.before(LoadingScreenSystems::Apply),
-					route_home_choice.run_if(in_state(GameFlow::Home)),
-					home_settings_back
-						.after(TextMenuSystems::Navigate)
-						.run_if(in_state(GameFlow::Home)),
-					route_in_game_choice.run_if(in_state(WorldPause::Menu)),
-					apply_pause_character_look.run_if(in_state(WorldPause::Menu)),
-					// Discard restores the baseline from a Navigate observer; write it
-					// to the live player before the swap drops the editor return.
-					sync_world_loadout_from_editor
-						.after(TextMenuSystems::Navigate)
-						.run_if(in_state(WorldPause::Menu)),
-					persist_changed_player_inventory,
-					sync_world_mob_hud,
-					sync_world_shadows,
-					(
-						apply_unsaved_visual_style_from_host,
-						sync_world_render_scale,
-						sync_render_scale_readout,
-					)
-						.chain()
-						.after(InGameSettingsSystems::ApplyChoice)
-						.before(InGameSettingsSystems::Show),
-					pause_menu_back
-						.after(TextMenuSystems::Navigate)
-						.run_if(in_state(WorldPause::Menu)),
-					character_back
-						.after(TextMenuSystems::Navigate)
-						.run_if(in_state(GameFlow::Characters)),
-					toggle_world_pause
-						.after(CharacterControlSystems)
-						.before(TextMenuSystems::InputLock)
-						.run_if(in_state(GameFlow::World)),
-				),
+					crate::agent_observe::publish_agent_menu_shell,
+					crate::agent_observe::publish_agent_menu_focus,
+				)
+					.chain(),
 			);
+		}
+		app.add_systems(
+			Update,
+			(
+				stamp_preview_render_layers,
+				crate::load::finish_world_loading
+					.run_if(in_state(GameFlow::LoadingWorld))
+					.after(WorldSurfaceSet)
+					.before(LoadingScreenSystems::Apply),
+				route_home_choice.run_if(in_state(GameFlow::Home)),
+				home_settings_back
+					.after(TextMenuSystems::Navigate)
+					.run_if(in_state(GameFlow::Home)),
+				route_in_game_choice.run_if(in_state(WorldPause::Menu)),
+				apply_pause_character_look.run_if(in_state(WorldPause::Menu)),
+				// Discard restores the baseline from a Navigate observer; write it
+				// to the live player before the swap drops the editor return.
+				sync_world_loadout_from_editor
+					.after(TextMenuSystems::Navigate)
+					.run_if(in_state(WorldPause::Menu)),
+				persist_changed_player_inventory,
+				sync_world_mob_hud,
+				sync_world_shadows,
+				(
+					apply_unsaved_visual_style_from_host,
+					sync_world_render_scale,
+					sync_render_scale_readout,
+				)
+					.chain()
+					.after(InGameSettingsSystems::ApplyChoice)
+					.before(InGameSettingsSystems::Show),
+				pause_menu_back
+					.after(TextMenuSystems::Navigate)
+					.run_if(in_state(WorldPause::Menu)),
+				character_back
+					.after(TextMenuSystems::Navigate)
+					.run_if(in_state(GameFlow::Characters)),
+				toggle_world_pause
+					.after(CharacterControlSystems)
+					.before(TextMenuSystems::InputLock)
+					.run_if(in_state(GameFlow::World)),
+			),
+		);
 	}
 }
 

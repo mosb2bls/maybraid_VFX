@@ -331,6 +331,73 @@ Agent scripts ([`maybraid/agent`](maybraid/agent/README.md)) can be published on
 
 Check that a script parses before publishing it: run `profiling/tracy-flight.sh path/to/script.jsonl check 1`, or `cargo test -p maybraid-agent` with the script copied into `maybraid/agent/scripts/` locally.
 
+### Menu playtest scripts
+
+Menu scripts are regression tests, not Traces captures. They live in-repo as
+[`maybraid/agent/scripts/menu-*.jsonl`](maybraid/agent/scripts/) (script API 6+)
+and [`inventory-cycle-*.jsonl`](maybraid/agent/scripts/) (script API 7+).
+Each file's header comment says what it covers.
+
+They need menu control and observation that world gameplay scripts do not:
+`confirm` / `back` / `start` aliases, same-frame `press.buttons` chords,
+`wait_for` / `expect` / `mash`, and `screen` / `modal` / `focus` / `flow` /
+`invariant` events. Inventory-cycle scripts also match `cycle_category` /
+`weapon` / `skill_map` / `lubikan` and emit `cycle` / `equipped`. A script
+with no leading `start` and no `--start-at` boots
+to Home and becomes ready when the first menu screen is up (`ready` detail
+`menu`). See the [agent README](maybraid/agent/README.md#script-api-version).
+
+Write a new script by copying a `menu-*.jsonl` neighbor. Each `press`
+consumes its frame and the next tick releases the pad so `just_pressed`
+can fire again (fat software-renderer frames used to hold the same button
+across two commands). Still settle briefly after `wait_for` before the
+first press so the menu can take input. Prefer `wait_for` / `expect` over
+long `wait`s (`focus_label` is the reliable way to land on Characters
+rather than the locked Reliquary row). Put `mash` seeds in the filename
+(`menu-mash-home-42.jsonl`) so a failure names the reproduction seed.
+
+Check that a script parses with `cargo test -p maybraid-agent`. Run the suite
+against throwaway saves:
+
+```bash
+cargo build -p maybraid
+bin/menu-playtest.sh
+bin/menu-playtest.sh --seeds 3          # repeat each mash script with N seeds
+bin/menu-playtest.sh menu-create-back-mid-spin
+```
+
+CI e2e smokes (`maybraid/agent/scripts/smoke-*.jsonl`) are the same agent
+pipe against the **full** plugin set, on Xvfb + lavapipe. They live next to
+the menu scripts and are meant to stay short (spawn + waypoint, self-hit
+picker, Home focus, one Guard spawn). Locally:
+
+```bash
+export DISPLAY=:99
+export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+export MAYBRAID_VSYNC=off
+export MAYBRAID_VISUAL_STYLE=sharp
+export MAYBRAID_RENDER_SCALE=0.5
+cargo build -p maybraid --release
+bin/script-smoke.sh smoke-menu-home
+```
+
+See the [agent README](maybraid/agent/README.md) and
+[`.github/workflows/script-smoke.yml`](.github/workflows/script-smoke.yml).
+The workflow builds the release binary once and fans the four smokes out.
+It fails on panic, a missed event (`reached` / picker / menu / bodies), or
+a 2–5 minute per-script timeout. Logs are artifacts on failure only.
+
+The runner sets `MAYBRAID_SAVES` / `MAYBRAID_LOGS` to a temp dir, seeds a
+fixture roster (`empty`, `one`, or `several`), and uses a small window
+(`MAYBRAID_RESOLUTION`, default `960x540`). A run fails on a non-zero exit,
+a `panic.log`, a missing `quit` event, any `failed` command, or any
+`invariant` event. It prints the failing mash seed.
+
+Do not commit screenshots or playtest logs. Capture shots only with the
+in-engine `{"cmd":"console","line":"screenshot PATH"}` command (GPU readback).
+A crash found by a menu script is a `bug` (plus `trace` when it came from a
+Traces asset), linking the script and seed.
+
 CPU captures come from `profiling/tracy-flight.sh <script.jsonl> <phase> <repeat>`, and GPU captures from `profiling/metal-flight.sh` (Metal System Trace; uploads `*.trace.zip`). Both accept a downloaded script path. See [`profiling/README.md`](profiling/README.md).
 
 ### The `trace` label

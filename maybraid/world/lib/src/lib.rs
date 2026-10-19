@@ -10,6 +10,7 @@
 //! flattened 50 m cell hosts in a neighborhood around the camera.
 
 mod agent;
+mod agent_inventory;
 mod camera;
 pub mod commands;
 pub mod control;
@@ -45,7 +46,8 @@ mod world_layers;
 
 pub use world_furnished::WorldFurnished;
 
-pub use agent::AgentDrive;
+pub use agent::{AgentDrive, AgentMenuState};
+pub use agent_inventory::AgentInventoryState;
 pub use character_items::{
 	ActiveInventoryDropPolicy, InventoryDrop, InventoryDropError, InventoryDropPolicy,
 	InventoryDropRefused, InventoryDropRequest, InventoryDropped, InventoryMenuDropped,

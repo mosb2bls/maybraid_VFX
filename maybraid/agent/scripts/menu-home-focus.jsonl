@@ -1,0 +1,13 @@
+# Script API 6. Home boot, no start / --start-at. Walk to Characters (Reliquary
+# is locked) and expect focus. Uses confirm/back aliases only as navigation
+# names; this script does not enter a submenu.
+
+{"cmd":"wait_for","screen":"home","timeout":15}
+{"cmd":"wait","secs":0.4}
+{"cmd":"expect","screen":"home","focus_label":"Discovery"}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait","secs":0.2}
+{"cmd":"press","button":"dpad_down"}
+{"cmd":"wait_for","screen":"home","focus_label":"Characters","timeout":3}
+{"cmd":"expect","screen":"home","focus_label":"Characters","focus_row":2}
+{"cmd":"quit"}

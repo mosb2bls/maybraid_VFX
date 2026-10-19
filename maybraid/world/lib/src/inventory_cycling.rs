@@ -56,6 +56,14 @@ pub(crate) fn configure(app: &mut App) {
 		);
 }
 
+pub(crate) fn gameplay_cycling_allowed(
+	gameplay: &WorldGameplayEnabled,
+	text_focus: &TextEntryFocus,
+	map: Option<&WorldMapView>,
+) -> bool {
+	gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open))
+}
+
 pub(crate) fn apply_inventory_category_selection(
 	gameplay: Res<WorldGameplayEnabled>,
 	text_focus: Res<TextEntryFocus>,

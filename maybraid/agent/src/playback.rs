@@ -3,6 +3,8 @@
 use std::collections::VecDeque;
 
 use crate::command::AgentCommand;
+use crate::inventory::{AgentMatcher, InventoryObservation};
+use crate::menu::{mash_press, MenuObservation};
 use crate::pad::{camera_relative_move, xz_distance, PadIntent};
 
 const MAX_INSTANTS_PER_TICK: usize = 64;
@@ -18,16 +20,12 @@ const STUCK_STRAFE_PERIOD: f32 = 1.1;
 /// Give up instead of burning the remaining `goto` timeout against terrain.
 const STUCK_GIVE_UP: f32 = 5.5;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct TickView {
 	pub player_xz: Option<[f32; 2]>,
 	pub yaw: f32,
-}
-
-impl Default for TickView {
-	fn default() -> Self {
-		Self { player_xz: None, yaw: 0.0 }
-	}
+	pub menu: MenuObservation,
+	pub inventory: InventoryObservation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +72,19 @@ enum Active {
 		last_remaining: f32,
 		stall_secs: f32,
 	},
+	WaitFor {
+		id: u32,
+		matcher: AgentMatcher,
+		remaining: f32,
+	},
+	Mash {
+		id: u32,
+		buttons: Vec<crate::command::AgentButton>,
+		interval: f32,
+		remaining: f32,
+		cooldown: f32,
+		rng: u64,
+	},
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,6 +92,8 @@ pub struct Playback {
 	queue: VecDeque<Scheduled>,
 	active: Option<Active>,
 	next_id: u32,
+	/// After a digital press, the next tick must release so `just_pressed` can fire again.
+	need_release: bool,
 }
 
 impl Playback {
@@ -111,9 +124,15 @@ impl Playback {
 		let mut effects = Vec::new();
 		let mut intent = PadIntent::default();
 		let mut instants = 0;
+		let releasing = self.need_release;
+		self.need_release = false;
 
 		loop {
 			if self.active.is_none() {
+				if releasing {
+					// Keep the pad up for one frame so the next press edges.
+					break;
+				}
 				if instants >= MAX_INSTANTS_PER_TICK {
 					break;
 				}
@@ -121,7 +140,12 @@ impl Playback {
 					break;
 				};
 				effects.push(TickEffect::Started { id: next.id, cmd: next.command.label() });
-				if start_command(next, &mut self.active, &mut effects, &mut intent) {
+				if start_command(next, view, &mut self.active, &mut effects, &mut intent) {
+					if failed(&effects) {
+						self.queue.clear();
+						self.active = None;
+						break;
+					}
 					instants += 1;
 					continue;
 				}
@@ -130,18 +154,26 @@ impl Playback {
 			let Some(active) = self.active.take() else {
 				break;
 			};
-			match step_active(active, dt, view, &mut intent, &mut effects) {
+			match step_active(active, dt, view, &mut intent, &mut effects, releasing) {
 				Step::Continue(next) => {
 					self.active = Some(next);
 					break;
 				}
 				Step::Done { leftover } => {
+					if failed(&effects) {
+						self.queue.clear();
+						break;
+					}
 					dt = leftover;
 					if dt <= 0.0 && self.queue.is_empty() {
 						break;
 					}
 				}
 			}
+		}
+
+		if !intent.buttons.is_empty() {
+			self.need_release = true;
 		}
 
 		Tick { idle: self.is_idle(), intent, effects }
@@ -153,9 +185,14 @@ enum Step {
 	Done { leftover: f32 },
 }
 
+fn failed(effects: &[TickEffect]) -> bool {
+	effects.iter().any(|effect| matches!(effect, TickEffect::Failed { .. }))
+}
+
 /// Returns `true` when the command finished in the same tick (instant / press).
 fn start_command(
 	scheduled: Scheduled,
+	view: &TickView,
 	active: &mut Option<Active>,
 	effects: &mut Vec<TickEffect>,
 	intent: &mut PadIntent,
@@ -184,8 +221,42 @@ fn start_command(
 			effects.push(TickEffect::Finished { id, cmd: label });
 			true
 		}
-		AgentCommand::Press { button } => {
-			*intent = PadIntent::press(button);
+		command @ AgentCommand::Press { .. } => {
+			*intent = PadIntent::press_many(&command.press_buttons());
+			effects.push(TickEffect::Finished { id, cmd: label });
+			// Consume the frame. Leftover `dt` must not start the next `press`
+			// (or eat a short `wait` and then press again) on a fat tick.
+			false
+		}
+		AgentCommand::WaitFor { matcher, timeout } => {
+			*active = Some(Active::WaitFor { id, matcher, remaining: timeout.max(0.0) });
+			false
+		}
+		AgentCommand::Expect { matcher } => {
+			if matcher.matches(&view.menu, &view.inventory) {
+				effects.push(TickEffect::Finished { id, cmd: label });
+			} else {
+				effects.push(TickEffect::Failed {
+					id,
+					cmd: label,
+					detail: matcher.mismatch_detail(&view.menu, &view.inventory),
+				});
+			}
+			true
+		}
+		AgentCommand::Mash { buttons, rate_hz, secs, seed } if secs > 0.0 => {
+			let rate = rate_hz.max(0.1);
+			*active = Some(Active::Mash {
+				id,
+				buttons,
+				interval: 1.0 / rate,
+				remaining: secs,
+				cooldown: 0.0,
+				rng: seed,
+			});
+			false
+		}
+		AgentCommand::Mash { .. } => {
 			effects.push(TickEffect::Finished { id, cmd: label });
 			true
 		}
@@ -233,6 +304,7 @@ fn step_active(
 	view: &TickView,
 	intent: &mut PadIntent,
 	effects: &mut Vec<TickEffect>,
+	releasing: bool,
 ) -> Step {
 	match active {
 		Active::Wait { id, remaining } => {
@@ -304,6 +376,48 @@ fn step_active(
 				stall_secs,
 			})
 		}
+		Active::WaitFor { id, matcher, remaining } => {
+			if matcher.matches(&view.menu, &view.inventory) {
+				effects.push(TickEffect::Finished {
+					id,
+					cmd: format!("wait_for {}", matcher.describe()),
+				});
+				return Step::Done { leftover: dt };
+			}
+			if dt >= remaining {
+				effects.push(TickEffect::Failed {
+					id,
+					cmd: format!("wait_for {}", matcher.describe()),
+					detail: format!(
+						"timeout {}",
+						matcher.mismatch_detail(&view.menu, &view.inventory)
+					),
+				});
+				Step::Done { leftover: dt - remaining }
+			} else {
+				Step::Continue(Active::WaitFor { id, matcher, remaining: remaining - dt })
+			}
+		}
+		Active::Mash { id, buttons, interval, remaining, cooldown, mut rng } => {
+			let fire = cooldown <= 0.0 && !releasing;
+			if fire {
+				*intent = PadIntent::press_many(&mash_press(&mut rng, &buttons));
+			}
+			if dt >= remaining {
+				effects.push(TickEffect::Finished { id, cmd: "mash".into() });
+				Step::Done { leftover: dt - remaining }
+			} else {
+				let next_cooldown = if fire { interval } else { cooldown };
+				Step::Continue(Active::Mash {
+					id,
+					buttons,
+					interval,
+					remaining: remaining - dt,
+					cooldown: (next_cooldown - dt).max(0.0),
+					rng,
+				})
+			}
+		}
 	}
 }
 
@@ -371,6 +485,8 @@ fn should_pulse_jump(stall_secs: f32, dt: f32) -> bool {
 mod tests {
 	use super::*;
 	use crate::command::{AgentButton, ScenarioMark};
+	use crate::inventory::{AgentMatcher, InventoryMatcher, InventoryObservation};
+	use crate::menu::MenuMatcher;
 
 	fn started(effects: &[TickEffect]) -> Vec<u32> {
 		effects
@@ -494,8 +610,7 @@ mod tests {
 
 	#[test]
 	fn press_is_one_frame() -> anyhow::Result<()> {
-		let mut playback =
-			Playback::from_commands([AgentCommand::Press { button: AgentButton::Jump }]);
+		let mut playback = Playback::from_commands([AgentCommand::press(AgentButton::Jump)]);
 		let tick = playback.tick(0.016, &TickView::default());
 		assert_eq!(tick.intent.buttons, vec![AgentButton::Jump]);
 		assert!(tick.idle);
@@ -511,7 +626,8 @@ mod tests {
 			sprint: false,
 			look: None,
 		}]);
-		let near = reached.tick(0.1, &TickView { player_xz: Some([8.0, 0.0]), yaw: 0.0 });
+		let near = reached
+			.tick(0.1, &TickView { player_xz: Some([8.0, 0.0]), yaw: 0.0, ..Default::default() });
 		assert!(near
 			.effects
 			.iter()
@@ -525,11 +641,13 @@ mod tests {
 			sprint: true,
 			look: Some([0.4, 0.0]),
 		}]);
-		let first = timed.tick(0.1, &TickView { player_xz: Some([0.0, 0.0]), yaw: 0.0 });
+		let first = timed
+			.tick(0.1, &TickView { player_xz: Some([0.0, 0.0]), yaw: 0.0, ..Default::default() });
 		assert!(first.intent.buttons.contains(&AgentButton::Sprint));
 		assert!(first.intent.move_stick[0] > 0.5);
 		assert!((first.intent.look_stick[0] - 0.4).abs() < 1e-5);
-		let second = timed.tick(0.2, &TickView { player_xz: Some([1.0, 0.0]), yaw: 0.0 });
+		let second = timed
+			.tick(0.2, &TickView { player_xz: Some([1.0, 0.0]), yaw: 0.0, ..Default::default() });
 		assert!(second.effects.iter().any(|effect| matches!(
 			effect,
 			TickEffect::Failed { detail, .. } if detail == "timeout"
@@ -548,7 +666,7 @@ mod tests {
 	}
 
 	fn origin_view() -> TickView {
-		TickView { player_xz: Some([0.0, 0.0]), yaw: 0.0 }
+		TickView { player_xz: Some([0.0, 0.0]), yaw: 0.0, ..Default::default() }
 	}
 
 	#[test]
@@ -578,7 +696,7 @@ mod tests {
 	#[test]
 	fn goto_progress_clears_stall() -> anyhow::Result<()> {
 		let mut playback = stuck_goto(30.0);
-		let view = |x: f32| TickView { player_xz: Some([x, 0.0]), yaw: 0.0 };
+		let view = |x: f32| TickView { player_xz: Some([x, 0.0]), yaw: 0.0, ..Default::default() };
 		playback.tick(0.5, &view(0.0));
 		for step in 1..=8 {
 			let tick = playback.tick(1.0, &view(step as f32 * 2.0));
@@ -598,5 +716,163 @@ mod tests {
 		assert!(playback.tick(0.016, &TickView::default()).idle);
 		playback.push(AgentCommand::Wait { secs: 1.0 });
 		assert!(!playback.tick(0.016, &TickView::default()).idle);
+	}
+
+	fn in_game_view() -> TickView {
+		TickView {
+			menu: MenuObservation { screen: "in_game".into(), ..MenuObservation::default() },
+			..Default::default()
+		}
+	}
+
+	#[test]
+	fn press_chord_is_one_frame() -> anyhow::Result<()> {
+		let mut playback = Playback::from_commands([AgentCommand::press_many(vec![
+			AgentButton::Jump,
+			AgentButton::Menu,
+		])]);
+		let tick = playback.tick(0.016, &TickView::default());
+		assert_eq!(tick.intent.buttons, vec![AgentButton::Jump, AgentButton::Menu]);
+		assert!(tick.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn press_consumes_leftover_dt() -> anyhow::Result<()> {
+		let mut playback = Playback::from_commands([
+			AgentCommand::Wait { secs: 0.1 },
+			AgentCommand::press(AgentButton::DpadDown),
+			AgentCommand::Wait { secs: 0.1 },
+			AgentCommand::press(AgentButton::DpadDown),
+		]);
+		let first = playback.tick(1.0, &TickView::default());
+		assert_eq!(first.intent.buttons, vec![AgentButton::DpadDown]);
+		assert!(!first.idle);
+		let release = playback.tick(1.0, &TickView::default());
+		assert!(release.intent.buttons.is_empty());
+		assert!(!release.idle);
+		let second = playback.tick(1.0, &TickView::default());
+		assert_eq!(second.intent.buttons, vec![AgentButton::DpadDown]);
+		Ok(())
+	}
+
+	#[test]
+	fn wait_for_matches_then_expect_fails() -> anyhow::Result<()> {
+		let matcher = AgentMatcher {
+			menu: MenuMatcher { screen: Some("in_game".into()), ..MenuMatcher::default() },
+			..AgentMatcher::default()
+		};
+		let mut playback = Playback::from_commands([
+			AgentCommand::WaitFor { matcher: matcher.clone(), timeout: 1.0 },
+			AgentCommand::Expect {
+				matcher: AgentMatcher {
+					menu: MenuMatcher { pause: Some("playing".into()), ..MenuMatcher::default() },
+					..AgentMatcher::default()
+				},
+			},
+		]);
+		let waiting = playback.tick(0.1, &TickView::default());
+		assert!(!waiting.idle);
+		assert!(waiting
+			.effects
+			.iter()
+			.any(|effect| matches!(effect, TickEffect::Started { id: 0, .. })));
+
+		let matched = playback.tick(0.1, &in_game_view());
+		assert!(matched
+			.effects
+			.iter()
+			.any(|effect| matches!(effect, TickEffect::Finished { id: 0, .. })));
+		assert!(matched.effects.iter().any(|effect| matches!(
+			effect,
+			TickEffect::Failed { id: 1, detail, .. } if detail.contains("want pause=playing")
+		)));
+		assert!(matched.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn wait_for_times_out_with_detail() -> anyhow::Result<()> {
+		let mut playback = Playback::from_commands([AgentCommand::WaitFor {
+			matcher: AgentMatcher {
+				menu: MenuMatcher { screen: Some("gallery".into()), ..MenuMatcher::default() },
+				..AgentMatcher::default()
+			},
+			timeout: 0.2,
+		}]);
+		playback.tick(0.1, &in_game_view());
+		let timed = playback.tick(0.2, &in_game_view());
+		assert!(timed.effects.iter().any(|effect| matches!(
+			effect,
+			TickEffect::Failed { detail, .. } if detail.starts_with("timeout") && detail.contains("gallery")
+		)));
+		assert!(timed.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn wait_for_inventory_cycle_category() -> anyhow::Result<()> {
+		let mut playback = Playback::from_commands([AgentCommand::WaitFor {
+			matcher: AgentMatcher {
+				inventory: InventoryMatcher {
+					cycle_category: Some("lubikans".into()),
+					weapon: Some("bullpup".into()),
+					..InventoryMatcher::default()
+				},
+				..AgentMatcher::default()
+			},
+			timeout: 1.0,
+		}]);
+		let waiting = playback.tick(
+			0.1,
+			&TickView {
+				inventory: InventoryObservation {
+					cycle_category: "weapons".into(),
+					weapon: Some("bullpup".into()),
+					..InventoryObservation::default()
+				},
+				..TickView::default()
+			},
+		);
+		assert!(!waiting.idle);
+		let matched = playback.tick(
+			0.1,
+			&TickView {
+				inventory: InventoryObservation {
+					cycle_category: "lubikans".into(),
+					weapon: Some("bullpup".into()),
+					..InventoryObservation::default()
+				},
+				..TickView::default()
+			},
+		);
+		assert!(matched
+			.effects
+			.iter()
+			.any(|effect| matches!(effect, TickEffect::Finished { id: 0, .. })));
+		assert!(matched.idle);
+		Ok(())
+	}
+
+	#[test]
+	fn mash_same_seed_same_presses() -> anyhow::Result<()> {
+		let mash = AgentCommand::Mash {
+			buttons: vec![AgentButton::Jump, AgentButton::Stance, AgentButton::Menu],
+			rate_hz: 10.0,
+			secs: 0.35,
+			seed: 42,
+		};
+		let mut a = Playback::from_commands([mash.clone()]);
+		let mut b = Playback::from_commands([mash]);
+		let mut seq_a = Vec::new();
+		let mut seq_b = Vec::new();
+		for _ in 0..8 {
+			seq_a.push(a.tick(0.05, &TickView::default()).intent.buttons);
+			seq_b.push(b.tick(0.05, &TickView::default()).intent.buttons);
+		}
+		assert_eq!(seq_a, seq_b);
+		assert!(seq_a.iter().any(|buttons| !buttons.is_empty()));
+		assert!(a.is_idle());
+		Ok(())
 	}
 }

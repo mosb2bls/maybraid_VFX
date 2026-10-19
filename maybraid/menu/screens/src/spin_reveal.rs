@@ -72,6 +72,13 @@ pub fn request_show_spin_reveal(commands: &mut Commands, items: Vec<InventoryIte
 	commands.spawn(RequestShowSpinReveal);
 }
 
+/// Drop an in-flight reveal so Back cannot rebuild the screen on top of gallery.
+pub fn cancel_spin_reveal(commands: &mut Commands) {
+	commands.remove_resource::<SpinRevealCurrent>();
+	commands.remove_resource::<StarterKitIconWait>();
+	commands.remove_resource::<SpinRevealItems>();
+}
+
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpinRevealSystems {
 	Apply,

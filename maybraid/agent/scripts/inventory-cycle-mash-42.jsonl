@@ -1,0 +1,10 @@
+# Script API 7. Seeded mash of D-pad L/D/R and Y from world play. Invariants
+# stay on: Y never changes the category, D-pad never changes the active item,
+# and a cycle stays inside that category's queue. Run with --start-at and the
+# cycling inventory fixture.
+
+{"cmd":"wait_for","flow":"world","pause":"playing","timeout":90}
+{"cmd":"wait","secs":0.5}
+{"cmd":"wait_for","cycle_category":"weapons","timeout":15}
+{"cmd":"mash","buttons":["dpad_left","dpad_down","dpad_right","y"],"rate_hz":10,"secs":30,"seed":42}
+{"cmd":"quit"}
