@@ -10,20 +10,18 @@
 //! shared begin weight for **prefilled** primitives only
 //! ([`LodChunkFulfillBudget::begin_prefill_weights_per_job`]); lazy tails drain later.
 
-use bevy::ecs::entity_disabling::Disabled;
 use bevy::math::bounding::Aabb3d;
 use bevy::prelude::*;
-use bevy::scene::prelude::{bsn, template_value};
 
 use crate::lod_ref::{point_bounds, LodNode, LodNodeBounds, LodNodePose, LodRef};
+use crate::scene::chunk::materialize_front;
 use crate::scene::host::{
-	lod_level_roots_entity, nested_host_parent_allows_refresh,
-	nested_host_parent_allows_refresh_world, parent_host_desired_or_high, LodLevelRoot,
-	LodLevelRoots, LodLevelSpawnRequest, LodSceneHost,
+	nested_host_parent_allows_refresh_world, LodLevelRoot, LodLevelRoots, LodLevelSpawnRequest,
+	LodSceneHost,
 };
 use crate::scene::level::LodSceneLevel;
 use crate::scene::refresh::LodHostBounds;
-use crate::scene::SemanticLodScene;
+use crate::scene::LodLevelProducer;
 
 use super::super::super::viewer::LodViewer;
 use super::schedule::{admit_begin, begin_scan_limit, charge_begin_weight, LevelBand};
@@ -31,9 +29,6 @@ use super::types::{
 	FulfillClass, LodChunkBeginClock, LodChunkBeginScanCursor, LodChunkFulfillBudget,
 	LodChunkFulfillment, LodCullInFlight, LodLevelRootPending, LodLevelRootStreamed,
 };
-use super::util::has_present_root;
-use crate::scene::chunk::materialize_front;
-use crate::scene::LodLevelProducer;
 
 /// Reused candidate buckets for the shared type-erased begin scan (cleared each frame).
 #[derive(Resource, Default)]
@@ -72,216 +67,6 @@ fn roll_presence_into_desired(clock: &mut LodChunkBeginClock) {
 fn roll_desired_into_presence(clock: &mut LodChunkBeginClock) {
 	clock.presence_remaining = clock.presence_remaining.saturating_add(clock.desired_remaining);
 	clock.desired_remaining = 0;
-}
-
-/// Start a pending root + queue from [`LodLevelSpawnRequest`].
-pub fn begin_chunk_lod_fulfill<T: Component + SemanticLodScene>(
-	mut commands: Commands,
-	viewer: Query<(Entity, &LodNodePose, Option<&LodNodeBounds>), (With<LodNode>, With<LodViewer>)>,
-	mut begin_clock: ResMut<LodChunkBeginClock>,
-	budget: Res<LodChunkFulfillBudget>,
-	mut host_sets: ParamSet<(
-		Query<(Entity, &LodLevelSpawnRequest), (With<LodSceneHost>, With<T>)>,
-		Query<&'static T, With<LodSceneHost>>,
-	)>,
-	root_keys: Query<&LodLevelRoot, Allow<Disabled>>,
-	pending: Query<(), (With<LodLevelRootPending>, Allow<Disabled>)>,
-	wants_cull: Query<(), (With<LodCullInFlight>, Allow<Disabled>)>,
-	child_of: Query<&ChildOf, Allow<Disabled>>,
-	host_levels: Query<&LodSceneLevel, (With<LodSceneHost>, Allow<Disabled>)>,
-	children_q: Query<&Children, Allow<Disabled>>,
-	level_roots_bags: Query<(), (With<LodLevelRoots>, Allow<Disabled>)>,
-	visibilities: Query<(&Visibility, Has<Disabled>), Allow<Disabled>>,
-	host_pose: Query<(&Transform, Option<&LodHostBounds>), With<LodSceneHost>>,
-	mut scan_cursor: Local<u32>,
-) {
-	let Ok((viewer_entity, pose, viewer_bounds)) = viewer.single() else {
-		return;
-	};
-	let driver_bounds = viewer_bounds
-		.map(|b| b.0)
-		.unwrap_or_else(|| point_bounds(pose.current.translation));
-	let lod_ref = pose.as_lod_ref(viewer_entity, &driver_bounds);
-	let viewer_xz = pose.current.translation;
-
-	roll_active_into_desired(&mut begin_clock);
-
-	let scan_limit = begin_scan_limit(&budget, &begin_clock);
-	if scan_limit == 0 {
-		return;
-	}
-
-	let mut presence_near = Vec::new();
-	let mut presence_far = Vec::new();
-	let mut desired_near = Vec::new();
-	let mut desired_far = Vec::new();
-
-	let start = *scan_cursor;
-	let mut classified = 0u32;
-	let mut index = 0u32;
-	let mut next_cursor = 0u32;
-
-	for (host, request) in host_sets.p0().iter() {
-		let i = index;
-		index += 1;
-		if i < start {
-			continue;
-		}
-		if let Some(candidate) = classify_begin_candidate(
-			host,
-			request,
-			&mut commands,
-			&root_keys,
-			&pending,
-			&wants_cull,
-			&child_of,
-			&host_levels,
-			&children_q,
-			&level_roots_bags,
-			&visibilities,
-		) {
-			push_begin_candidate(
-				with_host_xz_distance(candidate, viewer_xz, host, &host_pose),
-				&mut presence_near,
-				&mut presence_far,
-				&mut desired_near,
-				&mut desired_far,
-			);
-		}
-		classified += 1;
-		if classified >= scan_limit {
-			next_cursor = i.saturating_add(1);
-			break;
-		}
-	}
-
-	if classified < scan_limit && start > 0 {
-		index = 0;
-		for (host, request) in host_sets.p0().iter() {
-			let i = index;
-			index += 1;
-			if i >= start {
-				break;
-			}
-			if let Some(candidate) = classify_begin_candidate(
-				host,
-				request,
-				&mut commands,
-				&root_keys,
-				&pending,
-				&wants_cull,
-				&child_of,
-				&host_levels,
-				&children_q,
-				&level_roots_bags,
-				&visibilities,
-			) {
-				push_begin_candidate(
-					with_host_xz_distance(candidate, viewer_xz, host, &host_pose),
-					&mut presence_near,
-					&mut presence_far,
-					&mut desired_near,
-					&mut desired_far,
-				);
-			}
-			classified += 1;
-			if classified >= scan_limit {
-				next_cursor = i.saturating_add(1);
-				break;
-			}
-		}
-		if classified < scan_limit {
-			next_cursor = 0;
-		}
-	} else if classified < scan_limit {
-		next_cursor = 0;
-	}
-
-	*scan_cursor = next_cursor;
-
-	sort_begin_near_first(&mut presence_near);
-	sort_begin_near_first(&mut presence_far);
-	sort_begin_near_first(&mut desired_near);
-	sort_begin_near_first(&mut desired_far);
-
-	let presence_first = matches!(begin_clock.first_class, FulfillClass::Presence);
-	if presence_first {
-		admit_candidates(
-			&presence_near,
-			FulfillClass::Presence,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-		admit_candidates(
-			&presence_far,
-			FulfillClass::Presence,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-		roll_presence_into_desired(&mut begin_clock);
-		admit_candidates(
-			&desired_near,
-			FulfillClass::Desired,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-		admit_candidates(
-			&desired_far,
-			FulfillClass::Desired,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-	} else {
-		admit_candidates(
-			&desired_near,
-			FulfillClass::Desired,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-		admit_candidates(
-			&desired_far,
-			FulfillClass::Desired,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-		roll_desired_into_presence(&mut begin_clock);
-		admit_candidates(
-			&presence_near,
-			FulfillClass::Presence,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-		admit_candidates(
-			&presence_far,
-			FulfillClass::Presence,
-			&mut commands,
-			&lod_ref,
-			&mut begin_clock,
-			&budget,
-			&mut host_sets,
-		);
-	}
 }
 
 /// Start pending roots once for all semantic host types.
@@ -374,7 +159,7 @@ pub fn begin_chunk_lod_fulfill_erased(world: &mut World) {
 	}
 }
 
-/// Round-robin host scan for type-erased begin (mirrors [`begin_chunk_lod_fulfill`]).
+/// Round-robin host scan for type-erased begin.
 ///
 /// Returns `(false, 0)` when no hosts hold a spawn request.
 fn scan_erased_begin_hosts(
@@ -664,184 +449,8 @@ fn host_xz_distance2(origin: Vec3, transform: &Transform, bounds: Option<&LodHos
 	dx * dx + dz * dz
 }
 
-fn with_host_xz_distance(
-	mut candidate: BeginCandidate,
-	origin: Vec3,
-	host: Entity,
-	host_pose: &Query<(&Transform, Option<&LodHostBounds>), With<LodSceneHost>>,
-) -> BeginCandidate {
-	candidate.dist_xz = host_pose
-		.get(host)
-		.map(|(transform, bounds)| host_xz_distance2(origin, transform, bounds))
-		.unwrap_or(f32::MAX);
-	candidate
-}
-
 fn sort_begin_near_first(list: &mut [BeginCandidate]) {
 	list.sort_by(|a, b| a.dist_xz.total_cmp(&b.dist_xz));
-}
-
-fn classify_begin_candidate(
-	host: Entity,
-	request: &LodLevelSpawnRequest,
-	commands: &mut Commands,
-	root_keys: &Query<&LodLevelRoot, Allow<Disabled>>,
-	pending: &Query<(), (With<LodLevelRootPending>, Allow<Disabled>)>,
-	wants_cull: &Query<(), (With<LodCullInFlight>, Allow<Disabled>)>,
-	child_of: &Query<&ChildOf, Allow<Disabled>>,
-	host_levels: &Query<&LodSceneLevel, (With<LodSceneHost>, Allow<Disabled>)>,
-	children_q: &Query<&Children, Allow<Disabled>>,
-	level_roots_bags: &Query<(), (With<LodLevelRoots>, Allow<Disabled>)>,
-	visibilities: &Query<(&Visibility, Has<Disabled>), Allow<Disabled>>,
-) -> Option<BeginCandidate> {
-	let Ok(desired) = host_levels.get(host) else {
-		return None;
-	};
-	if request.level != *desired {
-		commands.entity(host).remove::<LodLevelSpawnRequest>();
-		return None;
-	}
-
-	let Ok(host_children) = children_q.get(host) else {
-		commands.entity(host).remove::<LodLevelSpawnRequest>();
-		return None;
-	};
-	let Some(roots_entity) = lod_level_roots_entity(host_children, level_roots_bags) else {
-		commands.entity(host).remove::<LodLevelSpawnRequest>();
-		return None;
-	};
-
-	let root_children = children_q.get(roots_entity).ok();
-	let has_any_level_root = root_children.is_some_and(|children| {
-		children
-			.iter()
-			.any(|child| root_keys.contains(child) && !wants_cull.contains(child))
-	});
-
-	if !nested_host_parent_allows_refresh(
-		host,
-		child_of,
-		host_levels,
-		root_keys,
-		children_q,
-		level_roots_bags,
-		visibilities,
-	) && has_any_level_root
-	{
-		commands.entity(host).remove::<LodLevelSpawnRequest>();
-		return None;
-	}
-
-	let mut cold = true;
-	if let Some(root_children) = root_children {
-		let mut already_ready = false;
-		let mut already_pending = false;
-		for child in root_children.iter() {
-			let Ok(root) = root_keys.get(child) else {
-				continue;
-			};
-			if wants_cull.contains(child) {
-				continue;
-			}
-			if root.0 != request.level {
-				continue;
-			}
-			if pending.contains(child) {
-				already_pending = true;
-			} else {
-				already_ready = true;
-			}
-		}
-		if already_ready || already_pending {
-			commands.entity(host).remove::<LodLevelSpawnRequest>();
-			return None;
-		}
-		cold = !has_present_root(root_children, root_keys, wants_cull);
-	}
-
-	let parent_desired = parent_host_desired_or_high(host, child_of, host_levels);
-	Some(BeginCandidate {
-		host,
-		roots_entity,
-		level: request.level,
-		cold,
-		parent_desired,
-		dist_xz: f32::MAX,
-	})
-}
-
-fn admit_candidates<T: Component + SemanticLodScene>(
-	candidates: &[BeginCandidate],
-	class: FulfillClass,
-	commands: &mut Commands,
-	lod_ref: &LodRef,
-	begin_clock: &mut LodChunkBeginClock,
-	budget: &LodChunkFulfillBudget,
-	host_sets: &mut ParamSet<(
-		Query<(Entity, &LodLevelSpawnRequest), (With<LodSceneHost>, With<T>)>,
-		Query<&'static T, With<LodSceneHost>>,
-	)>,
-) {
-	for candidate in candidates {
-		{
-			let scenes = host_sets.p1();
-			let Ok(scene) = scenes.get(candidate.host) else {
-				continue;
-			};
-			// Stale desired (identity spawn, produce not yet in range) must follow
-			// the viewer. Do not drop the request: [`LodSceneCulls::should_cull`]
-			// is for other bands, not the camera band.
-			let actual = scene.scene_lod_level(lod_ref);
-			if actual != candidate.level {
-				commands.entity(candidate.host).insert(actual);
-				commands.entity(candidate.host).insert(LodLevelSpawnRequest { level: actual });
-				continue;
-			}
-		}
-
-		if !admit_begin(begin_clock, class) {
-			break;
-		}
-
-		let chunk = {
-			let scenes = host_sets.p1();
-			let Ok(scene) = scenes.get(candidate.host) else {
-				continue;
-			};
-			scene.scene_chunks_with_level(lod_ref, candidate.level)
-		};
-		let expected = chunk.total_primitives();
-		let mut queue = chunk.into_fulfill_queue();
-		let prefill = begin_clock.weight_remaining.min(budget.begin_prefill_weights_per_job);
-		let begin_weight = materialize_front(&mut queue, prefill);
-		charge_begin_weight(begin_clock, begin_weight.max(1));
-
-		let cold = candidate.cold;
-		let initial_vis = if cold { Visibility::Inherited } else { Visibility::Hidden };
-		let level_root = bsn! {
-			template_value(LodLevelRoot(candidate.level))
-			LodLevelRootPending
-			Transform::default()
-			template_value(initial_vis)
-		};
-		let root_entity = commands.spawn_scene(level_root).id();
-		let fulfillment = LodChunkFulfillment {
-			queue,
-			expected,
-			spawned: 0,
-			cold,
-			host: candidate.host,
-			parent_desired: candidate.parent_desired,
-			nested_streamed: 0,
-			nested_required: None,
-		};
-		if fulfillment.is_content_complete() {
-			commands.entity(root_entity).insert(LodLevelRootStreamed);
-		}
-		commands.entity(root_entity).insert(fulfillment);
-		commands.entity(candidate.roots_entity).add_child(root_entity);
-		commands.entity(candidate.host).remove::<LodLevelSpawnRequest>();
-	}
 }
 
 #[cfg(test)]

@@ -3,24 +3,9 @@
 use bevy::ecs::entity_disabling::Disabled;
 use bevy::prelude::*;
 
-use crate::scene::host::{LodLevelRoot, LodSceneHost};
+use crate::scene::host::LodSceneHost;
 
-use super::types::{LodCullInFlight, LodLazyPending, LodSceneHostStreamed};
-
-/// True when the host already has any non-culling level root (ready **or** pending).
-///
-/// Pending siblings count as present so Medium→High (and similar) upgrades are
-/// classified **warm** / Desired rather than Presence — otherwise a paused mid-fill
-/// Medium root would push High into the cold Presence queue and starve it.
-pub(super) fn has_present_root(
-	root_children: &Children,
-	root_keys: &Query<&LodLevelRoot, Allow<Disabled>>,
-	cull_inflight: &Query<(), (With<LodCullInFlight>, Allow<Disabled>)>,
-) -> bool {
-	root_children
-		.iter()
-		.any(|child| root_keys.contains(child) && !cull_inflight.contains(child))
-}
+use super::types::{LodLazyPending, LodSceneHostStreamed};
 
 /// Whether `entity` is a [`LodSceneHost`], or wraps one as a direct child.
 ///

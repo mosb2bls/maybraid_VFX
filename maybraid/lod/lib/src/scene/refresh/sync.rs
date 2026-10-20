@@ -10,8 +10,7 @@ use crate::scene::SemanticLodScene;
 use super::viewer::LodViewer;
 
 pub use chunk::{
-	add_lod_refresh_chunk_for, add_lod_refresh_chunk_full_for, begin_chunk_lod_fulfill,
-	begin_chunk_lod_fulfill_erased, cancel_unstarted_cull_for_desired_pending_roots,
+	add_lod_refresh_chunk_for, add_lod_refresh_chunk_full_for, begin_chunk_lod_fulfill_erased,
 	cancel_unstarted_cull_for_desired_pending_roots_erased, complete_chunk_lod_fulfill,
 	drain_chunk_lod_fulfill, reset_lod_chunk_budget, FulfillClass, LodChunkAtomicOverrun,
 	LodChunkBeginClock, LodChunkBeginScanCursor, LodChunkBudgetClock, LodChunkBudgetPlugin,

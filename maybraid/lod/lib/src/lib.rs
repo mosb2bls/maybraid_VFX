@@ -28,8 +28,7 @@ pub use lod_ref::{
 };
 pub use scene::{
 	add_lod_refresh_chunk_for, add_lod_refresh_chunk_full_for, add_lod_refresh_cull_for,
-	apply_lod_cull_requests, begin_chunk_lod_fulfill, begin_chunk_lod_fulfill_erased,
-	cancel_unstarted_cull_for_desired_pending_roots,
+	apply_lod_cull_requests, begin_chunk_lod_fulfill_erased,
 	cancel_unstarted_cull_for_desired_pending_roots_erased, closest_available_lod_level,
 	complete_chunk_lod_fulfill, cull_bands_with_adjacent_depth, cull_lod_level_roots,
 	cull_named_from_factor, cull_non_adjacent_bands, cull_offset_bands,
