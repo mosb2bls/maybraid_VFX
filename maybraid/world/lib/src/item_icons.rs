@@ -35,6 +35,7 @@ fn discover_loadout_items(
 	loadout: Option<Res<WorldPlayerLoadout>>,
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut subjects: ResMut<ItemCaptureSubjects>,
+	mut cache: ResMut<ItemIconCache>,
 	mut client: CaptureClient,
 ) {
 	let Some(loadout) = loadout else {
@@ -43,8 +44,14 @@ fn discover_loadout_items(
 	if !loadout.is_changed() && discovery.requested_len() > 0 {
 		return;
 	}
-	request_self_lubikan_icon(&mut discovery, &mut client);
-	request_inventory_icons(&loadout.inventory, &mut discovery, &mut subjects, &mut client);
+	request_self_lubikan_icon(&mut discovery, &mut client, &mut cache);
+	request_inventory_icons(
+		&loadout.inventory,
+		&mut discovery,
+		&mut subjects,
+		&mut client,
+		&mut cache,
+	);
 }
 
 fn discover_tanz_icons(
@@ -53,15 +60,22 @@ fn discover_tanz_icons(
 	bags: Query<&Inventory>,
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut poses: ResMut<PoseCaptureSubjects>,
+	mut cache: ResMut<ItemIconCache>,
 	mut client: CaptureClient,
 ) {
 	if let Some(loadout) = loadout.as_deref() {
-		request_inventory_tanz_icons(&loadout.inventory, &mut discovery, &mut poses, &mut client);
+		request_inventory_tanz_icons(
+			&loadout.inventory,
+			&mut discovery,
+			&mut poses,
+			&mut client,
+			&mut cache,
+		);
 	}
 	for user in &users {
 		let Ok(bag) = bags.get(user.bag) else {
 			continue;
 		};
-		request_inventory_tanz_icons(bag, &mut discovery, &mut poses, &mut client);
+		request_inventory_tanz_icons(bag, &mut discovery, &mut poses, &mut client, &mut cache);
 	}
 }
