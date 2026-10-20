@@ -13,6 +13,7 @@ rust-version = { workspace = true }
 bevy = { workspace = true }
 maybraid-character-controller = { workspace = true }
 maybraid-controllers-core = { workspace = true }
+maybraid-input = { workspace = true }
 player = { workspace = true }
 
 [dev-dependencies]

@@ -44,7 +44,9 @@ pub fn interpret_standard_locomotion(
 		}
 	}
 
-	let Some(target) = targeted_player(local.as_deref(), &actors) else {
+	let Some(target) =
+		LocalActor::resolve(local.as_deref(), actors.iter().map(|(entity, ..)| entity))
+	else {
 		return;
 	};
 	let Ok((_, mut intent, look, ordinary)) = actors.get_mut(target) else {
@@ -76,21 +78,6 @@ pub fn interpret_standard_locomotion(
 		stance,
 		speed_cap: SpeedCapRequest::Release,
 	});
-}
-
-fn targeted_player(
-	local: Option<&LocalActor>,
-	actors: &Query<
-		(Entity, &mut MotorIntent, &PlayerLook, Option<&OrdinaryLocomotion>),
-		(With<CharacterController>, With<Player>),
-	>,
-) -> Option<Entity> {
-	if let Some(local) = local {
-		if actors.contains(local.entity()) {
-			return Some(local.entity());
-		}
-	}
-	actors.iter().map(|(entity, ..)| entity).min_by_key(|entity| entity.to_bits())
 }
 
 #[cfg(test)]

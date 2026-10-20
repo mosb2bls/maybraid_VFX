@@ -28,6 +28,7 @@ pub fn finish_produce(
 	pad.finish_digital();
 	pad.tick_holds(time.delta_secs());
 	pad.move_stick = pad.move_stick.clamp_length_max(1.0);
+	pad.look_throw = pad.look_throw.clamp_length_max(1.0);
 	pad.dpad = pad.dpad.clamp_length_max(1.0);
 }
 

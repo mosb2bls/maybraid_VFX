@@ -5,10 +5,12 @@ the current stick / trigger. Digital is a press or release edge. Chords are
 resolved here so consumers do not re-read the pad.
 
 Bind runs in [`ControllerPipeline::Bind`](../core/src/schedule.rs) from
-[`controllers/core`](../core/README.md). Intents are still a process-wide
-[`CharacterIntent`](src/intent.rs) broadcast. Ordinary locomotion consumes
-move / jump / sprint / stance onto one [`ActorTarget`](../core/src/actor.rs)
-in [`controllers/locomotion`](../locomotion/README.md). See
+[`controllers/core`](../core/README.md). Analog and physical A / B land on
+[`RoutedActorControl`](src/sample.rs) for one [`ActorTarget`](../core/src/actor.rs).
+Intents are still a process-wide [`CharacterIntent`](src/intent.rs) broadcast.
+Physical A / B stay distinct from semantic `Jump`. Ordinary locomotion consumes
+move / jump / sprint / stance onto that actor in
+[`controllers/locomotion`](../locomotion/README.md). See
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 `RightTrigger` + `X` is `PowerUseItem` and suppresses `StartInteraction`.

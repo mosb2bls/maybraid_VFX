@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 
 use bevy::prelude::*;
-use maybraid_input::{PadButton, VirtualPad};
+use maybraid_character_controller::{ActorControlSample, FaceButtonSample};
 
 use crate::ControlMode;
 
@@ -118,7 +118,7 @@ impl TanzRecognizer {
 		self.b_hold_emitted = false;
 	}
 
-	/// Consume one frame of left-stick + face-button state.
+	/// Consume one frame of left-stick + physical face-button state.
 	///
 	/// A and B rising edges, and the first crossing of the B-hold threshold,
 	/// each emit. A sustained direction emits once until rearm (neutral or a
@@ -128,11 +128,11 @@ impl TanzRecognizer {
 		&mut self,
 		dt: f32,
 		stick: Vec2,
-		pad: &VirtualPad,
+		face: TanzFaceSample,
 		cfg: &TanzRecognizerConfig,
 	) -> Option<CommittedGesture> {
 		let dt = dt.max(0.0);
-		if !pad.pressed(PadButton::B) {
+		if !face.b().pressed() {
 			self.b_hold_emitted = false;
 		}
 
@@ -179,7 +179,7 @@ impl TanzRecognizer {
 			}
 		}
 
-		let button = self.button_edge(pad, cfg);
+		let button = self.button_edge(face, cfg);
 		if button.is_none() && !direction_commit {
 			return None;
 		}
@@ -198,21 +198,59 @@ impl TanzRecognizer {
 		})
 	}
 
-	fn button_edge(&mut self, pad: &VirtualPad, cfg: &TanzRecognizerConfig) -> Option<TanzButton> {
-		if pad.just_pressed(PadButton::A) {
+	fn button_edge(
+		&mut self,
+		face: TanzFaceSample,
+		cfg: &TanzRecognizerConfig,
+	) -> Option<TanzButton> {
+		if face.a().just_pressed() {
 			return Some(TanzButton::APress);
 		}
-		if pad.just_pressed(PadButton::B) {
+		if face.b().just_pressed() {
 			return Some(TanzButton::BPress);
 		}
-		if pad.pressed(PadButton::B)
-			&& pad.hold_secs(PadButton::B) >= cfg.b_hold
-			&& !self.b_hold_emitted
-		{
+		if face.b().pressed() && face.b().hold_secs() >= cfg.b_hold && !self.b_hold_emitted {
 			self.b_hold_emitted = true;
 			return Some(TanzButton::BHold);
 		}
 		None
+	}
+}
+
+/// Physical A / B sample for recognition. Distinct from semantic Jump.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TanzFaceSample {
+	a: FaceButtonSample,
+	b: FaceButtonSample,
+}
+
+impl TanzFaceSample {
+	pub const fn new(a: FaceButtonSample, b: FaceButtonSample) -> Self {
+		Self { a, b }
+	}
+
+	pub fn from_control(sample: ActorControlSample) -> Self {
+		Self { a: sample.a(), b: sample.b() }
+	}
+
+	pub const fn a(self) -> FaceButtonSample {
+		self.a
+	}
+
+	pub const fn b(self) -> FaceButtonSample {
+		self.b
+	}
+
+	pub fn with_a_press(self) -> Self {
+		Self { a: FaceButtonSample::new(true, true, false, 0.0), b: self.b }
+	}
+
+	pub fn with_b_press(self) -> Self {
+		Self { a: self.a, b: FaceButtonSample::new(true, true, false, 0.0) }
+	}
+
+	pub fn with_b_hold(self, hold_secs: f32) -> Self {
+		Self { a: self.a, b: FaceButtonSample::new(true, false, false, hold_secs) }
 	}
 }
 
@@ -312,25 +350,8 @@ fn angle_between(a: Vec2, b: Vec2) -> f32 {
 mod tests {
 	use super::*;
 
-	fn pad_stick(stick: Vec2) -> VirtualPad {
-		let mut pad = VirtualPad::default();
-		pad.begin_frame();
-		pad.add_move(stick);
-		pad.finish_digital();
-		pad
-	}
-
-	fn pad_stick_button(stick: Vec2, button: PadButton) -> VirtualPad {
-		let mut pad = VirtualPad::default();
-		pad.begin_frame();
-		pad.add_move(stick);
-		pad.hold_digital(button);
-		pad.finish_digital();
-		pad
-	}
-
 	fn hold_left(recognizer: &mut TanzRecognizer, dt: f32, frames: usize) -> Vec<CommittedGesture> {
-		drive(recognizer, dt, frames, Vec2::NEG_X, &pad_stick(Vec2::NEG_X))
+		drive(recognizer, dt, frames, Vec2::NEG_X, TanzFaceSample::default())
 	}
 
 	fn drive(
@@ -338,12 +359,12 @@ mod tests {
 		dt: f32,
 		frames: usize,
 		stick: Vec2,
-		pad: &VirtualPad,
+		face: TanzFaceSample,
 	) -> Vec<CommittedGesture> {
 		let cfg = TanzRecognizerConfig::default();
 		let mut out = Vec::new();
 		for _ in 0..frames {
-			if let Some(gesture) = recognizer.sample(dt, stick, pad, &cfg) {
+			if let Some(gesture) = recognizer.sample(dt, stick, face, &cfg) {
 				out.push(gesture);
 			}
 		}
@@ -364,8 +385,8 @@ mod tests {
 	#[test]
 	fn small_stick_does_not_commit() -> anyhow::Result<()> {
 		let mut recognizer = TanzRecognizer::default();
-		let pad = pad_stick(Vec2::NEG_X * 0.3);
-		let events = drive(&mut recognizer, 0.016, 30, Vec2::NEG_X * 0.3, &pad);
+		let events =
+			drive(&mut recognizer, 0.016, 30, Vec2::NEG_X * 0.3, TanzFaceSample::default());
 		assert!(events.is_empty());
 		Ok(())
 	}
@@ -374,8 +395,7 @@ mod tests {
 	fn neutral_rearms_the_same_direction() -> anyhow::Result<()> {
 		let mut recognizer = TanzRecognizer::default();
 		assert_eq!(hold_left(&mut recognizer, 0.016, 12).len(), 1);
-		let rest = pad_stick(Vec2::ZERO);
-		assert!(drive(&mut recognizer, 0.016, 4, Vec2::ZERO, &rest).is_empty());
+		assert!(drive(&mut recognizer, 0.016, 4, Vec2::ZERO, TanzFaceSample::default()).is_empty());
 		assert_eq!(hold_left(&mut recognizer, 0.016, 12).len(), 1);
 		Ok(())
 	}
@@ -384,8 +404,7 @@ mod tests {
 	fn sustained_direction_change_commits_without_neutral() -> anyhow::Result<()> {
 		let mut recognizer = TanzRecognizer::default();
 		assert_eq!(hold_left(&mut recognizer, 0.016, 12).len(), 1);
-		let pad = pad_stick(Vec2::Y);
-		let events = drive(&mut recognizer, 0.016, 12, Vec2::Y, &pad);
+		let events = drive(&mut recognizer, 0.016, 12, Vec2::Y, TanzFaceSample::default());
 		assert_eq!(events.len(), 1);
 		assert!(events[0].direction.y > 0.9);
 		assert_eq!(events[0].button, TanzButton::None);
@@ -396,17 +415,16 @@ mod tests {
 	fn a_press_uses_the_held_direction() -> anyhow::Result<()> {
 		let mut recognizer = TanzRecognizer::default();
 		assert_eq!(hold_left(&mut recognizer, 0.016, 12).len(), 1);
-		let mut pad = pad_stick_button(Vec2::NEG_X, PadButton::A);
-		pad.tick_holds(0.0);
-		let events = drive(&mut recognizer, 0.016, 1, Vec2::NEG_X, &pad);
+		let events =
+			drive(&mut recognizer, 0.016, 1, Vec2::NEG_X, TanzFaceSample::default().with_a_press());
 		assert_eq!(events.len(), 1);
 		assert_eq!(events[0].button, TanzButton::APress);
 		assert!(events[0].direction.x < -0.9);
-		pad.begin_frame();
-		pad.add_move(Vec2::NEG_X);
-		pad.hold_digital(PadButton::A);
-		pad.finish_digital();
-		assert!(drive(&mut recognizer, 0.016, 4, Vec2::NEG_X, &pad).is_empty());
+		let held_a = TanzFaceSample::new(
+			FaceButtonSample::new(true, false, false, 0.016),
+			FaceButtonSample::default(),
+		);
+		assert!(drive(&mut recognizer, 0.016, 4, Vec2::NEG_X, held_a).is_empty());
 		Ok(())
 	}
 
@@ -414,23 +432,19 @@ mod tests {
 	fn b_press_and_b_hold_are_distinct() -> anyhow::Result<()> {
 		let mut recognizer = TanzRecognizer::default();
 		let cfg = TanzRecognizerConfig::default();
-		let mut pad = pad_stick_button(Vec2::ZERO, PadButton::B);
-		let press = recognizer.sample(0.016, Vec2::ZERO, &pad, &cfg);
+		let press =
+			recognizer.sample(0.016, Vec2::ZERO, TanzFaceSample::default().with_b_press(), &cfg);
 		assert_eq!(press.map(|gesture| gesture.button), Some(TanzButton::BPress));
 
-		pad.begin_frame();
-		pad.hold_digital(PadButton::B);
-		pad.finish_digital();
-		pad.tick_holds(0.16);
-		assert!(recognizer.sample(0.16, Vec2::ZERO, &pad, &cfg).is_none());
+		let mid = TanzFaceSample::default().with_b_hold(0.16);
+		assert!(recognizer.sample(0.16, Vec2::ZERO, mid, &cfg).is_none());
 
-		pad.begin_frame();
-		pad.hold_digital(PadButton::B);
-		pad.finish_digital();
-		pad.tick_holds(0.16);
-		let hold = recognizer.sample(0.16, Vec2::ZERO, &pad, &cfg);
+		let hold =
+			recognizer.sample(0.16, Vec2::ZERO, TanzFaceSample::default().with_b_hold(0.32), &cfg);
 		assert_eq!(hold.map(|gesture| gesture.button), Some(TanzButton::BHold));
-		assert!(recognizer.sample(0.16, Vec2::ZERO, &pad, &cfg).is_none());
+		assert!(recognizer
+			.sample(0.16, Vec2::ZERO, TanzFaceSample::default().with_b_hold(0.48), &cfg)
+			.is_none());
 		Ok(())
 	}
 
@@ -438,12 +452,11 @@ mod tests {
 	fn coherence_rejects_alternating_movement() -> anyhow::Result<()> {
 		let mut recognizer = TanzRecognizer::default();
 		let cfg = TanzRecognizerConfig::default();
-		let left = pad_stick(Vec2::NEG_X);
-		let right = pad_stick(Vec2::X);
+		let rest = TanzFaceSample::default();
 		let mut events = Vec::new();
 		for i in 0..20 {
-			let (stick, pad) = if i % 2 == 0 { (Vec2::NEG_X, &left) } else { (Vec2::X, &right) };
-			if let Some(gesture) = recognizer.sample(0.016, stick, pad, &cfg) {
+			let stick = if i % 2 == 0 { Vec2::NEG_X } else { Vec2::X };
+			if let Some(gesture) = recognizer.sample(0.016, stick, rest, &cfg) {
 				events.push(gesture);
 			}
 		}
@@ -454,21 +467,21 @@ mod tests {
 	#[test]
 	fn frame_rate_does_not_change_commitment() -> anyhow::Result<()> {
 		let cfg = TanzRecognizerConfig::default();
-		let pad = pad_stick(Vec2::Y);
+		let rest = TanzFaceSample::default();
 		let mut slow = TanzRecognizer::default();
 		let mut fast = TanzRecognizer::default();
 		let mut slow_events = 0;
 		let mut fast_events = 0;
 		let mut t = 0.0;
 		while t < 0.20 {
-			if slow.sample(1.0 / 30.0, Vec2::Y, &pad, &cfg).is_some() {
+			if slow.sample(1.0 / 30.0, Vec2::Y, rest, &cfg).is_some() {
 				slow_events += 1;
 			}
 			t += 1.0 / 30.0;
 		}
 		t = 0.0;
 		while t < 0.20 {
-			if fast.sample(1.0 / 120.0, Vec2::Y, &pad, &cfg).is_some() {
+			if fast.sample(1.0 / 120.0, Vec2::Y, rest, &cfg).is_some() {
 				fast_events += 1;
 			}
 			t += 1.0 / 120.0;
@@ -482,19 +495,18 @@ mod tests {
 	fn simultaneous_button_and_direction_do_not_duplicate() -> anyhow::Result<()> {
 		let mut recognizer = TanzRecognizer::default();
 		let cfg = TanzRecognizerConfig::default();
-		let rest = pad_stick(Vec2::Y);
+		let rest = TanzFaceSample::default();
 		for _ in 0..7 {
-			assert!(recognizer.sample(0.016, Vec2::Y, &rest, &cfg).is_none());
+			assert!(recognizer.sample(0.016, Vec2::Y, rest, &cfg).is_none());
 		}
-		let mut press = pad_stick_button(Vec2::Y, PadButton::A);
-		let first = recognizer.sample(0.016, Vec2::Y, &press, &cfg);
+		let first = recognizer.sample(0.016, Vec2::Y, rest.with_a_press(), &cfg);
 		assert_eq!(first.map(|gesture| gesture.button), Some(TanzButton::APress));
 		assert!(first.is_some_and(|gesture| gesture.direction.y > 0.9));
-		press.begin_frame();
-		press.add_move(Vec2::Y);
-		press.hold_digital(PadButton::A);
-		press.finish_digital();
-		assert!(recognizer.sample(0.016, Vec2::Y, &press, &cfg).is_none());
+		let held_a = TanzFaceSample::new(
+			FaceButtonSample::new(true, false, false, 0.016),
+			FaceButtonSample::default(),
+		);
+		assert!(recognizer.sample(0.016, Vec2::Y, held_a, &cfg).is_none());
 		Ok(())
 	}
 

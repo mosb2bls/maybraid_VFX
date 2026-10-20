@@ -28,6 +28,18 @@ impl LocalActor {
 	pub fn matches(self, entity: Entity) -> bool {
 		self.0.matches(entity)
 	}
+
+	/// The installed local pad actor, or the lowest-id candidate when hosts
+	/// have not inserted [`LocalActor`].
+	pub fn resolve(
+		local: Option<&Self>,
+		candidates: impl IntoIterator<Item = Entity>,
+	) -> Option<Entity> {
+		if let Some(local) = local {
+			return Some(local.entity());
+		}
+		candidates.into_iter().min_by_key(|entity| entity.to_bits())
+	}
 }
 
 impl ActorTarget {
@@ -70,5 +82,13 @@ mod tests {
 		assert!(local.matches(entity));
 		assert_eq!(local.entity(), entity);
 		assert_eq!(local.target(), ActorTarget::new(entity));
+	}
+
+	#[test]
+	fn resolve_prefers_the_installed_local_actor() {
+		let local = Entity::from_bits(9);
+		let other = Entity::from_bits(1);
+		assert_eq!(LocalActor::resolve(Some(&LocalActor::new(local)), [other, local]), Some(local));
+		assert_eq!(LocalActor::resolve(None, [local, other]), Some(other));
 	}
 }

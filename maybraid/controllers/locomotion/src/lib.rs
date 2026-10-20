@@ -6,8 +6,15 @@ pub use maybraid_controllers_core::{ActorTarget, LocalActor};
 pub use standard::interpret_standard_locomotion;
 
 use bevy::prelude::*;
-use maybraid_character_controller::CharacterIntent;
-use maybraid_controllers_core::{ControllersCorePlugin, MotorRequestStage};
+use maybraid_character_controller::{
+	ActorControlSample, CharacterBindSystems, CharacterControlSystems, CharacterIntent,
+	RoutedActorControl,
+};
+use maybraid_controllers_core::{
+	ControllerPipeline, ControllersCorePlugin, InputSource, MotorRequestStage, Routed,
+};
+use maybraid_input::VirtualPad;
+use player::Player;
 
 /// Writes the Standard motor slot for the local player.
 pub struct LocomotionControllerPlugin;
@@ -18,9 +25,40 @@ impl Plugin for LocomotionControllerPlugin {
 			app.add_plugins(ControllersCorePlugin);
 		}
 		app.init_resource::<ButtonInput<MouseButton>>()
+			.init_resource::<RoutedActorControl>()
 			.add_message::<CharacterIntent>()
+			.add_systems(
+				Update,
+				route_actor_control_samples
+					.in_set(ControllerPipeline::Bind)
+					.before(CharacterControlSystems)
+					.before(CharacterBindSystems::Route),
+			)
 			.add_systems(Update, interpret_standard_locomotion.in_set(MotorRequestStage::Standard));
 	}
+}
+
+/// Route the local pad onto one player. Hosts may set [`LocalActor`]; otherwise
+/// this is the lowest-id [`Player`].
+pub fn route_actor_control_samples(
+	pad: Option<Res<VirtualPad>>,
+	local: Option<Res<LocalActor>>,
+	players: Query<Entity, With<Player>>,
+	mut routed: ResMut<RoutedActorControl>,
+) {
+	let Some(target) = LocalActor::resolve(local.as_deref(), players.iter()) else {
+		routed.clear();
+		return;
+	};
+	let Some(pad) = pad else {
+		routed.clear();
+		return;
+	};
+	routed.set(Routed::to_actor(
+		InputSource::local_pad(),
+		ActorTarget::new(target),
+		ActorControlSample::from_pad(&pad),
+	));
 }
 
 #[cfg(test)]
@@ -141,5 +179,36 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(LocomotionControllerPlugin);
 		assert!(app.is_plugin_added::<ControllersCorePlugin>());
+	}
+
+	#[test]
+	fn route_samples_address_the_local_player_only() -> anyhow::Result<()> {
+		use maybraid_character_controller::RoutedActorControl;
+		use maybraid_input::{PadButton, VirtualPad};
+
+		let mut app = App::new();
+		app.init_resource::<RoutedActorControl>()
+			.init_resource::<VirtualPad>()
+			.add_systems(Update, route_actor_control_samples);
+		let player = app.world_mut().spawn(Player).id();
+		let other = app.world_mut().spawn(Player).id();
+		app.world_mut().insert_resource(LocalActor::new(player));
+		{
+			let mut pad = app.world_mut().resource_mut::<VirtualPad>();
+			pad.begin_frame();
+			pad.add_move(Vec2::NEG_X);
+			pad.add_look_throw(Vec2::Y);
+			pad.hold_digital(PadButton::A);
+			pad.finish_digital();
+		}
+		app.update();
+		let routed = app.world().resource::<RoutedActorControl>();
+		assert!(routed.addresses(player));
+		assert!(!routed.addresses(other));
+		let sample = routed.payload().ok_or_else(|| anyhow::anyhow!("sample"))?;
+		assert_eq!(sample.move_stick(), Vec2::NEG_X);
+		assert_eq!(sample.look_throw(), Vec2::Y);
+		assert!(sample.a().just_pressed());
+		Ok(())
 	}
 }

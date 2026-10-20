@@ -7053,6 +7053,7 @@ dependencies = [
  "bevy",
  "maybraid-character-controller",
  "maybraid-controllers-core",
+ "maybraid-input",
  "player",
 ]
 
@@ -7083,7 +7084,7 @@ dependencies = [
  "item-icons",
  "lod-avian",
  "maybraid-character-controller",
- "maybraid-input",
+ "maybraid-controllers-core",
  "menu-components",
  "noise",
  "player",
@@ -11538,7 +11539,7 @@ dependencies = [
  "item-icons",
  "maybraid-character-controller",
  "maybraid-controllers-core",
- "maybraid-input",
+ "maybraid-locomotion-controller",
  "maybraid-skill-map",
  "menu-components",
  "player",

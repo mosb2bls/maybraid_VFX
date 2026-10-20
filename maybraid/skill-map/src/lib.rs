@@ -35,6 +35,7 @@ pub use burst::{
 pub use controller::{
 	skill_map_steer_held, SkillMapController, SkillMapFlick, SkillMapSteerPolicy,
 };
+pub use cursor::apply_flicks;
 pub use effects::{
 	forget_chance, FIREBALL_COLOR, FIREBALL_GRAVITY, FIREBALL_RADIUS, FIREBALL_SPEED,
 };
@@ -51,8 +52,8 @@ pub use user::{
 	SkillMapSession, SkillMapSteerLock, SkillMapUser, SkillMapUserSettings,
 };
 pub use viewport::{
-	spawn_skill_map_view, Debraid, SkillMapFirearmHud, SkillMapViewport, SpawnedSkillMapView,
-	SKILL_MAP_RB_ICON, SKILL_MAP_RT_ICON, SKILL_MAP_Y_ICON,
+	spawn_skill_map_view, Debraid, SkillMapFirearmHud, SkillMapViewport, SkillMapViewportCamera,
+	SpawnedSkillMapView, SKILL_MAP_RB_ICON, SKILL_MAP_RT_ICON, SKILL_MAP_Y_ICON,
 };
 
 /// When `false`, the map is hidden and claims / steering are ignored.

@@ -10,10 +10,33 @@ use characters::{
 use damage::Health;
 use player::{MotorIntent, MotorSample, PlayerLook, SpeedCapRequest, SprintRequest};
 
+use maybraid_controllers_core::ActorTarget;
+
 use crate::actions::{dash_ground_speed, TanzAction};
 use crate::input::TanzInput;
 use crate::stack::{TanzId, TanzStack};
 use crate::{look_wish, look_yaw, ControlMode, TanzDefinitionExt, TanzUser};
+
+/// Selection result. Execution consumes this; matching does not submit.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExecuteTanz {
+	actor: ActorTarget,
+	id: TanzId,
+}
+
+impl ExecuteTanz {
+	pub fn new(actor: impl Into<ActorTarget>, id: TanzId) -> Self {
+		Self { actor: actor.into(), id }
+	}
+
+	pub const fn actor(self) -> ActorTarget {
+		self.actor
+	}
+
+	pub const fn id(self) -> TanzId {
+		self.id
+	}
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TanzPhase {
@@ -165,11 +188,12 @@ enum TanzMoveDrive {
 }
 
 pub fn match_tanz_inputs(
-	mut users: Query<(&TanzUser, &TanzStack, &mut TanzExecution)>,
+	users: Query<(&TanzUser, &TanzStack, &TanzExecution)>,
 	mut inputs: MessageReader<TanzInput>,
+	mut execute: MessageWriter<ExecuteTanz>,
 ) {
 	for input in inputs.read() {
-		let Ok((user, stack, mut execution)) = users.get_mut(input.user) else {
+		let Ok((user, stack, execution)) = users.get(input.user) else {
 			continue;
 		};
 		if !user.mode.is_tanzer() {
@@ -178,7 +202,19 @@ pub fn match_tanz_inputs(
 		let Some(id) = stack.match_input(input, |id| execution.cooling(id)) else {
 			continue;
 		};
-		execution.submit(id);
+		execute.write(ExecuteTanz::new(input.user, id));
+	}
+}
+
+pub fn submit_tanz_executions(
+	mut users: Query<&mut TanzExecution>,
+	mut execute: MessageReader<ExecuteTanz>,
+) {
+	for request in execute.read() {
+		let Ok(mut execution) = users.get_mut(request.actor().entity()) else {
+			continue;
+		};
+		execution.submit(request.id());
 	}
 }
 
@@ -337,7 +373,8 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
 			.add_message::<TanzInput>()
-			.add_systems(Update, match_tanz_inputs);
+			.add_message::<ExecuteTanz>()
+			.add_systems(Update, (match_tanz_inputs, submit_tanz_executions).chain());
 		let user = app
 			.world_mut()
 			.spawn((

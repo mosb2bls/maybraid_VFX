@@ -2,9 +2,15 @@
 
 pub mod intent;
 pub mod produce;
+pub mod sample;
 
 pub use intent::{CharacterIntent, InventoryCyclingCategory};
-pub use maybraid_controllers_core::{ControllerPipeline, MotorRequestStage};
+pub use maybraid_controllers_core::{
+	ActorTarget, ControllerPipeline, InputSource, LocalActor, MotorRequestStage, Routed,
+};
+pub use sample::{
+	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,
+};
 
 use bevy::prelude::*;
 use maybraid_controllers_core::ControllersCorePlugin;
@@ -41,6 +47,15 @@ impl Default for OrdinaryLocomotion {
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CharacterControlSystems;
 
+/// Ordered Bind work inside [`CharacterControlSystems`].
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CharacterBindSystems {
+	/// Stamp [`RoutedActorControl`] from the local pad.
+	Route,
+	/// Broadcast [`CharacterIntent`] (still untargeted).
+	Produce,
+}
+
 pub struct CharacterControllerPlugin;
 
 impl Plugin for CharacterControllerPlugin {
@@ -53,8 +68,19 @@ impl Plugin for CharacterControllerPlugin {
 		}
 		app.add_message::<CharacterIntent>()
 			.init_resource::<OrdinaryLocomotionEnabled>()
+			.init_resource::<RoutedActorControl>()
 			.configure_sets(Update, CharacterControlSystems.in_set(ControllerPipeline::Bind))
-			.add_systems(Update, produce_character_intents.in_set(CharacterControlSystems));
+			.configure_sets(
+				Update,
+				(
+					CharacterBindSystems::Route.in_set(CharacterControlSystems),
+					CharacterBindSystems::Produce
+						.in_set(CharacterControlSystems)
+						.after(CharacterBindSystems::Route),
+				),
+			)
+			.add_systems(Update, produce_actor_control_samples.in_set(CharacterBindSystems::Route))
+			.add_systems(Update, produce_character_intents.in_set(CharacterBindSystems::Produce));
 	}
 }
 

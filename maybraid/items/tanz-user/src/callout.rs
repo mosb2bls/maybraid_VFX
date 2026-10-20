@@ -94,7 +94,10 @@ mod tests {
 	use super::*;
 	use crate::input::TanzButton;
 	use crate::stack::TanzStack;
-	use crate::{match_tanz_inputs, ControlMode, TanzDefinitionExt, TanzInput, TanzUser};
+	use crate::{
+		match_tanz_inputs, submit_tanz_executions, ControlMode, ExecuteTanz, TanzDefinitionExt,
+		TanzInput, TanzUser,
+	};
 
 	fn matching_input(user: Entity, id: TanzId) -> TanzInput {
 		let definition = id.definition();
@@ -111,10 +114,17 @@ mod tests {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
 			.add_message::<TanzInput>()
+			.add_message::<ExecuteTanz>()
 			.init_resource::<TanzCallout>()
 			.add_systems(
 				Update,
-				(match_tanz_inputs, announce_tanz_callouts, tick_tanz_callout).chain(),
+				(
+					match_tanz_inputs,
+					submit_tanz_executions,
+					announce_tanz_callouts,
+					tick_tanz_callout,
+				)
+					.chain(),
 			);
 		app
 	}

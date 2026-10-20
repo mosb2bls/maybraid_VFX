@@ -22,7 +22,7 @@ damage = { workspace = true }
 evasion-intelligence = { workspace = true }
 lod-avian = { workspace = true }
 maybraid-character-controller = { workspace = true }
-maybraid-input = { workspace = true }
+maybraid-controllers-core = { workspace = true }
 menu-components = { workspace = true }
 noise = { workspace = true }
 player = { workspace = true }

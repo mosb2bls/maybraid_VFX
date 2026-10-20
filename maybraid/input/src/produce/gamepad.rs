@@ -62,6 +62,7 @@ pub fn produce_gamepad(
 		pad.add_move(GamepadAxes::move_stick(gamepad, config.stick_deadzone));
 
 		let look = GamepadAxes::look_stick(gamepad, config.stick_deadzone);
+		pad.add_look_throw(look);
 		pad.add_look(Vec2::new(look.x, -look.y) * config.gamepad_look_pixels_per_sec * dt);
 
 		let focus = gamepad.get(GamepadButton::LeftTrigger2).unwrap_or(0.0).clamp(0.0, 1.0);

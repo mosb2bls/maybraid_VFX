@@ -1,11 +1,11 @@
 //! Stick-flick detector. Either stick while **RB** is held; a hold is not a flick.
-//! Emits [`SkillMapFlick`].
+//! Emits actor/session-addressed [`SkillMapFlick`].
 
 use bevy::prelude::*;
-use maybraid_input::analog::Deadzone;
-use maybraid_input::produce::gamepad::GamepadAxes;
-use maybraid_input::{PadButton, VirtualPad, VirtualPadConfig};
+use maybraid_character_controller::{ActorControlSample, OrdinaryLocomotion, RoutedActorControl};
+use maybraid_controllers_core::ActorTarget;
 
+use crate::user::SkillMapUser;
 use crate::SkillMapEnabled;
 
 /// Rest nest. Below this the stick has come home.
@@ -18,7 +18,36 @@ pub const FLICK_MAX_SECS: f32 = 0.32;
 
 /// One completed flick. Direction is the stick throw; length is how hard (0..1+).
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
-pub struct SkillMapFlick(pub Vec2);
+pub struct SkillMapFlick {
+	actor: ActorTarget,
+	session: Option<Entity>,
+	throw: Vec2,
+}
+
+impl SkillMapFlick {
+	pub fn new(actor: impl Into<ActorTarget>, session: Option<Entity>, throw: Vec2) -> Self {
+		Self { actor: actor.into(), session, throw }
+	}
+
+	pub const fn actor(self) -> ActorTarget {
+		self.actor
+	}
+
+	pub const fn session(self) -> Option<Entity> {
+		self.session
+	}
+
+	pub const fn throw(self) -> Vec2 {
+		self.throw
+	}
+
+	pub fn addresses(self, user: Entity, session: Entity) -> bool {
+		if let Some(target) = self.session {
+			return target == session;
+		}
+		self.actor.matches(user)
+	}
+}
 
 #[derive(Clone, Debug, Default)]
 struct FlickLane {
@@ -80,8 +109,8 @@ pub enum SkillMapSteerPolicy {
 
 /// True while the skill-map steer modifier is down (Xbox **RB** / keyboard **V**)
 /// and the Tanzer bumper chord is not held.
-pub fn skill_map_steer_held(pad: &VirtualPad) -> bool {
-	pad.pressed(PadButton::BumperFire) && !pad.bumper_chord_held()
+pub fn skill_map_steer_held(sample: ActorControlSample) -> bool {
+	sample.skill_map_steer_held()
 }
 
 /// Watches move and look sticks. One flick per sample, stronger stick wins if both land.
@@ -111,33 +140,40 @@ impl SkillMapController {
 
 pub fn detect_skill_map_flicks(
 	time: Res<Time>,
-	pad: Option<Res<VirtualPad>>,
-	config: Option<Res<VirtualPadConfig>>,
-	gamepads: Query<&Gamepad>,
+	routed: Option<Res<RoutedActorControl>>,
 	enabled: Res<SkillMapEnabled>,
-	policy: Option<Res<SkillMapSteerPolicy>>,
+	users: Query<(Entity, &SkillMapUser, Option<&OrdinaryLocomotion>)>,
 	mut controller: ResMut<SkillMapController>,
 	mut flicks: MessageWriter<SkillMapFlick>,
 ) {
-	if !enabled.0 || policy.is_some_and(|policy| *policy == SkillMapSteerPolicy::Tanz) {
+	if !enabled.0 {
 		controller.reset();
 		return;
 	}
-	let Some(pad) = pad else {
+	let Some(routed) = routed.as_deref() else {
+		controller.reset();
 		return;
 	};
-	if !skill_map_steer_held(&pad) {
+	let Some(actor) = routed.actor() else {
+		controller.reset();
+		return;
+	};
+	let Some(sample) = routed.payload() else {
+		controller.reset();
+		return;
+	};
+	let Ok((_, user, ordinary)) = users.get(actor.entity()) else {
+		controller.reset();
+		return;
+	};
+	if ordinary.is_some_and(|flag| !flag.0) || !skill_map_steer_held(sample) {
 		controller.reset();
 		return;
 	}
-	let deadzone = config.map(|c| c.stick_deadzone).unwrap_or(Deadzone(0.15));
-	let mut look = Vec2::ZERO;
-	for gamepad in &gamepads {
-		look += GamepadAxes::look_stick(gamepad, deadzone);
-	}
-	let look = look.clamp_length_max(1.0);
-	if let Some(flick) = controller.sample(time.elapsed_secs(), pad.move_stick, look) {
-		flicks.write(SkillMapFlick(flick));
+	if let Some(flick) =
+		controller.sample(time.elapsed_secs(), sample.move_stick(), sample.look_throw())
+	{
+		flicks.write(SkillMapFlick::new(actor, Some(user.maps), flick));
 	}
 }
 
@@ -183,22 +219,13 @@ mod tests {
 
 	#[test]
 	fn rb_is_the_steer_hold() {
-		let mut pad = VirtualPad::default();
-		assert!(!skill_map_steer_held(&pad));
-		pad.begin_frame();
-		pad.hold_digital(PadButton::BumperFire);
-		pad.finish_digital();
-		assert!(skill_map_steer_held(&pad));
+		assert!(!skill_map_steer_held(ActorControlSample::default()));
+		assert!(skill_map_steer_held(ActorControlSample::default().with_bumpers(false, true)));
 	}
 
 	#[test]
 	fn bumper_chord_is_not_the_steer_hold() {
-		let mut pad = VirtualPad::default();
-		pad.begin_frame();
-		pad.hold_digital(PadButton::BumperFocus);
-		pad.hold_digital(PadButton::BumperFire);
-		pad.finish_digital();
-		assert!(!skill_map_steer_held(&pad));
+		assert!(!skill_map_steer_held(ActorControlSample::default().with_bumpers(true, true)));
 	}
 
 	#[test]

@@ -40,9 +40,10 @@ NPC movement controller (A6) → MotorIntent
 
 Phase 2 realizes ordinary locomotion (B11), the shared motor contract
 (`MotorIntent` / one resolver / one apply), NPC request + recovery /
-separation modifiers (A6), and WorldFilter suppress. Character produce is
-still a broadcast adapter; camera / item / Tanz gesture chains stay for
-later phases.
+separation modifiers (A6), and WorldFilter suppress. Phase 3 realizes Tanz
+mode switch + recognition on routed actor samples, `ExecuteTanz` selection,
+and actor/session-addressed `SkillMapFlick`. Character produce is still a
+broadcast adapter; camera / item / shell chains stay for later phases.
 
 ## Dependency direction
 
@@ -118,7 +119,7 @@ the current owner. Later phases change the owner column, not the role id.
 | A2 | Virtual-pad controller | `VirtualPad`, `VirtualPadSystems` | A1 producers + `PadOverlay` | A3–A5, plus leftover hardware readers below | `VirtualPadPlugin` | Canonical analog + edges. |
 | A3 | Input-routing controller | `InputSource`, `Routed<T>`, `RouteTarget` | A2 (`InputSource::LocalPad`) | A4 / A5 / U5 | `ControllersCorePlugin` | New in phase 1. One local pad. |
 | A4 | Menu controller | `MenuControllerPlugin`, `refresh_menu_focus`, `dispatch_menu_nav` | A2 `MenuNavPad` | M2 via `MenuNavImpulse` | `MenuControllerPlugin` | Targeted path (see M1). |
-| A5 | Character controller | `produce_character_intents` → `CharacterIntent` | A2 `VirtualPad` | B* consumers via broadcast `Messages` | `CharacterControllerPlugin` | Bind only; still untargeted. |
+| A5 | Character controller | `produce_character_intents` → `CharacterIntent`; `RoutedActorControl` | A2 `VirtualPad` | B* intents (broadcast) + B12 / B13 routed sample | `CharacterControllerPlugin` | Bind. Intents still untargeted; analog/A/B are actor-addressed. |
 | A6 | NPC movement controller | `intelligence::movement::drive_movement` | planner / `MovementIntelligence` | `MotorIntent` NPC slot | movement-intelligence plugin | **Phase 2.** Declares; does not write `MoveWish`. |
 
 ### B — character / actor samples
@@ -136,8 +137,8 @@ the current owner. Later phases change the owner column, not the role id.
 | B9 | Inventory | `CharacterIntent::Inventory` | A5 | E2 `stash.rs` | character crate | Broadcast. |
 | B10 | Toggle map | `CharacterIntent::ToggleMap` | A5 | E3 `map_view.rs` | character crate | Broadcast. |
 | B11 | Ordinary locomotion | `controllers/locomotion` `interpret_standard_locomotion` | A5 + `LocalActor` / lowest-id `Player` | `MotorIntent` Standard slot | `LocomotionControllerPlugin` | **Phase 2.** One actor. |
-| B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` reading `VirtualPad` | Tanz match + skill-map fan-out | `TanzUser` component | Actor field exists; pad read is still global. Phase 3. |
-| B13 | Standard flick | `SkillMapFlick` | `SkillMapController::detect_skill_map_flicks` | skill-map interpreter | `SkillMapController` resource | Untargeted message; also reads raw `Gamepad`. Phase 3. |
+| B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` from `RoutedActorControl` | Tanz match → `ExecuteTanz`; skill-map fan-out | `TanzUser` component | **Phase 3.** One routed actor; physical A/B, not Jump. |
+| B13 | Standard flick | `SkillMapFlick` | `SkillMapController::detect_skill_map_flicks` from `RoutedActorControl` | skill-map interpreter | `SkillMapController` resource | **Phase 3.** Actor/session-addressed; `look_throw`, not raw `Gamepad`. |
 
 ### C — camera interpreter
 
@@ -177,7 +178,7 @@ the current owner. Later phases change the owner column, not the role id.
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
 | U1 | Source routing | `InputSource` | A3 | `Routed`, `CaptureLayer` | `controllers/core` | Local pad only. |
-| U2 | Actor routing | `ActorTarget`, `LocalActor` | locomotion / hosts | B11 motor | `controllers/core` | **Phase 2.** Local pad actor. |
+| U2 | Actor routing | `ActorTarget`, `LocalActor`, `RoutedActorControl` | locomotion / hosts | B11 / B12 / B13 | `controllers/core` + character Bind | **Phase 3.** Local pad actor. |
 | U3 | UI routing | `UiTarget`, `RouteTarget::Ui` | A4 | M1 / M2 | `controllers/core` + menu | Used by the migrated menu path. |
 | U4 | Focus pick | `MenuController::pick_focus` / `resolve` | screen subtree | A4 | `MenuController` | Overlay > HUD > text. |
 | U5 | Scoped capture | `CaptureStack`, `CaptureLayer`, `CaptureKind` | A4 `refresh_menu_focus` | A4 `dispatch_menu_nav` | `ControllersCorePlugin` | Menu-nav layer only. Nested pop is implemented; hosts do not yet nest text/overlay independently. Phase 4. |
@@ -208,7 +209,10 @@ Who currently writes the live motor / pose bits that interpreters should own.
 |---|---|---|---|---|
 | `CharacterIntent` | `produce_character_intents` | `controllers/character/src/produce.rs` | `OrdinaryLocomotionEnabled`, `PadGameplayEnabled`, `MenuOwnsBack` | A5 Bind. Single producer. Becomes `Routed` per actor. |
 | `MotorIntent` Standard slot | `interpret_standard_locomotion` | `controllers/locomotion/src/standard.rs` | `LocalActor` / lowest-id `Player`; per-actor `OrdinaryLocomotion` | P3 Standard. One actor. |
+| `RoutedActorControl` | `produce_actor_control_samples` / `route_actor_control_samples` | `controllers/character` + `controllers/locomotion` | `LocalActor` / lowest-id `Player` | Bind. Analog + physical A/B for one actor. |
+| `ExecuteTanz` | `match_tanz_inputs` | `items/tanz-user/src/execute.rs` | ordered `TanzStack` + cooldown | Selection only. Execution submits. |
 | `MotorIntent` Tanz slot | `apply_tanz_movement` | `items/tanz-user/src/execute.rs` | `TanzUser.mode.is_tanzer()` | P3 Tanz. Declares; apply owns cap / sprint release. |
+| `SkillMapFlick` | Tanz `publish_tanz_map_inputs` / Standard `detect_skill_map_flicks` | `tanz-user` / `skill-map` | actor + optional session | Independent of Tanz match. |
 | `MotorIntent` suppress | `apply_world_motor_filter` | `world/lib/src/control.rs` | pause / text / map / non-character mode | P3 WorldFilter. Player only; zeros leftover vegetation `MoveWish`. |
 | `MotorIntent` NPC slot | `drive_movement` | `intelligence/movement` | `MovementIntelligence` | A6. Declares. |
 | `MotorIntent` recovery | `realize_movement` | `movement-realization` | `Without<Player>` | P3 modifier. |
@@ -230,10 +234,8 @@ phase. Phase 1 inventories them and migrates menu dispatch only.
 |---|---|---|---|
 | `controllers/character/src/produce.rs` | `VirtualPad` | A2 (this **is** the character Bind reader) | keep; later route the output |
 | `controllers/menu/src/dispatch.rs` | `MenuNavPad` (derived, not raw HID) | A2 surface | keep |
-| `items/tanz-user/src/lib.rs` `toggle_control_mode` / `recognize_tanz_inputs` | `VirtualPad` | routed actor sample | 3 |
-| `items/tanz-user/src/input.rs` | `VirtualPad` in the recognizer | same | 3 |
-| `skill-map/src/controller.rs` `detect_skill_map_flicks` | `VirtualPad` + raw `Query<&Gamepad>` | routed flick | 3 |
-| `skill-map/src/cursor.rs` `sync_skill_map_held` | `VirtualPad` | routed modifier | 3 |
+| `items/tanz-user` | — | `RoutedActorControl` (A5 / U2) | **Phase 3 migrated** |
+| `skill-map/src/controller.rs` / `cursor.rs` | — | `RoutedActorControl` + addressed `SkillMapFlick` | **Phase 3 migrated** |
 | `items/firearm-user/src/fire.rs` | `VirtualPad` + `MouseButton` | D1 / B5 | 5 |
 | `game/src/lib.rs` `toggle_world_pause` | `VirtualPad` (A vs Start) | B8 | 4 |
 | `world/lib/src/player_lifecycle.rs` `drive_respawn_picker` | `VirtualPad` stick / D-pad | shell | 5 |
@@ -259,8 +261,8 @@ applies the last sample to **every** matching entity.
 | `apply_look_intents` | broadcast → every `FollowCamera` | adapter | 5 |
 | `apply_fire_intents` | pad → every `FirearmUser` with `Player` | adapter | 5 |
 | `grenade_user::throw` | broadcast `UseItem` | adapter | 5 |
-| `SkillMapFlick` | untargeted message | adapter | 3 |
-| `TanzInput` | message **with** `user` but produced from one global pad for every Tanzer | half-targeted | 3 |
+| `SkillMapFlick` | actor/session-addressed | **Phase 3 migrated** | — |
+| `TanzInput` | produced from `RoutedActorControl` for one actor | **Phase 3 migrated** | — |
 | `drive_movement` | each NPC declares its own `MotorIntent` (OK) from a planner | **Phase 2** | keep |
 
 ## Temporary adapters
@@ -279,7 +281,7 @@ Do not add a second copy of these. Remove in the named phase.
 | `exclusive_nav_menu` free function | Thin wrapper around `ExclusiveNav::resolve` for existing imports. | Phase 4. |
 | `PadGameplayEnabled` + `KeyboardPadMap` lanes | Global table, not participation install. | Phase 4. |
 | `OrdinaryLocomotionEnabled` pad-level resource | Derived from the local `Player` Tanz mode. Per-actor `OrdinaryLocomotion` is the participation bit. | Phase 4 capability table. |
-| Direct `VirtualPad` / `Gamepad` reads in the hardware table | Bind is the only blessed reader. | Phases 3 and 5. |
+| Direct `VirtualPad` / `Gamepad` reads in the hardware table | Bind is the only blessed reader. Tanz / skill-map migrated. | Phase 5 leftovers. |
 | `ActorTarget` unused by a live path | **Removed.** B11 uses `LocalActor` / `ActorTarget`. | — |
 
 ## Invariants (checklist)

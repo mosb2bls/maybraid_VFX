@@ -5,7 +5,7 @@ only on [`maybraid-input`](../../input/README.md) and Bevy.
 
 ```text
 InputSource ──► RouteTarget::Ui(UiTarget)      ──► menu consumers
-            └──► RouteTarget::Actor(ActorTarget) ──► locomotion (`LocalActor`)
+            └──► RouteTarget::Actor(ActorTarget) ──► locomotion / Tanz / skill-map (`LocalActor`)
 CaptureStack owns the UI claim for a source. Nested layers release independently.
 ```
 
