@@ -6944,6 +6944,7 @@ version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
+ "maybraid-controllers-core",
  "maybraid-input",
 ]
 
@@ -6955,6 +6956,15 @@ dependencies = [
  "character-ui-menu",
  "maybraid-input",
  "menu-components",
+]
+
+[[package]]
+name = "maybraid-controllers-core"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "maybraid-input",
 ]
 
 [[package]]
@@ -7040,6 +7050,7 @@ version = "0.1.5"
 dependencies = [
  "anyhow",
  "bevy",
+ "maybraid-controllers-core",
  "maybraid-input",
  "menu-components",
 ]

@@ -4,6 +4,12 @@ Maps [`VirtualPad`](../../input/README.md) onto gameplay intents. Analog is
 the current stick / trigger. Digital is a press or release edge. Chords are
 resolved here so consumers do not re-read the pad.
 
+Bind runs in [`ControllerPipeline::Bind`](../core/src/schedule.rs) from
+[`controllers/core`](../core/README.md). Intents are still a process-wide
+[`CharacterIntent`](src/intent.rs) broadcast — that adapter is removed as
+consumers become actor-addressed (phases 2–5). See
+[ARCHITECTURE.md](../ARCHITECTURE.md).
+
 `RightTrigger` + `X` is `PowerUseItem` and suppresses `StartInteraction`.
 L3 hold is sprint (`StartSprint` every hold frame, `StopSprint` on release).
 Shift maps to L3. R3 click swaps first / third person.

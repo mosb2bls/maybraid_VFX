@@ -243,7 +243,7 @@ mod tests {
 		produce::keyboard::produce_keyboard, KeyboardPadMap, MenuNavPad, MenuOwnsBack, PadButton,
 		PadGameplayEnabled, VirtualPad, VirtualPadConfig,
 	};
-	use maybraid_menu_controller::{dispatch, MenuController};
+	use maybraid_menu_controller::{dispatch, CaptureStack, MenuController};
 	use menu_components::{
 		HudMenu, HudMenuItem, MenuComponentsPlugin, ShortTextField, ShortTextKey, ShortTextModal,
 		TextMenuInputLock, TextMenuSystems,
@@ -306,6 +306,7 @@ mod tests {
 		.init_resource::<VirtualPadConfig>()
 		.init_resource::<MenuNavPad>()
 		.init_resource::<MenuOwnsBack>()
+		.init_resource::<CaptureStack>()
 		.init_resource::<PadGameplayEnabled>()
 		.init_resource::<KeyboardPadMap>()
 		.init_resource::<bevy::picking::hover::HoverMap>()

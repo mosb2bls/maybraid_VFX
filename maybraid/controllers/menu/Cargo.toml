@@ -11,6 +11,7 @@ rust-version = { workspace = true }
 
 [dependencies]
 bevy = { workspace = true }
+maybraid-controllers-core = { workspace = true }
 maybraid-input = { workspace = true }
 menu-components = { workspace = true }
 

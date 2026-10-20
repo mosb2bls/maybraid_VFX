@@ -161,7 +161,9 @@ fn focused_row(
 	labels: &Query<&Text, With<TextMenuItemLabel>>,
 	texts: &Query<&Text>,
 ) -> (Option<u32>, Option<String>) {
-	let focus = screens.iter().find_map(|(_, controller)| controller.and_then(|c| c.focus));
+	let focus = screens
+		.iter()
+		.find_map(|(_, controller)| controller.and_then(MenuController::focused_entity));
 	let Some(focus) = focus else {
 		return (None, None);
 	};

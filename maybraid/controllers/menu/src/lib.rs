@@ -5,8 +5,10 @@ pub mod dispatch;
 
 pub use controller::MenuController;
 pub use dispatch::{exclusive_nav_menu, ExclusiveNav};
+pub use maybraid_controllers_core::{CaptureKind, CaptureStack, UiTarget};
 
 use bevy::prelude::*;
+use maybraid_controllers_core::ControllersCorePlugin;
 use maybraid_input::{
 	KeyboardPadMap, MenuOwnsBack, PadGameplayEnabled, VirtualPadPlugin, VirtualPadSystems,
 };
@@ -18,6 +20,9 @@ pub struct MenuControllerPlugin;
 
 impl Plugin for MenuControllerPlugin {
 	fn build(&self, app: &mut App) {
+		if !app.is_plugin_added::<ControllersCorePlugin>() {
+			app.add_plugins(ControllersCorePlugin);
+		}
 		if !app.is_plugin_added::<VirtualPadPlugin>() {
 			app.add_plugins(VirtualPadPlugin::default());
 		}
