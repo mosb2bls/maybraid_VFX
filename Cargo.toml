@@ -88,6 +88,7 @@ members = [
   "maybraid/world/layers/mobs/characters/playground",
   "maybraid/world/layers/mobs/architectural/doric-column",
   "maybraid/world/layers/mobs/architectural/doric-column/playground",
+  "maybraid/world/layers/mobs/characters/bikanwarda",
 
   "maybraid/procedural/common",
   "maybraid/procedural/comproc",
@@ -341,6 +342,7 @@ character-concepts-playground = { path = "maybraid/menu/character-concepts-playg
 characters-playground = { path = "maybraid/world/layers/mobs/characters/playground" }
 doric-column = { path = "maybraid/world/layers/mobs/architectural/doric-column" }
 doric-column-playground = { path = "maybraid/world/layers/mobs/architectural/doric-column/playground" }
+bikanwarda-character = { path = "maybraid/world/layers/mobs/characters/bikanwarda" }
 character-items = { path = "maybraid/world/layers/mobs/characters/items" }
 character-persist = { path = "maybraid/world/layers/mobs/characters/persist" }
 character-inventory-user = { path = "maybraid/world/layers/mobs/characters/inventory-user" }
