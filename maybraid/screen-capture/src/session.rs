@@ -5,12 +5,14 @@ use bevy::camera::primitives::MeshAabb;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{ClearColorConfig, RenderTarget};
 use bevy::math::bounding::Aabb3d;
+use bevy::math::Affine3A;
 use bevy::mesh::skinning::{InfluenceIterator, SkinnedMesh, SkinnedMeshInverseBindposes};
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 use bevy::render::gpu_readback::{Readback, ReadbackComplete};
 use bevy::render::render_resource::TextureFormat;
 use bevy::world_serialization::WorldAssetRoot;
+use procedural_common::union_aabb3;
 use scene_ref::SceneRefRoot;
 
 use crate::crop::crop_to_alpha;
@@ -387,7 +389,7 @@ fn subject_local_aabb(root: Entity, sources: &ExtentSources) -> Option<Aabb3d> {
 		};
 		let local_aabb = transform_aabb_affine(world_aabb, inverse);
 		union = Some(match union {
-			Some(existing) => union_aabb(existing, local_aabb),
+			Some(existing) => union_aabb3(existing, local_aabb),
 			None => local_aabb,
 		});
 	});
@@ -449,40 +451,22 @@ fn skinned_world_aabb(entity: Entity, mesh: &Mesh, sources: &ExtentSources) -> O
 }
 
 fn transform_aabb(aabb: Aabb3d, transform: &GlobalTransform) -> Aabb3d {
+	transform_aabb_affine(aabb, transform.affine())
+}
+
+fn transform_aabb_affine(aabb: Aabb3d, transform: Affine3A) -> Aabb3d {
 	let mut min = Vec3::splat(f32::MAX);
 	let mut max = Vec3::splat(f32::MIN);
 	for x in [aabb.min.x, aabb.max.x] {
 		for y in [aabb.min.y, aabb.max.y] {
 			for z in [aabb.min.z, aabb.max.z] {
-				let point = transform.transform_point(Vec3::new(x, y, z));
+				let point = transform.transform_point3(Vec3::new(x, y, z));
 				min = min.min(point);
 				max = max.max(point);
 			}
 		}
 	}
 	Aabb3d { min: min.into(), max: max.into() }
-}
-
-fn transform_aabb_affine(aabb: Aabb3d, inverse: bevy::math::Affine3A) -> Aabb3d {
-	let mut min = Vec3::splat(f32::MAX);
-	let mut max = Vec3::splat(f32::MIN);
-	for x in [aabb.min.x, aabb.max.x] {
-		for y in [aabb.min.y, aabb.max.y] {
-			for z in [aabb.min.z, aabb.max.z] {
-				let point = inverse.transform_point3(Vec3::new(x, y, z));
-				min = min.min(point);
-				max = max.max(point);
-			}
-		}
-	}
-	Aabb3d { min: min.into(), max: max.into() }
-}
-
-fn union_aabb(a: Aabb3d, b: Aabb3d) -> Aabb3d {
-	Aabb3d {
-		min: Vec3::from(a.min).min(Vec3::from(b.min)).into(),
-		max: Vec3::from(a.max).max(Vec3::from(b.max)).into(),
-	}
 }
 
 pub(crate) fn stamp_layers_on_descendants(
@@ -824,5 +808,93 @@ mod tests {
 			..Default::default()
 		};
 		assert!(!is_silhouette_material(&cross));
+	}
+
+	fn unit_box() -> Aabb3d {
+		Aabb3d { min: Vec3::ZERO.into(), max: Vec3::new(1.0, 2.0, 3.0).into() }
+	}
+
+	fn corner_aabb(aabb: Aabb3d, map: impl Fn(Vec3) -> Vec3) -> Aabb3d {
+		let mut min = Vec3::splat(f32::MAX);
+		let mut max = Vec3::splat(f32::MIN);
+		for x in [aabb.min.x, aabb.max.x] {
+			for y in [aabb.min.y, aabb.max.y] {
+				for z in [aabb.min.z, aabb.max.z] {
+					let point = map(Vec3::new(x, y, z));
+					min = min.min(point);
+					max = max.max(point);
+				}
+			}
+		}
+		Aabb3d { min: min.into(), max: max.into() }
+	}
+
+	fn endpoint_only_aabb(aabb: Aabb3d, map: impl Fn(Vec3) -> Vec3) -> Aabb3d {
+		let a = map(Vec3::from(aabb.min));
+		let b = map(Vec3::from(aabb.max));
+		Aabb3d { min: a.min(b).into(), max: a.max(b).into() }
+	}
+
+	fn assert_aabb_close(got: Aabb3d, expected: Aabb3d) {
+		assert!(
+			(Vec3::from(got.min) - Vec3::from(expected.min)).abs().max_element() < 1e-5,
+			"min got {:?} expected {:?}",
+			got.min,
+			expected.min
+		);
+		assert!(
+			(Vec3::from(got.max) - Vec3::from(expected.max)).abs().max_element() < 1e-5,
+			"max got {:?} expected {:?}",
+			got.max,
+			expected.max
+		);
+	}
+
+	#[test]
+	fn transform_aabb_delegates_to_affine_and_visits_all_corners() -> anyhow::Result<()> {
+		let aabb = unit_box();
+		let transform = GlobalTransform::from(
+			Transform::from_translation(Vec3::new(1.0, -2.0, 0.5))
+				.with_rotation(Quat::from_euler(
+					EulerRot::YXZ,
+					std::f32::consts::FRAC_PI_3,
+					0.4,
+					-0.25,
+				))
+				.with_scale(Vec3::new(-2.0, 0.5, 1.5)),
+		);
+		let via_global = transform_aabb(aabb, &transform);
+		let via_affine = transform_aabb_affine(aabb, transform.affine());
+		let via_corners = corner_aabb(aabb, |point| transform.transform_point(point));
+		let via_endpoints = endpoint_only_aabb(aabb, |point| transform.transform_point(point));
+		assert_aabb_close(via_global, via_affine);
+		assert_aabb_close(via_global, via_corners);
+		let endpoint_error = (Vec3::from(via_endpoints.min) - Vec3::from(via_corners.min))
+			.abs()
+			.max_element()
+			.max(
+				(Vec3::from(via_endpoints.max) - Vec3::from(via_corners.max))
+					.abs()
+					.max_element(),
+			);
+		assert!(
+			endpoint_error > 1e-3,
+			"this fixture must prove min/max endpoints are insufficient"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn shared_union_matches_previous_local_min_max() -> anyhow::Result<()> {
+		let a =
+			Aabb3d { min: Vec3::new(0.0, 1.0, -2.0).into(), max: Vec3::new(2.0, 3.0, 0.0).into() };
+		let b =
+			Aabb3d { min: Vec3::new(-1.0, 0.0, 1.0).into(), max: Vec3::new(1.0, 4.0, 5.0).into() };
+		let previous = Aabb3d {
+			min: Vec3::from(a.min).min(Vec3::from(b.min)).into(),
+			max: Vec3::from(a.max).max(Vec3::from(b.max)).into(),
+		};
+		assert_aabb_close(union_aabb3(a, b), previous);
+		Ok(())
 	}
 }
