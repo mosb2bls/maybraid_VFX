@@ -207,10 +207,11 @@ fn allow_slow_braidman_icon(mut cache: ResMut<CaptureCacheRoot>) {
 fn request_icon(
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut subjects: ResMut<ItemCaptureSubjects>,
+	mut cache: ResMut<ItemIconCache>,
 	mut client: CaptureClient,
 ) {
 	for inventory in capture_icon_inventories() {
-		request_inventory_icons(&inventory, &mut discovery, &mut subjects, &mut client);
+		request_inventory_icons(&inventory, &mut discovery, &mut subjects, &mut client, &mut cache);
 	}
 }
 
@@ -283,7 +284,7 @@ fn icon_ready(cache: &ItemIconCache) -> bool {
 		InventoryLayout::starter_kit(inventory.items.clone())
 			.captures
 			.iter()
-			.all(|need| cache.filled_or_failed(need.key, need.silhouette))
+			.all(|need| cache.catalog_need_is_terminal(need.key, need.silhouette))
 	})
 }
 

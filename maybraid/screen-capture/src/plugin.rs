@@ -59,6 +59,19 @@ pub(crate) struct ActiveCapture {
 	next_slot: u32,
 }
 
+impl ActiveCapture {
+	pub(crate) fn session(&self) -> Option<&CaptureSession> {
+		self.session.as_ref()
+	}
+
+	#[cfg(test)]
+	pub(crate) fn begin_test_readback(&mut self, entity: Entity) {
+		if let Some(session) = &mut self.session {
+			session.phase = CapturePhase::Readback { frames: 0, entity };
+		}
+	}
+}
+
 /// Isolated scene capture with a persistent PNG cache.
 pub struct ScreenCapturePlugin {
 	pub cache_dir: PathBuf,
@@ -151,16 +164,10 @@ fn stamp_isolate_layers(
 	children: Query<&Children>,
 	layered: Query<(), With<RenderLayers>>,
 ) {
-	let Some(session) = active.session.as_ref() else {
+	let Some(root) = active.session().and_then(CaptureSession::scene_root) else {
 		return;
 	};
-	stamp_layers_on_descendants(
-		&mut commands,
-		session.root,
-		cache.render_layer,
-		&children,
-		&layered,
-	);
+	stamp_layers_on_descendants(&mut commands, root, cache.render_layer, &children, &layered);
 }
 
 #[derive(SystemParam)]
@@ -172,7 +179,7 @@ struct AdvanceQueries<'w, 's> {
 	globals: Query<'w, 's, &'static GlobalTransform>,
 	hosts: Query<'w, 's, (), With<CaptureHostReady>>,
 	standard: Query<'w, 's, &'static MeshMaterial3d<StandardMaterial>>,
-	pixels: Query<'w, 's, (Entity, &'static CaptureReadback, &'static CapturePixels)>,
+	pixels: Query<'w, 's, (&'static CaptureReadback, &'static CapturePixels)>,
 	skins: Query<'w, 's, &'static SkinnedMesh>,
 	authored_extents: Query<'w, 's, &'static CaptureExtents>,
 	bindposes: Option<Res<'w, Assets<SkinnedMeshInverseBindposes>>>,
@@ -211,40 +218,41 @@ fn advance_sessions(
 		return;
 	};
 
-	if let Some((entity, readback, captured)) = queries.pixels.iter().next() {
-		match take_pixels(&mut images, readback, &captured.0) {
-			Ok(rgba) => {
-				let mut write_warnings = Vec::new();
-				cache.cache.save_rgba_background(
-					readback.key.clone(),
-					readback.width,
-					readback.height,
-					rgba,
-					&mut write_warnings,
-				);
-				for warning in write_warnings {
-					warnings.write(warning);
+	if let Some(entity) = session.readback_entity() {
+		if let Ok((readback, captured)) = queries.pixels.get(entity) {
+			match take_pixels(&mut images, readback, &captured.0) {
+				Ok(rgba) => {
+					let mut write_warnings = Vec::new();
+					cache.cache.save_rgba_background(
+						readback.key.clone(),
+						readback.width,
+						readback.height,
+						rgba,
+						&mut write_warnings,
+					);
+					for warning in write_warnings {
+						warnings.write(warning);
+					}
+					completed.write(CaptureCompleted {
+						key: readback.key.clone(),
+						image: readback.ticket.clone(),
+						source: CaptureSource::Rendered,
+					});
 				}
-				completed.write(CaptureCompleted {
-					key: readback.key.clone(),
-					image: readback.ticket.clone(),
-					source: CaptureSource::Rendered,
-				});
+				Err(error) => {
+					failed.write(CaptureFailed { key: readback.key.clone(), error });
+				}
 			}
-			Err(error) => {
-				failed.write(CaptureFailed { key: readback.key.clone(), error });
-			}
+			despawn_session(&mut commands, session);
+			active.session = None;
+			return;
 		}
-		commands.entity(entity).try_despawn();
-		despawn_session(&mut commands, session);
-		active.session = None;
-		return;
 	}
 
-	if matches!(session.phase, CapturePhase::Load { .. }) {
-		if let CapturePhase::Load { frames } = &mut session.phase {
-			*frames += 1;
-			if *frames > cache.max_wait_frames {
+	match session.phase {
+		CapturePhase::Load { frames, framed } => {
+			let frames = frames + 1;
+			if frames > cache.max_wait_frames {
 				fail_session(
 					&mut commands,
 					session,
@@ -254,77 +262,79 @@ fn advance_sessions(
 				active.session = None;
 				return;
 			}
-		}
-		if !scene_ready(
-			session,
-			&queries.world_roots,
-			&queries.mesh_entities,
-			&queries.children,
-			&queries.hosts,
-			&images,
-		) {
-			return;
-		}
-		if !session.framed {
-			let sources = ExtentSources {
-				meshes: &meshes,
-				bindposes: queries.bindposes.as_deref(),
-				mesh_3d: &queries.mesh_handles,
-				skins: &queries.skins,
-				authored: &queries.authored_extents,
-				children: &queries.children,
-				globals: &queries.globals,
-			};
-			if !apply_fit_framing(&mut commands, session, &sources) {
+			session.phase = CapturePhase::Load { frames, framed };
+			if !scene_ready(
+				session,
+				&queries.world_roots,
+				&queries.mesh_entities,
+				&queries.children,
+				&queries.hosts,
+				&images,
+			) {
 				return;
 			}
-		}
-		session.framed = true;
-		match apply_silhouette(
-			&mut commands,
-			session,
-			&mut materials,
-			&queries.children,
-			&queries.standard,
-			&queries.mesh_entities,
-		) {
-			Ok(warning) => {
-				if let Some(warning) = warning {
-					warnings.write(warning);
+			if !framed {
+				let sources = ExtentSources {
+					meshes: &meshes,
+					bindposes: queries.bindposes.as_deref(),
+					mesh_3d: &queries.mesh_handles,
+					skins: &queries.skins,
+					authored: &queries.authored_extents,
+					children: &queries.children,
+					globals: &queries.globals,
+				};
+				if !apply_fit_framing(&mut commands, session, &sources) {
+					return;
 				}
-				session.phase = CapturePhase::Settle { remaining: cache.settle_frames };
 			}
-			Err(error) => {
-				fail_session(&mut commands, session, &mut failed, error);
-				active.session = None;
+			match apply_silhouette(
+				&mut commands,
+				session,
+				&mut materials,
+				&queries.children,
+				&queries.standard,
+				&queries.mesh_entities,
+			) {
+				Ok(warning) => {
+					if let Some(warning) = warning {
+						warnings.write(warning);
+					}
+					session.phase = CapturePhase::Settle { remaining: cache.settle_frames };
+				}
+				Err(error) => {
+					fail_session(&mut commands, session, &mut failed, error);
+					active.session = None;
+				}
 			}
 		}
-		return;
-	}
-
-	if matches!(session.phase, CapturePhase::Settle { .. } | CapturePhase::Readback { .. }) {
-		let _ = apply_silhouette(
-			&mut commands,
-			session,
-			&mut materials,
-			&queries.children,
-			&queries.standard,
-			&queries.mesh_entities,
-		);
-	}
-
-	match &mut session.phase {
-		CapturePhase::Load { .. } => {}
 		CapturePhase::Settle { remaining } => {
-			*remaining = remaining.saturating_sub(1);
-			if *remaining == 0 {
-				spawn_readback(&mut commands, session);
-				session.phase = CapturePhase::Readback { frames: 0 };
+			let _ = apply_silhouette(
+				&mut commands,
+				session,
+				&mut materials,
+				&queries.children,
+				&queries.standard,
+				&queries.mesh_entities,
+			);
+			let remaining = remaining.saturating_sub(1);
+			if remaining == 0 {
+				let entity = spawn_readback(&mut commands, session);
+				session.phase = CapturePhase::Readback { frames: 0, entity };
+			} else {
+				session.phase = CapturePhase::Settle { remaining };
 			}
 		}
-		CapturePhase::Readback { frames } => {
-			*frames += 1;
-			if *frames > cache.max_wait_frames {
+		CapturePhase::Readback { frames, entity } => {
+			let _ = apply_silhouette(
+				&mut commands,
+				session,
+				&mut materials,
+				&queries.children,
+				&queries.standard,
+				&queries.mesh_entities,
+			);
+			let frames = frames + 1;
+			if frames > cache.max_wait_frames {
 				fail_session(
 					&mut commands,
 					session,
@@ -332,6 +342,8 @@ fn advance_sessions(
 					crate::error::CaptureError::Readback,
 				);
 				active.session = None;
+			} else {
+				session.phase = CapturePhase::Readback { frames, entity };
 			}
 		}
 	}

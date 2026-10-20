@@ -8,8 +8,9 @@ use character_creation_menus::{
 use character_items::{self_lubikan_catalog_key, Inventory};
 use character_ui_menu::{AssetThumbnailDisplay, MenuComponent};
 use item_icons::{
-	request_inventory_icons, request_self_lubikan_icon, CaptureClient, ItemCaptureSubjects,
-	ItemIconCache, ItemIconDiscovery, ItemIconPlugin, ItemIconSystems, PoseCaptureSubjects,
+	request_inventory_icons, request_self_lubikan_icon, CaptureClient, IconCatalogProgress,
+	ItemCaptureSubjects, ItemIconCache, ItemIconDiscovery, ItemIconPlugin, ItemIconSystems,
+	PoseCaptureSubjects,
 };
 use maybraid_character_ui_menu_renderer::{
 	fill_inventory_layout, fill_inventory_loading, find_overlay_node, overlay_closes_on_pick,
@@ -116,7 +117,7 @@ pub fn save_chrome(
 pub(crate) struct CharacterUiSyncState {
 	pub(crate) menu_dirty: bool,
 	save_label: Option<&'static str>,
-	icon_generation: u64,
+	icon_progress: IconCatalogProgress,
 }
 
 #[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,7 +129,7 @@ struct OverlaySelectState {
 pub(crate) struct OverlayUiSyncState {
 	open: Option<&'static str>,
 	pub(crate) menu_dirty: bool,
-	icon_generation: u64,
+	icon_progress: IconCatalogProgress,
 	wait_started: Option<Duration>,
 	showing_loading: bool,
 }
@@ -164,7 +165,7 @@ impl MenuThumbnailContext for CatalogThumbs<'_> {
 	fn image_for_key(&mut self, key: u64) -> Option<Handle<Image>> {
 		let icons = self.icons?;
 		if key == self_lubikan_catalog_key() {
-			icons.silhouette_for_key(key)
+			icons.catalog_entry(key, true).and_then(|entry| entry.ready_image())
 		} else {
 			icons.catalog_for_key(key)
 		}
@@ -248,7 +249,7 @@ fn apply_show_character(
 	stack.close(MenuModalId::OVERLAY_SELECT);
 	sync_state.menu_dirty = false;
 	sync_state.save_label = save_chrome(&menu_state.0, baseline.as_deref());
-	sync_state.icon_generation = icons.as_ref().map(|cache| cache.generation).unwrap_or(0);
+	sync_state.icon_progress = character_icon_progress(&menu_state.0, icons.as_deref());
 	let (viewport, save_corner, back_corner) = spawn_character_ui_shell(&mut commands);
 	rebuild_character_ui_panel(
 		&mut commands,
@@ -279,17 +280,17 @@ fn sync_character_ui(
 		return;
 	}
 	let save_label = save_chrome(&menu_state.0, baseline.as_deref());
-	let icon_generation = icons.as_ref().map(|cache| cache.generation).unwrap_or(0);
+	let icon_progress = character_icon_progress(&menu_state.0, icons.as_deref());
 	if !sync_state.menu_dirty
 		&& !menu_state.is_changed()
 		&& sync_state.save_label == save_label
-		&& sync_state.icon_generation == icon_generation
+		&& sync_state.icon_progress == icon_progress
 	{
 		return;
 	}
 	sync_state.menu_dirty = false;
 	sync_state.save_label = save_label;
-	sync_state.icon_generation = icon_generation;
+	sync_state.icon_progress = icon_progress;
 	let previous: Vec<(Entity, Option<HudMenu>)> =
 		viewports.iter().map(|(entity, menu)| (entity, menu.copied())).collect();
 	let save_corner = save_corners.iter().next();
@@ -500,10 +501,10 @@ fn sync_overlay_select(
 		}
 		return;
 	};
-	let icon_generation = icons.as_ref().map(|cache| cache.generation).unwrap_or(0);
+	let icon_progress = overlay_icon_progress(&menu_state.0, overlay.open, icons.as_deref());
 	let menu_changed = overlay_sync.menu_dirty
 		|| menu_state.is_changed()
-		|| overlay_sync.icon_generation != icon_generation;
+		|| overlay_sync.icon_progress != icon_progress;
 	let open_changed = overlay_sync.open != overlay.open;
 	let inventory_ready = inventory_overlay_ready(
 		&menu_state.0,
@@ -535,7 +536,7 @@ fn sync_overlay_select(
 	}
 	overlay_sync.open = overlay.open;
 	overlay_sync.menu_dirty = false;
-	overlay_sync.icon_generation = icon_generation;
+	overlay_sync.icon_progress = icon_progress;
 
 	let Some(key) = overlay.open else {
 		for entity in &overlays {
@@ -616,10 +617,9 @@ fn inventory_overlay_ready(
 		return true;
 	};
 	let layout = InventoryLayout::character_menu(inventory);
-	let reports = layout
-		.captures
-		.iter()
-		.map(|need| icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette)));
+	let reports = layout.captures.iter().map(|need| {
+		icons.is_some_and(|cache| cache.catalog_need_is_terminal(need.key, need.silhouette))
+	});
 	let waited = wait_started
 		.map(|started| now.saturating_sub(started))
 		.unwrap_or(Duration::ZERO);
@@ -646,8 +646,46 @@ fn inventory_overlay_should_warn_timeout(
 		.unwrap_or(Duration::ZERO);
 	waited >= INVENTORY_CAPTURE_TIMEOUT
 		&& !layout.captures.iter().all(|need| {
-			icons.is_some_and(|cache| cache.filled_or_failed(need.key, need.silhouette))
+			icons.is_some_and(|cache| cache.catalog_need_is_terminal(need.key, need.silhouette))
 		})
+}
+
+fn inventory_icon_needs(inventory: &Inventory) -> Vec<(u64, bool)> {
+	InventoryLayout::character_menu(inventory)
+		.captures
+		.iter()
+		.map(|need| (need.key, need.silhouette))
+		.collect()
+}
+
+fn character_icon_progress(
+	menu: &CharacterMenu,
+	icons: Option<&ItemIconCache>,
+) -> IconCatalogProgress {
+	let Some(inventory) = menu.inventory.as_ref() else {
+		return IconCatalogProgress::default();
+	};
+	overlay_progress(icons, &inventory_icon_needs(inventory))
+}
+
+fn overlay_icon_progress(
+	menu: &CharacterMenu,
+	open: Option<&'static str>,
+	icons: Option<&ItemIconCache>,
+) -> IconCatalogProgress {
+	if open != Some(INVENTORY_LABEL) {
+		return IconCatalogProgress::default();
+	}
+	let Some(inventory) = menu.inventory.as_ref() else {
+		return IconCatalogProgress::default();
+	};
+	overlay_progress(icons, &inventory_icon_needs(inventory))
+}
+
+fn overlay_progress(icons: Option<&ItemIconCache>, needs: &[(u64, bool)]) -> IconCatalogProgress {
+	icons
+		.map(|cache| cache.catalog_progress(needs.iter().copied()))
+		.unwrap_or_default()
 }
 
 fn populate_overlay_viewport<E: Copy + Send + Sync + 'static>(
@@ -685,17 +723,24 @@ fn discover_menu_item_icons(
 	mut discovery: ResMut<ItemIconDiscovery>,
 	mut subjects: ResMut<ItemCaptureSubjects>,
 	mut poses: ResMut<PoseCaptureSubjects>,
+	mut cache: ResMut<ItemIconCache>,
 	mut client: CaptureClient,
 ) {
-	request_self_lubikan_icon(&mut discovery, &mut client);
+	request_self_lubikan_icon(&mut discovery, &mut client, &mut cache);
 	if let Some(inventory) = menu_state.0.inventory.as_ref() {
-		request_inventory_icons(inventory, &mut discovery, &mut subjects, &mut client);
-		request_inventory_tanz_icons(inventory, &mut discovery, &mut poses, &mut client);
+		request_inventory_icons(inventory, &mut discovery, &mut subjects, &mut client, &mut cache);
+		request_inventory_tanz_icons(
+			inventory,
+			&mut discovery,
+			&mut poses,
+			&mut client,
+			&mut cache,
+		);
 	}
 	if let Some(spin) = spin_items.as_deref() {
 		let bag = Inventory { items: spin.0.clone(), ..Inventory::default() };
-		request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client);
-		request_inventory_tanz_icons(&bag, &mut discovery, &mut poses, &mut client);
+		request_inventory_icons(&bag, &mut discovery, &mut subjects, &mut client, &mut cache);
+		request_inventory_tanz_icons(&bag, &mut discovery, &mut poses, &mut client, &mut cache);
 	}
 }
 
@@ -884,6 +929,59 @@ mod tests {
 		let mut wrong = CatalogThumbs { icons: Some(&shaded_only) };
 		if wrong.image_for_key(key).is_some() {
 			anyhow::bail!("Self Lubikan tile must not use the shaded handle");
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn reopened_overlay_uses_existing_ready_entries() -> anyhow::Result<()> {
+		use super::inventory_overlay_ready;
+		use character_creation_menus::INVENTORY_LABEL;
+		use character_items::{FirearmMesh, InventoryItem, SELF_LUBIKAN_CAPTURE_LABEL};
+		use item_icons::{CaptureId, ItemIconCache};
+		use std::time::Duration;
+
+		let item = InventoryItem::firearm(FirearmMesh::Bullpup);
+		let menu = CharacterMenu::for_create(vec![item.clone()]);
+		let empty = ItemIconCache::default();
+		if inventory_overlay_ready(
+			&menu,
+			Some(INVENTORY_LABEL),
+			Some(&empty),
+			Some(Duration::ZERO),
+			Duration::from_millis(1),
+		) {
+			anyhow::bail!("missing entries must keep the overlay on the loading wheel");
+		}
+
+		let mut cache = ItemIconCache::default();
+		cache.insert_silhouette(
+			CaptureId::new(SELF_LUBIKAN_CAPTURE_LABEL),
+			bevy::prelude::Handle::default(),
+		);
+		cache.insert_shaded(
+			CaptureId::new(
+				item.capture_id_label().ok_or_else(|| anyhow::anyhow!("firearm capture id"))?,
+			),
+			bevy::prelude::Handle::default(),
+		);
+		if !inventory_overlay_ready(
+			&menu,
+			Some(INVENTORY_LABEL),
+			Some(&cache),
+			Some(Duration::ZERO),
+			Duration::from_millis(1),
+		) {
+			anyhow::bail!("ready entries should paint immediately on first open");
+		}
+		if !inventory_overlay_ready(
+			&menu,
+			Some(INVENTORY_LABEL),
+			Some(&cache),
+			Some(Duration::from_secs(12)),
+			Duration::from_secs(12),
+		) {
+			anyhow::bail!("reopening must reuse the same ready entries, not wait again");
 		}
 		Ok(())
 	}
