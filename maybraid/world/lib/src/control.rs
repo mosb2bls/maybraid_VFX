@@ -1,4 +1,4 @@
-//! Apply [`CharacterIntent`] to the vegetation capsule / camera-relative wish.
+//! World gameplay filter and scenery. Motor requests are declared, not applied here.
 
 use bevy::prelude::*;
 use durham::{
@@ -6,19 +6,16 @@ use durham::{
 	TerrainTrimeshCollider,
 };
 use game_commands::command::{CommandConsoleOutput, TextEntryFocus};
-use maybraid_character_controller::{CharacterIntent, OrdinaryLocomotionEnabled};
+use maybraid_character_controller::CharacterIntent;
 use maybraid_skill_map::SkillMapEnabled;
 use maybraid_sky::{SkyDome, SKY_HORIZON};
 use player::{
 	apply_character_controller, Buoyant, CharacterController, CharacterStance, JumpWish, Jumping,
-	LocomotionCapsule, MotorTraction, MoveWish as PlayerMoveWish, Player as MaybraidPlayer,
-	PlayerCameraAim, PlayerLook, PlayerYawOwner, RestLocomotionCapsule, Sprinting, StanceKind,
-	Wading,
+	LocomotionCapsule, MotorIntent, MotorTraction, MoveWish as PlayerMoveWish,
+	Player as MaybraidPlayer, PlayerCameraAim, PlayerLook, PlayerYawOwner, RestLocomotionCapsule,
+	Sprinting, StanceKind, Wading,
 };
-use player_camera::CameraController;
-use world_player::{
-	MoveWish, MovementAction, Player, PlayerPhysicsEnabled, PlayerSpawnXz, PlaygroundMode,
-};
+use world_player::{MoveWish, Player, PlayerPhysicsEnabled, PlayerSpawnXz, PlaygroundMode};
 
 use crate::map_view::WorldMapView;
 
@@ -152,80 +149,27 @@ pub(crate) fn sync_skill_map_enabled(
 	}
 }
 
-pub(crate) fn apply_intents_to_movement(
+/// WorldFilter: declare suppress when pause / text / map / non-character mode
+/// win. Does not write live `player::MoveWish` or the Discovery vegetation
+/// motor / `MovementAction` path.
+pub(crate) fn apply_world_motor_filter(
 	mode: Res<PlaygroundMode>,
 	text_focus: Res<TextEntryFocus>,
 	gameplay: Res<WorldGameplayEnabled>,
 	map: Option<Res<WorldMapView>>,
-	ordinary: Option<Res<OrdinaryLocomotionEnabled>>,
-	mut commands: Commands,
-	mut intents: MessageReader<CharacterIntent>,
-	cameras: Query<&CameraController, With<Camera3d>>,
-	mut wishes: Query<&mut MoveWish, With<Player>>,
-	mut player_wishes: Query<(Entity, &mut PlayerMoveWish, Has<Player>), With<CharacterController>>,
-	mut movement: MessageWriter<MovementAction>,
+	mut vegetation: Query<&mut MoveWish, With<Player>>,
+	mut motors: Query<&mut MotorIntent, (With<CharacterController>, With<MaybraidPlayer>)>,
 ) {
-	if *mode != PlaygroundMode::Character
-		|| !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open))
+	if *mode == PlaygroundMode::Character
+		&& gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open))
 	{
-		for _ in intents.read() {}
-		for mut wish in &mut wishes {
-			wish.0 = Vec3::ZERO;
-		}
-		for (entity, mut wish, _) in &mut player_wishes {
-			wish.0 = Vec3::ZERO;
-			commands.entity(entity).remove::<(JumpWish, Sprinting)>();
-		}
 		return;
 	}
-
-	if ordinary.is_some_and(|enabled| !enabled.0) {
-		for _ in intents.read() {}
-		return;
+	for mut wish in &mut vegetation {
+		wish.0 = Vec3::ZERO;
 	}
-
-	let mut move_stick = Vec2::ZERO;
-	let mut jump = false;
-	for intent in intents.read() {
-		match *intent {
-			CharacterIntent::Move(value) => move_stick = value,
-			CharacterIntent::Jump => jump = true,
-			_ => {}
-		}
-	}
-
-	let wish_dir = if move_stick != Vec2::ZERO {
-		if let Ok(camera) = cameras.single() {
-			let yaw = Quat::from_axis_angle(Vec3::Y, camera.yaw);
-			let forward = yaw * -Vec3::Z;
-			let right_dir = yaw * Vec3::X;
-			(right_dir * move_stick.x + forward * move_stick.y).clamp_length_max(1.0)
-		} else {
-			Vec3::ZERO
-		}
-	} else {
-		Vec3::ZERO
-	};
-	for mut wish in &mut wishes {
-		wish.0 = wish_dir;
-	}
-	// Only the streamed vegetation body. A foreign [`CharacterController`] is
-	// one that [`player`] already drove.
-	for (entity, mut wish, world_body) in &mut player_wishes {
-		if !world_body {
-			continue;
-		}
-		wish.0 = wish_dir;
-		if jump {
-			commands.entity(entity).insert(JumpWish);
-		}
-	}
-
-	if move_stick != Vec2::ZERO {
-		movement.write(MovementAction::Move(move_stick));
-	}
-	if jump {
-		movement.write(MovementAction::Jump);
+	for mut intent in &mut motors {
+		intent.set_suppress(true);
 	}
 }
 
@@ -402,34 +346,56 @@ mod tests {
 	}
 
 	#[test]
-	fn live_gameplay_does_not_drive_a_foreign_capsule() -> anyhow::Result<()> {
+	fn live_gameplay_does_not_write_vegetation_or_player_wishes() -> anyhow::Result<()> {
 		let mut world = World::new();
-		world.init_resource::<Messages<CharacterIntent>>();
-		world.init_resource::<Messages<MovementAction>>();
 		world.insert_resource(PlaygroundMode::Character);
 		world.insert_resource(TextEntryFocus(false));
 		world.insert_resource(WorldGameplayEnabled(true));
-		let body = world.spawn((CharacterController, PlayerMoveWish(Vec3::X))).id();
+		let vegetation = world.spawn((Player, MoveWish(Vec3::X))).id();
+		let mut intent = MotorIntent::default();
+		intent.set_standard(player::MotorSample::translation(Vec3::Z));
+		let body = world
+			.spawn((CharacterController, MaybraidPlayer, PlayerMoveWish(Vec3::X), intent))
+			.id();
 		world
-			.run_system_once(apply_intents_to_movement)
+			.run_system_once(apply_world_motor_filter)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(world.get::<MoveWish>(vegetation).map(|wish| wish.0), Some(Vec3::X));
 		assert_eq!(world.get::<PlayerMoveWish>(body).map(|wish| wish.0), Some(Vec3::X));
+		assert!(!world.get::<MotorIntent>(body).is_some_and(MotorIntent::suppress));
 		Ok(())
 	}
 
 	#[test]
-	fn paused_gameplay_zeros_every_capsule_wish() -> anyhow::Result<()> {
+	fn paused_gameplay_suppresses_the_player_and_zeros_vegetation() -> anyhow::Result<()> {
+		use player::{apply_motor, MotorSample, Npc};
+
 		let mut world = World::new();
-		world.init_resource::<Messages<CharacterIntent>>();
-		world.init_resource::<Messages<MovementAction>>();
 		world.insert_resource(PlaygroundMode::Character);
 		world.insert_resource(TextEntryFocus(false));
 		world.insert_resource(WorldGameplayEnabled(false));
-		let body = world.spawn((CharacterController, PlayerMoveWish(Vec3::X))).id();
+		let vegetation = world.spawn((Player, MoveWish(Vec3::X))).id();
+		let mut player_intent = MotorIntent::default();
+		player_intent.set_standard(MotorSample::translation(Vec3::X));
+		let player = world
+			.spawn((CharacterController, MaybraidPlayer, PlayerMoveWish(Vec3::X), player_intent))
+			.id();
+		let mut npc_intent = MotorIntent::default();
+		npc_intent.set_npc(MotorSample::translation(Vec3::Z));
+		let npc = world
+			.spawn((Npc, CharacterController, PlayerMoveWish(Vec3::Z), npc_intent))
+			.id();
 		world
-			.run_system_once(apply_intents_to_movement)
+			.run_system_once(apply_world_motor_filter)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert_eq!(world.get::<PlayerMoveWish>(body).map(|wish| wish.0), Some(Vec3::ZERO));
+		world
+			.run_system_once(apply_motor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(world.get::<MoveWish>(vegetation).map(|wish| wish.0), Some(Vec3::ZERO));
+		assert_eq!(world.get::<PlayerMoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
+		assert!(world.get::<MotorIntent>(player).is_some_and(MotorIntent::suppress));
+		assert_eq!(world.get::<PlayerMoveWish>(npc).map(|wish| wish.0), Some(Vec3::Z));
+		assert!(!world.get::<MotorIntent>(npc).is_some_and(MotorIntent::suppress));
 		Ok(())
 	}
 

@@ -7,7 +7,7 @@ pub mod schedule;
 pub mod source;
 pub mod ui;
 
-pub use actor::ActorTarget;
+pub use actor::{ActorTarget, LocalActor};
 pub use capture::{CaptureKind, CaptureLayer, CaptureStack};
 pub use route::{RouteTarget, Routed};
 pub use schedule::{ControllerPipeline, MotorRequestStage};

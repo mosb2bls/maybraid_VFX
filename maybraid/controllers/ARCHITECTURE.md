@@ -38,9 +38,11 @@ Device input (A1) → virtual-pad controller (A2) → input-routing controller (
 NPC movement controller (A6) → MotorIntent
 ```
 
-Phase 1 realizes A3 (routing + capture vocabulary), U1–U5, M1 targeting, and
-P1–P4 as named `SystemSet`s. Motor request writers and actor-addressed
-character intents stay on adapters until phases 2–5.
+Phase 2 realizes ordinary locomotion (B11), the shared motor contract
+(`MotorIntent` / one resolver / one apply), NPC request + recovery /
+separation modifiers (A6), and WorldFilter suppress. Character produce is
+still a broadcast adapter; camera / item / Tanz gesture chains stay for
+later phases.
 
 ## Dependency direction
 
@@ -57,14 +59,14 @@ controllers/character     controllers/menu     controllers/world
 player (motor contract)    menu widgets           world / game assemble
         ▲
         │
-player-camera / tanz-user / skill-map / item users / intelligence
+controllers/locomotion / tanz-user / intelligence / player-camera / skill-map / items
 ```
 
 Rules:
 
 - `controllers/core` depends only on `maybraid-input` and Bevy.
 - `controllers/character` depends on `core` + `input`.
-- The player motor contract (`MoveWish` / future `MotorIntent`) must not
+- The player motor contract (`MotorIntent` / `ResolvedMotorRequest`) must not
   depend on locomotion or Tanz.
 - Locomotion and Tanz write the motor contract; they do not own apply.
 - `game` / `world` assemble plugins. They are not controllers unless a type
@@ -80,33 +82,33 @@ PreUpdate
 
 Update
   ControllerPipeline::Bind           (P1)  character produce, menu focus+dispatch
-    CharacterControlSystems ⊂ Bind   (temporary alias)
+    CharacterControlSystems ⊂ Bind   (item / camera / shell alias)
   camera / item / shell branch       (C*, D*, E*) after Bind
-  ControllerPipeline::Interpret      (P2)  empty in phase 1
+  ControllerPipeline::Interpret      (P2)  reset MotorIntent slots
   ControllerPipeline::MotorRequest   (P3)
-    MotorRequestStage::Standard
-    MotorRequestStage::Tanz
-    MotorRequestStage::WorldFilter
-  ControllerPipeline::Motor          (P4)  PlayerSystems::Body (not joined yet)
+    MotorRequestStage::Standard      locomotion + NPC drive
+    MotorRequestStage::Tanz          Tanz execution (declared slot)
+    MotorRequestStage::WorldFilter   pause / text / map suppress
+    recovery + separation modifiers
+  ControllerPipeline::Motor          (P4)  resolve + apply, then PlayerSystems::Body
 
 PostUpdate
   PadRumbleSystems
 ```
 
 `ControllerPipeline` / `MotorRequestStage` are the contract. Plugin install
-order is not. The named motor-request sets are registered in phase 1 so later
-PRs can move writers without renaming the graph. Phase 2 keeps this order and
-replaces overwrite priority with one resolver.
+order is not. Phase 2 keeps the #1394 names and replaces overwrite priority
+with one actor-local resolver.
 
 Same-frame pause and capture (invariant 10): menu focus + capture write run
-in the same `Update` chain as dispatch. Pause still zeros wishes in the world
-adapter the same frame it flips `WorldGameplayEnabled` — that writer is not
-yet inside `WorldFilter`.
+in the same `Update` chain as dispatch. Pause declares `MotorIntent` suppress
+on the local player in `WorldFilter` the same frame; apply releases sprint,
+jump, and caps. NPC slots are not suppressed.
 
 ## Role inventory
 
 Each row is a spec role. **Symbol** is the live type or system. **Now** is
-the phase 1 owner. Later phases change the owner column, not the role id.
+the current owner. Later phases change the owner column, not the role id.
 
 ### A — controllers / sources
 
@@ -117,14 +119,14 @@ the phase 1 owner. Later phases change the owner column, not the role id.
 | A3 | Input-routing controller | `InputSource`, `Routed<T>`, `RouteTarget` | A2 (`InputSource::LocalPad`) | A4 / A5 / U5 | `ControllersCorePlugin` | New in phase 1. One local pad. |
 | A4 | Menu controller | `MenuControllerPlugin`, `refresh_menu_focus`, `dispatch_menu_nav` | A2 `MenuNavPad` | M2 via `MenuNavImpulse` | `MenuControllerPlugin` | Targeted path (see M1). |
 | A5 | Character controller | `produce_character_intents` → `CharacterIntent` | A2 `VirtualPad` | B* consumers via broadcast `Messages` | `CharacterControllerPlugin` | Bind only; still untargeted. |
-| A6 | NPC movement controller | `intelligence::movement::drive_movement` | planner / `MovementIntelligence` | `player::MoveWish` | movement-intelligence plugin | Writes the motor wish directly. Phase 2 → `MotorIntent`. |
+| A6 | NPC movement controller | `intelligence::movement::drive_movement` | planner / `MovementIntelligence` | `MotorIntent` NPC slot | movement-intelligence plugin | **Phase 2.** Declares; does not write `MoveWish`. |
 
 ### B — character / actor samples
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
 | B1 | Look | `CharacterIntent::Look` | A5 | C1 `apply_look_intents` | character crate | Broadcast. |
-| B2 | Focus | `CharacterIntent::Focus` | A5 | C2; also drops sprint in `apply_move_intents` | character crate | Broadcast. |
+| B2 | Focus | `CharacterIntent::Focus` | A5 | C2; also drops sprint in `interpret_standard_locomotion` | character crate | Broadcast. |
 | B3 | Ads | `CharacterIntent::Ads` | A5 | C3 | character crate | Broadcast. |
 | B4 | Swap POV | `CharacterIntent::SwapPov` | A5 | C4 | character crate | Broadcast. |
 | B5 | Use item | `CharacterIntent::UseItem` | A5 | D1 / D2 / D3 | character crate | Broadcast. Firearm-user also re-reads the pad (D2). |
@@ -133,7 +135,7 @@ the phase 1 owner. Later phases change the owner column, not the role id.
 | B8 | In-game menu | `CharacterIntent::InGameMenu` | A5 | E1 `toggle_world_pause` | character crate | Broadcast. |
 | B9 | Inventory | `CharacterIntent::Inventory` | A5 | E2 `stash.rs` | character crate | Broadcast. |
 | B10 | Toggle map | `CharacterIntent::ToggleMap` | A5 | E3 `map_view.rs` | character crate | Broadcast. |
-| B11 | Ordinary locomotion | `Move` / `Jump` / `StartSprint` / `StopSprint` / `ChangeSquat` / `ChangeProne` | A5 when `OrdinaryLocomotionEnabled` | P3 Standard `apply_move_intents`; world adapter | character + player | Broadcast + query-wide apply. |
+| B11 | Ordinary locomotion | `controllers/locomotion` `interpret_standard_locomotion` | A5 + `LocalActor` / lowest-id `Player` | `MotorIntent` Standard slot | `LocomotionControllerPlugin` | **Phase 2.** One actor. |
 | B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` reading `VirtualPad` | Tanz match + skill-map fan-out | `TanzUser` component | Actor field exists; pad read is still global. Phase 3. |
 | B13 | Standard flick | `SkillMapFlick` | `SkillMapController::detect_skill_map_flicks` | skill-map interpreter | `SkillMapController` resource | Untargeted message; also reads raw `Gamepad`. Phase 3. |
 
@@ -175,7 +177,7 @@ the phase 1 owner. Later phases change the owner column, not the role id.
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
 | U1 | Source routing | `InputSource` | A3 | `Routed`, `CaptureLayer` | `controllers/core` | Local pad only. |
-| U2 | Actor routing | `ActorTarget` | hosts (none yet) | future B* / motor | `controllers/core` | Vocabulary only in phase 1. |
+| U2 | Actor routing | `ActorTarget`, `LocalActor` | locomotion / hosts | B11 motor | `controllers/core` | **Phase 2.** Local pad actor. |
 | U3 | UI routing | `UiTarget`, `RouteTarget::Ui` | A4 | M1 / M2 | `controllers/core` + menu | Used by the migrated menu path. |
 | U4 | Focus pick | `MenuController::pick_focus` / `resolve` | screen subtree | A4 | `MenuController` | Overlay > HUD > text. |
 | U5 | Scoped capture | `CaptureStack`, `CaptureLayer`, `CaptureKind` | A4 `refresh_menu_focus` | A4 `dispatch_menu_nav` | `ControllersCorePlugin` | Menu-nav layer only. Nested pop is implemented; hosts do not yet nest text/overlay independently. Phase 4. |
@@ -194,9 +196,9 @@ the phase 1 owner. Later phases change the owner column, not the role id.
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
 | P1 | Bind | `ControllerPipeline::Bind` | A4, A5 | C* / D* / E* / B11 | `ControllersCorePlugin` | Live. Character produce + menu dispatch. |
-| P2 | Interpret | `ControllerPipeline::Interpret` | — | — | core | Empty. Phase 2. |
-| P3 | Motor request | `ControllerPipeline::MotorRequest` + `MotorRequestStage::{Standard,Tanz,WorldFilter}` | B11, B12, A6 | P4 | core graph; writers still outside the sets | Phase 2 joins writers. |
-| P4 | Motor apply | `PlayerSystems::Body` (`apply_wish_movement`, jump, stance hulls) | P3 wishes | capsule velocity | `PlayerPlugin` | One apply path already. Request side still has several writers. |
+| P2 | Interpret | `reset_motor_intents` | — | P3 | `PlayerPlugin` | **Phase 2.** Clears slots each frame. |
+| P3 | Motor request | `MotorRequestStage::{Standard,Tanz,WorldFilter}` + recovery / separation | B11, B12, A6, world | P4 | named sets | **Phase 2.** Declared slots only. |
+| P4 | Motor apply | `apply_motor` then `PlayerSystems::Body` | `ResolvedMotorRequest` | `MoveWish` / jump / sprint / cap | `PlayerPlugin` | **Phase 2.** One resolver, one apply. |
 
 ## Realized-state writer inventory
 
@@ -205,15 +207,16 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | State | Writer | File | Policy | Role after the stack |
 |---|---|---|---|---|
 | `CharacterIntent` | `produce_character_intents` | `controllers/character/src/produce.rs` | `OrdinaryLocomotionEnabled`, `PadGameplayEnabled`, `MenuOwnsBack` | A5 Bind. Single producer. Becomes `Routed` per actor. |
-| `player::MoveWish` / `JumpWish` / `Sprinting` / stance | `apply_move_intents` | `player/src/intent.rs` | pad `OrdinaryLocomotionEnabled`; **all** `Player` + `CharacterController` | P3 Standard. Phase 2: `MotorIntent` for one actor. |
-| vegetation `MoveWish` / `MovementAction` + zeros `player::MoveWish` | `apply_intents_to_movement` | `world/lib/src/control.rs` | `WorldGameplayEnabled.accepts_character_input`, `PlaygroundMode`, ordinary flag | P3 WorldFilter. Phase 2 drops live `player::MoveWish` writes ([#1394](https://github.com/ramate-io/maybraid/pull/1394) baseline). |
-| `player::MoveWish` / `MoveSpeedCap` | `apply_tanz_movement` | `items/tanz-user/src/execute.rs` | `TanzUser.mode.is_tanzer()` | P3 Tanz. Phase 2–3: `MotorIntent` from execution. |
-| zeros `MoveWish` on mode flip | `TanzUser::apply_toggle` / `toggle_control_mode` | `items/tanz-user/src/lib.rs` | bumper chord | U7. Does not touch Tanz `ModeToggle` in `input.rs` ([#1385](https://github.com/ramate-io/maybraid/issues/1385)). |
-| `player::MoveWish` | `drive_movement` | `intelligence/movement` | `MovementIntelligence` | A6. Phase 2: declared `MotorIntent`. |
-| `player::MoveWish` / `JumpWish` | `realize_movement` | `movement-realization` | `Without<Player>` | Phase 2: declared recovery modifier. |
-| additive `MoveWish` | `apply_npc_soft_bump` | `player/src/separation.rs` | `Npc` | Phase 2: declared separation modifier. |
-| vegetation `MoveWish` / `MovementAction` | `keyboard_movement_input` | `world/player/src/player.rs` | `PadMovementEnabled` (false in world) | Legacy host. Phase 2 removes the Discovery duplicate. |
-| velocity | `apply_character_movement` | `world/player/src/player.rs` | `VegetationPlayerMotor` (false in world) | Legacy host motor. Phase 2. |
+| `MotorIntent` Standard slot | `interpret_standard_locomotion` | `controllers/locomotion/src/standard.rs` | `LocalActor` / lowest-id `Player`; per-actor `OrdinaryLocomotion` | P3 Standard. One actor. |
+| `MotorIntent` Tanz slot | `apply_tanz_movement` | `items/tanz-user/src/execute.rs` | `TanzUser.mode.is_tanzer()` | P3 Tanz. Declares; apply owns cap / sprint release. |
+| `MotorIntent` suppress | `apply_world_motor_filter` | `world/lib/src/control.rs` | pause / text / map / non-character mode | P3 WorldFilter. Player only; zeros leftover vegetation `MoveWish`. |
+| `MotorIntent` NPC slot | `drive_movement` | `intelligence/movement` | `MovementIntelligence` | A6. Declares. |
+| `MotorIntent` recovery | `realize_movement` | `movement-realization` | `Without<Player>` | P3 modifier. |
+| `MotorIntent` separation | `declare_npc_soft_bump` | `player/src/separation.rs` | `Npc` | P3 modifier. |
+| `MoveWish` / `JumpWish` / `Sprinting` / `MoveSpeedCap` | `apply_motor` | `player/src/motor.rs` | resolved request | **Only apply path.** |
+| mode flip | `TanzUser::apply_toggle` / `set_mode` | `items/tanz-user/src/lib.rs` | bumper chord / agent | Clears execution only. Resolver releases stale sprint / jump / cap. |
+| vegetation `MoveWish` / `MovementAction` | `keyboard_movement_input` | `world/player/src/player.rs` | `PadMovementEnabled` (false in Discovery) | Playground host only. Discovery duplicate removed. |
+| velocity | `apply_character_movement` | `world/player/src/player.rs` | `VegetationPlayerMotor` (false in Discovery) | Playground host motor. |
 | `CameraController` look / POV | `apply_look_intents` | `player-camera/src/look.rs` | `CameraLookSuppressed`, `CameraPovLocked` | C1–C4. Phase 5. |
 | `WeaponTrigger` | `apply_fire_intents` | `items/firearm-user/src/fire.rs` | `Player` + `FirearmUser` | D2. Phase 5. |
 | `WorldGameplayEnabled` | `toggle_world_pause`, flow enter | `game/src/lib.rs`, world control | pause / shell | E1 / E4. Phase 4. |
@@ -235,7 +238,7 @@ phase. Phase 1 inventories them and migrates menu dispatch only.
 | `game/src/lib.rs` `toggle_world_pause` | `VirtualPad` (A vs Start) | B8 | 4 |
 | `world/lib/src/player_lifecycle.rs` `drive_respawn_picker` | `VirtualPad` stick / D-pad | shell | 5 |
 | `world/lib/src/camera.rs` `fly_world_camera` | `VirtualPad` | playground free-fly | keep (host debug) |
-| `world/player/src/player.rs` `keyboard_movement_input` | `VirtualPad` | B11 | 2 |
+| `world/player/src/player.rs` `keyboard_movement_input` | `VirtualPad` | playground B11 | playground host |
 | `world/player/src/camera.rs` | `VirtualPad` | playground camera | keep (host debug) |
 | `world/lib/src/stash.rs` | `Query<&Gamepad>` | menu select | 5 |
 | `menu/components` short-text / modal / prompt | `VirtualPad` / `Gamepad` | M1 / text capture | 4–5 |
@@ -251,14 +254,14 @@ applies the last sample to **every** matching entity.
 |---|---|---|---|
 | **Menu nav (M1)** | `Routed<MenuNav>` → `MenuNavImpulse` on one `UiTarget`; exclusive modal writes `CaptureStack` | **Migrated** | — |
 | `CharacterIntent` (B1–B11) | `MessageWriter` / `MessageReader`, no actor | adapter | 2–5 per consumer |
-| `apply_move_intents` | reads broadcast, writes every `Player` + `CharacterController` | adapter | 2 |
-| `apply_intents_to_movement` | same, every vegetation + player wish | adapter | 2 |
+| `apply_move_intents` | removed | **Phase 2** | locomotion + `apply_motor` |
+| `apply_intents_to_movement` | removed live writes | **Phase 2** | `apply_world_motor_filter` suppress |
 | `apply_look_intents` | broadcast → every `FollowCamera` | adapter | 5 |
 | `apply_fire_intents` | pad → every `FirearmUser` with `Player` | adapter | 5 |
 | `grenade_user::throw` | broadcast `UseItem` | adapter | 5 |
 | `SkillMapFlick` | untargeted message | adapter | 3 |
 | `TanzInput` | message **with** `user` but produced from one global pad for every Tanzer | half-targeted | 3 |
-| `drive_movement` | each NPC writes its own wish (OK) from a planner, not from pad broadcast | keep shape | 2 (declare as `MotorIntent`) |
+| `drive_movement` | each NPC declares its own `MotorIntent` (OK) from a planner | **Phase 2** | keep |
 
 ## Temporary adapters
 
@@ -266,18 +269,18 @@ Do not add a second copy of these. Remove in the named phase.
 
 | Adapter | Why it exists | Removal |
 |---|---|---|
-| Broadcast `CharacterIntent` | Consumers are not actor-addressed yet. A5 still binds from the local pad into a process-wide message. | Phases 2–5 as each consumer takes `Routed` / `ActorTarget`. |
-| `CharacterControlSystems` ⊂ `Bind` | Existing `.after(CharacterControlSystems)` hosts (player intent, Tanz, world cycling, stash, Lubikan). | Phase 2: those hosts join `ControllerPipeline` sets. |
-| `MotorRequestStage` sets with no members | Graph from [#1394](https://github.com/ramate-io/maybraid/pull/1394) so phase 2 can move writers without renaming. | Phase 2 joins Standard / Tanz / WorldFilter. |
-| `PlayerSystems::{Intent,Body}` outside P3 / P4 | Motor apply is already one path; request writers are not in the pipeline sets. | Phase 2. |
-| World adapter live `player::MoveWish` write | Discovery vegetation + pause zeroing share `apply_intents_to_movement`. | Phase 2 (WorldFilter zeros only; vegetation motor removed). |
+| Broadcast `CharacterIntent` | Consumers are not actor-addressed yet. A5 still binds from the local pad into a process-wide message. | Phases 3–5 as each consumer takes `Routed` / `ActorTarget`. B11 consumes it into one actor. |
+| `CharacterControlSystems` ⊂ `Bind` | Leftover `.after(CharacterControlSystems)` item / camera / shell hosts. Motor hosts joined the pipeline. | Phases 3–5. |
+| `MotorRequestStage` sets with no members | **Removed.** Standard / Tanz / WorldFilter have writers. | — |
+| `PlayerSystems::Body` outside P4 | **Removed.** Body is in `ControllerPipeline::Motor`. Intent stays for item users (D*). | — |
+| World adapter live `player::MoveWish` write | **Removed.** WorldFilter declares suppress only. | — |
 | `MenuOwnsBack` written from menu focus | Character Bind still consults it to skip stance. Capture should own **B**. | Phase 4 (U5 / U6). |
 | `ExclusiveNav` fallback in `dispatch_menu_nav` when `CaptureStack` has no menu layer | Hosts that run dispatch without `refresh_menu_focus` (or before it). Refresh always writes the layer when the plugin is installed. | Phase 4 once every host goes through refresh. |
 | `exclusive_nav_menu` free function | Thin wrapper around `ExclusiveNav::resolve` for existing imports. | Phase 4. |
 | `PadGameplayEnabled` + `KeyboardPadMap` lanes | Global table, not participation install. | Phase 4. |
-| `OrdinaryLocomotionEnabled` pad-level resource | Any Tanzer flips walking for everyone. [#1395](https://github.com/ramate-io/maybraid/pull/1395) per-actor flag is the review baseline. | Phase 2 / 4. |
+| `OrdinaryLocomotionEnabled` pad-level resource | Derived from the local `Player` Tanz mode. Per-actor `OrdinaryLocomotion` is the participation bit. | Phase 4 capability table. |
 | Direct `VirtualPad` / `Gamepad` reads in the hardware table | Bind is the only blessed reader. | Phases 3 and 5. |
-| `ActorTarget` unused by a live path | Vocabulary for phases 2–5. Menu uses `UiTarget` so the crate is not abstraction-only. | Used as soon as B11 is addressed. |
+| `ActorTarget` unused by a live path | **Removed.** B11 uses `LocalActor` / `ActorTarget`. | — |
 
 ## Invariants (checklist)
 

@@ -32,12 +32,12 @@ Apps must register physics through
 plugin. Last plane is only a
 [`Grounded`](src/body.rs) snap when the caster missed. Off the ground, gravity
 owns Y (XZ heading only). A jump is takeoff (impulse delayed) → air → land
-recovery; only air is XZ-only. Pad [`CharacterIntent`](../controllers/character/src/intent.rs)
-and NPC drive both write [`MoveWish`](src/body.rs) / [`JumpWish`](src/body.rs);
-Body applies those for every capsule. Overlapping [`Npc`](src/identity.rs)
-capsules get a kinematic XZ [`SoftBump`](src/separation.rs) on `MoveWish`
-before realization so pack-mates start steering apart before capsule contacts
-shove them. Animated movers contact Fixed geometry and each other; restitution
+recovery; only air is XZ-only. Ordinary locomotion, Tanz, and NPC drive declare
+[`MotorIntent`](src/motor.rs) slots. [`apply_motor`](src/motor.rs) is the
+only path that writes [`MoveWish`](src/body.rs) / [`JumpWish`](src/body.rs)
+/ sprint / speed cap. Overlapping [`Npc`](src/identity.rs) capsules declare
+a kinematic XZ [`SoftBump`](src/separation.rs) modifier so pack-mates start
+steering apart before capsule contacts shove them. Animated movers contact Fixed geometry and each other; restitution
 on the capsule stays zero. Pronograde recipes keep that vertical motor
 hull and add a query-only horizontal [`HitCapsule`](../world/layers/mobs/characters/lib/src/components.rs)
 child (`Sensor`, Animated layer) so projectiles can hit the body and tail.
@@ -50,7 +50,7 @@ yaw; `Health`
 stays on the body.
 
 ```text
-CharacterIntent ─► wish / jump          (this crate)
+CharacterIntent ─► MotorIntent (locomotion) ─► apply_motor ─► wish / jump
                ─► look / POV            (player-camera)
                ─► UseItem               (firearm-user, melee-user)
 
@@ -64,8 +64,8 @@ System sets other crates add to:
 
 | Set | When | Writers |
 |---|---|---|
-| `PlayerSystems::Intent` | Update | move / jump |
-| `PlayerSystems::Body` | Update | capsule physics |
+| `PlayerSystems::Intent` | after Bind, before Motor | item users (fire / throw) |
+| `PlayerSystems::Body` | `ControllerPipeline::Motor` | `apply_motor` then capsule physics |
 | `PlayerPoseSystems::Item` | after body, before locomotion | held-mesh pose |
 | `PlayerSystems::Locomotion` | before `CharacterMotionSystems::Anim` | walk/run clips |
 | `PlayerPoseSystems::Overlay` | after Anim | IK / melee overlay |

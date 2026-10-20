@@ -11,12 +11,15 @@ mod stack;
 
 use bevy::prelude::*;
 use characters::CharacterMotionSystems;
-use menu_components::sync_loading_bar_fill;
 use damage::Downed;
-use maybraid_character_controller::{CharacterControlSystems, OrdinaryLocomotionEnabled};
+use maybraid_character_controller::{
+	CharacterControlSystems, OrdinaryLocomotion, OrdinaryLocomotionEnabled,
+};
+use maybraid_controllers_core::{ControllerPipeline, MotorRequestStage};
 use maybraid_input::VirtualPad;
 use maybraid_skill_map::{SkillMapFlick, SkillMapSteerPolicy, SkillMapSystems};
-use player::{MoveWish, PlayerLook, PlayerSystems};
+use menu_components::sync_loading_bar_fill;
+use player::{Player, PlayerLook, PlayerSystems};
 
 pub use actions::{
 	dash_ground_speed, forward_dash, healing_salute, left_strafe, right_strafe, starter_stack,
@@ -108,13 +111,7 @@ impl TanzUser {
 
 	/// Hold both bumpers long enough to flip modes. Clears recognizer, execution,
 	/// and leftover movement wishes so the next mode starts clean.
-	pub fn apply_toggle(
-		&mut self,
-		dt: f32,
-		chord: bool,
-		execution: &mut TanzExecution,
-		wish: &mut MoveWish,
-	) -> bool {
+	pub fn apply_toggle(&mut self, dt: f32, chord: bool, execution: &mut TanzExecution) -> bool {
 		if !self.toggle.sample(dt, chord, self.settings.toggle_secs, self.mode) {
 			return false;
 		}
@@ -122,18 +119,12 @@ impl TanzUser {
 		self.recognizer.reset();
 		self.toggle.reset_for_mode(self.mode);
 		execution.clear();
-		wish.0 = Vec3::ZERO;
 		info!("tanz control mode -> {:?}", self.mode);
 		true
 	}
 
 	/// Set the mode directly (script / agent). Same cleanup as a chord toggle.
-	pub fn set_mode(
-		&mut self,
-		mode: ControlMode,
-		execution: &mut TanzExecution,
-		wish: &mut MoveWish,
-	) -> bool {
+	pub fn set_mode(&mut self, mode: ControlMode, execution: &mut TanzExecution) -> bool {
 		if self.mode == mode {
 			return false;
 		}
@@ -141,7 +132,6 @@ impl TanzUser {
 		self.recognizer.reset();
 		self.toggle.reset_for_mode(self.mode);
 		execution.clear();
-		wish.0 = Vec3::ZERO;
 		info!("tanz control mode -> {:?}", self.mode);
 		true
 	}
@@ -192,6 +182,7 @@ pub struct TanzUserPlugin;
 
 impl Plugin for TanzUserPlugin {
 	fn build(&self, app: &mut App) {
+		ControllerPipeline::configure(app);
 		app.add_message::<TanzInput>()
 			.init_resource::<OrdinaryLocomotionEnabled>()
 			.init_resource::<SkillMapSteerPolicy>()
@@ -208,8 +199,7 @@ impl Plugin for TanzUserPlugin {
 					TanzUserSystems::Match.after(TanzUserSystems::Recognize),
 					TanzUserSystems::Execute
 						.after(TanzUserSystems::Match)
-						.after(PlayerSystems::Intent)
-						.before(PlayerSystems::Body),
+						.in_set(MotorRequestStage::Tanz),
 					TanzUserSystems::Animate
 						.after(PlayerSystems::Locomotion)
 						.before(CharacterMotionSystems::Anim),
@@ -250,24 +240,35 @@ impl Plugin for TanzUserPlugin {
 fn toggle_control_mode(
 	time: Res<Time>,
 	pad: Option<Res<VirtualPad>>,
-	mut users: Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	mut users: Query<(&mut TanzUser, &mut TanzExecution)>,
 ) {
 	let Some(pad) = pad else {
 		return;
 	};
 	let dt = time.delta_secs();
 	let chord = pad.bumper_chord_held();
-	for (mut user, mut execution, mut wish) in &mut users {
-		user.apply_toggle(dt, chord, &mut execution, &mut wish);
+	for (mut user, mut execution) in &mut users {
+		user.apply_toggle(dt, chord, &mut execution);
 	}
 }
 
 fn sync_tanz_policies(
-	users: Query<&TanzUser>,
+	mut commands: Commands,
+	users: Query<(Entity, &TanzUser, Has<Player>)>,
 	mut ordinary: ResMut<OrdinaryLocomotionEnabled>,
 	mut policy: ResMut<SkillMapSteerPolicy>,
 ) {
-	let tanzer = users.iter().any(|user| user.mode.is_tanzer());
+	let mut player_tanzer = None;
+	let mut any_tanzer = false;
+	for (entity, user, is_player) in &users {
+		let tanzer = user.mode.is_tanzer();
+		any_tanzer |= tanzer;
+		commands.entity(entity).insert(OrdinaryLocomotion(!tanzer));
+		if is_player {
+			player_tanzer = Some(tanzer);
+		}
+	}
+	let tanzer = player_tanzer.unwrap_or(any_tanzer);
 	ordinary.0 = !tanzer;
 	*policy = if tanzer { SkillMapSteerPolicy::Tanz } else { SkillMapSteerPolicy::Standard };
 }
@@ -320,25 +321,16 @@ fn publish_tanz_map_inputs(
 	}
 }
 
-fn interrupt_downed_tanzes(
-	mut users: Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish), Added<Downed>>,
-) {
-	for (mut user, mut execution, mut wish) in &mut users {
+fn interrupt_downed_tanzes(mut users: Query<(&mut TanzUser, &mut TanzExecution), Added<Downed>>) {
+	for (mut user, mut execution) in &mut users {
 		user.recognizer.reset();
 		execution.clear();
-		wish.0 = Vec3::ZERO;
 	}
 }
 
 /// Camera-relative XZ wish from a stick-space vector.
 pub fn look_wish(yaw: f32, stick: Vec2) -> Vec3 {
-	if stick == Vec2::ZERO {
-		return Vec3::ZERO;
-	}
-	let yaw = Quat::from_axis_angle(Vec3::Y, yaw);
-	let forward = yaw * -Vec3::Z;
-	let right = yaw * Vec3::X;
-	(right * stick.x + forward * stick.y).clamp_length_max(1.0)
+	PlayerLook::wish_from_yaw(yaw, stick)
 }
 
 pub fn look_yaw(look: Option<&PlayerLook>) -> f32 {
@@ -363,12 +355,10 @@ mod tests {
 		let mut user = TanzUser { mode: ControlMode::Standard, ..TanzUser::default() };
 		let mut execution = TanzExecution::default();
 		execution.begin(TanzId::ForwardDash, Vec2::Y, 0.5);
-		let mut wish = MoveWish(Vec3::Y);
-		assert!(!user.set_mode(ControlMode::Standard, &mut execution, &mut wish));
-		assert!(user.set_mode(ControlMode::Tanzer, &mut execution, &mut wish));
+		assert!(!user.set_mode(ControlMode::Standard, &mut execution));
+		assert!(user.set_mode(ControlMode::Tanzer, &mut execution));
 		assert_eq!(user.mode, ControlMode::Tanzer);
 		assert!(execution.active.is_none());
-		assert_eq!(wish.0, Vec3::ZERO);
 		Ok(())
 	}
 
@@ -377,19 +367,18 @@ mod tests {
 		let dt = 1.0 / 60.0;
 		let mut user = TanzUser::default();
 		let mut execution = TanzExecution::default();
-		let mut wish = MoveWish::default();
 		for _ in 0..59 {
-			assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
+			assert!(!user.apply_toggle(dt, true, &mut execution));
 		}
 		assert_eq!(user.mode, ControlMode::Standard);
-		assert!(user.apply_toggle(dt, true, &mut execution, &mut wish));
+		assert!(user.apply_toggle(dt, true, &mut execution));
 		assert_eq!(user.mode, ControlMode::Tanzer);
-		assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
-		assert!(!user.apply_toggle(dt, false, &mut execution, &mut wish));
+		assert!(!user.apply_toggle(dt, true, &mut execution));
+		assert!(!user.apply_toggle(dt, false, &mut execution));
 		for _ in 0..59 {
-			assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
+			assert!(!user.apply_toggle(dt, true, &mut execution));
 		}
-		assert!(user.apply_toggle(dt, true, &mut execution, &mut wish));
+		assert!(user.apply_toggle(dt, true, &mut execution));
 		assert_eq!(user.mode, ControlMode::Standard);
 		Ok(())
 	}
@@ -400,15 +389,13 @@ mod tests {
 		user.toggle.reset_for_mode(ControlMode::Tanzer);
 		let mut execution = TanzExecution::default();
 		execution.begin(TanzId::LeftStrafe, Vec2::NEG_X, 0.0);
-		let mut wish = MoveWish(Vec3::X);
 		let dt = 1.0 / 60.0;
 		for _ in 0..59 {
-			assert!(!user.apply_toggle(dt, true, &mut execution, &mut wish));
+			assert!(!user.apply_toggle(dt, true, &mut execution));
 		}
-		assert!(user.apply_toggle(dt, true, &mut execution, &mut wish));
+		assert!(user.apply_toggle(dt, true, &mut execution));
 		assert_eq!(user.mode, ControlMode::Standard);
 		assert!(execution.active.is_none());
-		assert_eq!(wish.0, Vec3::ZERO);
 		Ok(())
 	}
 
@@ -419,11 +406,31 @@ mod tests {
 			.init_resource::<OrdinaryLocomotionEnabled>()
 			.init_resource::<SkillMapSteerPolicy>()
 			.add_systems(Update, sync_tanz_policies);
-		app.world_mut()
-			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() });
+		let npc = app
+			.world_mut()
+			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() })
+			.id();
 		app.update();
 		assert_eq!(*app.world().resource::<SkillMapSteerPolicy>(), SkillMapSteerPolicy::Tanz);
 		assert!(!app.world().resource::<OrdinaryLocomotionEnabled>().0);
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(npc).map(|flag| flag.0), Some(false));
+		Ok(())
+	}
+
+	#[test]
+	fn npc_tanzer_does_not_steal_a_standard_player_pad() -> anyhow::Result<()> {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.init_resource::<OrdinaryLocomotionEnabled>()
+			.init_resource::<SkillMapSteerPolicy>()
+			.add_systems(Update, sync_tanz_policies);
+		app.world_mut()
+			.spawn((Player, TanzUser { mode: ControlMode::Standard, ..TanzUser::default() }));
+		app.world_mut()
+			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() });
+		app.update();
+		assert!(app.world().resource::<OrdinaryLocomotionEnabled>().0);
+		assert_eq!(*app.world().resource::<SkillMapSteerPolicy>(), SkillMapSteerPolicy::Standard);
 		Ok(())
 	}
 

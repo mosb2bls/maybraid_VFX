@@ -6,8 +6,9 @@ resolved here so consumers do not re-read the pad.
 
 Bind runs in [`ControllerPipeline::Bind`](../core/src/schedule.rs) from
 [`controllers/core`](../core/README.md). Intents are still a process-wide
-[`CharacterIntent`](src/intent.rs) broadcast — that adapter is removed as
-consumers become actor-addressed (phases 2–5). See
+[`CharacterIntent`](src/intent.rs) broadcast. Ordinary locomotion consumes
+move / jump / sprint / stance onto one [`ActorTarget`](../core/src/actor.rs)
+in [`controllers/locomotion`](../locomotion/README.md). See
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 `RightTrigger` + `X` is `PowerUseItem` and suppresses `StartInteraction`.

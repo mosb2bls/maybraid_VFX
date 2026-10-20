@@ -78,4 +78,17 @@ mod tests {
 		let forward = look_forward(&look);
 		assert!((forward - (-Vec3::Z)).length() < 1e-4);
 	}
+
+	#[test]
+	fn wish_from_stick_is_camera_relative_xz() {
+		let look = crate::PlayerLook { yaw: 0.0, pitch: 0.0, first_person: true, focus: 0.0 };
+		let forward = look.wish_from_stick(Vec2::Y);
+		assert!((forward.z + 1.0).abs() < 1e-4, "{forward}");
+		assert!(forward.y.abs() < 1e-6);
+		let right = look.wish_from_stick(Vec2::X);
+		assert!((right.x - 1.0).abs() < 1e-4, "{right}");
+		assert!(right.y.abs() < 1e-6);
+		let half = crate::PlayerLook::wish_from_yaw(0.0, Vec2::Y * 0.5);
+		assert!((half.length() - 0.5).abs() < 1e-4, "stick magnitude is the throttle: {half}");
+	}
 }

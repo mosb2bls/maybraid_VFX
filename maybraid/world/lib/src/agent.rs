@@ -13,7 +13,7 @@ use maybraid_agent::{
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
 use mob_characters::CharacterSceneRecipe;
 use mob_scenes::MobScene;
-use player::{MoveWish, Player as MotorPlayer};
+use player::Player as MotorPlayer;
 use player_camera::CameraController;
 use tanz_user::{ControlMode, TanzExecution, TanzId, TanzUser};
 use terrain_layer_model::TerrainStreaming;
@@ -590,7 +590,7 @@ fn agent_apply_world_ops(
 		),
 		With<MotorPlayer>,
 	>,
-	mut tanzers: Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	mut tanzers: Query<(&mut TanzUser, &mut TanzExecution)>,
 ) {
 	let pending = std::mem::take(&mut runtime.pending);
 	let t = time.elapsed_secs();
@@ -928,7 +928,7 @@ fn agent_actor_census(
 }
 
 fn apply_tanz_mode(
-	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution)>,
 	mode: &str,
 ) -> Result<String, String> {
 	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
@@ -937,7 +937,7 @@ fn apply_tanz_mode(
 	} else {
 		ControlMode::from_script_id(mode).ok_or_else(|| format!("unknown tanz mode: {mode}"))?
 	};
-	let changed = user.0.set_mode(next, &mut user.1, &mut user.2);
+	let changed = user.0.set_mode(next, &mut user.1);
 	Ok(if changed {
 		format!("mode {}", next.script_id())
 	} else {
@@ -946,13 +946,13 @@ fn apply_tanz_mode(
 }
 
 fn apply_tanz(
-	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution)>,
 	id: &str,
 ) -> Result<String, String> {
 	let tanz_id = TanzId::from_script_id(id).ok_or_else(|| format!("unknown tanz: {id}"))?;
 	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
 	if !user.0.mode.is_tanzer() {
-		user.0.set_mode(ControlMode::Tanzer, &mut user.1, &mut user.2);
+		user.0.set_mode(ControlMode::Tanzer, &mut user.1);
 	}
 	user.1.submit(tanz_id);
 	Ok(format!("submitted {}", tanz_id.script_id()))

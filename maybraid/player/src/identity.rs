@@ -29,6 +29,24 @@ pub struct PlayerLook {
 	pub focus: f32,
 }
 
+impl PlayerLook {
+	/// Camera-relative XZ wish from a stick-space vector.
+	pub fn wish_from_stick(self, stick: Vec2) -> Vec3 {
+		Self::wish_from_yaw(self.yaw, stick)
+	}
+
+	/// Camera-relative XZ wish from an explicit yaw and stick-space vector.
+	pub fn wish_from_yaw(yaw: f32, stick: Vec2) -> Vec3 {
+		if stick == Vec2::ZERO {
+			return Vec3::ZERO;
+		}
+		let yaw = Quat::from_axis_angle(Vec3::Y, yaw);
+		let forward = yaw * -Vec3::Z;
+		let right = yaw * Vec3::X;
+		(right * stick.x + forward * stick.y).clamp_length_max(1.0)
+	}
+}
+
 /// Camera override written by a use-driver (sights, lock-on). Follow lerps by `focus`.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct PlayerCameraAim {

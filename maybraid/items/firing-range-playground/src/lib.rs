@@ -44,6 +44,7 @@ use les_halles::LesHallesSpawn;
 use lod::LodRefreshSystems;
 use maybraid_character_controller::CharacterControllerPlugin;
 use maybraid_input::{PadGameplayEnabled, VirtualPadSystems};
+use maybraid_locomotion_controller::LocomotionControllerPlugin;
 use movement_intelligence::{
 	CandidateBudget, MovementIntelligenceLimits, MovementIntelligencePlugin,
 };
@@ -81,6 +82,7 @@ impl Plugin for FiringRangePlugin {
 			.add_plugins(StandaloneCharacterMaterialRefPlugin)
 			.add_plugins(CharacterHostsPlugin)
 			.add_plugins(CharacterControllerPlugin)
+			.add_plugins(LocomotionControllerPlugin)
 			.add_plugins(PlayerPlugin)
 			.add_plugins(PlayerCameraPlugin)
 			.add_plugins(FirearmUserPlugin)

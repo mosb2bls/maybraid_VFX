@@ -13,35 +13,32 @@ use bevy::prelude::*;
 /// item intents read after [`Self::Bind`] and must not write the shared motor
 /// wish.
 ///
-/// [`Self::Interpret`] is reserved for later per-actor interpreters that do
-/// not also write `MoveWish`. Phase 1 registers the graph so later PRs can
-/// move writers into the named sets.
+/// [`Self::Interpret`] resets per-actor motor slots so writers in
+/// [`Self::MotorRequest`] declare this frame only.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ControllerPipeline {
 	/// Pad → routed character / menu samples.
 	Bind,
-	/// Standard / Tanzer priorities and world gameplay filters. Empty in phase 1.
+	/// Clear motor slots. Selection happens in the motor resolver, not here.
 	Interpret,
-	/// One resolved motor request per actor (`MoveWish` / `JumpWish` / stance).
+	/// Declared motor requests / modifiers. Named stages keep #1394 order.
 	MotorRequest,
-	/// Shared capsule motor (`PlayerSystems::Body`).
+	/// One resolve + apply, then the shared capsule motor (`PlayerSystems::Body`).
 	Motor,
 }
 
 /// Writers inside [`ControllerPipeline::MotorRequest`].
 ///
-/// Order is the priority stack: Standard interpretation, Tanzer overwrite,
-/// then the world gameplay filter (pause / text / map always win). Phase 2
-/// replaces overwrite with one resolver; the named sets stay.
+/// Order is the explicit #1394 stack: Standard, Tanz, WorldFilter. Phase 2
+/// keeps the names and replaces overwrite with one resolver that reads
+/// declared slots.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MotorRequestStage {
-	/// Generic `apply_move_intents` (player crate). Owns `player::MoveWish`.
+	/// Ordinary locomotion + NPC planning write `MotorIntent` slots.
 	Standard,
-	/// Tanzer `apply_tanz_movement`. Overwrites the Standard wish until phase 2.
+	/// Tanzer execution writes the Tanz slot. It does not write `MoveWish`.
 	Tanz,
-	/// World adapter: zeros wishes when gated; vegetation `MoveWish` /
-	/// `MovementAction` only. Must not write `player::MoveWish` while live
-	/// after phase 2.
+	/// Pause / text / map declare suppress. No live vegetation motor write.
 	WorldFilter,
 }
 

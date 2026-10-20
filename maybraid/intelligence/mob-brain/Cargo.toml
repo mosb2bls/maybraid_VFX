@@ -24,6 +24,7 @@ hiding-intelligence = { workspace = true }
 journeying-intelligence = { workspace = true }
 lod-avian = { workspace = true }
 maybraid-character-controller = { workspace = true }
+maybraid-locomotion-controller = { workspace = true }
 maybraid-input = { workspace = true }
 meandering-intelligence = { workspace = true }
 movement-intelligence = { workspace = true }

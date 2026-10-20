@@ -3,8 +3,9 @@
 use bevy::prelude::*;
 use characters::LocomotionCapsule;
 
-use crate::body::{CharacterController, MoveWish};
+use crate::body::CharacterController;
 use crate::identity::Npc;
+use crate::motor::MotorIntent;
 use crate::spawn::CAPSULE_RADIUS;
 
 /// Horizontal distance that starts a kinematic bump between NPC capsules.
@@ -18,8 +19,9 @@ const PARALLEL_ALIGN: f32 = 0.85;
 
 /// Kinematic XZ split between overlapping NPC capsules.
 ///
-/// Added to [`MoveWish`] after drive and before realization so pack-mates
-/// start steering apart; capsule contacts still shove if they close.
+/// Declared as a [`MotorIntent`] separation modifier after drive and before
+/// apply so pack-mates start steering apart; capsule contacts still shove
+/// if they close.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SoftBump {
 	pub min_separation: f32,
@@ -93,13 +95,13 @@ fn split_dir(left: Entity, right: Entity) -> Vec2 {
 	Vec2::from_angle(unit * core::f32::consts::TAU)
 }
 
-/// Nudge overlapping NPC wishes before [`crate::body::apply_wish_movement`].
-pub(crate) fn apply_npc_soft_bump(
+/// Declare overlapping NPC pushes on [`MotorIntent`]. Apply composes them.
+pub(crate) fn declare_npc_soft_bump(
 	poses: Query<
 		(Entity, &Transform, Option<&LocomotionCapsule>),
 		(With<Npc>, With<CharacterController>),
 	>,
-	mut wishes: Query<&mut MoveWish, (With<Npc>, With<CharacterController>)>,
+	mut intents: Query<&mut MotorIntent, (With<Npc>, With<CharacterController>)>,
 ) {
 	let mut agents: Vec<(Entity, Vec2, f32)> = poses
 		.iter()
@@ -136,10 +138,10 @@ pub(crate) fn apply_npc_soft_bump(
 		if push.length_squared() < 1e-8 {
 			continue;
 		}
-		let Ok(mut wish) = wishes.get_mut(agents[i].0) else {
+		let Ok(mut intent) = intents.get_mut(agents[i].0) else {
 			continue;
 		};
-		SoftBump::apply_to_wish(&mut wish.0, push);
+		intent.add_separation(push);
 	}
 }
 
@@ -148,7 +150,9 @@ mod tests {
 	use bevy::ecs::system::RunSystemOnce;
 
 	use super::*;
+	use crate::body::MoveWish;
 	use crate::identity::Player;
+	use crate::motor::{apply_motor, MotorSample};
 
 	fn entity(bits: u64) -> Entity {
 		Entity::from_bits(bits)
@@ -200,6 +204,12 @@ mod tests {
 		assert!(wish.y.abs() < 1e-6);
 	}
 
+	fn npc_intent(translation: Vec3) -> MotorIntent {
+		let mut intent = MotorIntent::default();
+		intent.set_npc(MotorSample::translation(translation));
+		intent
+	}
+
 	#[test]
 	fn overlapping_npcs_get_opposing_lateral_wishes() {
 		let mut world = World::new();
@@ -209,6 +219,7 @@ mod tests {
 				CharacterController,
 				Transform::from_xyz(0.0, 0.0, 0.0),
 				MoveWish(Vec3::X),
+				npc_intent(Vec3::X),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
@@ -218,6 +229,7 @@ mod tests {
 				CharacterController,
 				Transform::from_xyz(0.5, 0.0, 0.0),
 				MoveWish(Vec3::X),
+				npc_intent(Vec3::X),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
@@ -227,11 +239,17 @@ mod tests {
 				CharacterController,
 				Transform::from_xyz(0.25, 0.0, 0.0),
 				MoveWish(Vec3::X),
+				{
+					let mut intent = MotorIntent::default();
+					intent.set_standard(MotorSample::translation(Vec3::X));
+					intent
+				},
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
 
-		assert!(world.run_system_once(apply_npc_soft_bump).is_ok());
+		assert!(world.run_system_once(declare_npc_soft_bump).is_ok());
+		assert!(world.run_system_once(apply_motor).is_ok());
 
 		let wish_a = world.get::<MoveWish>(a).map(|wish| wish.0);
 		let wish_b = world.get::<MoveWish>(b).map(|wish| wish.0);
@@ -256,6 +274,7 @@ mod tests {
 				CharacterController,
 				Transform::from_xyz(0.0, 0.0, 0.0),
 				MoveWish(Vec3::X),
+				npc_intent(Vec3::X),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
@@ -265,11 +284,13 @@ mod tests {
 				CharacterController,
 				Transform::from_xyz(8.0, 0.0, 0.0),
 				MoveWish(Vec3::Z),
+				npc_intent(Vec3::Z),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
 
-		assert!(world.run_system_once(apply_npc_soft_bump).is_ok());
+		assert!(world.run_system_once(declare_npc_soft_bump).is_ok());
+		assert!(world.run_system_once(apply_motor).is_ok());
 
 		let wish_a = world.get::<MoveWish>(a).map(|wish| wish.0);
 		let wish_b = world.get::<MoveWish>(b).map(|wish| wish.0);

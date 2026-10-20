@@ -1,4 +1,4 @@
-//! Capsule motor recovery when a planner [`player::MoveWish`] is not becoming motion.
+//! Capsule motor recovery when a planner [`player::MotorIntent`] is not becoming motion.
 //!
 //! Not a planner: it does not change [`movement_intelligence::MovementIntelligence::plan`].
 //! After strafe → hop → backup it inserts [`ReplanMovement`] so intelligence can pick a new path.
@@ -8,10 +8,13 @@ mod policy;
 use avian3d::prelude::LinearVelocity;
 use bevy::ecs::query::Has;
 use bevy::prelude::*;
+use maybraid_controllers_core::ControllerPipeline;
 use movement_intelligence::{
 	MovementBody, MovementIntelligence, MovementIntelligenceSystems, ReplanMovement,
 };
-use player::{CharacterController, Grounded, JumpWish, Jumping, MoveWish, Player, PlayerSystems};
+use player::{
+	CharacterController, Grounded, Jumping, MotorIntent, MotorRecovery, Player, PlayerSystems,
+};
 
 pub use policy::{
 	backup_dir, strafe_dir, MovementRealization, RealizationCommand, RealizationPhase,
@@ -28,10 +31,12 @@ pub struct MovementRealizationPlugin;
 
 impl Plugin for MovementRealizationPlugin {
 	fn build(&self, app: &mut App) {
+		ControllerPipeline::configure(app);
 		app.configure_sets(
 			Update,
 			MovementRealizationSystems::Unstick
 				.after(MovementIntelligenceSystems::Drive)
+				.in_set(ControllerPipeline::MotorRequest)
 				.before(PlayerSystems::Body),
 		)
 		.add_systems(
@@ -47,7 +52,12 @@ fn ensure_realization(
 	mut commands: Commands,
 	movers: Query<
 		Entity,
-		(With<CharacterController>, With<MoveWish>, Without<Player>, Without<MovementRealization>),
+		(
+			With<CharacterController>,
+			With<MotorIntent>,
+			Without<Player>,
+			Without<MovementRealization>,
+		),
 	>,
 ) {
 	for entity in &movers {
@@ -62,7 +72,7 @@ fn realize_movement(
 			Entity,
 			&Transform,
 			&LinearVelocity,
-			&mut MoveWish,
+			&mut MotorIntent,
 			&mut MovementRealization,
 			Option<&MovementIntelligence>,
 			Has<Grounded>,
@@ -73,10 +83,11 @@ fn realize_movement(
 	mut commands: Commands,
 ) {
 	let dt = time.delta_secs();
-	for (entity, transform, velocity, mut wish, mut motor, brain, grounded, jumping) in &mut movers
+	for (entity, transform, velocity, mut intent, mut motor, brain, grounded, jumping) in
+		&mut movers
 	{
 		let max_jump = brain.map(|b| b.ability.max_jump()).unwrap_or(0.0);
-		let planned = wish.0;
+		let planned = intent.planned_translation();
 		let cmd = motor.tick(RealizationSample {
 			dt,
 			position: transform.translation,
@@ -86,12 +97,7 @@ fn realize_movement(
 			jumping,
 			max_jump,
 		});
-		if let Some(dir) = cmd.wish_override {
-			wish.0 = dir;
-		}
-		if cmd.jump {
-			commands.entity(entity).insert(JumpWish);
-		}
+		intent.set_recovery(MotorRecovery { wish_override: cmd.wish_override, jump: cmd.jump });
 		if cmd.replan {
 			commands.entity(entity).insert(ReplanMovement);
 		}

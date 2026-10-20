@@ -233,6 +233,7 @@ pub fn apply_character_controller(commands: &mut Commands, body: Entity, hull: L
 		JumpImpulse(JUMP_IMPULSE),
 		MaxSlopeAngle(MAX_SLOPE_ANGLE),
 		MoveWish::default(),
+		crate::motor::MotorIntent::default(),
 		WalkableGround::default(),
 		crate::stance::RestLocomotionCapsule(hull),
 		Friction::ZERO.with_combine_rule(CoefficientCombine::Min),
@@ -460,7 +461,7 @@ fn horizontal_speed(velocity: Vec3) -> f32 {
 	Vec3::new(velocity.x, 0.0, velocity.z).length()
 }
 
-/// Apply [`MoveWish`] for every capsule. Pad intent and NPC drive both write it.
+/// Apply [`MoveWish`] for every capsule. [`crate::apply_motor`] is the writer.
 pub(crate) fn apply_wish_movement(
 	time: Res<Time>,
 	mut controllers: Query<

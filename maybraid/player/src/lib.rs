@@ -6,9 +6,9 @@ mod contact;
 mod flinch;
 mod hit;
 mod identity;
-mod intent;
 mod locomotion;
 mod look;
+mod motor;
 mod movement;
 mod separation;
 mod spawn;
@@ -17,6 +17,7 @@ mod stance;
 use bevy::prelude::*;
 use characters::{CharacterMotionSystems, CharacterPoseSystems};
 use maybraid_character_controller::CharacterControlSystems;
+use maybraid_controllers_core::{ControllerPipeline, MotorRequestStage};
 
 pub use body::{
 	apply_character_controller, apply_character_mobility, apply_locomotion_capsule,
@@ -36,6 +37,10 @@ pub use identity::{
 };
 pub use locomotion::drive_player_locomotion;
 pub use look::{clamp_aim_pitch, look_delta, look_forward, wrap_pi, yaw_xz, AIM_PITCH_MARGIN};
+pub use motor::{
+	apply_motor, MotorIntent, MotorRecovery, MotorSample, ResolvedMotorRequest, SpeedCapRequest,
+	SprintRequest, StanceRequest,
+};
 pub use separation::{SoftBump, NPC_SEPARATION};
 pub use spawn::{
 	capsule_spawn_height, needs_npc_visual, needs_player_visual, spawn_npc, spawn_npc_visual,
@@ -88,22 +93,41 @@ impl Plugin for PlayerPlugin {
 		if !app.is_plugin_added::<PlayerPresentationPlugin>() {
 			app.add_plugins(PlayerPresentationPlugin);
 		}
+		if !app.is_plugin_added::<maybraid_controllers_core::ControllersCorePlugin>() {
+			app.add_plugins(maybraid_controllers_core::ControllersCorePlugin);
+		}
 		app.init_resource::<CharacterLocomotion>()
 			.configure_sets(
 				Update,
 				(
-					PlayerSystems::Intent.after(CharacterControlSystems),
-					PlayerSystems::Body.after(PlayerSystems::Intent).in_set(PlayerControlSystems),
+					PlayerSystems::Intent
+						.after(CharacterControlSystems)
+						.before(ControllerPipeline::Motor),
+					PlayerSystems::Body
+						.after(PlayerSystems::Intent)
+						.in_set(ControllerPipeline::Motor)
+						.in_set(PlayerControlSystems),
 					PlayerSystems::Locomotion
 						.after(PlayerSystems::Body)
 						.before(CharacterMotionSystems::Anim),
 				),
 			)
-			.add_systems(Update, intent::apply_move_intents.in_set(PlayerSystems::Intent))
+			.add_systems(
+				Update,
+				(motor::ensure_motor_intents, motor::reset_motor_intents)
+					.chain()
+					.in_set(ControllerPipeline::Interpret),
+			)
+			.add_systems(
+				Update,
+				separation::declare_npc_soft_bump
+					.in_set(ControllerPipeline::MotorRequest)
+					.after(MotorRequestStage::Standard),
+			)
+			.add_systems(Update, apply_motor.in_set(PlayerSystems::Body))
 			.add_systems(
 				Update,
 				(
-					separation::apply_npc_soft_bump,
 					body::update_grounded,
 					buoyancy::apply_buoyancy,
 					body::apply_wish_movement,
@@ -115,7 +139,8 @@ impl Plugin for PlayerPlugin {
 					body::advance_jump_phases,
 				)
 					.chain()
-					.in_set(PlayerSystems::Body),
+					.in_set(PlayerSystems::Body)
+					.after(apply_motor),
 			)
 			.add_systems(
 				PostUpdate,

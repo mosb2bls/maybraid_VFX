@@ -77,11 +77,11 @@ pub use item_icons::{
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
-pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use maybraid_sky::{
 	ShadowQuality, SkyClock, SkyCommand, SKY_BLUE, SKY_CLEAR, SKY_HORIZON, SKY_NADIR, SKY_ZENITH,
 	SUN_COLOR, SUN_ILLUMINANCE,
 };
+pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use player_camera::{CameraPov, CameraPovLocked};
 pub use player_lifecycle::{
 	reset_first_spawn_offer, WorldPlayerLifecyclePlugin, WorldPlayerRespawnConfig,
@@ -129,9 +129,12 @@ use firearms::EnergyMaterialPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
-use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
+use maybraid_character_controller::{
+	CharacterControlSystems, CharacterControllerPlugin, MotorRequestStage,
+};
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
+use maybraid_locomotion_controller::LocomotionControllerPlugin;
 use maybraid_skill_map::{SkillMapPlugin, SkillMapSystems};
 use maybraid_sky::SkyDomePlugin;
 use maybraid_vfx::VfxPlugin;
@@ -222,6 +225,7 @@ impl Plugin for WorldPlugin {
 				..default()
 			}))
 			.add_plugins(CharacterControllerPlugin)
+			.add_plugins(LocomotionControllerPlugin)
 			.add_plugins(WorldControllerPlugin)
 			.add_plugins(PlayerPresentationPlugin)
 			.add_plugins(PlayerCameraPlugin)
@@ -300,12 +304,9 @@ impl Plugin for WorldPlugin {
 					control::sync_world_scenery,
 					control::sync_combat_hud_visible,
 					control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
-					control::apply_intents_to_movement
-						.after(CharacterControlSystems)
-						.after(map_view::WorldMapSet::Toggle)
-						.after(PlayerSystems::Intent)
-						.before(PlayerSystems::Body)
-						.before(PlayerControlSystems),
+					control::apply_world_motor_filter
+						.in_set(MotorRequestStage::WorldFilter)
+						.after(map_view::WorldMapSet::Toggle),
 				),
 			);
 		camera::configure(app);

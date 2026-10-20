@@ -28,6 +28,7 @@ members = [
   "maybraid/controllers/core",
   "maybraid/controllers/menu",
   "maybraid/controllers/character",
+  "maybraid/controllers/locomotion",
   "maybraid/controllers/world",
 
   "maybraid/audio",
@@ -309,6 +310,7 @@ menu-playground = { path = "maybraid/menu/playground" }
 maybraid-controllers-core = { path = "maybraid/controllers/core" }
 maybraid-menu-controller = { path = "maybraid/controllers/menu" }
 maybraid-character-controller = { path = "maybraid/controllers/character" }
+maybraid-locomotion-controller = { path = "maybraid/controllers/locomotion" }
 maybraid-world-controller = { path = "maybraid/controllers/world" }
 
 maybraid-audio = { path = "maybraid/audio" }

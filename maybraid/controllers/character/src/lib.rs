@@ -13,7 +13,8 @@ use maybraid_input::VirtualPadPlugin;
 use crate::produce::produce_character_intents;
 
 /// When `false`, pad move / jump / stance / sprint are not turned into intents.
-/// Look and item controls stay live. Tanz-user clears this in Tanzer mode.
+/// Look and item controls stay live. Derived from the local [`Player`] Tanz
+/// mode when one exists so an NPC Tanzer does not steal the pad.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OrdinaryLocomotionEnabled(pub bool);
 
@@ -23,8 +24,20 @@ impl Default for OrdinaryLocomotionEnabled {
 	}
 }
 
-/// Bind-stage alias so existing `.after(CharacterControlSystems)` hosts keep working.
-/// Removed in phase 2 once those hosts join [`ControllerPipeline::Bind`].
+/// Per-actor ordinary locomotion participation. Missing means enabled.
+/// Tanz-user stamps this from control mode so an NPC Tanzer does not
+/// disable walking for a Standard local player.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OrdinaryLocomotion(pub bool);
+
+impl Default for OrdinaryLocomotion {
+	fn default() -> Self {
+		Self(true)
+	}
+}
+
+/// Bind-stage alias so leftover `.after(CharacterControlSystems)` item / camera
+/// / shell hosts keep working. Motor hosts join [`ControllerPipeline`] sets.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CharacterControlSystems;
 

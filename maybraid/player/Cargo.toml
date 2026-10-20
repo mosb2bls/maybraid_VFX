@@ -20,6 +20,7 @@ lod-avian = { workspace = true }
 character-animations = { workspace = true }
 maybraid-audio = { workspace = true }
 maybraid-character-controller = { workspace = true }
+maybraid-controllers-core = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
