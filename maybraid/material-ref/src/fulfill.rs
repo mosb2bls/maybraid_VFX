@@ -126,9 +126,8 @@ fn propagating_material_ref(
 	}
 }
 
-/// Shared invalidate / fulfill schedule labels. [`invalidate_changed_material_ref_roots`]
-/// is not generic and is installed once, even when several [`MaterialRefPlugin`]`<L>`
-/// instances share the app (Chico + characters).
+/// Shared invalidate / fulfill schedule labels. Installed once with the unique
+/// [`MaterialRefPlugin`] for the app.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MaterialRefSystems {
 	Invalidate,
@@ -138,22 +137,18 @@ pub enum MaterialRefSystems {
 #[derive(Resource, Default)]
 pub(crate) struct MaterialRefShared;
 
-/// True after the first [`MaterialRefPlugin`] has installed the shared invalidate system.
-///
-/// App crates that compose domain libs should install one fulfill plugin. Later
-/// plugins (including [`crate::StandardMaterialRefPlugin`]) skip when this is set.
+/// True after the app’s unique [`MaterialRefPlugin`] has installed the resolver.
 pub fn material_ref_plugin_installed(app: &App) -> bool {
 	app.world().contains_resource::<MaterialRefShared>()
-}
-
-pub(crate) fn material_ref_shared_installed(app: &App) -> bool {
-	material_ref_plugin_installed(app)
 }
 
 /// Installs fulfill for material lib `L` (a [`SystemParam`] whose item implements [`MaterialLib`]).
 ///
 /// Parallel to [`lod::LodSceneRefreshLevelsPlugin`]’s index parameter: pass the concrete
 /// `#[derive(SystemParam)]` type (e.g. [`crate::StandardMaterialLib`]).
+///
+/// Each app installs exactly one resolver at its composition root. Domain plugins
+/// initialize caches and shaders only; stacking a second [`MaterialRefPlugin`] panics.
 ///
 /// Resources the lib needs (caches, etc.) must be initialized separately — see
 /// [`crate::StandardMaterialRefPlugin`].
@@ -173,22 +168,37 @@ where
 	}
 }
 
+impl<L> MaterialRefPlugin<L>
+where
+	L: SystemParam + 'static,
+{
+	/// Panics if a material resolver is already installed.
+	///
+	/// Composition roots compose domain [`crate::MaterialLib`]s into one plugin
+	/// instead of stacking resolvers.
+	pub fn assert_unique(app: &App) {
+		assert!(
+			!material_ref_plugin_installed(app),
+			"second MaterialRefPlugin: compose domain MaterialLibs into one resolver at the composition root"
+		);
+	}
+}
+
 impl<L> Plugin for MaterialRefPlugin<L>
 where
 	L: SystemParam + 'static,
 	for<'w, 's> L::Item<'w, 's>: MaterialLib,
 {
 	fn build(&self, app: &mut App) {
-		if !material_ref_shared_installed(app) {
-			app.init_resource::<MaterialRefShared>().configure_sets(
-				Update,
-				MaterialRefSystems::Fulfill.after(MaterialRefSystems::Invalidate),
-			);
-			app.add_systems(
-				Update,
-				invalidate_changed_material_ref_roots.in_set(MaterialRefSystems::Invalidate),
-			);
-		}
+		Self::assert_unique(app);
+		app.init_resource::<MaterialRefShared>().configure_sets(
+			Update,
+			MaterialRefSystems::Fulfill.after(MaterialRefSystems::Invalidate),
+		);
+		app.add_systems(
+			Update,
+			invalidate_changed_material_ref_roots.in_set(MaterialRefSystems::Invalidate),
+		);
 		app.add_systems(
 			Update,
 			(

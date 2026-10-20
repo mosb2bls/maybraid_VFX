@@ -4,8 +4,8 @@ use bevy::ecs::system::SystemParam;
 use bevy::light::NotShadowCaster;
 use bevy::prelude::*;
 use material_ref::{
-	MaterialId, MaterialLib, MaterialRef, MaterialRefCache, MaterialRefKey, MaterialRefPlugin,
-	StandardMaterialLib, StandardMaterialRefCache,
+	MaterialId, MaterialLib, MaterialRef, MaterialRefCache, MaterialRefKey, StandardMaterialLib,
+	StandardMaterialRefCache,
 };
 use vegetation_components::{CanopyShadowMode, FROND_MATERIAL, LEAF_MATERIAL, STICK_MATERIAL};
 
@@ -175,18 +175,58 @@ fn frond_from_ref(material_ref: &MaterialRef) -> FrondMaterial {
 	mat
 }
 
-/// Registers caches + [`MaterialRefPlugin`] for [`StandaloneVegetationMaterialLib`].
+/// Idempotent leaf / stick / frond cache initializer. Does not install a resolver.
 ///
-/// Vegetation / world apps that compose several domain libs should call
-/// [`init_vegetation_material_caches`] and skip this plugin.
+/// Isolated vegetation hosts install [`MaterialRefPlugin`]`<`[`StandaloneVegetationMaterialLib`]`>`
+/// at their composition root. Composed apps nest [`VegetationMaterialLib`].
 pub struct VegetationMaterialRefPlugin;
 
 impl Plugin for VegetationMaterialRefPlugin {
 	fn build(&self, app: &mut App) {
 		init_vegetation_material_caches(app);
-		if material_ref::material_ref_plugin_installed(app) {
-			return;
-		}
-		app.add_plugins(MaterialRefPlugin::<StandaloneVegetationMaterialLib<'_>>::default());
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use bevy::prelude::*;
+	use material_ref::{
+		material_ref_plugin_installed, MaterialRef, MaterialRefApplied, MaterialRefPlugin,
+		MaterialRefRoot, StandardMaterialRefCache,
+	};
+	use vegetation_components::LEAF_MATERIAL;
+
+	use super::*;
+	use crate::{FrondMaterial, LeafMaterial, StickMaterial};
+
+	#[test]
+	fn vegetation_material_ref_plugin_is_cache_only() {
+		let mut app = App::new();
+		app.add_plugins(VegetationMaterialRefPlugin);
+		assert!(app.world().contains_resource::<LeafMaterialRefCache>());
+		assert!(!material_ref_plugin_installed(&app));
+	}
+
+	#[test]
+	fn standalone_vegetation_lib_fulfills_leaf_then_standard() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<StandardMaterial>()
+			.init_asset::<LeafMaterial>()
+			.init_asset::<StickMaterial>()
+			.init_asset::<FrondMaterial>()
+			.init_resource::<StandardMaterialRefCache>()
+			.init_resource::<LeafMaterialRefCache>()
+			.init_resource::<StickMaterialRefCache>()
+			.init_resource::<FrondMaterialRefCache>()
+			.add_plugins(MaterialRefPlugin::<StandaloneVegetationMaterialLib<'_>>::default());
+
+		let leaf = app.world_mut().spawn(MaterialRefRoot(MaterialRef::named(LEAF_MATERIAL))).id();
+		let other = app.world_mut().spawn(MaterialRefRoot(MaterialRef::named("tuft"))).id();
+		app.update();
+
+		assert!(app.world().get::<MaterialRefApplied>(leaf).is_some());
+		assert!(app.world().get::<MeshMaterial3d<LeafMaterial>>(leaf).is_some());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(other).is_some());
 	}
 }

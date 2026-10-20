@@ -1,17 +1,17 @@
 //! character [`MaterialLib`]: face, then clothing shader recipes.
 //!
-//! [`CharacterMaterialLib`] is the composable domain lib. Standalone apps
-//! ([`CharacterMaterialRefPlugin`]) add [`StandardMaterial`] via
-//! [`StandaloneCharacterMaterialLib`]. Maybraid World nests [`CharacterMaterialLib`]
-//! and falls through to vegetation.
+//! [`CharacterMaterialLib`] is the composable domain lib. Standalone apps add
+//! [`StandaloneCharacterMaterialRefPlugin`] so [`StandaloneCharacterMaterialLib`]
+//! falls through to [`StandardMaterial`]. Maybraid World nests
+//! [`CharacterMaterialLib`] and falls through to vegetation.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use character_items::{ClothingMaterial, FirearmMaterial};
 use character_shaders::{ClothingShaderMaterial, FaceShaderKind, FaceShaderMaterial};
 use material_ref::{
-	material_ref_plugin_installed, MaterialId, MaterialLib, MaterialRef, MaterialRefCache,
-	MaterialRefKey, MaterialRefPlugin, StandardMaterialLib, StandardMaterialRefCache,
+	MaterialId, MaterialLib, MaterialRef, MaterialRefCache, MaterialRefKey, MaterialRefPlugin,
+	StandardMaterialLib, StandardMaterialRefCache,
 };
 
 /// Cache of resolved [`ClothingShaderMaterial`] handles.
@@ -161,19 +161,66 @@ impl MaterialLib for StandaloneCharacterMaterialLib<'_> {
 	}
 }
 
-/// Registers clothing / face caches + [`MaterialRefPlugin`] for
-/// [`StandaloneCharacterMaterialLib`].
+/// Idempotent clothing / face cache initializer. Does not install a resolver.
 ///
-/// Composed apps that already installed a fulfill plugin (Maybraid World) skip
-/// here; they nest [`CharacterMaterialLib`] instead.
+/// Composition roots install one [`MaterialRefPlugin`]: playgrounds use
+/// [`StandaloneCharacterMaterialRefPlugin`]; Maybraid World nests
+/// [`CharacterMaterialLib`] in its composed world lib.
 pub struct CharacterMaterialRefPlugin;
 
 impl Plugin for CharacterMaterialRefPlugin {
 	fn build(&self, app: &mut App) {
 		init_character_material_caches(app);
-		if material_ref_plugin_installed(app) {
-			return;
-		}
+	}
+}
+
+/// Playground / menu composition-root plugin: caches + [`StandaloneCharacterMaterialLib`].
+///
+/// Maybraid World must not add this; it installs its composed world lib instead.
+pub struct StandaloneCharacterMaterialRefPlugin;
+
+impl Plugin for StandaloneCharacterMaterialRefPlugin {
+	fn build(&self, app: &mut App) {
+		init_character_material_caches(app);
 		app.add_plugins(MaterialRefPlugin::<StandaloneCharacterMaterialLib<'_>>::default());
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use bevy::prelude::*;
+	use character_shaders::{FaceShaderMaterial, RECIPE_FACE_EYE};
+	use material_ref::{
+		material_ref_plugin_installed, MaterialRef, MaterialRefApplied, MaterialRefRoot,
+	};
+
+	use super::*;
+
+	#[test]
+	fn character_material_ref_plugin_is_cache_only() {
+		let mut app = App::new();
+		app.add_plugins(CharacterMaterialRefPlugin);
+		assert!(app.world().contains_resource::<ClothingShaderMaterialRefCache>());
+		assert!(app.world().contains_resource::<FaceShaderMaterialRefCache>());
+		assert!(!material_ref_plugin_installed(&app));
+	}
+
+	#[test]
+	fn standalone_character_lib_fulfills_face_then_standard() {
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<StandardMaterial>()
+			.init_asset::<FaceShaderMaterial>()
+			.init_asset::<ClothingShaderMaterial>()
+			.add_plugins(StandaloneCharacterMaterialRefPlugin);
+
+		let face = app.world_mut().spawn(MaterialRefRoot(MaterialRef::named(RECIPE_FACE_EYE))).id();
+		let other = app.world_mut().spawn(MaterialRefRoot(MaterialRef::named("tuft"))).id();
+		app.update();
+
+		assert!(app.world().get::<MaterialRefApplied>(face).is_some());
+		assert!(app.world().get::<MeshMaterial3d<FaceShaderMaterial>>(face).is_some());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(face).is_none());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(other).is_some());
 	}
 }

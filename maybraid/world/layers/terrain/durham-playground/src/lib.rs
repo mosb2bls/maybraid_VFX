@@ -18,7 +18,9 @@ use bevy::math::{IVec2, UVec2};
 use bevy::prelude::*;
 use camera::{camera_controller, refocus_camera_on_layout, setup_camera};
 use character::{apply_set_character, drive_player_locomotion};
-use characters::{CharacterHostsPlugin, CharacterMotionSystems};
+use characters::{
+	CharacterHostsPlugin, CharacterMotionSystems, StandaloneCharacterMaterialRefPlugin,
+};
 use commands::{
 	PendingCellLayoutPatch, RequestCellShow, RequestMeshStats, RequestModeCharacter,
 	RequestModeFree, RequestSeed,
@@ -120,6 +122,7 @@ impl Plugin for TerrainModelsPlaygroundPlugin {
 					}),
 			)
 			.add_plugins(PlayerPlugin)
+			.add_plugins(StandaloneCharacterMaterialRefPlugin)
 			.add_plugins(CharacterHostsPlugin)
 			.insert_resource(ClearColor(Color::hsla(201.0, 0.69, 0.62, 1.0)))
 			.insert_resource(config.clone())

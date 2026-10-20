@@ -13862,6 +13862,7 @@ version = "0.1.5"
 dependencies = [
  "bevy",
  "building-shaders",
+ "character-shaders",
  "characters",
  "chico",
  "firearms",

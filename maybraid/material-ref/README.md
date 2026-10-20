@@ -33,6 +33,7 @@ Implement `MaterialLib` on a `#[derive(SystemParam)]` that borrows every
 `MeshMaterial3d<M>`. Register with `MaterialRefPlugin::<YourLib<'_, '_>>::default()`
 after initializing any cache resources.
 
-The shared invalidate system is installed once. If a domain lib is already
-registered, [`StandardMaterialRefPlugin`] only ensures the standard cache —
-that lib should fall through to `StandardMaterial` (Chico does).
+Install exactly one [`MaterialRefPlugin`] at the app composition root.
+Domain plugins initialize caches and shaders only. A second resolver panics
+instead of silently skipping. Composed libs should fall through to
+`StandardMaterial` (Chico does).

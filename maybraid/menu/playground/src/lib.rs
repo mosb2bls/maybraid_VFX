@@ -29,7 +29,7 @@ pub use weapon_gallery::{request_show_weapons, WeaponGalleryPlugin, WeaponGaller
 use bevy::prelude::*;
 use camera_controls::look::{CameraLookConfig, CameraLookPlugin};
 use character_creation_menus::MenuEvent;
-use characters::CharacterHostsPlugin;
+use characters::{CharacterHostsPlugin, StandaloneCharacterMaterialRefPlugin};
 use characters_playground::camera;
 use game_commands::command::{CommandConsoleOutput, GameCommandPlugin};
 use game_commands::ui::GameCommandDrawerConfig;
@@ -58,6 +58,7 @@ impl Plugin for MenuPlaygroundPlugin {
 					..default()
 				}),
 		)
+		.add_plugins(StandaloneCharacterMaterialRefPlugin)
 		.add_plugins(CharacterHostsPlugin)
 		.add_plugins(CameraLookPlugin::new(CameraLookConfig {
 			enabled_at_start: false,

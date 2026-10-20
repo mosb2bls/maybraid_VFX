@@ -80,18 +80,15 @@ impl MaterialLib for BumpOutStandaloneMaterialLib<'_> {
 	}
 }
 
-/// Registers caches and deferred [`MaterialRef`] fulfillment for a standalone bump-out app.
+/// Bump-out playground composition-root plugin: caches + [`BumpOutStandaloneMaterialLib`].
 ///
-/// Vegetation / world apps that compose several domain libs should call
-/// [`init_bump_out_material_caches`] and skip this plugin.
+/// Composed vegetation / world apps call [`init_bump_out_material_caches`] and
+/// nest [`BumpOutMaterialLib`] instead of adding this plugin.
 pub struct BumpOutMaterialRefPlugin;
 
 impl Plugin for BumpOutMaterialRefPlugin {
 	fn build(&self, app: &mut App) {
 		init_bump_out_material_caches(app);
-		if material_ref::material_ref_plugin_installed(app) {
-			return;
-		}
 		app.add_plugins(MaterialRefPlugin::<BumpOutStandaloneMaterialLib<'_>>::default());
 	}
 }
@@ -106,6 +103,30 @@ mod tests {
 
 	use super::*;
 	use crate::{BumpOutNeighborhood, BumpOutStyle};
+
+	#[test]
+	fn standalone_bump_out_lib_fulfills_recipe_then_standard() {
+		use bevy::prelude::*;
+		use material_ref::{MaterialRef, MaterialRefApplied, MaterialRefRoot};
+		use vegetation_shaders::BumpOutMaterial;
+
+		let mut app = App::new();
+		app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+			.init_asset::<StandardMaterial>()
+			.init_asset::<BumpOutMaterial>()
+			.add_plugins(BumpOutMaterialRefPlugin);
+
+		let bump = app
+			.world_mut()
+			.spawn(MaterialRefRoot(MaterialRef::named(BUMP_OUT_MATERIAL)))
+			.id();
+		let fallback = app.world_mut().spawn(MaterialRefRoot(MaterialRef::named("tuft"))).id();
+		app.update();
+
+		assert!(app.world().get::<MaterialRefApplied>(bump).is_some());
+		assert!(app.world().get::<MeshMaterial3d<BumpOutMaterial>>(bump).is_some());
+		assert!(app.world().get::<MeshMaterial3d<StandardMaterial>>(fallback).is_some());
+	}
 
 	#[test]
 	fn material_ref_maps_raster_channels() {

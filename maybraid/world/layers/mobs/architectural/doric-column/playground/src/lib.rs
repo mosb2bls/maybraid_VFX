@@ -33,7 +33,7 @@ pub fn run() {
 		BuildingShadersPlugin,
 		DoricColumnPlugin,
 		UrbanMaterialRefPlugin,
-		MaterialRefPlugin::<building_shaders::UrbanSurfaceMaterialLib<'_>>::default(),
+		MaterialRefPlugin::<building_shaders::UrbanMaterialLib<'_>>::default(),
 	))
 	.init_asset::<StandardMaterial>()
 	.init_asset::<UrbanSurfaceMaterial>()
