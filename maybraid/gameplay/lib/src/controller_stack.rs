@@ -754,3 +754,11 @@ fn npc_firearm_does_not_consume_player_dispatch() {
 		"NPC fire stays on intelligence WeaponTrigger, not player EquippedItemUse"
 	);
 }
+
+#[test]
+fn item_runtime_register_is_idempotent_beside_gameplay() {
+	let mut app = stack_app();
+	register_firearm_user_runtime(&mut app);
+	register_grenade_user_runtime(&mut app);
+	app.update();
+}

@@ -20,8 +20,8 @@ POI.
 [`GameplayPlugin`](../gameplay/lib/src/lib.rs). World keeps terrain, POIs,
 population, presentation, and [`spawn_surface`](lib/src/spawn_surface.rs),
 plus world-specific adapters (loadout / arm, stash, map, occupancy, and
-world-dependent Lubikan owner grant). Session, equipment, and item-runtime
-assembly live in `gameplay/lib`. Persistent equipment state is in
+world-dependent Lubikan owner grant). Session and equipment assembly live
+in `gameplay/lib`; item runtimes stay on the item plugins. Persistent equipment state is in
 `items/equipment`, grenade cooking in `grenade-user`, firing cadence in
 `firearms`.
 

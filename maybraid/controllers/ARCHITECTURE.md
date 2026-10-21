@@ -88,8 +88,8 @@ Rules:
 - Locomotion and Tanz write the motor contract; they do not own apply.
 - Apply realizes translation / jump / stance / sprint / cap without checking
   whether the producer was Tanz.
-- `game` assembles World + Gameplay + shell. `gameplay/lib` registers session,
-  equipment, and item runtimes. `world` keeps terrain / POI / population /
+- `game` assembles World + Gameplay + shell. `gameplay/lib` registers session
+  and equipment contracts. Item runtimes stay on the item plugins. `world` keeps terrain / POI / population /
   presentation / `spawn_surface` plus world-specific adapters (loadout, stash,
   map, occupancy). They are not controllers unless a type in them produces
   follow-on intents (E1–E4 today).

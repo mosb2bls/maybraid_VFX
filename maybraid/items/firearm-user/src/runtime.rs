@@ -23,7 +23,7 @@ struct FirearmUserRuntime;
 ///
 /// Headless clock writes [`firearms::WeaponFired`]. Production
 /// [`firearms::FirearmWeaponsPlugin`] still owns a second clock inside
-/// `fire_weapons`. Do not add a third.
+/// `fire_weapons`. Do not add a third. Safe to call twice.
 pub fn register_firearm_user_runtime(app: &mut App) {
 	if app.world().contains_resource::<FirearmUserRuntime>() {
 		return;
@@ -87,5 +87,19 @@ fn realize_equipment_hold(mut commands: Commands, pending: Query<(Entity, &Pendi
 			GeneratedFirearm::from_spec(*spec),
 			live,
 		);
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::register_firearm_user_runtime;
+	use bevy::prelude::*;
+
+	#[test]
+	fn runtime_register_is_idempotent() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins);
+		register_firearm_user_runtime(&mut app);
+		register_firearm_user_runtime(&mut app);
 	}
 }

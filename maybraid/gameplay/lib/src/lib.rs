@@ -1,5 +1,7 @@
-//! Gameplay assembly: session, equipment, item runtimes, and cross-domain
-//! adapters. Adapters translate or coordinate; they hold no domain state.
+//! Gameplay assembly: session, equipment, and cross-domain adapters.
+//! Adapters translate or coordinate; they hold no domain state.
+//! Firearm / grenade runtimes stay on the item plugins (world intelligence
+//! in production; stack tests register them explicitly).
 
 pub mod actor_lifecycle;
 pub mod equipment;
@@ -17,9 +19,9 @@ pub use maybraid_session::{
 	SessionPlugin, WorldGameplayEnabled, WorldPlaySessionEnded,
 };
 
-/// Headless-safe session + item-session registration shared by
-/// [`GameplayPlugin`] and stack-tip tests. Rendering / audio stay on the
-/// full item plugins.
+/// Headless-safe session + equipment + adapter registration shared by
+/// [`GameplayPlugin`] and stack-tip tests. Item clocks stay on
+/// `register_*_user_runtime`; rendering / audio stay on the full item plugins.
 pub fn register_gameplay_runtime(app: &mut App) {
 	if !app.is_plugin_added::<CharacterControllerPlugin>() {
 		app.add_plugins(CharacterControllerPlugin);
@@ -39,8 +41,8 @@ pub fn register_gameplay_runtime(app: &mut App) {
 	actor_lifecycle::configure(app);
 }
 
-/// Assembles session, equipment, and item-domain runtimes. World keeps terrain,
-/// POI, and collision-support readiness. Game adds this beside World and the shell.
+/// Assembles session, equipment, and adapters. World keeps terrain, POI, and
+/// collision-support readiness. Game adds this beside World and the shell.
 pub struct GameplayPlugin;
 
 impl Plugin for GameplayPlugin {

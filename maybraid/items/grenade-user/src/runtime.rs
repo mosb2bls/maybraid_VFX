@@ -21,6 +21,7 @@ struct GrenadeUserRuntime;
 
 /// Cook / windup clocks, routing cancel, and owned recharge. HUD / audio /
 /// mesh realization stay on [`crate::register_grenade_user_presentation`].
+/// Safe to call twice.
 pub fn register_grenade_user_runtime(app: &mut App) {
 	if app.world().contains_resource::<GrenadeUserRuntime>() {
 		return;
@@ -197,5 +198,13 @@ mod tests {
 		};
 		anyhow::ensure!(recharge.remaining == 0.0, "idle recharge must stay at zero");
 		Ok(())
+	}
+
+	#[test]
+	fn runtime_register_is_idempotent() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins);
+		register_grenade_user_runtime(&mut app);
+		register_grenade_user_runtime(&mut app);
 	}
 }
