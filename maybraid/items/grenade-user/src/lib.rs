@@ -15,9 +15,9 @@ use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 pub use feel::{blast_presence, blast_rumble, rumble_presence, GrenadeBlastFeel};
 pub use hold::{spawn_held_grenade, HeldGrenade, HoldingGrenade};
 pub use throw::{
-	apply_throw_intents, landing_range, landing_time, launch_velocity, throw_aim, GrenadePhase,
-	GrenadeThrow, GrenadeUser, GrenadeUserSettings, GrenadeUserSystems, STANDING_RELEASE_HEIGHT,
-	THROW_GRAVITY,
+	apply_throw_intents, apply_throw_routing, landing_range, landing_time, launch_velocity,
+	throw_aim, GrenadePhase, GrenadeThrow, GrenadeUser, GrenadeUserSettings, GrenadeUserSystems,
+	STANDING_RELEASE_HEIGHT, THROW_GRAVITY,
 };
 
 /// Held-side 1:1 target of [`GrenadeUser`].
@@ -27,6 +27,28 @@ pub struct HeldByGrenade(Entity);
 
 pub struct GrenadeUserPlugin;
 
+/// Cook / windup clocks, routing cancel, and owned recharge. HUD / audio /
+/// mesh realization stay on [`GrenadeUserPlugin`].
+pub fn register_grenade_user_runtime(app: &mut App) {
+	app.add_message::<maybraid_character_controller::EquippedItemUse>()
+		.add_message::<grenades::DropLiveGrenade>()
+		.add_message::<grenades::GrenadeDetonated>()
+		.add_systems(Update, throw::apply_throw_intents.in_set(PlayerSystems::Intent))
+		.add_systems(
+			Update,
+			throw::apply_throw_routing.after(throw::apply_throw_intents).in_set(PlayerSystems::Intent),
+		)
+		.add_systems(Update, throw::advance_throw.after(PlayerSystems::Intent))
+		.add_systems(Update, throw::interrupt_live_cooks.in_set(GrenadeUserSystems::Interrupt))
+		.add_systems(
+			PostUpdate,
+			throw::interrupt_live_cooks
+				.in_set(GrenadeUserSystems::Interrupt)
+				.after(damage::DamageSystems::Down),
+		)
+		.add_systems(Update, tick_owned_recharge);
+}
+
 impl Plugin for GrenadeUserPlugin {
 	fn build(&self, app: &mut App) {
 		if !app.is_plugin_added::<grenades::GrenadesPlugin>() {
@@ -35,9 +57,8 @@ impl Plugin for GrenadeUserPlugin {
 		if !app.is_plugin_added::<SpatialRumblePlugin>() {
 			app.add_plugins(SpatialRumblePlugin);
 		}
-		app.add_message::<maybraid_character_controller::EquippedItemUse>()
-			.add_systems(Update, throw::apply_throw_intents.in_set(PlayerSystems::Intent))
-			.add_systems(Startup, cook_hud::spawn_cook_fuse_hud)
+		register_grenade_user_runtime(app);
+		app.add_systems(Startup, cook_hud::spawn_cook_fuse_hud)
 			.add_systems(
 				Update,
 				(
@@ -61,14 +82,6 @@ impl Plugin for GrenadeUserPlugin {
 					.after(CharacterPoseSystems::Overlay)
 					.before(throw::advance_throw),
 			)
-			.add_systems(Update, throw::advance_throw.after(CharacterPoseSystems::Overlay))
-			.add_systems(Update, throw::interrupt_live_cooks.in_set(GrenadeUserSystems::Interrupt))
-			.add_systems(
-				PostUpdate,
-				throw::interrupt_live_cooks
-					.in_set(GrenadeUserSystems::Interrupt)
-					.after(damage::DamageSystems::Down),
-			)
 			.add_systems(Update, cook_hud::sync_cook_fuse_hud.after(throw::advance_throw))
 			.add_systems(
 				Update,
@@ -78,12 +91,7 @@ impl Plugin for GrenadeUserPlugin {
 			)
 			.add_systems(
 				Update,
-				(
-					hold::realize_held_grenade_visuals,
-					tick_owned_recharge,
-					despawn_orphaned_held_grenades,
-				)
-					.chain(),
+				(hold::realize_held_grenade_visuals, despawn_orphaned_held_grenades).chain(),
 			);
 	}
 }

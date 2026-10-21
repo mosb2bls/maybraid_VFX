@@ -1,8 +1,11 @@
 //! Realize addressed [`EquippedItemUse`] on the held gun, and hand recoil to the camera.
 
 use bevy::prelude::*;
-use firearms::{WeaponFired, WeaponTrigger};
-use maybraid_character_controller::EquippedItemUse;
+use firearms::{
+	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, FireControl,
+	FireOnTrigger, ProjectileSource, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger,
+};
+use maybraid_character_controller::{delivered_item_use, EquippedItemUse, InputRouter};
 use player::{CameraFollow, Player};
 use player_camera::CameraRecoilHandoff;
 
@@ -14,17 +17,63 @@ use crate::{FirearmUser, WeaponSwap};
 pub(crate) const RECOIL_LERP_SECS: f32 = 0.08;
 
 pub fn apply_fire_intents(
+	router: Option<Res<InputRouter>>,
 	mut uses: MessageReader<EquippedItemUse>,
 	users: Query<(Entity, &FirearmUser, Has<WeaponSwap>), With<Player>>,
 	mut triggers: Query<&mut WeaponTrigger>,
 ) {
-	let uses: Vec<_> = uses.read().copied().collect();
+	let router = router.as_deref();
+	let uses: Vec<_> = uses
+		.read()
+		.copied()
+		.filter(|use_item| delivered_item_use(router, *use_item))
+		.collect();
 	for (entity, user, swapping) in &users {
 		let fire = uses.iter().any(|use_item| {
 			use_item.addresses(entity) && use_item.handler().is_firearm() && use_item.held()
 		});
 		if let Ok(mut trigger) = triggers.get_mut(user.held) {
 			trigger.0 = fire && !swapping;
+		}
+	}
+}
+
+/// Headless fire clock: write [`WeaponFired`] from a held trigger without
+/// spawning meshes. [`FirearmWeaponsPlugin`] owns the GPU path when present.
+pub fn realize_held_weapon_fire(
+	time: Res<Time>,
+	users: Query<(Entity, &FirearmUser)>,
+	mut weapons: Query<(
+		&mut Weapon,
+		&WeaponTrigger,
+		Has<FireOnTrigger>,
+		Option<&mut FireControl>,
+		Option<&WeaponRecoil>,
+		Option<&ProjectileSource>,
+	)>,
+	mut fired: MessageWriter<WeaponFired>,
+) {
+	let dt = time.delta_secs();
+	for (user_entity, user) in &users {
+		let Ok((mut weapon, trigger, manual, mut control, recoil, source)) =
+			weapons.get_mut(user.held)
+		else {
+			continue;
+		};
+		let shooter = source.map(|source| source.0).unwrap_or(user_entity);
+		if !trigger_allows_fire(control.as_deref_mut(), manual, trigger.0) {
+			idle_shot_clock(&mut weapon.cooldown, dt);
+			continue;
+		}
+		let limit = catch_up_limit(control.as_deref());
+		let interval = weapon.interval;
+		let tick = advance_shot_clock(&mut weapon.cooldown, interval, dt, limit);
+		let strength = recoil.map(|recoil| recoil.0).unwrap_or(0.0);
+		for age in tick.ages() {
+			if let Some(control) = control.as_mut() {
+				control.note_shot();
+			}
+			fired.write(WeaponFired { shooter, recoil: strength, age });
 		}
 	}
 }
@@ -116,7 +165,9 @@ fn mix(seed: u64, value: u64) -> u64 {
 mod tests {
 	use super::*;
 	use bevy::time::TimeUpdateStrategy;
-	use maybraid_character_controller::{ActorTarget, EquippedItemHandler, EquippedItemUse};
+	use maybraid_character_controller::{
+		ActorTarget, EquippedItemHandler, EquippedItemUse, InputRouter,
+	};
 	use player::PlayerLook;
 	use player_camera::{CameraController, CameraPov, FollowCamera};
 
@@ -148,6 +199,32 @@ mod tests {
 			.add_systems(Update, apply_fire_intents);
 		let gun = app.world_mut().spawn(WeaponTrigger(true)).id();
 		app.world_mut().spawn((Player, FirearmUser::holding(gun)));
+		app.update();
+		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(false));
+	}
+
+	#[test]
+	fn paused_delivery_does_not_squeeze_a_published_use() {
+		use maybraid_character_controller::InputSource;
+
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.init_resource::<InputRouter>()
+			.add_message::<EquippedItemUse>()
+			.add_systems(Update, apply_fire_intents);
+		let gun = app.world_mut().spawn(WeaponTrigger(false)).id();
+		let shooter = app.world_mut().spawn((Player, FirearmUser::holding(gun))).id();
+		{
+			let mut router = app.world_mut().resource_mut::<InputRouter>();
+			router.assign_actor(InputSource::local_pad(), ActorTarget::new(shooter));
+			router.set_paused(true);
+		}
+		app.world_mut().write_message(EquippedItemUse::new(
+			ActorTarget::new(shooter),
+			EquippedItemHandler::Firearm,
+			1.0,
+			true,
+		));
 		app.update();
 		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(false));
 	}

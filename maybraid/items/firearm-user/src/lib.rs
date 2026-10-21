@@ -20,7 +20,7 @@ use player::{PlayerPoseSystems, PlayerSystems};
 use player_camera::PlayerCameraSystems;
 use std::f32::consts::FRAC_PI_2;
 
-pub use fire::apply_fire_intents;
+pub use fire::{apply_fire_intents, realize_held_weapon_fire};
 pub use hold::{sync_hands_to_firearm, HoldingArms};
 pub use kit::{kit_from_spec, GeneratedFirearm};
 pub use pose::{
@@ -29,7 +29,9 @@ pub use pose::{
 };
 pub use reticle::{spawn_reticle, Reticle};
 pub use swap::{WeaponSwap, WEAPON_SWAP_SECS};
-pub use weapon::{live_weapon_from_stats, LiveWeapon, RECOIL_PITCH_PER_UNIT, SEMI_INTERVAL_FLOOR};
+pub use weapon::{
+	live_weapon_from_stats, LiveWeapon, RecoilPattern, RECOIL_PITCH_PER_UNIT, SEMI_INTERVAL_FLOOR,
+};
 
 /// Firearm-user schedule points other combat systems can order against.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -106,60 +108,73 @@ pub struct HeldBy(Entity);
 
 pub struct FirearmUserPlugin;
 
+/// Clocks, routing, fire, and recoil. Pose / reticle / audio stay on
+/// [`FirearmUserPlugin`]. Tests and production call this same function.
+pub fn register_firearm_user_runtime(app: &mut App) {
+	app.add_message::<maybraid_input::PadRumble>()
+		.add_message::<maybraid_character_controller::EquippedItemUse>()
+		.add_message::<player_camera::CameraRecoilHandoff>()
+		.add_message::<firearms::WeaponFired>()
+		.add_systems(Update, fire::apply_fire_intents.in_set(PlayerSystems::Intent))
+		.add_systems(Update, swap::advance_weapon_swap.in_set(FirearmUserSystems::Swap))
+		.add_systems(Update, swap::clear_finished_weapon_swaps.after(swap::advance_weapon_swap))
+		.add_systems(PostUpdate, fire::queue_weapon_recoil.after(FirearmWeaponSystems::Fire))
+		.add_systems(
+			Update,
+			(fire::advance_weapon_recoil, player_camera::apply_recoil_handoff)
+				.chain()
+				.in_set(PlayerCameraSystems::Body)
+				.in_set(FirearmUserSystems::Recoil),
+		);
+	if !app.is_plugin_added::<firearms::FirearmWeaponsPlugin>() {
+		app.add_systems(
+			PostUpdate,
+			fire::realize_held_weapon_fire.in_set(FirearmWeaponSystems::Fire),
+		);
+	}
+}
+
 impl Plugin for FirearmUserPlugin {
 	fn build(&self, app: &mut App) {
 		if !app.is_plugin_added::<damage::DamagePlugin>() {
 			app.add_plugins(damage::DamagePlugin);
 		}
 		add_firearm_components_host::<kit::GeneratedFirearm>(app);
-		app.add_message::<maybraid_input::PadRumble>()
-			.add_message::<maybraid_character_controller::EquippedItemUse>()
-			.add_message::<player_camera::CameraRecoilHandoff>()
-			.add_systems(Update, fire::apply_fire_intents.in_set(PlayerSystems::Intent))
-			.add_systems(Update, swap::advance_weapon_swap.in_set(FirearmUserSystems::Swap))
-			.add_systems(
-				Update,
-				(pose::stamp_holding_arms, pose::pose_held_firearm, swap::apply_weapon_swap_pose)
-					.chain()
-					.in_set(PlayerPoseSystems::Item),
-			)
-			.add_systems(Update, swap::clear_finished_weapon_swaps.after(swap::advance_weapon_swap))
-			.add_systems(
-				PostUpdate,
-				swap::play_change_item
-					.after(TransformSystems::Propagate)
-					.before(AudioSystems::Sync),
-			)
-			.add_systems(Update, aim::write_sight_aim.in_set(PlayerCameraSystems::Aim))
-			.add_systems(
-				Update,
-				hold::sync_hands_to_firearm
-					.in_set(CharacterPoseOverlay::Firearm)
-					.after(CharacterMotionSystems::Anim),
-			)
-			.add_systems(
-				PostUpdate,
-				(reticle::ingest_hit_markers, reticle::update_reticle)
-					.chain()
-					.after(TransformSystems::Propagate)
-					.after(DamageSystems::Apply),
-			)
-			.add_systems(
-				PostUpdate,
-				rumble::pulse_combat_rumble
-					.after(FirearmWeaponSystems::Fire)
-					.after(DamageSystems::Apply)
-					.before(PadRumbleSystems::FanOut),
-			)
-			.add_systems(PostUpdate, fire::queue_weapon_recoil.after(FirearmWeaponSystems::Fire))
-			.add_systems(
-				Update,
-				(fire::advance_weapon_recoil, player_camera::apply_recoil_handoff)
-					.chain()
-					.in_set(PlayerCameraSystems::Body)
-					.in_set(FirearmUserSystems::Recoil),
-			)
-			.add_systems(Update, despawn_orphaned_held_firearms);
+		register_firearm_user_runtime(app);
+		app.add_systems(
+			Update,
+			(pose::stamp_holding_arms, pose::pose_held_firearm, swap::apply_weapon_swap_pose)
+				.chain()
+				.in_set(PlayerPoseSystems::Item),
+		)
+		.add_systems(
+			PostUpdate,
+			swap::play_change_item
+				.after(TransformSystems::Propagate)
+				.before(AudioSystems::Sync),
+		)
+		.add_systems(Update, aim::write_sight_aim.in_set(PlayerCameraSystems::Aim))
+		.add_systems(
+			Update,
+			hold::sync_hands_to_firearm
+				.in_set(CharacterPoseOverlay::Firearm)
+				.after(CharacterMotionSystems::Anim),
+		)
+		.add_systems(
+			PostUpdate,
+			(reticle::ingest_hit_markers, reticle::update_reticle)
+				.chain()
+				.after(TransformSystems::Propagate)
+				.after(DamageSystems::Apply),
+		)
+		.add_systems(
+			PostUpdate,
+			rumble::pulse_combat_rumble
+				.after(FirearmWeaponSystems::Fire)
+				.after(DamageSystems::Apply)
+				.before(PadRumbleSystems::FanOut),
+		)
+		.add_systems(Update, despawn_orphaned_held_firearms);
 	}
 }
 

@@ -17,6 +17,7 @@ use characters::{
 	mailbox_apply_allows,
 };
 use firearm_user::{HoldingArms, WeaponSwap};
+use maybraid_character_controller::EquippedItemHandler;
 use grenades::{GrenadeMaterial, grenade_material, grenade_mesh};
 use player::{PlayerLook, PlayerUse, look_forward, yaw_xz};
 use std::f32::consts::FRAC_PI_2;
@@ -59,11 +60,13 @@ pub fn spawn_held_grenade(
 			HeldGrenade { scale: HELD_SCALE },
 		))
 		.id();
-	commands.entity(user).insert((
+	let mut entity = commands.entity(user);
+	entity.insert((
 		GrenadeUser { held, settings },
 		GrenadeThrow::default(),
 		PlayerUse { driver: held },
 	));
+	EquippedItemHandler::Grenade.install(&mut entity);
 	held
 }
 

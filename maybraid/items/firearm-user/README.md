@@ -16,6 +16,11 @@ The two-bone reach resolves humerus roll with a closed-form signed angle rather
 than sampling trial poses. Hold posing runs only for actively animated,
 non-suspended body rigs, so culled LODs and ragdolls pay no arm-IK cost.
 
+[`spawn_held_kit`](src/pose.rs) installs [`EquippedItemHandler::Firearm`](../../controllers/character/src/dispatch.rs)
+at the equipment boundary. Headless clocks, fire, and recoil use
+[`register_firearm_user_runtime`](src/lib.rs); pose / reticle / audio stay on
+[`FirearmUserPlugin`](src/lib.rs).
+
 Writes player handoff slots ([`PlayerUse`](../../player/src/identity.rs),
 [`PlayerCameraAim`](../../player/src/identity.rs),
 [`WeaponTrigger`](../firearms/src/projectiles.rs)) and poses the kit + arm IK.

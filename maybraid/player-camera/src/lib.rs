@@ -93,56 +93,64 @@ impl Default for FollowCamera {
 
 pub struct PlayerCameraPlugin;
 
+/// Look / body clocks and recoil apply sets. Follow pose, FOV, and rumble
+/// stay on [`PlayerCameraPlugin`].
+pub fn register_player_camera_runtime(app: &mut App) {
+	app.init_resource::<CameraPovLocked>()
+		.init_resource::<look::CameraLookSuppressed>()
+		.add_message::<CameraRecoilHandoff>()
+		.configure_sets(
+			Update,
+			(
+				PlayerCameraSystems::Look
+					.after(CharacterControlSystems)
+					.before(PlayerSystems::Intent),
+				PlayerCameraSystems::Body
+					.after(PlayerCameraSystems::Look)
+					.before(PlayerPoseSystems::Item),
+				PlayerCameraSystems::Aim
+					.after(PlayerPoseSystems::Overlay)
+					.after(CharacterPoseSystems::FinalCorrections),
+				PlayerCameraSystems::Follow.after(PlayerCameraSystems::Aim),
+				PlayerCameraSystems::Apply.after(PlayerCameraSystems::Follow),
+			),
+		)
+		.add_systems(
+			Update,
+			(look::apply_look_intents, look::sync_player_look)
+				.chain()
+				.in_set(PlayerCameraSystems::Look),
+		)
+		.add_systems(
+			Update,
+			(look::sync_yaw_owner, look::turn_body_with_look)
+				.chain()
+				.in_set(PlayerCameraSystems::Body),
+		);
+}
+
 impl Plugin for PlayerCameraPlugin {
 	fn build(&self, app: &mut App) {
 		if !app.is_plugin_added::<SpatialRumblePlugin>() {
 			app.add_plugins(SpatialRumblePlugin);
 		}
-		app.init_resource::<CameraPovLocked>()
-			.init_resource::<look::CameraLookSuppressed>()
-			.add_message::<CameraRecoilHandoff>()
-			.configure_sets(
-				Update,
-				(
-					PlayerCameraSystems::Look
-						.after(CharacterControlSystems)
-						.before(PlayerSystems::Intent),
-					PlayerCameraSystems::Body
-						.after(PlayerCameraSystems::Look)
-						.before(PlayerPoseSystems::Item),
-					PlayerCameraSystems::Aim
-						.after(PlayerPoseSystems::Overlay)
-						.after(CharacterPoseSystems::FinalCorrections),
-					PlayerCameraSystems::Follow.after(PlayerCameraSystems::Aim),
-					PlayerCameraSystems::Apply.after(PlayerCameraSystems::Follow),
-					// Present is the only camera-offset writer; follow pose is rest.
-					SpatialRumbleSystems::Present
-						.after(PlayerCameraSystems::Follow)
-						.before(PlayerCameraSystems::Apply),
-				),
-			)
-			.add_systems(
-				Update,
-				(look::apply_look_intents, look::sync_player_look)
-					.chain()
-					.in_set(PlayerCameraSystems::Look),
-			)
-			.add_systems(
-				Update,
-				(look::sync_yaw_owner, look::turn_body_with_look)
-					.chain()
-					.in_set(PlayerCameraSystems::Body),
-			)
-			.add_systems(
-				Update,
-				follow::follow_character_camera.in_set(PlayerCameraSystems::Follow),
-			)
-			.add_systems(
-				Update,
-				(follow::sync_camera_fov, follow::sync_first_person_head_visibility)
-					.in_set(PlayerCameraSystems::Apply),
-			)
-			.add_systems(Update, release_modifiers_on_focus_change);
+		register_player_camera_runtime(app);
+		app.configure_sets(
+			Update,
+			SpatialRumbleSystems::Present
+				.after(PlayerCameraSystems::Follow)
+				.before(PlayerCameraSystems::Apply),
+		)
+		.add_systems(
+			Update,
+			follow::follow_character_camera.in_set(PlayerCameraSystems::Follow),
+		)
+		.add_systems(
+			Update,
+			(follow::sync_camera_fov, follow::sync_first_person_head_visibility)
+				.in_set(PlayerCameraSystems::Apply),
+		)
+		.add_systems(Update, release_modifiers_on_focus_change);
 		if app.is_plugin_added::<PlayerPlugin>() {
 			app.configure_sets(Update, PlayerCameraSystems::Body.before(PlayerSystems::Locomotion));
 		}

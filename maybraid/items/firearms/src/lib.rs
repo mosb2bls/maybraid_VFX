@@ -18,8 +18,8 @@ pub mod sound;
 
 pub use ::projectiles::{BoltSpec, BulletSpec, Flight, PenetrationCost, ProjectileSource};
 pub use cadence::{
-	advance_shot_clock, catch_up_limit, idle_shot_clock, Cadence, FireControl, ShotClockTick,
-	WeaponFired, WeaponRecoil, CATCH_UP_SHOTS,
+	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, Cadence, FireControl,
+	ShotClockTick, WeaponFired, WeaponRecoil, CATCH_UP_SHOTS,
 };
 pub use concepts::FirearmConcept;
 pub use energy::{

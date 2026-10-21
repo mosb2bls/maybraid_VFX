@@ -166,7 +166,6 @@ pub(crate) fn arm_world_player(
 				commands.spawn(RequestSetCharacter { species: CharacterSpecies::Braidman });
 			}
 			spawn_held_firearm(&mut commands, player);
-			commands.entity(player).insert(EquippedItemHandler::Firearm);
 			continue;
 		};
 
@@ -206,7 +205,6 @@ pub(crate) fn equipped_handler_from(inventory: &Inventory) -> EquippedItemHandle
 }
 
 pub(crate) fn hold_primary_weapon(commands: &mut Commands, player: Entity, inventory: &Inventory) {
-	commands.entity(player).insert(equipped_handler_from(inventory));
 	match inventory.primary_weapon() {
 		Some(InventoryItem::Firearm { spec, stats }) => {
 			let sheet = inventory.character_sheet();
@@ -222,7 +220,7 @@ pub(crate) fn hold_primary_weapon(commands: &mut Commands, player: Entity, inven
 		Some(InventoryItem::Grenade { .. }) => {
 			spawn_held_grenade(commands, player, GrenadeUserSettings::default());
 		}
-		_ => {}
+		_ => EquippedItemHandler::None.install(&mut commands.entity(player)),
 	}
 }
 
@@ -239,9 +237,13 @@ pub(crate) fn teardown_held_weapon(
 		commands.entity(grenade.held).try_despawn();
 	}
 	if firearm.is_some() || grenade.is_some() {
-		commands
-			.entity(player)
-			.remove::<(FirearmUser, GrenadeUser, GrenadeThrow, PlayerUse)>();
+		commands.entity(player).remove::<(
+			FirearmUser,
+			GrenadeUser,
+			GrenadeThrow,
+			PlayerUse,
+			EquippedItemHandler,
+		)>();
 	}
 }
 
@@ -323,7 +325,7 @@ fn commit_weapon_swap(
 			loadout.retarget_inventory(snapshot.clone());
 			commands.entity(player).insert(AppliedWorldPlayerLoadout(loadout.clone()));
 		}
-		commands.entity(player).insert(equipped_handler_from(&snapshot));
+		equipped_handler_from(&snapshot).install(&mut commands.entity(player));
 		if assets.is_some() {
 			hold_primary_weapon(&mut commands, player, &snapshot);
 		}

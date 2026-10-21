@@ -6,6 +6,9 @@ yaw / pitch / POV / focus live on [`CameraController`](src/look.rs).
 [`spawn_follow_camera`](src/lib.rs) also installs a `SpatialListener` so firearm
 shots can pan and fall off with distance.
 
+Headless look / body sets use [`register_player_camera_runtime`](src/lib.rs);
+follow pose, FOV, and rumble stay on [`PlayerCameraPlugin`](src/lib.rs).
+
 Reads [`PlayerLook`](../player/README.md) slots on the followed body; writes look
 back so item users never query `Camera3d`. Look / focus / ADS consume
 [`CharacterIntent`](../controllers/character/src/intent.rs) and gate on

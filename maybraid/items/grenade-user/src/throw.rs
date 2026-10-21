@@ -12,7 +12,10 @@ use grenades::{
 	GrenadeSounds,
 };
 use maybraid_audio::{Audio, AudioClip, Mixer};
-use maybraid_character_controller::EquippedItemUse;
+use maybraid_character_controller::{
+	delivered_item_use, EquippedItemUse, HoldEffect, InputRouter, InputSource, RoutedItemActor,
+	RoutingEvent,
+};
 use player::{look_forward, PlayerLook};
 
 use crate::hold::HeldGrenade;
@@ -69,6 +72,18 @@ impl GrenadeThrow {
 		if !held {
 			self.use_latched = false;
 		}
+	}
+
+	/// Disconnect / reassign / removal cancel a live cook. Capture does not.
+	pub fn apply_hold(&mut self, hold: HoldEffect) -> Option<f32> {
+		match hold {
+			HoldEffect::ReleaseNeutral => self.take_live_cook(),
+			HoldEffect::Freeze | HoldEffect::None => None,
+		}
+	}
+
+	pub fn apply_routing(&mut self, event: RoutingEvent) -> Option<f32> {
+		self.apply_hold(event.hold())
 	}
 
 	/// Start a cook when the addressed use is held and the primary is ready.
@@ -132,19 +147,25 @@ pub enum GrenadeUserSystems {
 pub(crate) struct ThrowJingleDue;
 
 pub fn apply_throw_intents(
+	router: Option<Res<InputRouter>>,
 	mut uses: MessageReader<EquippedItemUse>,
 	bags: Query<&Inventory>,
 	carriers: Query<&InventoryUser>,
 	mut commands: Commands,
 	mut users: Query<(Entity, &mut GrenadeThrow, Has<WeaponSwap>), With<GrenadeUser>>,
 ) {
-	let uses: Vec<_> = uses.read().copied().collect();
+	let router = router.as_deref();
+	let uses: Vec<_> = uses
+		.read()
+		.copied()
+		.filter(|use_item| delivered_item_use(router, *use_item))
+		.collect();
 	for (entity, mut throw, swapping) in &mut users {
 		let Some(use_item) = uses.iter().rev().find(|use_item| {
 			use_item.addresses(entity) && use_item.handler().is_grenade()
 		})
 		else {
-			// Capture / suspend / other-actor delivery: do not treat as release.
+			// Lifecycle events own cancel / freeze. Missing use is not a release.
 			continue;
 		};
 		throw.apply_use(use_item.held());
@@ -171,6 +192,57 @@ pub fn apply_throw_intents(
 			commands.entity(entity).try_insert(ThrowJingleDue);
 		}
 	}
+}
+
+/// Cancel a live cook on disconnect / reassign / removal. Capture emits no
+/// [`HoldEffect::ReleaseNeutral`] and does not call this.
+pub fn apply_throw_routing(
+	router: Res<InputRouter>,
+	mut drops: MessageWriter<DropLiveGrenade>,
+	velocities: Query<&LinearVelocity>,
+	carriers: Query<&InventoryUser>,
+	mut bags: Query<&mut Inventory>,
+	held: Query<&Transform, With<HeldGrenade>>,
+	mut users: Query<(
+		Entity,
+		&GrenadeUser,
+		&mut GrenadeThrow,
+		Option<&Transform>,
+		Option<&GlobalTransform>,
+		Has<RoutedItemActor>,
+	)>,
+) {
+	if !router.events().iter().any(|event| event.hold() == HoldEffect::ReleaseNeutral) {
+		return;
+	}
+	for (user_entity, user, mut throw, local, global, routed) in &mut users {
+		if !routed {
+			continue;
+		}
+		let Some(fuse) = throw.apply_hold(HoldEffect::ReleaseNeutral) else {
+			continue;
+		};
+		drop_live_cook(
+			&mut drops,
+			&velocities,
+			&carriers,
+			&mut bags,
+			&held,
+			user_entity,
+			user,
+			local,
+			global,
+			fuse,
+		);
+	}
+}
+
+fn clocks_frozen(router: Option<&InputRouter>, entity: Entity) -> bool {
+	let Some(router) = router else {
+		return false;
+	};
+	let source = InputSource::local_pad();
+	router.is_suspended(source) && router.actor(source).is_some_and(|actor| actor.matches(entity))
 }
 
 /// Jingle at the held charge when the throw windup starts, before release.
@@ -203,9 +275,10 @@ pub fn play_throw_jingles(
 
 pub fn advance_throw(
 	time: Res<Time>,
+	router: Option<Res<InputRouter>>,
 	mut commands: Commands,
-	mut meshes: ResMut<Assets<Mesh>>,
-	mut materials: ResMut<Assets<GrenadeMaterial>>,
+	mut meshes: Option<ResMut<Assets<Mesh>>>,
+	mut materials: Option<ResMut<Assets<GrenadeMaterial>>>,
 	mut detonations: MessageWriter<GrenadeDetonated>,
 	looks: Query<&PlayerLook>,
 	velocities: Query<&LinearVelocity>,
@@ -216,7 +289,13 @@ pub fn advance_throw(
 	mut held: Query<(&Transform, &mut Visibility), With<HeldGrenade>>,
 ) {
 	let dt = time.delta_secs();
+	let router = router.as_deref();
+	let mut meshes = meshes.as_deref_mut();
+	let mut materials = materials.as_deref_mut();
 	for (user_entity, user, mut throw) in &mut users {
+		if clocks_frozen(router, user_entity) {
+			continue;
+		}
 		let stats = carriers
 			.get(user_entity)
 			.ok()
@@ -250,8 +329,8 @@ pub fn advance_throw(
 				} else if next_age >= stats.release_at {
 					release_grenade(
 						&mut commands,
-						&mut meshes,
-						&mut materials,
+						meshes.as_deref_mut(),
+						materials.as_deref_mut(),
 						&looks,
 						&velocities,
 						&headings,
@@ -293,8 +372,8 @@ pub fn advance_throw(
 				if age < stats.release_at && next >= stats.release_at {
 					release_grenade(
 						&mut commands,
-						&mut meshes,
-						&mut materials,
+						meshes.as_deref_mut(),
+						materials.as_deref_mut(),
 						&looks,
 						&velocities,
 						&headings,
@@ -347,46 +426,71 @@ pub fn interrupt_live_cooks(
 		let Some(fuse) = throw.take_live_cook() else {
 			continue;
 		};
-		let Some(stats) = carriers
-			.get(user_entity)
-			.ok()
-			.and_then(|carrier| bags.get(carrier.bag).ok())
-			.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_stats))
-		else {
-			reset_throw(&mut throw);
-			continue;
-		};
-		let spec = carriers
-			.get(user_entity)
-			.ok()
-			.and_then(|carrier| bags.get(carrier.bag).ok())
-			.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_spec))
-			.unwrap_or_default();
-		let origin = held
-			.get(user.held)
-			.ok()
-			.map(|pose| pose.translation)
-			.or_else(|| global.map(GlobalTransform::translation))
-			.or_else(|| local.map(|transform| transform.translation))
-			.unwrap_or(Vec3::ZERO);
-		let inherit = velocities.get(user_entity).map(|velocity| velocity.0).unwrap_or(Vec3::ZERO);
-		start_primary_recharge(&carriers, &mut bags, user_entity);
-		drops.write(DropLiveGrenade {
-			origin,
-			velocity: inherit * stats.inherit_velocity,
-			spec,
-			stats,
-			effect: GrenadeEffect::from_stats(&stats),
+		drop_live_cook(
+			&mut drops,
+			&velocities,
+			&carriers,
+			&mut bags,
+			&held,
+			user_entity,
+			user,
+			local,
+			global,
 			fuse,
-			source: user_entity,
-		});
+		);
 	}
+}
+
+fn drop_live_cook(
+	drops: &mut MessageWriter<DropLiveGrenade>,
+	velocities: &Query<&LinearVelocity>,
+	carriers: &Query<&InventoryUser>,
+	bags: &mut Query<&mut Inventory>,
+	held: &Query<&Transform, With<HeldGrenade>>,
+	user_entity: Entity,
+	user: &GrenadeUser,
+	local: Option<&Transform>,
+	global: Option<&GlobalTransform>,
+	fuse: f32,
+) {
+	let Some(stats) = carriers
+		.get(user_entity)
+		.ok()
+		.and_then(|carrier| bags.get(carrier.bag).ok())
+		.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_stats))
+	else {
+		return;
+	};
+	let spec = carriers
+		.get(user_entity)
+		.ok()
+		.and_then(|carrier| bags.get(carrier.bag).ok())
+		.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_spec))
+		.unwrap_or_default();
+	let origin = held
+		.get(user.held)
+		.ok()
+		.map(|pose| pose.translation)
+		.or_else(|| global.map(GlobalTransform::translation))
+		.or_else(|| local.map(|transform| transform.translation))
+		.unwrap_or(Vec3::ZERO);
+	let inherit = velocities.get(user_entity).map(|velocity| velocity.0).unwrap_or(Vec3::ZERO);
+	start_primary_recharge(carriers, bags, user_entity);
+	drops.write(DropLiveGrenade {
+		origin,
+		velocity: inherit * stats.inherit_velocity,
+		spec,
+		stats,
+		effect: GrenadeEffect::from_stats(&stats),
+		fuse,
+		source: user_entity,
+	});
 }
 
 fn release_grenade(
 	commands: &mut Commands,
-	meshes: &mut Assets<Mesh>,
-	materials: &mut Assets<GrenadeMaterial>,
+	meshes: Option<&mut Assets<Mesh>>,
+	materials: Option<&mut Assets<GrenadeMaterial>>,
 	looks: &Query<&PlayerLook>,
 	velocities: &Query<&LinearVelocity>,
 	headings: &Query<(&CharacterHeading, &ChildOf), With<CharacterRoot>>,
@@ -418,6 +522,9 @@ fn release_grenade(
 		.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_spec))
 		.unwrap_or_default();
 	start_primary_recharge(carriers, bags, user_entity);
+	let (Some(meshes), Some(materials)) = (meshes, materials) else {
+		return;
+	};
 	spawn_thrown_grenade(
 		commands,
 		meshes,
@@ -949,6 +1056,75 @@ mod tests {
 		let throw = world.get::<GrenadeThrow>(user).expect("throw");
 		assert!(matches!(throw.phase, GrenadePhase::Cooking { .. }));
 		assert!(throw.use_latched);
+		Ok(())
+	}
+
+	#[test]
+	fn release_neutral_takes_the_live_cook() {
+		let mut throw = GrenadeThrow::default();
+		assert!(throw.try_start_cook(true, false, 4.0));
+		assert_eq!(throw.apply_hold(HoldEffect::Freeze), None);
+		assert!(throw.cooking());
+		assert_eq!(throw.apply_hold(HoldEffect::ReleaseNeutral), Some(4.0));
+		assert_eq!(throw.phase, GrenadePhase::Ready);
+	}
+
+	#[test]
+	fn suspension_freezes_fuse_and_windup() -> anyhow::Result<()> {
+		use maybraid_character_controller::{
+			ActorTarget, InputRouter, InputSource, ScopeOwner,
+		};
+
+		let mut world = World::new();
+		let user = spawn_ready_user(&mut world);
+		apply_use_item(&mut world)?;
+		advance_time(&mut world, 0.25);
+		run_advance(&mut world)?;
+		let fuse = world.get::<GrenadeThrow>(user).expect("throw").fuse;
+		let mut router = InputRouter::default();
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(user));
+		router.suspend(InputSource::local_pad(), ScopeOwner::pause());
+		world.insert_resource(router);
+		advance_time(&mut world, 1.0);
+		run_advance(&mut world)?;
+		let throw = world.get::<GrenadeThrow>(user).expect("throw");
+		assert!(throw.cooking());
+		assert!((throw.fuse - fuse).abs() < 1e-4, "suspended fuse must not tick");
+		world.get_mut::<GrenadeThrow>(user).expect("throw").apply_use(false);
+		advance_time(&mut world, 1.0);
+		run_advance(&mut world)?;
+		assert!(
+			matches!(
+				world.get::<GrenadeThrow>(user).expect("throw").phase,
+				GrenadePhase::Cooking { .. }
+			),
+			"suspended windup must not advance"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn capture_keeps_ticking_the_fuse() -> anyhow::Result<()> {
+		use maybraid_character_controller::{
+			ActorTarget, CaptureKind, InputRouter, InputSource, ScopeOwner, UiTarget,
+		};
+
+		let mut world = World::new();
+		let user = spawn_ready_user(&mut world);
+		apply_use_item(&mut world)?;
+		let mut router = InputRouter::default();
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(user));
+		router.acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(7))),
+			CaptureKind::Overlay,
+		);
+		world.insert_resource(router);
+		advance_time(&mut world, 0.5);
+		run_advance(&mut world)?;
+		let throw = world.get::<GrenadeThrow>(user).expect("throw");
+		assert!(throw.cooking());
+		assert!(throw.fuse < GrenadeStats::standard().fuse - 0.4);
 		Ok(())
 	}
 }

@@ -30,6 +30,39 @@ impl EquippedItemHandler {
 	pub const fn is_grenade(self) -> bool {
 		matches!(self, Self::Grenade)
 	}
+
+	/// Stamp this handler at an equipment boundary. Spawn helpers and inventory
+	/// commit both call this so selection cannot drift from the held kit.
+	pub fn install(self, entity: &mut EntityCommands) {
+		entity.insert(self);
+	}
+
+	pub fn clear(entity: &mut EntityCommands) {
+		entity.remove::<Self>();
+	}
+}
+
+/// Marker on the actor that currently owns the local pad assignment.
+/// Grenade cancel/drop reads this so disconnect does not depend on missing uses.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RoutedItemActor;
+
+/// Keep [`RoutedItemActor`] on [`InputRouter::actor`]. Runs after routing
+/// consumers so a same-frame disconnect still sees last frame's owner.
+pub fn stamp_routed_item_actor(
+	router: Res<InputRouter>,
+	mut commands: Commands,
+	owners: Query<Entity, With<RoutedItemActor>>,
+) {
+	let current = router.actor(InputSource::local_pad()).map(ActorTarget::entity);
+	for entity in &owners {
+		if Some(entity) != current {
+			commands.entity(entity).remove::<RoutedItemActor>();
+		}
+	}
+	if let Some(entity) = current {
+		commands.entity(entity).try_insert(RoutedItemActor);
+	}
 }
 
 /// Addressed UseItem for the delivered actor's active handler.
@@ -73,6 +106,19 @@ impl EquippedItemUse {
 
 	pub fn addresses(self, entity: Entity) -> bool {
 		self.actor.matches(entity)
+	}
+}
+
+/// True when this use is still delivered after session / capture projection.
+///
+/// Bind may publish [`EquippedItemUse`] before session pause lands. Realizers
+/// call this so a same-frame Start does not fire or cook.
+pub fn delivered_item_use(router: Option<&InputRouter>, use_item: EquippedItemUse) -> bool {
+	match router {
+		None => true,
+		Some(router) => router
+			.delivered_actor(InputSource::local_pad())
+			.is_some_and(|actor| use_item.actor() == actor),
 	}
 }
 
@@ -221,6 +267,21 @@ mod tests {
 		write_intents(&mut world, &[CharacterIntent::UseItem(1.0)]);
 		world.run_system_once(dispatch_equipped_item).expect("captured");
 		assert!(world.resource_mut::<Messages<EquippedItemUse>>().drain().next().is_none());
+	}
+
+	#[test]
+	fn paused_delivery_rejects_a_published_use() {
+		let mut world = World::new();
+		world.init_resource::<InputRouter>();
+		let entity = world.spawn(EquippedItemHandler::Firearm).id();
+		let use_item = EquippedItemUse::new(ActorTarget::new(entity), EquippedItemHandler::Firearm, 1.0, true);
+		{
+			let mut router = world.resource_mut::<InputRouter>();
+			router.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
+			assert!(delivered_item_use(Some(&router), use_item));
+			router.set_paused(true);
+			assert!(!delivered_item_use(Some(&router), use_item));
+		}
 	}
 
 	#[test]

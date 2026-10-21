@@ -6,11 +6,13 @@ pub mod produce;
 pub mod sample;
 
 pub use dispatch::{
-	dispatch_equipped_item, EquippedItemHandler, EquippedItemUse, EquippedPowerUse,
+	delivered_item_use, dispatch_equipped_item, stamp_routed_item_actor, EquippedItemHandler,
+	EquippedItemUse, EquippedPowerUse, RoutedItemActor,
 };
 pub use intent::{CharacterIntent, InventoryCycling, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
-	ActorTarget, ControllerPipeline, InputRouter, InputSource, Routed,
+	ActorTarget, CaptureKind, ControllerPipeline, HoldEffect, InputRouter, InputSource, Routed,
+	RoutingEvent, RoutingKind, ScopeOwner, UiTarget,
 };
 pub use sample::{
 	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,
@@ -81,7 +83,8 @@ impl Plugin for CharacterControllerPlugin {
 			)
 			.add_systems(Update, produce_actor_control_samples.in_set(CharacterBindSystems::Route))
 			.add_systems(Update, produce_character_intents.in_set(CharacterBindSystems::Produce))
-			.add_systems(Update, dispatch_equipped_item.in_set(CharacterBindSystems::Dispatch));
+			.add_systems(Update, dispatch_equipped_item.in_set(CharacterBindSystems::Dispatch))
+			.add_systems(Last, stamp_routed_item_actor);
 	}
 }
 

@@ -133,7 +133,7 @@ use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
 use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
-use maybraid_controllers_core::CaptureResolveSystems;
+use maybraid_controllers_core::{CaptureResolveSystems, ControllerPipeline};
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;
@@ -144,6 +144,7 @@ use maybraid_weather::WeatherPlugin;
 use maybraid_world_controller::WorldControllerPlugin;
 use player::{
 	register_motor_traction_physics, MotorRequestStage, PlayerPlugin, PlayerPresentationPlugin,
+	PlayerSystems,
 };
 use player_camera::{PlayerCameraPlugin, PlayerCameraSystems};
 use world_player::{
@@ -176,6 +177,26 @@ const WORLD_COMBAT_HUD: CombatHudPlugin = CombatHudPlugin {
 	score: true,
 };
 const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbes(false);
+
+/// Headless-safe controller + item-session registration shared by
+/// [`WorldPlugin`] and stack-tip tests. Rendering / audio stay on the full
+/// plugin.
+pub fn register_world_controller_runtime(app: &mut App) {
+	if !app.is_plugin_added::<CharacterControllerPlugin>() {
+		app.add_plugins(CharacterControllerPlugin);
+	}
+	if !app.is_plugin_added::<WorldControllerPlugin>() {
+		app.add_plugins(WorldControllerPlugin);
+	}
+	app.configure_sets(
+		Update,
+		PlayerSystems::Intent
+			.after(CharacterControlSystems)
+			.after(SessionCapabilitySystems)
+			.before(ControllerPipeline::Motor),
+	);
+	inventory_cycling::configure(app);
+}
 
 /// Assembled world: Durham terrain, streamed forest, urbanization, sky dome, character.
 ///
@@ -225,10 +246,9 @@ impl Plugin for WorldPlugin {
 			.add_plugins(VirtualPadPlugin::new(VirtualPadConfig {
 				debug_overlay: self.input_debug_enabled,
 				..default()
-			}))
-			.add_plugins(CharacterControllerPlugin)
-			.add_plugins(LocomotionControllerPlugin)
-			.add_plugins(WorldControllerPlugin)
+			}));
+		register_world_controller_runtime(app);
+		app.add_plugins(LocomotionControllerPlugin)
 			.add_plugins(PlayerPresentationPlugin)
 			.add_plugins(PlayerCameraPlugin)
 			.add_plugins(WORLD_COMBAT_HUD)
@@ -315,7 +335,6 @@ impl Plugin for WorldPlugin {
 				),
 			);
 		camera::configure(app);
-		inventory_cycling::configure(app);
 		inventory_drop::configure(app);
 		cycle_target::configure(app);
 		weapon::configure(app);

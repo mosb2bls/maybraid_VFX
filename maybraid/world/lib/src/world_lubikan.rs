@@ -53,17 +53,7 @@ impl Plugin for WorldLubikanPlugin {
 			),
 		);
 
-		app.add_systems(
-			Update,
-			(
-				sync_lubikan_healing_enabled.before(LubikanSystems::Activate),
-				request_lubikan_activation
-					.after(CharacterControlSystems)
-					.after(SessionCapabilitySystems)
-					.after(sync_lubikan_healing_enabled)
-					.before(LubikanSystems::Activate),
-			),
-		);
+		configure(app);
 	}
 }
 
@@ -88,6 +78,8 @@ pub fn configure(app: &mut App) {
 		(
 			sync_lubikan_healing_enabled.before(LubikanSystems::Activate),
 			request_lubikan_activation
+				.after(CharacterControlSystems)
+				.after(SessionCapabilitySystems)
 				.after(sync_lubikan_healing_enabled)
 				.before(LubikanSystems::Activate),
 		),

@@ -23,6 +23,21 @@ use crate::map_view::WorldMapView;
 
 pub use maybraid_world_controller::WorldGameplayEnabled;
 
+/// Honor Start the same frame Bind published [`CharacterIntent::InGameMenu`].
+/// Production uses the game-shell pause state; stack tests register this in
+/// [`maybraid_world_controller::SessionCapabilitySystems`].
+pub fn apply_in_game_menu_pause(
+	mut router: ResMut<InputRouter>,
+	mut gameplay: ResMut<WorldGameplayEnabled>,
+	session: Res<SessionCapabilities>,
+	mut intents: MessageReader<CharacterIntent>,
+) {
+	if intents.read().any(|intent| matches!(intent, CharacterIntent::InGameMenu)) {
+		router.set_paused(true);
+	}
+	*gameplay = WorldGameplayEnabled::from_session(*session, &router);
+}
+
 /// Explicit play-session teardown. The game shell writes this when leaving
 /// to Home. Pause must not write it.
 #[derive(Message, Clone, Copy, Debug, Default, PartialEq, Eq)]

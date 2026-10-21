@@ -383,8 +383,12 @@ VirtualPad → produce_character_intents → CharacterIntent (Bind broadcast)
 InputRouter::delivered_actor + EquippedItemHandler
        → dispatch_equipped_item
             → EquippedItemUse(actor, handler, squeeze, held)
-                 → apply_fire_intents      (firearm + held → WeaponTrigger)
-                 → apply_throw_intents     (grenade; missing use freezes)
+                 → apply_fire_intents      (firearm + held → WeaponTrigger;
+                                            re-checks delivered_actor after
+                                            SessionCapabilitySystems)
+                 → apply_throw_intents     (grenade; missing use is not a release)
+                 → apply_throw_routing     (ReleaseNeutral cancel/drop)
+                 → advance_throw           (suspension freezes fuse + windup)
             → EquippedPowerUse(actor)
                  → LubikanActivationRequest::equipped(owner)
 InventoryCycling (per-actor) ← SelectInventoryCyclingCategory
@@ -400,8 +404,8 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 |---|---|
 | `controllers/character` | `EquippedItemHandler`, `EquippedItemUse`, `EquippedPowerUse`, `dispatch_equipped_item`, `InventoryCycling` |
 | `player-camera` | `CameraRecoilHandoff`, `apply_recoil_handoff`; look gated on delivery |
-| `firearm-user` | `apply_fire_intents` reads D1; recoil writes the handoff only |
-| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,take_live_cook}` |
+| `firearm-user` | `apply_fire_intents` reads D1; recoil writes the handoff only; `register_firearm_user_runtime` |
+| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,take_live_cook}`; `register_grenade_user_runtime` |
 | `world` | category owner + holster commit; `request_lubikan_activation` |
 | `intelligence/combat/firearm` | unchanged NPC `WeaponTrigger` writer |
 
@@ -412,6 +416,8 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 | `CharacterIntent::UseItem` / `PowerUseItem` | `EquippedItemUse` / `EquippedPowerUse` | D1 Bind |
 | `EquippedItemUse` firearm + held | `WeaponTrigger` | D2 |
 | `EquippedItemUse` grenade | cook / latch / explicit release | D3 |
+| `RoutingEvent` `ReleaseNeutral` | `take_live_cook` + `DropLiveGrenade` | D3 |
+| `InputRouter` suspension | freeze `advance_throw` clocks | D3 |
 | `WeaponFired` | `CameraRecoilHandoff` | D4 → C5 |
 | `EquippedPowerUse` | `LubikanActivationRequest::equipped` | D7 |
 | `SelectInventoryCyclingCategory` | `InventoryCycling` + HUD mirror | D5 |
@@ -430,18 +436,22 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 Unit: `dispatch.rs`, `fire.rs`, `throw.rs` (`missing_use_does_not_release_a_live_cook`),
 `inventory_cycling.rs`, `weapon.rs`, `world_lubikan.rs`, `look.rs`.
 
-Stack tip (`world/lib/src/controller_stack.rs`) adds the production plugins
-(`CharacterControllerPlugin`, `WorldControllerPlugin`, `LubikansPlugin`)
-plus `inventory_cycling::configure` / `world_lubikan::configure`, registers
-`apply_fire_intents` / `apply_throw_intents` in `PlayerSystems::Intent` (the
-same set the item plugins use), and steps `app.update()`. Full
-`FirearmUserPlugin` / `GrenadeUserPlugin` / `PlayerCameraPlugin` need render
-and audio hosts, so the stack tip does not add those GPU plugins:
+Stack tip (`world/lib/src/controller_stack.rs`) calls the same headless
+runtime registration production uses
+(`register_world_controller_runtime`, `register_firearm_user_runtime`,
+`register_grenade_user_runtime`, `register_player_camera_runtime`) and
+steps `app.update()`. GPU / audio systems stay on the full plugins:
 
 - two delivered actors; two item modes
 - grenade handler does not squeeze a firearm
-- denied shot = no `WeaponFired` / no recoil
-- capture / reassignment / disconnect freeze a live cook
+- denied shot runs real fire + recoil clocks (cooldown denies; a later
+  ready shot kicks)
+- capture keeps ticking a live fuse; suspension freezes fuse and windup
+- reassignment / disconnect emit `ReleaseNeutral` and drop via
+  `take_live_cook` (production `assign_local_player` undo waits on
+  [#1442](https://github.com/ramate-io/maybraid/issues/1442))
+- Start + held trigger in one pad frame leaves an idle firearm / ready
+  grenade (`PlayerSystems::Intent` after `SessionCapabilitySystems`)
 - category then cycle in one frame
 - Lubikan spends once, then refuses
 - nested captures release independently
@@ -458,8 +468,10 @@ and audio hosts, so the stack tip does not add those GPU plugins:
 - `apply_look_intents` is still query-wide `FollowCamera` (delivery-gated).
 - Shell HID leftovers: `player_lifecycle` respawn picker `VirtualPad`,
   `stash` `Gamepad` presence, `game::toggle_world_pause` Start / A.
-- Full `WorldPlugin` is not headless-safe; stack tests use the controller +
-  item plugins, not terrain / vegetation assemble.
+- Full `WorldPlugin` is not headless-safe; stack tests use the extracted
+  headless runtime registration, not terrain / vegetation assemble.
+- Host re-assignment after `disconnect` and capture-triggered gesture / hold
+  cancellation wait on [#1442](https://github.com/ramate-io/maybraid/issues/1442).
 
 ## Review baselines
 
