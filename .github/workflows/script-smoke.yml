@@ -1,13 +1,15 @@
 # Full-game e2e smokes on lavapipe (Mesa CPU Vulkan) + Xvfb.
 # One job builds the real release binary; a matrix runs short agent scripts
 # and asserts events (reached / died / menu opened), never FPS.
+# Trigger is push-to-main + pull_request (not every branch push) so a PR
+# does not write the rust-cache twice.
 
 name: Script Smoke
 
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -47,6 +49,8 @@ jobs:
           shared-key: ubuntu-${{ steps.rust_toolchain.outputs.channel }}-script-smoke
           cache-all-crates: true
           cache-on-failure: true
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Native Ubuntu link, not `nix develop`: a Nix-built ELF has a
       # /nix/store interpreter and exits 127 on the lavapipe runners.

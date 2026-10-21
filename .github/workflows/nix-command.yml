@@ -17,8 +17,8 @@ on:
       runner:
         required: false
         type: string
-        default: 'ubuntu-latest'
-        description: 'Runner to use for the job'
+        default: 'ubuntu-24.04'
+        description: 'Runner to use for the job (pin an Ubuntu version; ubuntu-latest rustc churn broke rust-cache keys)'
       rust_cache:
         required: false
         type: boolean
@@ -29,6 +29,11 @@ on:
         type: string
         default: 'shared'
         description: 'Per-workflow cache suffix so parallel jobs do not race on save'
+      rust_cache_save:
+        required: false
+        type: boolean
+        default: true
+        description: 'Allow rust-cache to save on main (set false for restore-only jobs such as cargo-check)'
     secrets:
       NIX_ACCESS_TOKEN:
         required: false
@@ -48,31 +53,62 @@ jobs:
           mkdir -p ~/.config/nix
           echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf
 
-      # Host rustup toolchain matches `rust-toolchain.toml` so Swatinem/rust-cache
-      # keys align with `rustc` inside `nix develop` (same channel, shared `target/`).
+      # The rustc that compiles is the flake's rust-overlay + rust-toolchain.toml
+      # (see flake.nix `fromRustupToolchainFile`), not dtolnay/rust-toolchain.
+      # dtolnay is only so rust-cache can invoke `rustc` while computing keys.
+      # The key itself uses the channel plus a hash of those Nix inputs, and
+      # disables rust-cache's environment hash so ubuntu-latest's preinstalled
+      # stable (1.99.x) cannot fork the key. Saves are main-only so branch
+      # jobs restore main's entry instead of evicting it (10 GB repo cap).
       - name: Read Rust toolchain channel
         id: rust_toolchain
         run: echo "channel=$(./packaging/version.sh --rust)" >> "$GITHUB_OUTPUT"
+
+      - name: Nix toolchain cache identity
+        id: nix_cache
+        if: inputs.rust_cache
+        run: |
+          # Short hash of the files that select rustc/CC inside `nix develop`.
+          # flake.lock pins rust-overlay + nixpkgs (CC); rust-toolchain.toml
+          # is the channel; .cargo/config.toml holds rustflags that fingerprint
+          # target/.
+          echo "id=$(sha256sum rust-toolchain.toml flake.lock .cargo/config.toml | sha256sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
       - uses: dtolnay/rust-toolchain@master
         if: inputs.rust_cache
         with:
           toolchain: ${{ steps.rust_toolchain.outputs.channel }}
 
+      - name: Drop runner-preinstalled stable Rust
+        if: inputs.rust_cache
+        run: |
+          # ubuntu images ship a moving `stable`. rust-cache hashes every
+          # rustup toolchain when add-rust-environment-hash-key is true.
+          rustup toolchain uninstall stable || true
+
       - uses: Swatinem/rust-cache@v2
         if: inputs.rust_cache
         with:
-          shared-key: nix-${{ steps.rust_toolchain.outputs.channel }}-${{ inputs.rust_cache_key }}
+          shared-key: nix-${{ steps.rust_toolchain.outputs.channel }}-${{ inputs.rust_cache_key }}-${{ steps.nix_cache.outputs.id }}
           cache-all-crates: true
           cache-on-failure: true
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' && inputs.rust_cache_save == true }}
 
       - name: Run Command in Nix Shell
         run: |
           # Write the command to a temporary script file to handle multiline commands
           cat > /tmp/nix_command.sh << 'EOF'
           export GH_TOKEN="${{ env.GITHUB_TOKEN }}"
+          if [ "${{ inputs.rust_cache }}" = "true" ]; then
+            echo "Nix rustc (flake/rust-overlay, not dtolnay):"
+            rustc --version --verbose
+            echo "Nix CC=${CC:-unset}"
+            echo "Nix CXX=${CXX:-unset}"
+            echo "Nix RUSTFLAGS=${RUSTFLAGS:-unset}"
+          fi
           ${{ inputs.command }}
           EOF
           chmod +x /tmp/nix_command.sh
           echo "Running command in Nix shell..."
-          nix develop "${{ inputs.nix_flake_path }}" --command /tmp/nix_command.sh 
+          nix develop "${{ inputs.nix_flake_path }}" --command /tmp/nix_command.sh

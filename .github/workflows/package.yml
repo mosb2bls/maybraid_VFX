@@ -56,6 +56,9 @@ jobs:
         with:
           toolchain: ${{ needs.version.outputs.rust }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build -p maybraid --release --locked
       - run: packaging/scripts/package-linux.sh
       - run: packaging/smoke.sh "dist/Maybraid-$VERSION-linux-x64/maybraid"
@@ -85,6 +88,9 @@ jobs:
         with:
           toolchain: ${{ needs.version.outputs.rust }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build -p maybraid --release --locked
       - run: packaging/scripts/package-macos.sh
       - run: packaging/smoke.sh dist/Maybraid.app/Contents/MacOS/maybraid
@@ -111,6 +117,9 @@ jobs:
           toolchain: ${{ needs.version.outputs.rust }}
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build -p maybraid --release --locked --target x86_64-pc-windows-msvc
       - run: packaging/scripts/package-windows.sh
       - uses: actions/upload-artifact@v4
