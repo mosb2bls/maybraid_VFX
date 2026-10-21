@@ -1,10 +1,10 @@
-//! Broadcast [`CharacterIntent`] → one actor-local Standard [`MotorIntent`].
+//! Broadcast [`CharacterIntent`] → one routed Standard [`MotorIntent`].
 
 use bevy::prelude::*;
 use maybraid_character_controller::{
 	CharacterIntent, OrdinaryLocomotion, OrdinaryLocomotionEnabled,
 };
-use maybraid_controllers_core::LocalActor;
+use maybraid_controllers_core::InputRouter;
 use player::{
 	CharacterController, MotorIntent, MotorSample, Player, PlayerLook, SpeedCapRequest,
 	SprintRequest, StanceRequest,
@@ -12,14 +12,14 @@ use player::{
 
 const FOCUS_EPS: f32 = 1e-6;
 
-/// Interpret pad locomotion for the local [`Player`] only.
+/// Interpret pad locomotion for [`InputRouter::local_actor`] only.
 pub fn interpret_standard_locomotion(
 	mouse: Res<ButtonInput<MouseButton>>,
 	ordinary_pad: Option<Res<OrdinaryLocomotionEnabled>>,
-	local: Option<Res<LocalActor>>,
+	router: Res<InputRouter>,
 	mut intents: MessageReader<CharacterIntent>,
 	mut actors: Query<
-		(Entity, &mut MotorIntent, &PlayerLook, Option<&OrdinaryLocomotion>),
+		(&mut MotorIntent, &PlayerLook, Option<&OrdinaryLocomotion>),
 		(With<CharacterController>, With<Player>),
 	>,
 ) {
@@ -44,10 +44,10 @@ pub fn interpret_standard_locomotion(
 		}
 	}
 
-	let Some(target) = targeted_player(local.as_deref(), &actors) else {
+	let Some(target) = router.local_actor() else {
 		return;
 	};
-	let Ok((_, mut intent, look, ordinary)) = actors.get_mut(target) else {
+	let Ok((mut intent, look, ordinary)) = actors.get_mut(target.entity()) else {
 		return;
 	};
 	let ordinary = pad_ordinary && ordinary.is_none_or(|enabled| enabled.0);
@@ -78,30 +78,23 @@ pub fn interpret_standard_locomotion(
 	});
 }
 
-fn targeted_player(
-	local: Option<&LocalActor>,
-	actors: &Query<
-		(Entity, &mut MotorIntent, &PlayerLook, Option<&OrdinaryLocomotion>),
-		(With<CharacterController>, With<Player>),
-	>,
-) -> Option<Entity> {
-	if let Some(local) = local {
-		if actors.contains(local.entity()) {
-			return Some(local.entity());
-		}
-	}
-	actors.iter().map(|(entity, ..)| entity).min_by_key(|entity| entity.to_bits())
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
 	use anyhow::{anyhow, Result};
+	use maybraid_controllers_core::{ActorTarget, InputSource};
 	use player::MoveWish;
+
+	fn assign_local(app: &mut App, entity: Entity) {
+		app.world_mut()
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
+	}
 
 	fn loco_app() -> (App, Entity, Entity) {
 		let mut app = App::new();
 		app.init_resource::<ButtonInput<MouseButton>>()
+			.init_resource::<InputRouter>()
 			.add_message::<CharacterIntent>()
 			.add_systems(Update, interpret_standard_locomotion);
 		let player = app
@@ -134,9 +127,9 @@ mod tests {
 	}
 
 	#[test]
-	fn writes_only_the_local_actor() -> Result<()> {
+	fn writes_only_the_routed_actor() -> Result<()> {
 		let (mut app, player, other) = loco_app();
-		app.world_mut().insert_resource(LocalActor::new(player));
+		assign_local(&mut app, player);
 		write_intents(&mut app, &[CharacterIntent::Move(Vec2::Y)]);
 		app.update();
 		let targeted = app.world().get::<MotorIntent>(player).ok_or_else(|| anyhow!("player"))?;
@@ -147,9 +140,25 @@ mod tests {
 	}
 
 	#[test]
+	fn without_assignment_writes_nobody() -> Result<()> {
+		let (mut app, player, other) = loco_app();
+		write_intents(&mut app, &[CharacterIntent::Move(Vec2::Y)]);
+		app.update();
+		assert!(app
+			.world()
+			.get::<MotorIntent>(player)
+			.is_some_and(|intent| intent.standard().is_none()));
+		assert!(app
+			.world()
+			.get::<MotorIntent>(other)
+			.is_some_and(|intent| intent.standard().is_none()));
+		Ok(())
+	}
+
+	#[test]
 	fn focus_releases_sprint() -> Result<()> {
 		let (mut app, player, _) = loco_app();
-		app.world_mut().insert_resource(LocalActor::new(player));
+		assign_local(&mut app, player);
 		write_intents(&mut app, &[CharacterIntent::Focus(1.0), CharacterIntent::StartSprint]);
 		app.update();
 		let sample = app
@@ -164,7 +173,7 @@ mod tests {
 	#[test]
 	fn disabled_ordinary_writes_a_neutral_standard_slot() -> Result<()> {
 		let (mut app, player, _) = loco_app();
-		app.world_mut().insert_resource(LocalActor::new(player));
+		assign_local(&mut app, player);
 		app.world_mut().entity_mut(player).insert(OrdinaryLocomotion(false));
 		write_intents(&mut app, &[CharacterIntent::Move(Vec2::Y), CharacterIntent::Jump]);
 		app.update();

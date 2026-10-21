@@ -15,11 +15,11 @@ use damage::Downed;
 use maybraid_character_controller::{
 	CharacterControlSystems, OrdinaryLocomotion, OrdinaryLocomotionEnabled,
 };
-use maybraid_controllers_core::{ControllerPipeline, MotorRequestStage};
+use maybraid_controllers_core::ControllerPipeline;
 use maybraid_input::VirtualPad;
 use maybraid_skill_map::{SkillMapFlick, SkillMapSteerPolicy, SkillMapSystems};
 use menu_components::sync_loading_bar_fill;
-use player::{Player, PlayerLook, PlayerSystems};
+use player::{MotorRequestStage, Player, PlayerLook, PlayerSystems};
 
 pub use actions::{
 	dash_ground_speed, forward_dash, healing_salute, left_strafe, right_strafe, starter_stack,
@@ -183,6 +183,7 @@ pub struct TanzUserPlugin;
 impl Plugin for TanzUserPlugin {
 	fn build(&self, app: &mut App) {
 		ControllerPipeline::configure(app);
+		MotorRequestStage::configure(app);
 		app.add_message::<TanzInput>()
 			.init_resource::<OrdinaryLocomotionEnabled>()
 			.init_resource::<SkillMapSteerPolicy>()

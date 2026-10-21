@@ -1,6 +1,7 @@
 //! [`VirtualPad`] → [`CharacterIntent`].
 
 use bevy::prelude::*;
+use maybraid_controllers_core::{InputRouter, InputSource};
 use maybraid_input::{MenuOwnsBack, PadButton, PadGameplayEnabled, VirtualPad, VirtualPadConfig};
 
 use crate::intent::{CharacterIntent, InventoryCyclingCategory};
@@ -16,8 +17,12 @@ pub fn produce_character_intents(
 	gameplay: Res<PadGameplayEnabled>,
 	menu_owns: Option<Res<MenuOwnsBack>>,
 	ordinary: Res<OrdinaryLocomotionEnabled>,
+	router: Res<InputRouter>,
 	mut intents: MessageWriter<CharacterIntent>,
 ) {
+	if router.actor(InputSource::local_pad()).is_none() {
+		return;
+	}
 	let stance_enabled = gameplay.is_enabled() && !menu_owns.is_some_and(|owns| owns.0);
 	for intent in
 		collect(&pad, config.trigger_press_threshold, time.delta_secs(), stance_enabled, ordinary.0)
@@ -473,5 +478,52 @@ mod tests {
 		assert!(intents(&pad).contains(&CharacterIntent::Inventory));
 		assert!(!intents(&pad).contains(&CharacterIntent::ToggleMap));
 		Ok(())
+	}
+
+	#[test]
+	fn produce_requires_host_assignment() {
+		use bevy::ecs::system::RunSystemOnce;
+		use maybraid_controllers_core::{ActorTarget, InputRouter};
+		use maybraid_input::{PadGameplayEnabled, VirtualPadConfig};
+
+		use crate::OrdinaryLocomotionEnabled;
+
+		fn write(
+			pad: Res<VirtualPad>,
+			config: Res<VirtualPadConfig>,
+			time: Res<Time>,
+			gameplay: Res<PadGameplayEnabled>,
+			ordinary: Res<OrdinaryLocomotionEnabled>,
+			router: Res<InputRouter>,
+			intents: MessageWriter<CharacterIntent>,
+		) {
+			super::produce_character_intents(
+				pad, config, time, gameplay, None, ordinary, router, intents,
+			);
+		}
+
+		let mut world = World::new();
+		world.init_resource::<VirtualPad>();
+		world.init_resource::<VirtualPadConfig>();
+		world.init_resource::<Time>();
+		world.init_resource::<PadGameplayEnabled>();
+		world.init_resource::<OrdinaryLocomotionEnabled>();
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<CharacterIntent>>();
+		world.resource_mut::<VirtualPad>().begin_frame();
+		world.resource_mut::<VirtualPad>().add_move(Vec2::X);
+		world.resource_mut::<VirtualPad>().finish_digital();
+
+		world.run_system_once(write).expect("unassigned");
+		assert!(world.resource_mut::<Messages<CharacterIntent>>().drain().next().is_none());
+
+		world
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(Entity::from_bits(1)));
+		world.run_system_once(write).expect("assigned");
+		assert!(world
+			.resource_mut::<Messages<CharacterIntent>>()
+			.drain()
+			.any(|intent| matches!(intent, CharacterIntent::Move(_))));
 	}
 }

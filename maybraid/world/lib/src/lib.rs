@@ -129,9 +129,7 @@ use firearms::EnergyMaterialPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
-use maybraid_character_controller::{
-	CharacterControlSystems, CharacterControllerPlugin, MotorRequestStage,
-};
+use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;
@@ -141,7 +139,8 @@ use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
 use maybraid_world_controller::WorldControllerPlugin;
 use player::{
-	register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin, PlayerSystems,
+	register_motor_traction_physics, MotorRequestStage, PlayerPlugin, PlayerPresentationPlugin,
+	PlayerSystems,
 };
 use player_camera::{PlayerCameraPlugin, PlayerCameraSystems};
 use world_player::{
@@ -281,6 +280,7 @@ impl Plugin for WorldPlugin {
 		} else {
 			app.init_resource::<TextEntryFocus>();
 		}
+		MotorRequestStage::configure(app);
 		app.add_systems(Startup, vsync::apply_startup_vsync).add_systems(
 			Update,
 			(

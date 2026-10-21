@@ -2,14 +2,15 @@
 
 pub mod standard;
 
-pub use maybraid_controllers_core::{ActorTarget, LocalActor};
+pub use maybraid_controllers_core::{ActorTarget, InputRouter};
 pub use standard::interpret_standard_locomotion;
 
 use bevy::prelude::*;
 use maybraid_character_controller::CharacterIntent;
-use maybraid_controllers_core::{ControllersCorePlugin, MotorRequestStage};
+use maybraid_controllers_core::ControllersCorePlugin;
+use player::MotorRequestStage;
 
-/// Writes the Standard motor slot for the local player.
+/// Writes the Standard motor slot for the routed local actor.
 pub struct LocomotionControllerPlugin;
 
 impl Plugin for LocomotionControllerPlugin {
@@ -17,6 +18,7 @@ impl Plugin for LocomotionControllerPlugin {
 		if !app.is_plugin_added::<ControllersCorePlugin>() {
 			app.add_plugins(ControllersCorePlugin);
 		}
+		MotorRequestStage::configure(app);
 		app.init_resource::<ButtonInput<MouseButton>>()
 			.add_message::<CharacterIntent>()
 			.add_systems(Update, interpret_standard_locomotion.in_set(MotorRequestStage::Standard));
@@ -27,39 +29,52 @@ impl Plugin for LocomotionControllerPlugin {
 mod tests {
 	use super::*;
 	use maybraid_character_controller::CharacterIntent;
-	use maybraid_controllers_core::ControllerPipeline;
+	use maybraid_controllers_core::{ActorTarget, ControllerPipeline, InputRouter, InputSource};
 	use player::{
-		apply_motor, CharacterController, MotorIntent, MoveWish, Player, PlayerLook, Sprinting,
+		apply_motor, compose_motor, CharacterController, MotorIntent, MotorSelection, MoveWish,
+		Player, PlayerLook, ResolvedMotorRequest, Sprinting,
 	};
+
+	fn assign_local(app: &mut App, entity: Entity) {
+		app.world_mut()
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
+	}
 
 	fn motor_app() -> App {
 		let mut app = App::new();
 		ControllerPipeline::configure(&mut app);
+		MotorRequestStage::configure(&mut app);
 		app.init_resource::<ButtonInput<MouseButton>>()
+			.init_resource::<InputRouter>()
 			.add_message::<CharacterIntent>()
 			.add_systems(
 				Update,
 				(
 					interpret_standard_locomotion.in_set(MotorRequestStage::Standard),
-					apply_motor.in_set(ControllerPipeline::Motor),
+					compose_motor.in_set(ControllerPipeline::Motor),
+					apply_motor.in_set(ControllerPipeline::Motor).after(compose_motor),
 				),
 			);
 		app
 	}
 
+	fn motor_bundle() -> impl Bundle {
+		(
+			CharacterController,
+			Player,
+			MoveWish::default(),
+			MotorIntent::default(),
+			MotorSelection::default(),
+			ResolvedMotorRequest::default(),
+			PlayerLook::default(),
+		)
+	}
+
 	#[test]
 	fn produce_to_apply_writes_one_actor_wish() -> anyhow::Result<()> {
 		let mut app = motor_app();
-		let player = app
-			.world_mut()
-			.spawn((
-				CharacterController,
-				Player,
-				MoveWish::default(),
-				MotorIntent::default(),
-				PlayerLook::default(),
-			))
-			.id();
+		let player = app.world_mut().spawn(motor_bundle()).id();
 		let other = app
 			.world_mut()
 			.spawn((
@@ -67,10 +82,12 @@ mod tests {
 				Player,
 				MoveWish(Vec3::X),
 				MotorIntent::default(),
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
 				PlayerLook::default(),
 			))
 			.id();
-		app.world_mut().insert_resource(LocalActor::new(player));
+		assign_local(&mut app, player);
 		app.world_mut().write_message(CharacterIntent::Move(Vec2::Y));
 		app.update();
 		assert_eq!(app.world().get::<MoveWish>(player).map(|wish| wish.0), Some(-Vec3::Z));
@@ -78,12 +95,12 @@ mod tests {
 			app.world()
 				.get::<MotorIntent>(other)
 				.is_some_and(|intent| intent.standard().is_none()),
-			"pad locomotion addresses one ActorTarget"
+			"pad locomotion addresses InputRouter::local_actor"
 		);
 		assert_eq!(
 			app.world().get::<MoveWish>(other).map(|wish| wish.0),
 			Some(Vec3::ZERO),
-			"untargeted actor releases to idle instead of keeping a stale wish"
+			"unassigned actor releases to idle instead of keeping a stale wish"
 		);
 		Ok(())
 	}
@@ -91,18 +108,8 @@ mod tests {
 	#[test]
 	fn release_semantics_drop_sprint_when_focus_is_held() -> anyhow::Result<()> {
 		let mut app = motor_app();
-		let player = app
-			.world_mut()
-			.spawn((
-				CharacterController,
-				Player,
-				MoveWish::default(),
-				MotorIntent::default(),
-				PlayerLook::default(),
-				Sprinting,
-			))
-			.id();
-		app.world_mut().insert_resource(LocalActor::new(player));
+		let player = app.world_mut().spawn((motor_bundle(), Sprinting)).id();
+		assign_local(&mut app, player);
 		app.world_mut().write_message(CharacterIntent::Focus(1.0));
 		app.world_mut().write_message(CharacterIntent::StartSprint);
 		app.update();
@@ -123,6 +130,7 @@ mod tests {
 
 		let mut app = App::new();
 		ControllerPipeline::configure(&mut app);
+		MotorRequestStage::configure(&mut app);
 		app.init_resource::<StageOrder>().add_systems(
 			Update,
 			(

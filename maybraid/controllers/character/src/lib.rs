@@ -4,7 +4,7 @@ pub mod intent;
 pub mod produce;
 
 pub use intent::{CharacterIntent, InventoryCyclingCategory};
-pub use maybraid_controllers_core::{ControllerPipeline, MotorRequestStage};
+pub use maybraid_controllers_core::{ControllerPipeline, InputRouter};
 
 use bevy::prelude::*;
 use maybraid_controllers_core::ControllersCorePlugin;

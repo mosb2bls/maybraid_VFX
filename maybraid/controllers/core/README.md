@@ -1,14 +1,22 @@
 # Controllers core
 
-Source, actor, and UI routing plus a nested capture stack. This crate depends
-only on [`maybraid-input`](../../input/README.md) and Bevy.
+Sole [`InputRouter`](src/router.rs) for source → actor / UI assignment, plus
+token-scoped capture and suspension. This crate depends only on
+[`maybraid-input`](../../input/README.md) and Bevy.
 
 ```text
-InputSource ──► RouteTarget::Ui(UiTarget)      ──► menu consumers
-            └──► RouteTarget::Actor(ActorTarget) ──► locomotion (`LocalActor`)
-CaptureStack owns the UI claim for a source. Nested layers release independently.
+InputSource ──► InputRouter assignment
+            ├──► RouteTarget::Ui(UiTarget)      ──► menu consumers
+            └──► RouteTarget::Actor(ActorTarget) ──► character / motor
+Capture / suspension tokens are owner-scoped. Releasing one owner cannot
+release another. Assignment loss clears delivery.
 ```
 
-Schedule contract: [`ControllerPipeline`] / [`MotorRequestStage`]. Plugin install
-order is not the contract. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the
-role inventory and temporary adapters.
+Controllers read the router; they never rediscover a "current player". The
+lowest-ID Player fallback is resolved once at the host assignment boundary
+([`InputRouter::assign_lowest_id_actor`](src/router.rs)).
+
+Schedule contract: generic [`ControllerPipeline`](src/schedule.rs) stages.
+Domain ordering lives beside domain systems. Plugin install order is not the
+contract. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the role inventory
+and temporary adapters.

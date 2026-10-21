@@ -240,6 +240,10 @@ pub fn apply_character_controller(commands: &mut Commands, body: Entity, hull: L
 		Restitution::ZERO.with_combine_rule(CoefficientCombine::Min),
 		GravityScale(1.25),
 	));
+	commands.entity(body).insert((
+		crate::motor::MotorSelection::default(),
+		crate::motor::ResolvedMotorRequest::default(),
+	));
 	commands.entity(body).insert(crate::contact::motor_traction_bundle());
 	// Respawn / re-stamp must not reset a live squat or prone.
 	commands

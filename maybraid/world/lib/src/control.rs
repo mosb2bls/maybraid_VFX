@@ -169,7 +169,7 @@ pub(crate) fn apply_world_motor_filter(
 		wish.0 = Vec3::ZERO;
 	}
 	for mut intent in &mut motors {
-		intent.set_suppress(true);
+		intent.suppress(player::MotorSuppressionToken::WORLD_GAMEPLAY);
 	}
 }
 
@@ -300,6 +300,9 @@ pub(crate) fn strip_world_player_motor(commands: &mut Commands, body: Entity) {
 		player::Grounded,
 		Buoyant,
 		Wading,
+		player::MotorIntent,
+		player::MotorSelection,
+		player::ResolvedMotorRequest,
 	)>();
 }
 
@@ -362,13 +365,15 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(world.get::<MoveWish>(vegetation).map(|wish| wish.0), Some(Vec3::X));
 		assert_eq!(world.get::<PlayerMoveWish>(body).map(|wish| wish.0), Some(Vec3::X));
-		assert!(!world.get::<MotorIntent>(body).is_some_and(MotorIntent::suppress));
+		assert!(!world.get::<MotorIntent>(body).is_some_and(MotorIntent::suppressed));
 		Ok(())
 	}
 
 	#[test]
 	fn paused_gameplay_suppresses_the_player_and_zeros_vegetation() -> anyhow::Result<()> {
-		use player::{apply_motor, MotorSample, Npc};
+		use player::{
+			apply_motor, compose_motor, MotorSample, MotorSelection, Npc, ResolvedMotorRequest,
+		};
 
 		let mut world = World::new();
 		world.insert_resource(PlaygroundMode::Character);
@@ -378,24 +383,41 @@ mod tests {
 		let mut player_intent = MotorIntent::default();
 		player_intent.set_standard(MotorSample::translation(Vec3::X));
 		let player = world
-			.spawn((CharacterController, MaybraidPlayer, PlayerMoveWish(Vec3::X), player_intent))
+			.spawn((
+				CharacterController,
+				MaybraidPlayer,
+				PlayerMoveWish(Vec3::X),
+				player_intent,
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
+			))
 			.id();
 		let mut npc_intent = MotorIntent::default();
 		npc_intent.set_npc(MotorSample::translation(Vec3::Z));
 		let npc = world
-			.spawn((Npc, CharacterController, PlayerMoveWish(Vec3::Z), npc_intent))
+			.spawn((
+				Npc,
+				CharacterController,
+				PlayerMoveWish(Vec3::Z),
+				npc_intent,
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
+			))
 			.id();
 		world
 			.run_system_once(apply_world_motor_filter)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(compose_motor)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		world
 			.run_system_once(apply_motor)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(world.get::<MoveWish>(vegetation).map(|wish| wish.0), Some(Vec3::ZERO));
 		assert_eq!(world.get::<PlayerMoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
-		assert!(world.get::<MotorIntent>(player).is_some_and(MotorIntent::suppress));
+		assert!(world.get::<MotorIntent>(player).is_some_and(MotorIntent::suppressed));
 		assert_eq!(world.get::<PlayerMoveWish>(npc).map(|wish| wish.0), Some(Vec3::Z));
-		assert!(!world.get::<MotorIntent>(npc).is_some_and(MotorIntent::suppress));
+		assert!(!world.get::<MotorIntent>(npc).is_some_and(MotorIntent::suppressed));
 		Ok(())
 	}
 
