@@ -1,10 +1,12 @@
 # Composable controllers
 
 Tracking: [#1436](https://github.com/ramate-io/maybraid/issues/1436).
-This document is the stacked phase 1–3 contract
+This document is the stacked phase 1–5 contract
 ([#1437](https://github.com/ramate-io/maybraid/issues/1437),
 [#1438](https://github.com/ramate-io/maybraid/issues/1438),
-[#1439](https://github.com/ramate-io/maybraid/issues/1439)). Later phases
+[#1439](https://github.com/ramate-io/maybraid/issues/1439),
+[#1440](https://github.com/ramate-io/maybraid/issues/1440),
+[#1441](https://github.com/ramate-io/maybraid/issues/1441)). Later phases
 stack on it; they should update symbol mappings when they move a writer, not
 invent a second inventory.
 
@@ -49,8 +51,13 @@ realizes ordinary locomotion (B11), the movement-specific motor contract
 scoped WorldFilter suppression. Phase 3 realizes Tanz mode switch +
 recognition on the single routed actor sample, `ExecuteTanz` selection,
 and actor/session-addressed `SkillMapFlick` with source/actor ownership
-and `RoutingEvent` cancel / freeze. Character produce is still a
-broadcast adapter; camera / item / shell chains stay for later phases.
+and `RoutingEvent` cancel / freeze. Phase 4 realizes session capabilities
+and pause tokens. Phase 5 addresses UseItem / PowerUseItem through
+[`dispatch_equipped_item`](character/src/dispatch.rs) (D1), stamps
+[`EquippedItemHandler`](character/src/dispatch.rs) at inventory / holster
+commit, and hands recoil through [`CameraRecoilHandoff`](../player-camera/src/look.rs).
+Character produce is still a broadcast adapter for look / shell / queue
+intents; item interpreters consume D1, not the pad.
 
 ## Dependency direction
 
@@ -154,8 +161,8 @@ the current owner. Later phases change the owner column, not the role id.
 | B2 | Focus | `CharacterIntent::Focus` | A5 | C2; also drops sprint in `interpret_standard_locomotion` | character crate | Broadcast. |
 | B3 | Ads | `CharacterIntent::Ads` | A5 | C3 | character crate | Broadcast. |
 | B4 | Swap POV | `CharacterIntent::SwapPov` | A5 | C4 | character crate | Broadcast. |
-| B5 | Use item | `CharacterIntent::UseItem` | A5 | D1 / D2 / D3 | character crate | Broadcast. Firearm-user also re-reads the pad (D2). |
-| B6 | Power-use item | `CharacterIntent::PowerUseItem` | A5 | D7 `world_lubikan` | character crate | Broadcast. |
+| B5 | Use item | `CharacterIntent::UseItem` | A5 | D1 `dispatch_equipped_item` | character crate | **Phase 5.** Broadcast Bind sample. D1 is the only interpreter. |
+| B6 | Power-use item | `CharacterIntent::PowerUseItem` | A5 | D1 → `EquippedPowerUse` | character crate | **Phase 5.** Broadcast Bind sample. D7 reads the addressed message. |
 | B7 | Equipped queue | `SwapActive`, `CycleEquippedQueue`, `SelectInventoryCyclingCategory` | A5 | D5 / D6 | character crate | Broadcast. |
 | B8 | In-game menu | `CharacterIntent::InGameMenu` | A5 | E1 `toggle_world_pause` | character crate | Broadcast. |
 | B9 | Inventory | `CharacterIntent::Inventory` | A5 | E2 `stash.rs` | character crate | Broadcast. |
@@ -168,23 +175,23 @@ the current owner. Later phases change the owner column, not the role id.
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
-| C1 | Look | `player_camera::look::apply_look_intents` (`Look`) | B1 | `CameraController` yaw / pitch | `player-camera` | Query-wide `FollowCamera`. Phase 5. |
-| C2 | Focus | same system (`Focus` + RMB) | B2 | `CameraController.focus` | `player-camera` | Phase 5. |
-| C3 | Ads | same system (`Ads` + MMB) | B3 | `CameraController.ads` | `player-camera` | Phase 5. |
-| C4 | Swap POV | same system (`SwapPov`) | B4 | `CameraController::toggle` | `player-camera` | Gated by `CameraPovLocked`. Phase 5. |
-| C5 | Recoil | `firearm_user::fire::{queue,advance}_weapon_recoil` | `WeaponFired` + live pad / look | `PlayerLook`, `CameraController` | firearm-user | Not a `WeaponFired`-only handoff yet. Phase 5. |
+| C1 | Look | `player_camera::look::apply_look_intents` (`Look`) | B1 | `CameraController` yaw / pitch | `player-camera` | **Phase 5.** Follow camera; gated on `InputRouter::delivered_actor`. |
+| C2 | Focus | same system (`Focus`) | B2 | `CameraController.focus` | `player-camera` | **Phase 5.** Intent only — no parallel mouse read. |
+| C3 | Ads | same system (`Ads`) | B3 | `CameraController.ads` | `player-camera` | **Phase 5.** Intent only — no parallel mouse read. |
+| C4 | Swap POV | same system (`SwapPov`) | B4 | `CameraController::toggle` | `player-camera` | Gated by `CameraPovLocked`. **Phase 5.** |
+| C5 | Recoil | `CameraRecoilHandoff` via `apply_recoil_handoff` | D4 `WeaponFired` | `CameraController` follow yaw / pitch + shooter `PlayerLook` | camera is the only follow-yaw writer | **Phase 5.** Denied / zero-recoil shots write nothing. |
 
 ### D — item interpreter
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
-| D1 | Equipped-item dispatch | (missing) intended owner of B5 / B6 | A5 | D2 / D3 / D7 | none — each user reads the pad or the broadcast | Phase 5. |
-| D2 | Firearm trigger | `firearm_user::fire::apply_fire_intents` | `VirtualPad` + `MouseButton::Left` | `WeaponTrigger` on held gun | firearm-user | Direct pad read. Phase 5. |
-| D3 | Grenade throw | `grenade_user::throw` | B5 `UseItem` broadcast | grenade spawn / fuse | grenade-user | Query-wide. Phase 5. |
-| D4 | Recoil handoff | `queue_weapon_recoil` | `WeaponFired` | C5 | firearm-user | Coupled to C5. Phase 5. |
-| D5 | Inventory category | `apply_inventory_category_selection` | B7 `SelectInventoryCyclingCategory` | `ActiveInventoryCyclingCategory` | `world/lib` `inventory_cycling.rs` | One writer. Keep. |
-| D6 | Queue cycle / swap | `cycle_equipped_inventory_queues`, `world/lib/src/weapon.rs` | B7 `SwapActive` / `CycleEquippedQueue` | loadout + `WeaponSwap` | two writers today | Phase 5: one category owner + timed commit. |
-| D7 | Lubikan activation | `world_lubikan` PowerUseItem reader | B6 | `LubikanActivationRequest` | world | Broadcast. Phase 5. |
+| D1 | Equipped-item dispatch | `dispatch_equipped_item` → `EquippedItemUse` / `EquippedPowerUse` | A5 Bind + `EquippedItemHandler` | D2 / D3 / D7 | character crate | **Phase 5.** Writes only for `delivered_actor`. Absence is not a release. |
+| D2 | Firearm trigger | `firearm_user::fire::apply_fire_intents` | D1 firearm + held | `WeaponTrigger` on held gun | firearm-user | **Phase 5.** `With<Player>` + addressed use. NPCs keep intelligence `WeaponTrigger`. |
+| D3 | Grenade throw | `grenade_user::throw::apply_throw_intents` | D1 grenade | cook / latch | grenade-user | **Phase 5.** Missing delivery freezes; `take_live_cook` owns swap / death drop. |
+| D4 | Recoil handoff | `queue_weapon_recoil` → `advance_weapon_recoil` | `WeaponFired` | C5 `CameraRecoilHandoff` | firearm-user | **Phase 5.** Camera applies; firearm-user does not write look / camera. |
+| D5 | Inventory category | `apply_inventory_category_selection` | B7 `SelectInventoryCyclingCategory` | per-actor `InventoryCycling`; HUD `ActiveInventoryCyclingCategory` | `world/lib` `inventory_cycling.rs` | **Phase 5.** Actor component is the owner; resource is a mirror. |
+| D6 | Queue cycle / swap | `cycle_equipped_inventory_queues` / `begin_weapon_swap` + `commit_weapon_swap` | B7 + `InventoryCycling` | skill-map / Lubikan cycle, or `WeaponSwap` holster commit | one category owner | **Phase 5.** Weapons commit the handler at the holster midpoint. |
+| D7 | Lubikan activation | `world_lubikan::request_lubikan_activation` | D1 `EquippedPowerUse` | `LubikanActivationRequest::equipped(owner)` | world | **Phase 5.** Spends once; refusal keeps charge. |
 | D8 | Interaction / stash | `stash.rs` `StartInteraction` | `CharacterIntent::StartInteraction` | stash / crate loot | world | Broadcast. |
 | D9 | Item presentation | `PlayerPoseSystems::Item` / `WeaponSwap` | D6, Tanz pose | held meshes | player presentation | Not a controller. Listed so D6 does not own pose. |
 
@@ -246,8 +253,12 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | mode flip | `TanzUser::apply_toggle` / `set_mode` | `items/tanz-user/src/lib.rs` | bumper chord / agent | Clears execution only. Contributor loss releases stale sprint / jump / cap. |
 | vegetation `MoveWish` / `MovementAction` | `keyboard_movement_input` | `world/player/src/player.rs` | `PadMovementEnabled` (false in Discovery) | Playground host only. Discovery duplicate removed. |
 | velocity | `apply_character_movement` | `world/player/src/player.rs` | `VegetationPlayerMotor` (false in Discovery) | Playground host motor. |
-| `CameraController` look / POV | `apply_look_intents` | `player-camera/src/look.rs` | `CameraLookSuppressed`, `CameraPovLocked` | C1–C4. Phase 5. |
-| `WeaponTrigger` | `apply_fire_intents` | `items/firearm-user/src/fire.rs` | `Player` + `FirearmUser` | D2. Phase 5. |
+| `CameraController` look / POV | `apply_look_intents` | `player-camera/src/look.rs` | `CameraLookSuppressed`, `CameraPovLocked`, `delivered_actor` | C1–C4. **Phase 5.** |
+| Follow camera recoil yaw / pitch | `apply_recoil_handoff` | `player-camera/src/look.rs` | `CameraRecoilHandoff` from `WeaponFired` | C5. **Phase 5.** Sole follow-yaw recoil writer. |
+| `EquippedItemHandler` | `hold_primary_weapon` / `commit_weapon_swap` | `world/lib/src/weapon.rs` | inventory primary at arm / holster commit | D1 stamp. **Phase 5.** |
+| `EquippedItemUse` / `EquippedPowerUse` | `dispatch_equipped_item` | `controllers/character/src/dispatch.rs` | `delivered_actor` + handler | D1. **Phase 5.** Sole Bind writer. |
+| `WeaponTrigger` (player) | `apply_fire_intents` | `items/firearm-user/src/fire.rs` | `Player` + addressed firearm use | D2. **Phase 5.** |
+| `WeaponTrigger` (NPC) | `intelligence::combat::firearm` | `intelligence/combat/firearm/src/combat.rs` | planner cadence | A6 item path. Keep. |
 | `WorldGameplayEnabled` | `toggle_world_pause`, flow enter | `game/src/lib.rs`, world control | pause / shell | E1 / E4. Phase 4. |
 
 ## Direct hardware reads (outside `input`)
@@ -261,7 +272,7 @@ phase. Phase 1 inventories them and migrates menu dispatch only.
 | `controllers/menu/src/dispatch.rs` | `MenuNavPad` (derived, not raw HID) | A2 surface | keep |
 | `items/tanz-user` | — | `RoutedActorControl` (A5 / U2) | **Phase 3 migrated** |
 | `skill-map/src/controller.rs` / `cursor.rs` | — | `RoutedActorControl` + addressed `SkillMapFlick` | **Phase 3 migrated** |
-| `items/firearm-user/src/fire.rs` | `VirtualPad` + `MouseButton` | D1 / B5 | 5 |
+| `items/firearm-user/src/fire.rs` | — | D1 `EquippedItemUse` | **Phase 5 migrated** |
 | `game/src/lib.rs` `toggle_world_pause` | `VirtualPad` (A vs Start) | B8 | 4 |
 | `world/lib/src/player_lifecycle.rs` `drive_respawn_picker` | `VirtualPad` stick / D-pad | shell | 5 |
 | `world/lib/src/camera.rs` `fly_world_camera` | `VirtualPad` | playground free-fly | keep (host debug) |
@@ -283,9 +294,9 @@ applies the last sample to **every** matching entity.
 | `CharacterIntent` (B1–B11) | `MessageWriter` / `MessageReader`, no actor | adapter | 3–5 per consumer. B11 consumes via `InputRouter::local_actor`. |
 | `apply_move_intents` | removed | **Phase 2** | locomotion + compose / apply |
 | `apply_intents_to_movement` | removed live writes | **Phase 2** | `apply_world_motor_filter` suppress |
-| `apply_look_intents` | broadcast → every `FollowCamera` | adapter | 5 |
-| `apply_fire_intents` | pad → every `FirearmUser` with `Player` | adapter | 5 |
-| `grenade_user::throw` | broadcast `UseItem` | adapter | 5 |
+| `apply_look_intents` | broadcast B1–B4; gated on `delivered_actor` | **Phase 5 gated** | remaining: addressed look sample |
+| `apply_fire_intents` | D1 → one `Player` `FirearmUser` | **Phase 5 migrated** | — |
+| `grenade_user::throw` | D1 grenade; missing use freezes | **Phase 5 migrated** | — |
 | `SkillMapFlick` | actor/session-addressed | **Phase 3 migrated** | — |
 | `TanzInput` | produced from `RoutedActorControl` for one actor | **Phase 3 migrated** | — |
 | `drive_movement` | each NPC declares its own `MotorIntent` (OK) from a planner | **Phase 2** | keep |
@@ -296,8 +307,8 @@ Do not add a second copy of these. Remove in the named phase.
 
 | Adapter | Why it exists | Removal |
 |---|---|---|
-| Broadcast `CharacterIntent` | Consumers are not actor-addressed yet. A5 binds only when `InputRouter` has an actor, then still writes a process-wide message. | Phases 3–5 as each consumer takes `Routed` / `ActorTarget`. B11 already reads the router. |
-| `CharacterControlSystems` ⊂ `Bind` | Leftover `.after(CharacterControlSystems)` item / camera / shell hosts. Motor hosts joined the pipeline. | Phases 3–5. |
+| Broadcast `CharacterIntent` | Look / shell / queue consumers still read the process-wide message. UseItem / PowerUseItem now go through D1. | Remaining look / shell / queue consumers. |
+| `CharacterControlSystems` ⊂ `Bind` | Leftover `.after(CharacterControlSystems)` item / camera / shell hosts. Motor hosts joined the pipeline. | Remaining hosts; Bind alias only. |
 | Domain `MotorRequestStage` lives in player | Generic core must not name Tanz / Standard / WorldFilter. | Keep beside domain systems. |
 | `PlayerSystems::Body` outside P4 | **Removed.** Body is in `ControllerPipeline::Motor`. Intent stays for item users (D*). | — |
 | World adapter live `player::MoveWish` write | **Removed.** WorldFilter declares token-owned suppress only. | — |
@@ -359,6 +370,96 @@ later PRs do not drift.
 8. Gesture fan-out: an unmatched Tanz still drives the map.
 9. Lifecycle cleanup.
 10. Same-frame behavior for pause and capture.
+
+## Phase 5 — items, camera, Lubikan
+
+Tracking: [#1441](https://github.com/ramate-io/maybraid/issues/1441). Stack tip of
+[#1436](https://github.com/ramate-io/maybraid/issues/1436).
+
+### Item / camera flow
+
+```text
+VirtualPad → produce_character_intents → CharacterIntent (Bind broadcast)
+InputRouter::delivered_actor + EquippedItemHandler
+       → dispatch_equipped_item
+            → EquippedItemUse(actor, handler, squeeze, held)
+                 → apply_fire_intents      (firearm + held → WeaponTrigger)
+                 → apply_throw_intents     (grenade; missing use freezes)
+            → EquippedPowerUse(actor)
+                 → LubikanActivationRequest::equipped(owner)
+InventoryCycling (per-actor) ← SelectInventoryCyclingCategory
+       → HUD ActiveInventoryCyclingCategory (mirror)
+       → cycle_equipped_inventory_queues | begin_weapon_swap
+            → commit_weapon_swap stamps EquippedItemHandler
+WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_handoff
+```
+
+### Crate layout
+
+| Crate | Phase 5 types / systems |
+|---|---|
+| `controllers/character` | `EquippedItemHandler`, `EquippedItemUse`, `EquippedPowerUse`, `dispatch_equipped_item`, `InventoryCycling` |
+| `player-camera` | `CameraRecoilHandoff`, `apply_recoil_handoff`; look gated on delivery |
+| `firearm-user` | `apply_fire_intents` reads D1; recoil writes the handoff only |
+| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,take_live_cook}` |
+| `world` | category owner + holster commit; `request_lubikan_activation` |
+| `intelligence/combat/firearm` | unchanged NPC `WeaponTrigger` writer |
+
+### Controller I/O
+
+| In | Out | Owner |
+|---|---|---|
+| `CharacterIntent::UseItem` / `PowerUseItem` | `EquippedItemUse` / `EquippedPowerUse` | D1 Bind |
+| `EquippedItemUse` firearm + held | `WeaponTrigger` | D2 |
+| `EquippedItemUse` grenade | cook / latch / explicit release | D3 |
+| `WeaponFired` | `CameraRecoilHandoff` | D4 → C5 |
+| `EquippedPowerUse` | `LubikanActivationRequest::equipped` | D7 |
+| `SelectInventoryCyclingCategory` | `InventoryCycling` + HUD mirror | D5 |
+| `SwapActive` / `CycleEquippedQueue` | skill-map / Lubikan cycle, or `WeaponSwap` | D6 |
+
+### Removed legacy paths
+
+- `firearm-user` no longer reads `VirtualPad` or `MouseButton`.
+- `grenade-user` no longer treats a missing `UseItem` broadcast as release.
+- `world_lubikan` no longer reads `CharacterIntent::PowerUseItem`.
+- Recoil no longer writes `CameraController` / `PlayerLook` from firearm-user.
+- Camera focus / ADS no longer OR in a parallel mouse read.
+
+### Tests
+
+Unit: `dispatch.rs`, `fire.rs`, `throw.rs` (`missing_use_does_not_release_a_live_cook`),
+`inventory_cycling.rs`, `weapon.rs`, `world_lubikan.rs`, `look.rs`.
+
+Stack tip (`world/lib/src/controller_stack.rs`) adds the production plugins
+(`CharacterControllerPlugin`, `WorldControllerPlugin`, `LubikansPlugin`)
+plus `inventory_cycling::configure` / `world_lubikan::configure`, registers
+`apply_fire_intents` / `apply_throw_intents` in `PlayerSystems::Intent` (the
+same set the item plugins use), and steps `app.update()`. Full
+`FirearmUserPlugin` / `GrenadeUserPlugin` / `PlayerCameraPlugin` need render
+and audio hosts, so the stack tip does not add those GPU plugins:
+
+- two delivered actors; two item modes
+- grenade handler does not squeeze a firearm
+- denied shot = no `WeaponFired` / no recoil
+- capture / reassignment / disconnect freeze a live cook
+- category then cycle in one frame
+- Lubikan spends once, then refuses
+- nested captures release independently
+- same-frame pause blocks queue cycle
+- loading → play → inventory pause → resume → Home
+- NPC `FirearmUser` does not consume player D1
+
+### Remaining limitations
+
+- `CharacterIntent` is still a Bind broadcast for look, shell, and queue
+  intents (B1–B4, B7–B10).
+- `CharacterControlSystems` remains a Bind alias for leftover
+  `.after(CharacterControlSystems)` hosts.
+- `apply_look_intents` is still query-wide `FollowCamera` (delivery-gated).
+- Shell HID leftovers: `player_lifecycle` respawn picker `VirtualPad`,
+  `stash` `Gamepad` presence, `game::toggle_world_pause` Start / A.
+- Full `WorldPlugin` is not headless-safe; stack tests use the controller +
+  item plugins, not terrain / vegetation assemble.
 
 ## Review baselines
 

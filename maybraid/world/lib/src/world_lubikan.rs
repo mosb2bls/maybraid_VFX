@@ -6,7 +6,7 @@ use lubikans::{
 	LubikanActivationRequest, LubikanHealingEnabled, LubikanOwner, LubikanSystems, LubikansPlugin,
 };
 use lubikans_damage::LubikanDamagePlugin;
-use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
+use maybraid_character_controller::{CharacterControlSystems, EquippedPowerUse};
 use maybraid_world_controller::SessionCapabilitySystems;
 use world_player::Player;
 
@@ -20,7 +20,7 @@ use crate::map_view::WorldMapView;
 /// Owns:
 /// - Owner binding: establishes player identity and LubikanOwner marker
 /// - Session forwarding: emits LubikanOwnerLifetime on session teardown
-/// - Activation routing: maps PowerUseItem intent to LubikanActivationRequest
+/// - Activation routing: maps addressed [`EquippedPowerUse`] to [`LubikanActivationRequest`]
 /// - Healing sync: gates healing with WorldGameplayEnabled
 ///
 /// Player identity (generic player::Player marker and LubikanOwner) is established
@@ -42,7 +42,8 @@ pub struct WorldLubikanPlugin;
 
 impl Plugin for WorldLubikanPlugin {
 	fn build(&self, app: &mut App) {
-		app.add_plugins((LubikansPlugin, LubikanDamagePlugin));
+		app.add_plugins((LubikansPlugin, LubikanDamagePlugin))
+			.add_message::<EquippedPowerUse>();
 
 		app.add_systems(
 			PreUpdate,
@@ -82,7 +83,7 @@ fn sync_lubikan_healing_enabled(
 /// Configure world lubikan routing systems for headless tests.
 /// Registers activation routing and healing sync, matching the old lubikan_activate.rs behavior.
 pub fn configure(app: &mut App) {
-	app.add_systems(
+	app.add_message::<EquippedPowerUse>().add_systems(
 		Update,
 		(
 			sync_lubikan_healing_enabled.before(LubikanSystems::Activate),
@@ -93,24 +94,23 @@ pub fn configure(app: &mut App) {
 	);
 }
 
-/// Route PowerUseItem intent to equipped Lubikan activation.
+/// Route addressed PowerUseItem to equipped Lubikan activation.
 fn request_lubikan_activation(
 	gameplay: Res<WorldGameplayEnabled>,
 	text_focus: Res<TextEntryFocus>,
 	map: Option<Res<WorldMapView>>,
-	mut intents: MessageReader<CharacterIntent>,
+	mut uses: MessageReader<EquippedPowerUse>,
 	mut requests: MessageWriter<LubikanActivationRequest>,
 	owners: Query<Entity, (With<Player>, With<LubikanOwner>)>,
 ) {
 	if !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open)) {
-		for _ in intents.read() {}
+		for _ in uses.read() {}
 		return;
 	}
-	if !intents.read().any(|intent| matches!(intent, CharacterIntent::PowerUseItem)) {
-		return;
-	}
-	for owner in &owners {
-		requests.write(LubikanActivationRequest::equipped(owner));
+	for use_item in uses.read() {
+		if owners.contains(use_item.actor().entity()) {
+			requests.write(LubikanActivationRequest::equipped(use_item.actor().entity()));
+		}
 	}
 }
 
@@ -123,13 +123,15 @@ mod tests {
 
 	#[test]
 	fn power_use_item_requests_equipped_activation() -> anyhow::Result<()> {
+		use maybraid_character_controller::ActorTarget;
+
 		let mut world = World::new();
-		world.init_resource::<Messages<CharacterIntent>>();
+		world.init_resource::<Messages<EquippedPowerUse>>();
 		world.init_resource::<Messages<LubikanActivationRequest>>();
 		world.insert_resource(TextEntryFocus(false));
 		world.insert_resource(WorldGameplayEnabled(true));
 		let owner = world.spawn((Player, LubikanOwner)).id();
-		world.write_message(CharacterIntent::PowerUseItem);
+		world.write_message(EquippedPowerUse::new(ActorTarget::new(owner)));
 		world
 			.run_system_once(request_lubikan_activation)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

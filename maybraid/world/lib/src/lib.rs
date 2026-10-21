@@ -373,6 +373,9 @@ fn spawn_default_braidman(mut commands: Commands) {
 }
 
 #[cfg(test)]
+mod controller_stack;
+
+#[cfg(test)]
 mod tests {
 	use super::*;
 	use player::PlayerSystems;

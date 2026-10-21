@@ -12,7 +12,7 @@ use grenades::{
 	GrenadeSounds,
 };
 use maybraid_audio::{Audio, AudioClip, Mixer};
-use maybraid_character_controller::CharacterIntent;
+use maybraid_character_controller::EquippedItemUse;
 use player::{look_forward, PlayerLook};
 
 use crate::hold::HeldGrenade;
@@ -63,6 +63,32 @@ impl GrenadeThrow {
 			GrenadePhase::Ready | GrenadePhase::Recovery { .. } => None,
 		}
 	}
+
+	/// Update the latch from a delivered use. Missing delivery must not call this.
+	pub fn apply_use(&mut self, held: bool) {
+		if !held {
+			self.use_latched = false;
+		}
+	}
+
+	/// Start a cook when the addressed use is held and the primary is ready.
+	pub fn try_start_cook(&mut self, ready: bool, swapping: bool, fuse: f32) -> bool {
+		if swapping || self.busy() || self.use_latched || !ready {
+			return false;
+		}
+		self.phase = GrenadePhase::Cooking { age: 0.0 };
+		self.fuse = fuse;
+		self.use_latched = true;
+		true
+	}
+
+	/// One lifecycle owner for swap / death. Returns the live fuse once.
+	pub fn take_live_cook(&mut self) -> Option<f32> {
+		let fuse = self.live_fuse().filter(|fuse| *fuse > 0.0)?;
+		self.phase = GrenadePhase::Ready;
+		self.fuse = 0.0;
+		Some(fuse)
+	}
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -106,21 +132,23 @@ pub enum GrenadeUserSystems {
 pub(crate) struct ThrowJingleDue;
 
 pub fn apply_throw_intents(
-	mut intents: MessageReader<CharacterIntent>,
+	mut uses: MessageReader<EquippedItemUse>,
 	bags: Query<&Inventory>,
 	carriers: Query<&InventoryUser>,
 	mut commands: Commands,
 	mut users: Query<(Entity, &mut GrenadeThrow, Has<WeaponSwap>), With<GrenadeUser>>,
 ) {
-	let use_held = intents.read().any(|intent| matches!(intent, CharacterIntent::UseItem(_)));
+	let uses: Vec<_> = uses.read().copied().collect();
 	for (entity, mut throw, swapping) in &mut users {
-		if !use_held {
-			throw.use_latched = false;
-		}
-		if swapping || throw.busy() || throw.use_latched {
+		let Some(use_item) = uses.iter().rev().find(|use_item| {
+			use_item.addresses(entity) && use_item.handler().is_grenade()
+		})
+		else {
+			// Capture / suspend / other-actor delivery: do not treat as release.
 			continue;
-		}
-		if !use_held {
+		};
+		throw.apply_use(use_item.held());
+		if !use_item.held() {
 			continue;
 		}
 		let ready = carriers
@@ -132,9 +160,6 @@ pub fn apply_throw_intents(
 				InventoryItem::Grenade { recharge, .. } => recharge.ready(),
 				_ => false,
 			});
-		if !ready {
-			continue;
-		}
 		let fuse = carriers
 			.get(entity)
 			.ok()
@@ -142,10 +167,9 @@ pub fn apply_throw_intents(
 			.and_then(|bag| bag.primary_weapon().and_then(InventoryItem::grenade_stats))
 			.map(|stats| stats.fuse)
 			.unwrap_or_else(|| GrenadeStats::standard().fuse);
-		throw.phase = GrenadePhase::Cooking { age: 0.0 };
-		throw.fuse = fuse;
-		throw.use_latched = true;
-		commands.entity(entity).try_insert(ThrowJingleDue);
+		if throw.try_start_cook(ready, swapping, fuse) {
+			commands.entity(entity).try_insert(ThrowJingleDue);
+		}
 	}
 }
 
@@ -320,7 +344,7 @@ pub fn interrupt_live_cooks(
 	>,
 ) {
 	for (user_entity, user, mut throw, local, global) in &mut users {
-		let Some(fuse) = throw.live_fuse().filter(|fuse| *fuse > 0.0) else {
+		let Some(fuse) = throw.take_live_cook() else {
 			continue;
 		};
 		let Some(stats) = carriers
@@ -356,7 +380,6 @@ pub fn interrupt_live_cooks(
 			fuse,
 			source: user_entity,
 		});
-		reset_throw(&mut throw);
 	}
 }
 
@@ -538,8 +561,43 @@ mod tests {
 	}
 
 	fn apply_use_item(world: &mut World) -> anyhow::Result<()> {
-		world.init_resource::<Messages<CharacterIntent>>();
-		world.write_message(CharacterIntent::UseItem(1.0));
+		use maybraid_character_controller::{ActorTarget, EquippedItemHandler, EquippedItemUse};
+
+		world.init_resource::<Messages<EquippedItemUse>>();
+		world.resource_mut::<Messages<EquippedItemUse>>().drain().for_each(drop);
+		let user = world
+			.query_filtered::<Entity, With<GrenadeUser>>()
+			.iter(world)
+			.next()
+			.ok_or_else(|| anyhow::anyhow!("user"))?;
+		world.write_message(EquippedItemUse::new(
+			ActorTarget::new(user),
+			EquippedItemHandler::Grenade,
+			1.0,
+			true,
+		));
+		world
+			.run_system_once(apply_throw_intents)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		Ok(())
+	}
+
+	fn apply_release(world: &mut World) -> anyhow::Result<()> {
+		use maybraid_character_controller::{ActorTarget, EquippedItemHandler, EquippedItemUse};
+
+		world.init_resource::<Messages<EquippedItemUse>>();
+		world.resource_mut::<Messages<EquippedItemUse>>().drain().for_each(drop);
+		let user = world
+			.query_filtered::<Entity, With<GrenadeUser>>()
+			.iter(world)
+			.next()
+			.ok_or_else(|| anyhow::anyhow!("user"))?;
+		world.write_message(EquippedItemUse::new(
+			ActorTarget::new(user),
+			EquippedItemHandler::Grenade,
+			0.0,
+			false,
+		));
 		world
 			.run_system_once(apply_throw_intents)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -576,10 +634,7 @@ mod tests {
 		let mut world = World::new();
 		let user = spawn_ready_user(&mut world);
 		apply_use_item(&mut world)?;
-		world.write_message(CharacterIntent::UseItem(1.0));
-		world
-			.run_system_once(apply_throw_intents)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		apply_use_item(&mut world)?;
 		let throw = world.get::<GrenadeThrow>(user).expect("throw");
 		assert!(matches!(throw.phase, GrenadePhase::Cooking { age: 0.0 }));
 		assert!(throw.use_latched);
@@ -777,10 +832,7 @@ mod tests {
 		let mut world = World::new();
 		let user = spawn_ready_user(&mut world);
 		apply_use_item(&mut world)?;
-		let _ = world.resource_mut::<Messages<CharacterIntent>>().drain().count();
-		world
-			.run_system_once(apply_throw_intents)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		apply_release(&mut world)?;
 		let stats = GrenadeStats::standard();
 		advance_time(&mut world, stats.release_at);
 		run_advance(&mut world)?;
@@ -816,10 +868,7 @@ mod tests {
 		assert!(matches!(throw.phase, GrenadePhase::Cooking { .. }));
 		assert!((throw.fuse - (stats.fuse - cook)).abs() < 1e-3);
 		assert!(world.query::<&grenades::ThrownGrenade>().iter(&world).next().is_none());
-		let _ = world.resource_mut::<Messages<CharacterIntent>>().drain().count();
-		world
-			.run_system_once(apply_throw_intents)
-			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		apply_release(&mut world)?;
 		advance_time(&mut world, 1.0 / 60.0);
 		run_advance(&mut world)?;
 		let fuse = world
@@ -886,6 +935,20 @@ mod tests {
 			.ok_or_else(|| anyhow::anyhow!("live drop"))?;
 		assert!((drop.fuse - remaining).abs() < 1e-4);
 		assert_eq!(drop.source, user);
+		Ok(())
+	}
+
+	#[test]
+	fn missing_use_does_not_release_a_live_cook() -> anyhow::Result<()> {
+		let mut world = World::new();
+		let user = spawn_ready_user(&mut world);
+		apply_use_item(&mut world)?;
+		world
+			.run_system_once(apply_throw_intents)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let throw = world.get::<GrenadeThrow>(user).expect("throw");
+		assert!(matches!(throw.phase, GrenadePhase::Cooking { .. }));
+		assert!(throw.use_latched);
 		Ok(())
 	}
 }

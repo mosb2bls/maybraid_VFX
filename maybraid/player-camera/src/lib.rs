@@ -12,7 +12,10 @@ use player::{PlayerPlugin, PlayerPoseSystems, PlayerSystems};
 use std::f32::consts::FRAC_PI_2;
 
 pub use follow::{map_pose, sync_camera_fov, sync_first_person_head_visibility};
-pub use look::{CameraController, CameraLookSuppressed, CameraPov, CameraPovLocked};
+pub use look::{
+	apply_recoil_handoff, CameraController, CameraLookSuppressed, CameraPov, CameraPovLocked,
+	CameraRecoilHandoff,
+};
 
 /// Camera schedule. Item crates add aim writers to [`PlayerCameraSystems::Aim`].
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -97,6 +100,7 @@ impl Plugin for PlayerCameraPlugin {
 		}
 		app.init_resource::<CameraPovLocked>()
 			.init_resource::<look::CameraLookSuppressed>()
+			.add_message::<CameraRecoilHandoff>()
 			.configure_sets(
 				Update,
 				(

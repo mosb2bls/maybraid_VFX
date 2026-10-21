@@ -56,6 +56,26 @@ impl InventoryCyclingCategory {
 	}
 }
 
+/// Per-actor category owner. One writer: inventory category selection.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct InventoryCycling {
+	category: InventoryCyclingCategory,
+}
+
+impl InventoryCycling {
+	pub const fn new(category: InventoryCyclingCategory) -> Self {
+		Self { category }
+	}
+
+	pub const fn category(&self) -> InventoryCyclingCategory {
+		self.category
+	}
+
+	pub fn select(&mut self, category: InventoryCyclingCategory) {
+		self.category = category;
+	}
+}
+
 impl CharacterIntent {
 	pub fn label(self) -> &'static str {
 		match self {

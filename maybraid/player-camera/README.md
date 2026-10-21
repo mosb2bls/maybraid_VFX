@@ -7,7 +7,13 @@ yaw / pitch / POV / focus live on [`CameraController`](src/look.rs).
 shots can pan and fall off with distance.
 
 Reads [`PlayerLook`](../player/README.md) slots on the followed body; writes look
-back so item users never query `Camera3d`.
+back so item users never query `Camera3d`. Look / focus / ADS consume
+[`CharacterIntent`](../controllers/character/src/intent.rs) and gate on
+[`InputRouter::delivered_actor`](../controllers/core/src/router.rs). Recoil
+reaches the follow camera only through
+[`CameraRecoilHandoff`](src/look.rs) from [`WeaponFired`](../items/firearms/src/projectiles.rs)
+— never from attempted trigger input. See
+[ARCHITECTURE.md](../controllers/ARCHITECTURE.md).
 
 [`PlayerCameraAim`](../player/src/identity.rs) is the handoff: a firearm-user writes a
 sight pose and the held optic's ADS FOV, a melee-user could write a lock-on pose. Follow

@@ -1,10 +1,10 @@
-//! Copy the live squeeze onto the held gun's [`WeaponTrigger`], and kick look / camera.
+//! Realize addressed [`EquippedItemUse`] on the held gun, and hand recoil to the camera.
 
 use bevy::prelude::*;
 use firearms::{WeaponFired, WeaponTrigger};
-use maybraid_input::{PadButton, VirtualPad, VirtualPadConfig};
-use player::{clamp_aim_pitch, CameraFollow, Player, PlayerLook};
-use player_camera::CameraController;
+use maybraid_character_controller::EquippedItemUse;
+use player::{CameraFollow, Player};
+use player_camera::CameraRecoilHandoff;
 
 use crate::weapon::RecoilPattern;
 use crate::{FirearmUser, WeaponSwap};
@@ -13,32 +13,16 @@ use crate::{FirearmUser, WeaponSwap};
 /// the remaining path over a fresh window.
 pub(crate) const RECOIL_LERP_SECS: f32 = 0.08;
 
-pub(crate) fn trigger_squeezed(
-	pad: Option<&VirtualPad>,
-	config: Option<&VirtualPadConfig>,
-	mouse: &ButtonInput<MouseButton>,
-) -> bool {
-	if let Some(pad) = pad {
-		if pad.pressed(PadButton::TriggerFire) {
-			return true;
-		}
-		let threshold = config.map(|config| config.trigger_press_threshold).unwrap_or(0.5);
-		if pad.trigger_fire >= threshold {
-			return true;
-		}
-	}
-	mouse.pressed(MouseButton::Left)
-}
-
-pub(crate) fn apply_fire_intents(
-	mouse: Res<ButtonInput<MouseButton>>,
-	pad: Option<Res<VirtualPad>>,
-	config: Option<Res<VirtualPadConfig>>,
-	users: Query<(&FirearmUser, Has<WeaponSwap>), With<Player>>,
+pub fn apply_fire_intents(
+	mut uses: MessageReader<EquippedItemUse>,
+	users: Query<(Entity, &FirearmUser, Has<WeaponSwap>), With<Player>>,
 	mut triggers: Query<&mut WeaponTrigger>,
 ) {
-	let fire = trigger_squeezed(pad.as_deref(), config.as_deref(), &mouse);
-	for (user, swapping) in &users {
+	let uses: Vec<_> = uses.read().copied().collect();
+	for (entity, user, swapping) in &users {
+		let fire = uses.iter().any(|use_item| {
+			use_item.addresses(entity) && use_item.handler().is_firearm() && use_item.held()
+		});
 		if let Ok(mut trigger) = triggers.get_mut(user.held) {
 			trigger.0 = fire && !swapping;
 		}
@@ -72,8 +56,7 @@ pub(crate) fn advance_weapon_recoil(
 	users: Query<(Entity, &FirearmUser)>,
 	mut patterns: Query<&mut RecoilPattern>,
 	followed: Query<(), With<CameraFollow>>,
-	mut cameras: Query<&mut CameraController, With<Camera3d>>,
-	mut looks: Query<&mut PlayerLook>,
+	mut handoffs: MessageWriter<CameraRecoilHandoff>,
 ) {
 	let dt = time.delta_secs();
 	for (shooter, user) in &users {
@@ -86,26 +69,7 @@ pub(crate) fn advance_weapon_recoil(
 		if step.length_squared() < 1e-12 {
 			continue;
 		}
-		apply_recoil_step(shooter, step, &followed, &mut cameras, &mut looks);
-	}
-}
-
-fn apply_recoil_step(
-	shooter: Entity,
-	step: Vec2,
-	followed: &Query<(), With<CameraFollow>>,
-	cameras: &mut Query<&mut CameraController, With<Camera3d>>,
-	looks: &mut Query<&mut PlayerLook>,
-) {
-	if followed.contains(shooter) {
-		if let Ok(mut camera) = cameras.single_mut() {
-			camera.yaw += step.x;
-			camera.pitch = clamp_aim_pitch(camera.pitch + step.y);
-		}
-	}
-	if let Ok(mut look) = looks.get_mut(shooter) {
-		look.yaw += step.x;
-		look.pitch = clamp_aim_pitch(look.pitch + step.y);
+		handoffs.write(CameraRecoilHandoff::new(shooter, step, followed.contains(shooter)));
 	}
 }
 
@@ -152,43 +116,58 @@ fn mix(seed: u64, value: u64) -> u64 {
 mod tests {
 	use super::*;
 	use bevy::time::TimeUpdateStrategy;
-	use player_camera::CameraPov;
+	use maybraid_character_controller::{ActorTarget, EquippedItemHandler, EquippedItemUse};
+	use player::PlayerLook;
+	use player_camera::{CameraController, CameraPov, FollowCamera};
 
 	const STRENGTH: f32 = 0.08;
 
 	#[test]
-	fn rest_analog_is_not_a_squeeze() {
-		let mut pad = VirtualPad::default();
-		pad.trigger_fire = 0.02;
-		let mouse = ButtonInput::<MouseButton>::default();
-		assert!(!trigger_squeezed(Some(&pad), None, &mouse));
-	}
-
-	#[test]
-	fn digital_trigger_or_mouse_is_a_squeeze() {
-		let mut pad = VirtualPad::default();
-		pad.hold_digital(PadButton::TriggerFire);
-		pad.finish_digital();
-		let mouse = ButtonInput::<MouseButton>::default();
-		assert!(trigger_squeezed(Some(&pad), None, &mouse));
-
-		let pad = VirtualPad::default();
-		let mut mouse = ButtonInput::<MouseButton>::default();
-		mouse.press(MouseButton::Left);
-		assert!(trigger_squeezed(Some(&pad), None, &mouse));
+	fn grenade_handler_does_not_squeeze_a_firearm() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.add_message::<EquippedItemUse>()
+			.add_systems(Update, apply_fire_intents);
+		let gun = app.world_mut().spawn(WeaponTrigger(true)).id();
+		let shooter = app.world_mut().spawn((Player, FirearmUser::holding(gun))).id();
+		app.world_mut().write_message(EquippedItemUse::new(
+			ActorTarget::new(shooter),
+			EquippedItemHandler::Grenade,
+			1.0,
+			true,
+		));
+		app.update();
+		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(false));
 	}
 
 	#[test]
 	fn releasing_the_squeeze_clears_the_weapon_trigger() {
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
-			.init_resource::<ButtonInput<MouseButton>>()
-			.init_resource::<VirtualPad>()
+			.add_message::<EquippedItemUse>()
 			.add_systems(Update, apply_fire_intents);
 		let gun = app.world_mut().spawn(WeaponTrigger(true)).id();
 		app.world_mut().spawn((Player, FirearmUser::holding(gun)));
 		app.update();
 		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(false));
+	}
+
+	#[test]
+	fn firearm_use_sets_the_weapon_trigger() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.add_message::<EquippedItemUse>()
+			.add_systems(Update, apply_fire_intents);
+		let gun = app.world_mut().spawn(WeaponTrigger(false)).id();
+		let shooter = app.world_mut().spawn((Player, FirearmUser::holding(gun))).id();
+		app.world_mut().write_message(EquippedItemUse::new(
+			ActorTarget::new(shooter),
+			EquippedItemHandler::Firearm,
+			1.0,
+			true,
+		));
+		app.update();
+		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(true));
 	}
 
 	#[test]
@@ -256,11 +235,21 @@ mod tests {
 				std::time::Duration::from_secs_f32(dt),
 			))
 			.add_message::<WeaponFired>()
-			.add_systems(Update, (queue_weapon_recoil, advance_weapon_recoil).chain());
+			.add_message::<CameraRecoilHandoff>()
+			.add_systems(
+				Update,
+				(
+					queue_weapon_recoil,
+					advance_weapon_recoil,
+					player_camera::apply_recoil_handoff,
+				)
+					.chain(),
+			);
 		let camera = app
 			.world_mut()
 			.spawn((
 				Camera3d::default(),
+				FollowCamera::default(),
 				CameraController { pov: CameraPov::ThirdPerson, ..default() },
 			))
 			.id();

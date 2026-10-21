@@ -3,7 +3,7 @@
 use crate::FollowCamera;
 use bevy::prelude::*;
 use characters::CharacterHeading;
-use maybraid_character_controller::CharacterIntent;
+use maybraid_character_controller::{CharacterIntent, InputRouter, InputSource};
 use player::{clamp_aim_pitch, wrap_pi, CameraFollow, PlayerLook, PlayerVisual, PlayerYawOwner};
 
 /// When `true`, [`CharacterIntent::SwapPov`] is ignored (in-game inventory edit).
@@ -13,6 +13,33 @@ pub struct CameraPovLocked(pub bool);
 /// When `true`, look / focus / ADS do not drive the follow camera (world map).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CameraLookSuppressed(pub bool);
+
+/// Recoil step produced from [`firearms::WeaponFired`]. Camera is the only
+/// writer of follow yaw / pitch for this kick.
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct CameraRecoilHandoff {
+	shooter: Entity,
+	step: Vec2,
+	follow: bool,
+}
+
+impl CameraRecoilHandoff {
+	pub const fn new(shooter: Entity, step: Vec2, follow: bool) -> Self {
+		Self { shooter, step, follow }
+	}
+
+	pub const fn shooter(self) -> Entity {
+		self.shooter
+	}
+
+	pub const fn step(self) -> Vec2 {
+		self.step
+	}
+
+	pub const fn follows_camera(self) -> bool {
+		self.follow
+	}
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CameraPov {
@@ -110,10 +137,29 @@ impl CameraController {
 	}
 }
 
+pub fn apply_recoil_handoff(
+	mut handoffs: MessageReader<CameraRecoilHandoff>,
+	mut cameras: Query<&mut CameraController, With<FollowCamera>>,
+	mut looks: Query<&mut PlayerLook>,
+) {
+	for handoff in handoffs.read() {
+		if handoff.follows_camera() {
+			if let Ok(mut camera) = cameras.single_mut() {
+				camera.yaw += handoff.step().x;
+				camera.pitch = clamp_aim_pitch(camera.pitch + handoff.step().y);
+			}
+		}
+		if let Ok(mut look) = looks.get_mut(handoff.shooter()) {
+			look.yaw += handoff.step().x;
+			look.pitch = clamp_aim_pitch(look.pitch + handoff.step().y);
+		}
+	}
+}
+
 pub(crate) fn apply_look_intents(
-	mouse: Res<ButtonInput<MouseButton>>,
 	locked: Option<Res<CameraPovLocked>>,
 	suppressed: Option<Res<CameraLookSuppressed>>,
+	router: Option<Res<InputRouter>>,
 	mut intents: MessageReader<CharacterIntent>,
 	mut cameras: Query<
 		(&mut CameraController, &FollowCamera, Option<&Projection>),
@@ -122,12 +168,16 @@ pub(crate) fn apply_look_intents(
 ) {
 	if suppressed.is_some_and(|suppressed| suppressed.0)
 		|| cameras.iter().any(|(controller, _, _)| controller.pov.is_map())
+		|| router
+			.as_ref()
+			.is_some_and(|router| router.delivered_actor(InputSource::local_pad()).is_none())
 	{
 		for _ in intents.read() {}
 		return;
 	}
-	let mut focus = f32::from(mouse.pressed(MouseButton::Right));
-	let mut ads = f32::from(mouse.pressed(MouseButton::Middle));
+	// Focus / ADS come from Bind (`CharacterIntent`), not a second mouse read.
+	let mut focus: f32 = 0.0;
+	let mut ads: f32 = 0.0;
 	let mut swap_pov = false;
 	let mut skill_map = false;
 	for intent in intents.read() {

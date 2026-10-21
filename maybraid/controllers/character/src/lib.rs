@@ -1,10 +1,14 @@
 //! Character controller: pad analog + edges → [`CharacterIntent`].
 
+pub mod dispatch;
 pub mod intent;
 pub mod produce;
 pub mod sample;
 
-pub use intent::{CharacterIntent, InventoryCyclingCategory};
+pub use dispatch::{
+	dispatch_equipped_item, EquippedItemHandler, EquippedItemUse, EquippedPowerUse,
+};
+pub use intent::{CharacterIntent, InventoryCycling, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
 	ActorTarget, ControllerPipeline, InputRouter, InputSource, Routed,
 };
@@ -40,8 +44,10 @@ pub struct CharacterControlSystems;
 pub enum CharacterBindSystems {
 	/// Stamp [`RoutedActorControl`] from the local pad.
 	Route,
-	/// Broadcast [`CharacterIntent`] (still untargeted).
+	/// Broadcast [`CharacterIntent`] (session / shell still read this).
 	Produce,
+	/// Address UseItem / PowerUseItem to the delivered actor's handler.
+	Dispatch,
 }
 
 pub struct CharacterControllerPlugin;
@@ -55,6 +61,8 @@ impl Plugin for CharacterControllerPlugin {
 			app.add_plugins(VirtualPadPlugin::default());
 		}
 		app.add_message::<CharacterIntent>()
+			.add_message::<EquippedItemUse>()
+			.add_message::<EquippedPowerUse>()
 			.init_resource::<RoutedActorControl>()
 			.configure_sets(Update, CharacterControlSystems.in_set(ControllerPipeline::Bind))
 			.configure_sets(
@@ -66,10 +74,14 @@ impl Plugin for CharacterControllerPlugin {
 					CharacterBindSystems::Produce
 						.in_set(CharacterControlSystems)
 						.after(CharacterBindSystems::Route),
+					CharacterBindSystems::Dispatch
+						.in_set(CharacterControlSystems)
+						.after(CharacterBindSystems::Produce),
 				),
 			)
 			.add_systems(Update, produce_actor_control_samples.in_set(CharacterBindSystems::Route))
-			.add_systems(Update, produce_character_intents.in_set(CharacterBindSystems::Produce));
+			.add_systems(Update, produce_character_intents.in_set(CharacterBindSystems::Produce))
+			.add_systems(Update, dispatch_equipped_item.in_set(CharacterBindSystems::Dispatch));
 	}
 }
 

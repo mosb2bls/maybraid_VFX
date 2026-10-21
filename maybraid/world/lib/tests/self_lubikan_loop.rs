@@ -20,7 +20,7 @@ use lubikans::{
 	LubikanOwner, LubikanSelfHeal, LubikanSystems, LubikansPlugin,
 };
 use lubikans_damage::LubikanDamagePlugin;
-use maybraid_character_controller::CharacterIntent;
+use maybraid_character_controller::{ActorTarget, EquippedPowerUse};
 use maybraid_world::{control, world_lubikan, WorldGameplayEnabled, WorldPlaySessionEnded};
 use std::time::Duration;
 use world_player::Player;
@@ -34,7 +34,7 @@ fn self_loop_app() -> App {
 		.add_plugins(LubikansPlugin)
 		.add_plugins(LubikanDamagePlugin)
 		.init_resource::<WorldGameplayEnabled>()
-		.init_resource::<Messages<CharacterIntent>>()
+		.add_message::<EquippedPowerUse>()
 		.init_resource::<Messages<WorldPlaySessionEnded>>()
 		.init_resource::<Messages<lubikans::LubikanOwnerLifetime>>()
 		.insert_resource(TextEntryFocus(false));
@@ -133,8 +133,13 @@ fn health_current(app: &App, player: Entity) -> f32 {
 }
 
 fn activate_self(app: &mut App) {
-	// Use PowerUseItem intent -> request_lubikan_activation -> LubikanActivationRequest
-	app.world_mut().write_message(CharacterIntent::PowerUseItem);
+	let owner = app
+		.world_mut()
+		.query_filtered::<Entity, (With<Player>, With<LubikanOwner>)>()
+		.iter(app.world())
+		.next()
+		.expect("owner");
+	app.world_mut().write_message(EquippedPowerUse::new(ActorTarget::new(owner)));
 	app.update();
 }
 
@@ -409,7 +414,7 @@ fn activate_and_award_same_frame_as_death_keep_charge() -> anyhow::Result<()> {
 		.self_definition()
 		.activation_cost;
 	let npc = spawn_npc(&mut app);
-	app.world_mut().write_message(CharacterIntent::PowerUseItem);
+	app.world_mut().write_message(EquippedPowerUse::new(ActorTarget::new(player)));
 	app.world_mut().write_message(Hit {
 		target: npc,
 		source: Some(player),

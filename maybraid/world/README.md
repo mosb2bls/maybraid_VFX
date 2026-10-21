@@ -16,6 +16,10 @@ fading red screen glaze, wait four active-gameplay seconds, then receive a fresh
 loadout-equipped body at a terrain-fitted nearby urban, interior, or vegetation
 POI.
 
+Equipped-item dispatch, inventory category ownership, holster-commit handler
+stamps, and Lubikan activation are documented in
+[ARCHITECTURE.md](../controllers/ARCHITECTURE.md).
+
 ```bash
 cargo run -p maybraid-world-playground
 ```

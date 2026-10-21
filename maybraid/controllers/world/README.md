@@ -23,3 +23,6 @@ for the local player (`WORLD_GAMEPLAY`) or every `CharacterController`
 
 Standard ↔ Tanzer is per-actor participation, written once on change. It
 does not restamp a global mode table.
+
+Item / camera / Lubikan interpreters join this session after Bind. See
+[ARCHITECTURE.md](../ARCHITECTURE.md) for the phase 5 D1–D7 and C5 contracts.

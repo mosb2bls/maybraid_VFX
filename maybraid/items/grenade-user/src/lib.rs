@@ -15,8 +15,9 @@ use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 pub use feel::{blast_presence, blast_rumble, rumble_presence, GrenadeBlastFeel};
 pub use hold::{spawn_held_grenade, HeldGrenade, HoldingGrenade};
 pub use throw::{
-	landing_range, landing_time, launch_velocity, throw_aim, GrenadePhase, GrenadeThrow,
-	GrenadeUser, GrenadeUserSettings, GrenadeUserSystems, STANDING_RELEASE_HEIGHT, THROW_GRAVITY,
+	apply_throw_intents, landing_range, landing_time, launch_velocity, throw_aim, GrenadePhase,
+	GrenadeThrow, GrenadeUser, GrenadeUserSettings, GrenadeUserSystems, STANDING_RELEASE_HEIGHT,
+	THROW_GRAVITY,
 };
 
 /// Held-side 1:1 target of [`GrenadeUser`].
@@ -34,7 +35,8 @@ impl Plugin for GrenadeUserPlugin {
 		if !app.is_plugin_added::<SpatialRumblePlugin>() {
 			app.add_plugins(SpatialRumblePlugin);
 		}
-		app.add_systems(Update, throw::apply_throw_intents.in_set(PlayerSystems::Intent))
+		app.add_message::<maybraid_character_controller::EquippedItemUse>()
+			.add_systems(Update, throw::apply_throw_intents.in_set(PlayerSystems::Intent))
 			.add_systems(Startup, cook_hud::spawn_cook_fuse_hud)
 			.add_systems(
 				Update,

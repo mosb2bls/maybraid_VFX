@@ -20,6 +20,7 @@ use player::{PlayerPoseSystems, PlayerSystems};
 use player_camera::PlayerCameraSystems;
 use std::f32::consts::FRAC_PI_2;
 
+pub use fire::apply_fire_intents;
 pub use hold::{sync_hands_to_firearm, HoldingArms};
 pub use kit::{kit_from_spec, GeneratedFirearm};
 pub use pose::{
@@ -112,6 +113,8 @@ impl Plugin for FirearmUserPlugin {
 		}
 		add_firearm_components_host::<kit::GeneratedFirearm>(app);
 		app.add_message::<maybraid_input::PadRumble>()
+			.add_message::<maybraid_character_controller::EquippedItemUse>()
+			.add_message::<player_camera::CameraRecoilHandoff>()
 			.add_systems(Update, fire::apply_fire_intents.in_set(PlayerSystems::Intent))
 			.add_systems(Update, swap::advance_weapon_swap.in_set(FirearmUserSystems::Swap))
 			.add_systems(
@@ -151,7 +154,8 @@ impl Plugin for FirearmUserPlugin {
 			.add_systems(PostUpdate, fire::queue_weapon_recoil.after(FirearmWeaponSystems::Fire))
 			.add_systems(
 				Update,
-				fire::advance_weapon_recoil
+				(fire::advance_weapon_recoil, player_camera::apply_recoil_handoff)
+					.chain()
 					.in_set(PlayerCameraSystems::Body)
 					.in_set(FirearmUserSystems::Recoil),
 			)

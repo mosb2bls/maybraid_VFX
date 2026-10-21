@@ -2,10 +2,13 @@
 
 use bevy::prelude::*;
 use character_inventory_user::InventoryUser;
-use character_items::{Inventory, InventorySlot};
+use character_items::Inventory;
 use game_commands::command::TextEntryFocus;
 use lubikans::{LubikanAccountId, LubikanLedger, LubikanOwner, LubikanSystems};
-use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
+use maybraid_character_controller::{
+	CharacterIntent, InventoryCycling, InventoryCyclingCategory,
+};
+use maybraid_controllers_core::{InputRouter, InputSource};
 use world_player::Player as VegetationPlayer;
 
 use crate::control::WorldGameplayEnabled;
@@ -13,7 +16,8 @@ use crate::map_view::WorldMapView;
 use crate::weapon::WorldPlayerLoadout;
 use maybraid_world_controller::SessionCapabilitySystems;
 
-/// Readable active equipped-queue category for HUD lanes ([#1113](https://github.com/ramate-io/maybraid/issues/1113)).
+/// HUD projection of the local actor's [`InventoryCycling`]. The actor
+/// component is the owner; this resource is a reader-only mirror.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ActiveInventoryCyclingCategory(pub InventoryCyclingCategory);
 
@@ -71,16 +75,33 @@ pub(crate) fn apply_inventory_category_selection(
 	gameplay: Res<WorldGameplayEnabled>,
 	text_focus: Res<TextEntryFocus>,
 	map: Option<Res<WorldMapView>>,
-	mut category: ResMut<ActiveInventoryCyclingCategory>,
+	router: Res<InputRouter>,
+	mut commands: Commands,
+	mut cycling: Query<&mut InventoryCycling>,
+	mut projected: ResMut<ActiveInventoryCyclingCategory>,
 	mut intents: MessageReader<CharacterIntent>,
 ) {
 	if !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open)) {
 		return;
 	}
+	let Some(actor) = router.actor(InputSource::local_pad()) else {
+		return;
+	};
+	let mut selected = None;
 	for intent in intents.read() {
 		if let CharacterIntent::SelectInventoryCyclingCategory(next) = *intent {
-			category.0 = next;
+			selected = Some(next);
 		}
+	}
+	if let Some(next) = selected {
+		if let Ok(mut owner) = cycling.get_mut(actor.entity()) {
+			owner.select(next);
+		} else {
+			commands.entity(actor.entity()).insert(InventoryCycling::new(next));
+		}
+		projected.0 = next;
+	} else if let Ok(owner) = cycling.get(actor.entity()) {
+		projected.0 = owner.category();
 	}
 }
 
@@ -88,17 +109,21 @@ pub(crate) fn cycle_equipped_inventory_queues(
 	gameplay: Res<WorldGameplayEnabled>,
 	text_focus: Res<TextEntryFocus>,
 	map: Option<Res<WorldMapView>>,
-	category: Res<ActiveInventoryCyclingCategory>,
+	router: Res<InputRouter>,
+	cycling: Query<&InventoryCycling>,
 	mut intents: MessageReader<CharacterIntent>,
 	mut commands: Commands,
 	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
-	players: Query<(Entity, &InventoryUser), With<VegetationPlayer>>,
+	players: Query<&InventoryUser, With<VegetationPlayer>>,
 	mut bags: Query<&mut Inventory>,
 	mut ledgers: Query<&mut LubikanLedger, With<LubikanOwner>>,
 ) {
 	if !gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open)) {
 		return;
 	}
+	let Some(actor) = router.actor(InputSource::local_pad()) else {
+		return;
+	};
 	let mut dir = None;
 	for intent in intents.read() {
 		match *intent {
@@ -116,42 +141,36 @@ pub(crate) fn cycle_equipped_inventory_queues(
 	let Some(dir) = dir else {
 		return;
 	};
-	if category.0 == InventoryCyclingCategory::Lubikans {
-		for (player, _) in &players {
-			if let Ok(mut ledger) = ledgers.get_mut(player) {
-				cycle_ledger_selection(&mut ledger, dir);
-			}
+	let category = cycling.get(actor.entity()).ok().map(InventoryCycling::category).unwrap_or_default();
+	if category == InventoryCyclingCategory::Lubikans {
+		if let Ok(mut ledger) = ledgers.get_mut(actor.entity()) {
+			cycle_ledger_selection(&mut ledger, dir);
 		}
 		return;
 	}
-	if category.0 == InventoryCyclingCategory::Weapons {
+	if category == InventoryCyclingCategory::Weapons {
 		// Weapon queue steps use [`crate::weapon::begin_weapon_swap`] / [`commit_weapon_swap`].
 		return;
 	}
-	let slot = match category.0 {
-		InventoryCyclingCategory::Weapons => return,
-		InventoryCyclingCategory::SkillMaps => InventorySlot::Skills,
-		InventoryCyclingCategory::Lubikans => return,
+	let Ok(user) = players.get(actor.entity()) else {
+		return;
 	};
-	for (player, user) in &players {
-		let Ok(mut bag) = bags.get_mut(user.bag) else {
-			continue;
-		};
-		let changed = match slot {
-			InventorySlot::Weapons => false,
-			InventorySlot::Skills => bag.cycle_skills(dir),
-			InventorySlot::Clothing | InventorySlot::Tanzes => false,
-		};
-		if !changed {
-			continue;
-		}
-		let snapshot = bag.clone();
-		if let Some(loadout) = loadout.as_deref_mut() {
-			loadout.retarget_inventory(snapshot.clone());
-			commands
-				.entity(player)
-				.insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
-		}
+	let Ok(mut bag) = bags.get_mut(user.bag) else {
+		return;
+	};
+	let changed = match category {
+		InventoryCyclingCategory::SkillMaps => bag.cycle_skills(dir),
+		InventoryCyclingCategory::Weapons | InventoryCyclingCategory::Lubikans => false,
+	};
+	if !changed {
+		return;
+	}
+	let snapshot = bag.clone();
+	if let Some(loadout) = loadout.as_deref_mut() {
+		loadout.retarget_inventory(snapshot.clone());
+		commands
+			.entity(actor.entity())
+			.insert(crate::weapon::AppliedWorldPlayerLoadout(loadout.clone()));
 	}
 }
 
@@ -194,13 +213,31 @@ mod tests {
 
 	use super::*;
 
+	fn assign_player(world: &mut World, extra: impl Bundle) -> Entity {
+		use maybraid_controllers_core::ActorTarget;
+
+		world.init_resource::<InputRouter>();
+		let player = world.spawn((VegetationPlayer, InventoryCycling::default(), extra)).id();
+		world
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(player));
+		player
+	}
+
 	#[test]
-	fn category_selection_updates_the_resource() -> anyhow::Result<()> {
+	fn category_selection_updates_the_owner() -> anyhow::Result<()> {
+		use maybraid_controllers_core::ActorTarget;
+
 		let mut world = World::new();
 		world.init_resource::<Messages<CharacterIntent>>();
 		world.insert_resource(WorldGameplayEnabled(true));
 		world.insert_resource(TextEntryFocus(false));
 		world.init_resource::<ActiveInventoryCyclingCategory>();
+		world.init_resource::<InputRouter>();
+		let player = world.spawn((VegetationPlayer, InventoryCycling::default())).id();
+		world
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(player));
 		world
 			.run_system_once(|mut writer: MessageWriter<CharacterIntent>| {
 				writer.write(CharacterIntent::SelectInventoryCyclingCategory(
@@ -211,6 +248,10 @@ mod tests {
 		world
 			.run_system_once(apply_inventory_category_selection)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(
+			world.get::<InventoryCycling>(player).map(InventoryCycling::category),
+			Some(InventoryCyclingCategory::SkillMaps)
+		);
 		assert_eq!(
 			world.resource::<ActiveInventoryCyclingCategory>().0,
 			InventoryCyclingCategory::SkillMaps
@@ -238,7 +279,10 @@ mod tests {
 		world.insert_resource(TextEntryFocus(false));
 		world.insert_resource(ActiveInventoryCyclingCategory(InventoryCyclingCategory::SkillMaps));
 		let bag = world.spawn(inventory).id();
-		world.spawn((VegetationPlayer, InventoryUser::carrying(bag)));
+		let player = assign_player(&mut world, InventoryUser::carrying(bag));
+		if let Some(mut cycling) = world.get_mut::<InventoryCycling>(player) {
+			cycling.select(InventoryCyclingCategory::SkillMaps);
+		}
 		world
 			.run_system_once(|mut writer: MessageWriter<CharacterIntent>| {
 				writer.write(CharacterIntent::SelectInventoryCyclingCategory(
@@ -280,7 +324,7 @@ mod tests {
 		world.insert_resource(TextEntryFocus(false));
 		world.insert_resource(ActiveInventoryCyclingCategory(InventoryCyclingCategory::Weapons));
 		let bag = world.spawn(inventory).id();
-		world.spawn((VegetationPlayer, InventoryUser::carrying(bag)));
+		assign_player(&mut world, InventoryUser::carrying(bag));
 		world
 			.run_system_once(|mut writer: MessageWriter<CharacterIntent>| {
 				writer.write(CharacterIntent::SelectInventoryCyclingCategory(

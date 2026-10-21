@@ -13,7 +13,12 @@ process-wide [`CharacterIntent`](src/intent.rs) broadcast — that adapter is
 removed as consumers become actor-addressed (phases 3–5). Physical A / B stay
 distinct from semantic `Jump`. Ordinary locomotion consumes move / jump /
 sprint / stance for [`InputRouter::local_actor`](../core/src/router.rs) in
-[`controllers/locomotion`](../locomotion/README.md). The lowest-ID `Player`
+[`controllers/locomotion`](../locomotion/README.md). UseItem / PowerUseItem
+are addressed in Bind by
+[`dispatch_equipped_item`](src/dispatch.rs) onto
+[`EquippedItemUse`](src/dispatch.rs) / [`EquippedPowerUse`](src/dispatch.rs)
+for [`InputRouter::delivered_actor`](../core/src/router.rs) and the actor's
+[`EquippedItemHandler`](src/dispatch.rs). The lowest-ID `Player`
 fallback is resolved once in `player`, not here. See
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
