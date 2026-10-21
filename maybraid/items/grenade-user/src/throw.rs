@@ -13,8 +13,8 @@ use grenades::{
 };
 use maybraid_audio::{Audio, AudioClip, Mixer};
 use maybraid_character_controller::{
-	delivered_item_use, EquippedItemUse, HoldEffect, InputRouter, InputSource, RoutedItemActor,
-	RoutingEvent,
+	delivered_item_use, ActorTarget, EquippedItemUse, HoldEffect, InputRouter, InputSource,
+	RoutingEvent, RoutingKind,
 };
 use player::{look_forward, PlayerLook};
 
@@ -74,7 +74,8 @@ impl GrenadeThrow {
 		}
 	}
 
-	/// Disconnect / reassign / removal cancel a live cook. Capture does not.
+	/// Disconnect / reassign / removal cancel a live cook. Capture does not —
+	/// use [`Self::apply_routing`], which branches on [`RoutingKind`].
 	pub fn apply_hold(&mut self, hold: HoldEffect) -> Option<f32> {
 		match hold {
 			HoldEffect::ReleaseNeutral => self.take_live_cook(),
@@ -82,8 +83,30 @@ impl GrenadeThrow {
 		}
 	}
 
+	/// Capture cancels a leftover use latch. A pin-pulled charge stays cooking.
+	pub fn cancel_partial_hold(&mut self) {
+		if self.live_fuse().is_none() {
+			self.use_latched = false;
+		}
+	}
+
+	/// Drop on disconnect / reassign / removal. Capture only cancels a
+	/// leftover latch; an already-live cook keeps its fuse.
 	pub fn apply_routing(&mut self, event: RoutingEvent) -> Option<f32> {
-		self.apply_hold(event.hold())
+		match event.kind() {
+			RoutingKind::Reassigned | RoutingKind::Disconnected | RoutingKind::Removed => {
+				self.use_latched = false;
+				self.take_live_cook()
+			}
+			RoutingKind::Captured => {
+				self.cancel_partial_hold();
+				None
+			}
+			RoutingKind::Assigned
+			| RoutingKind::Uncaptured
+			| RoutingKind::Suspended
+			| RoutingKind::Resumed => None,
+		}
 	}
 
 	/// Start a cook when the addressed use is held and the primary is ready.
@@ -194,9 +217,14 @@ pub fn apply_throw_intents(
 	}
 }
 
-/// Cancel a live cook on disconnect / reassign / removal. Capture emits no
-/// [`HoldEffect::ReleaseNeutral`] and does not call this.
+/// Cancel or drop from published [`RoutingEvent`] messages.
+///
+/// Disconnect / reassign / removal drop a live cook on the actor that lost
+/// assignment. Capture only cancels a leftover latch; a pin-pulled charge
+/// keeps cooking. Does not require [`RoutedItemActor`] still to be present —
+/// Last-published events arrive after that marker has moved.
 pub fn apply_throw_routing(
+	mut events: MessageReader<RoutingEvent>,
 	router: Res<InputRouter>,
 	mut drops: MessageWriter<DropLiveGrenade>,
 	velocities: Query<&LinearVelocity>,
@@ -209,31 +237,58 @@ pub fn apply_throw_routing(
 		&mut GrenadeThrow,
 		Option<&Transform>,
 		Option<&GlobalTransform>,
-		Has<RoutedItemActor>,
 	)>,
 ) {
-	if !router.events().iter().any(|event| event.hold() == HoldEffect::ReleaseNeutral) {
-		return;
-	}
-	for (user_entity, user, mut throw, local, global, routed) in &mut users {
-		if !routed {
+	let source = InputSource::local_pad();
+	let mut action = None;
+	for event in events.read() {
+		if event.source() != source {
 			continue;
 		}
-		let Some(fuse) = throw.apply_hold(HoldEffect::ReleaseNeutral) else {
-			continue;
-		};
-		drop_live_cook(
-			&mut drops,
-			&velocities,
-			&carriers,
-			&mut bags,
-			&held,
-			user_entity,
-			user,
-			local,
-			global,
-			fuse,
-		);
+		match event.kind() {
+			RoutingKind::Disconnected
+			| RoutingKind::Removed
+			| RoutingKind::Reassigned
+			| RoutingKind::Captured => {
+				action = Some(*event);
+			}
+			_ => {}
+		}
+	}
+	let Some(event) = action else {
+		return;
+	};
+	let current = router.actor(source).map(ActorTarget::entity);
+	for (user_entity, user, mut throw, local, global) in &mut users {
+		let assigned = current == Some(user_entity);
+		match event.kind() {
+			RoutingKind::Captured => {
+				if assigned {
+					throw.apply_routing(event);
+				}
+			}
+			RoutingKind::Disconnected | RoutingKind::Removed | RoutingKind::Reassigned => {
+				if assigned {
+					continue;
+				}
+				let Some(fuse) = throw.apply_routing(event) else {
+					continue;
+				};
+				drop_live_cook(
+					&mut drops,
+					&velocities,
+					&carriers,
+					&mut bags,
+					&held,
+					user_entity,
+					user,
+					local,
+					global,
+					fuse,
+				);
+			}
+			_ => {}
+		}
 	}
 }
 
@@ -1067,6 +1122,53 @@ mod tests {
 		assert!(throw.cooking());
 		assert_eq!(throw.apply_hold(HoldEffect::ReleaseNeutral), Some(4.0));
 		assert_eq!(throw.phase, GrenadePhase::Ready);
+	}
+
+	fn emit_kind(kind_setup: impl FnOnce(&mut InputRouter)) -> RoutingEvent {
+		use maybraid_character_controller::{ActorTarget, InputRouter, InputSource};
+
+		let mut router = InputRouter::default();
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(Entity::from_bits(1)));
+		let _ = router.take_events();
+		kind_setup(&mut router);
+		router.take_events().pop().expect("routing event")
+	}
+
+	#[test]
+	fn disconnected_routing_takes_the_live_cook() {
+		use maybraid_character_controller::InputSource;
+
+		let mut throw = GrenadeThrow::default();
+		assert!(throw.try_start_cook(true, false, 4.0));
+		let event = emit_kind(|router| {
+			router.disconnect(InputSource::local_pad());
+		});
+		assert_eq!(throw.apply_routing(event), Some(4.0));
+		assert_eq!(throw.phase, GrenadePhase::Ready);
+		assert!(!throw.use_latched);
+	}
+
+	#[test]
+	fn captured_routing_keeps_a_live_cook_and_cancels_a_latch() {
+		use maybraid_character_controller::{CaptureKind, InputSource, ScopeOwner, UiTarget};
+
+		let event = emit_kind(|router| {
+			router.acquire_capture(
+				InputSource::local_pad(),
+				ScopeOwner::ui(UiTarget::new(Entity::from_bits(7))),
+				CaptureKind::Overlay,
+			);
+		});
+		let mut cooking = GrenadeThrow::default();
+		assert!(cooking.try_start_cook(true, false, 4.0));
+		assert_eq!(cooking.apply_routing(event), None);
+		assert!(cooking.cooking());
+		assert!(cooking.use_latched);
+
+		let mut latched = GrenadeThrow { use_latched: true, ..GrenadeThrow::default() };
+		assert_eq!(latched.apply_routing(event), None);
+		assert!(!latched.use_latched);
+		assert_eq!(latched.phase, GrenadePhase::Ready);
 	}
 
 	#[test]

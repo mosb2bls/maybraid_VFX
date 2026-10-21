@@ -20,7 +20,7 @@ use player::{PlayerPoseSystems, PlayerSystems};
 use player_camera::PlayerCameraSystems;
 use std::f32::consts::FRAC_PI_2;
 
-pub use fire::{apply_fire_intents, realize_held_weapon_fire};
+pub use fire::{apply_fire_intents, apply_fire_routing, realize_held_weapon_fire};
 pub use hold::{sync_hands_to_firearm, HoldingArms};
 pub use kit::{kit_from_spec, GeneratedFirearm};
 pub use pose::{
@@ -115,7 +115,12 @@ pub fn register_firearm_user_runtime(app: &mut App) {
 		.add_message::<maybraid_character_controller::EquippedItemUse>()
 		.add_message::<player_camera::CameraRecoilHandoff>()
 		.add_message::<firearms::WeaponFired>()
-		.add_systems(Update, fire::apply_fire_intents.in_set(PlayerSystems::Intent))
+		.add_systems(
+			Update,
+			(fire::apply_fire_intents, fire::apply_fire_routing)
+				.chain()
+				.in_set(PlayerSystems::Intent),
+		)
 		.add_systems(Update, swap::advance_weapon_swap.in_set(FirearmUserSystems::Swap))
 		.add_systems(Update, swap::clear_finished_weapon_swaps.after(swap::advance_weapon_swap))
 		.add_systems(PostUpdate, fire::queue_weapon_recoil.after(FirearmWeaponSystems::Fire))

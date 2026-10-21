@@ -1,5 +1,6 @@
 //! Stack-tip acceptance on the real production plugin wiring (not chained systems).
 
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use character_inventory_user::InventoryUser;
@@ -18,16 +19,18 @@ use lubikans::{
 	LubikanActivationDenied, LubikanActivationRefused, LubikanLedger, LubikanOwner,
 	LubikanSelfConfig, LubikansPlugin,
 };
+use maybraid_audio::AudioClip;
 use maybraid_character_controller::{
 	CharacterIntent, EquippedItemHandler, EquippedItemUse, EquippedPowerUse, InventoryCycling,
 	InventoryCyclingCategory, RoutedItemActor,
 };
 use maybraid_controllers_core::{
-	ActorTarget, CaptureKind, InputRouter, InputSource, ScopeOwner, UiTarget,
+	ActorTarget, CaptureKind, InputRouter, InputRouting, InputSource, ScopeOwner,
+	SourceConnection, UiTarget,
 };
 use maybraid_input::{PadButton, VirtualPad, VirtualPadSystems};
 use maybraid_world_controller::{SessionCapabilities, SessionCapabilitySystems};
-use player::{CameraFollow, Player, PlayerLook};
+use player::{CameraFollow, Player, PlayerLook, PlayerPlugin};
 use player_camera::{
 	register_player_camera_runtime, CameraController, CameraRecoilHandoff, FollowCamera,
 };
@@ -58,10 +61,21 @@ fn stack_app() -> App {
 	app
 }
 
-fn assign(app: &mut App, actor: Entity) {
+fn routing_apply(app: &mut App, apply: impl FnOnce(&mut InputRouter) + Send + Sync + 'static) {
+	let mut apply = Some(apply);
 	app.world_mut()
-		.resource_mut::<InputRouter>()
-		.assign_actor(InputSource::local_pad(), ActorTarget::new(actor));
+		.run_system_once(move |mut routing: InputRouting| {
+			if let Some(apply) = apply.take() {
+				apply(&mut routing);
+			}
+		})
+		.expect("publish routing");
+}
+
+fn assign(app: &mut App, actor: Entity) {
+	routing_apply(app, move |router| {
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(actor));
+	});
 }
 
 fn no_thrown_grenade(app: &mut App) -> bool {
@@ -290,11 +304,13 @@ fn capture_does_not_release_a_cooking_grenade() {
 	app.update();
 	let fuse = app.world().get::<GrenadeThrow>(actor).expect("throw").fuse;
 	assert!(app.world().get::<GrenadeThrow>(actor).is_some_and(|throw| throw.cooking()));
-	app.world_mut().resource_mut::<InputRouter>().acquire_capture(
-		InputSource::local_pad(),
-		ScopeOwner::ui(UiTarget::new(Entity::from_bits(99))),
-		CaptureKind::Overlay,
-	);
+	routing_apply(&mut app, |router| {
+		router.acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(99))),
+			CaptureKind::Overlay,
+		);
+	});
 	for _ in 0..12 {
 		app.update();
 	}
@@ -462,6 +478,7 @@ fn nested_captures_release_independently_on_the_router() {
 #[test]
 fn disconnect_while_holding_cancels_the_cook() {
 	let mut app = stack_app();
+	app.add_plugins((AssetPlugin::default(), PlayerPlugin)).init_asset::<AudioClip>();
 	let held = app.world_mut().spawn_empty().id();
 	let bag = spawn_grenade_bag(&mut app);
 	let actor = app
@@ -475,20 +492,85 @@ fn disconnect_while_holding_cancels_the_cook() {
 			EquippedItemHandler::Grenade,
 		))
 		.id();
-	assign(&mut app, actor);
+	app.update();
+	assert_eq!(
+		app.world().resource::<InputRouter>().local_actor(),
+		Some(ActorTarget::new(actor)),
+		"PlayerPlugin assignment must pick the spawned player"
+	);
 	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
 	app.update();
 	assert!(app.world().get::<GrenadeThrow>(actor).is_some_and(|throw| throw.use_latched));
 	assert!(app.world().get::<RoutedItemActor>(actor).is_some());
-	app.world_mut().resource_mut::<InputRouter>().disconnect(InputSource::local_pad());
-	app.update();
+	routing_apply(&mut app, |router| {
+		router.disconnect(InputSource::local_pad());
+	});
+	let mut dropped = false;
+	for _ in 0..4 {
+		app.update();
+		dropped |= app
+			.world_mut()
+			.resource_mut::<Messages<DropLiveGrenade>>()
+			.drain()
+			.next()
+			.is_some();
+		let router = app.world().resource::<InputRouter>();
+		assert_eq!(
+			router.connection(InputSource::local_pad()),
+			SourceConnection::Disconnected,
+			"PlayerPlugin assignment must not reconnect a disconnected pad"
+		);
+		assert_eq!(router.local_actor(), None);
+	}
 	assert_eq!(
 		app.world().get::<GrenadeThrow>(actor).map(|throw| throw.phase),
 		Some(GrenadePhase::Ready),
-		"disconnect is ReleaseNeutral; assignment undo waits on #1442"
+		"disconnect must drop the live cook"
 	);
-	assert!(app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().next().is_some());
+	assert!(dropped, "disconnect must emit DropLiveGrenade");
 	assert!(no_thrown_grenade(&mut app));
+}
+
+#[test]
+fn capture_cancels_a_held_firearm_trigger() {
+	let mut app = stack_app();
+	let gun = spawn_live_gun(&mut app, 8.0);
+	let actor = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			FirearmUser::holding(gun),
+			EquippedItemHandler::Firearm,
+		))
+		.id();
+	assign(&mut app, actor);
+	app.world_mut().write_message(EquippedItemUse::new(
+		ActorTarget::new(actor),
+		EquippedItemHandler::Firearm,
+		1.0,
+		true,
+	));
+	app.update();
+	assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(true));
+	assert!(
+		app.world_mut().resource_mut::<Messages<WeaponFired>>().drain().next().is_none(),
+		"partial hold must not have realized a shot yet"
+	);
+	routing_apply(&mut app, |router| {
+		router.acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(11))),
+			CaptureKind::Overlay,
+		);
+	});
+	app.update();
+	assert_eq!(
+		app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0),
+		Some(false),
+		"capture must cancel a partial firearm hold"
+	);
+	assert!(app.world_mut().resource_mut::<Messages<WeaponFired>>().drain().next().is_none());
 }
 
 #[test]

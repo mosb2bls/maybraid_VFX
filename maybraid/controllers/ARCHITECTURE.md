@@ -224,7 +224,7 @@ the current owner. Later phases change the owner column, not the role id.
 | U4 | Focus pick | `MenuController::pick_focus` / `resolve` | screen subtree | A4 | `MenuController` | Overlay > HUD > text. |
 | U5 | Scoped capture | `CaptureToken`, `ScopeOwner`, `CaptureStack` via `InputRouter` | A4 `refresh_menu_focus` (`MenuNavCapture`); console / map / text | A4 dispatch; A5 `delivered_actor`; pad policy | `InputRouter` | Token- and owner-scoped. Nested menu / text / overlay. First/last blocking capture emits `RoutingKind::{Captured,Uncaptured}`. Updating a claim keeps stack order. |
 | U6 | Suspension | `SuspensionToken`, `InputRouter::suspend` / `set_paused` | E1 pause; hosts | A5 delivery; Tanz execute (session-local); E4 projection | `InputRouter` | Delivery freeze. Motor freeze is `MotorSuppressionToken`. Pause is not session end. Session writes go through `InputRouting` so later stages see the messages. |
-| U7 | Lifecycle cleanup | `RoutingEvent` hold / gesture effects; Tanz `reset_input` / `apply_toggle`; death despawn | A3 events; mode flip; death | wishes, execution, items | `InputRouter` + per-domain | Consumers read `MessageReader<RoutingEvent>` (`InputRouting` publishes). `ReleaseNeutral` / `Cancel` drop Standard holds and partial Tanz / flick history (disconnect / capture / reassignment / removal). |
+| U7 | Lifecycle cleanup | `RoutingEvent` hold / gesture effects; Tanz `reset_input` / `apply_toggle`; item latch / trigger; death despawn | A3 events; mode flip; death | wishes, execution, items | `InputRouter` + per-domain | Consumers read `MessageReader<RoutingEvent>` (`InputRouting` publishes). `ReleaseNeutral` / `Cancel` drop Standard holds, partial Tanz / flick history, and leftover item holds (disconnect / capture / reassignment / removal). A live grenade cook is kept on `Captured`. |
 
 ### M — menu
 
@@ -403,8 +403,11 @@ InputRouter::delivered_actor + EquippedItemHandler
                                             re-checks delivered_actor after
                                             SessionCapabilitySystems)
                  → apply_throw_intents     (grenade; missing use is not a release)
-                 → apply_throw_routing     (ReleaseNeutral cancel/drop)
-                 → advance_throw           (suspension freezes fuse + windup)
+                 → apply_throw_routing     (MessageReader: drop on
+                                            disconnect / reassign / removal;
+                                            capture cancels leftover latch)
+                 → advance_throw           (suspension freezes fuse + windup;
+                                            capture keeps a live fuse)
             → EquippedPowerUse(actor)
                  → LubikanActivationRequest::equipped(owner)
 InventoryCycling (per-actor) ← SelectInventoryCyclingCategory
@@ -420,8 +423,8 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 |---|---|
 | `controllers/character` | `EquippedItemHandler`, `EquippedItemUse`, `EquippedPowerUse`, `dispatch_equipped_item`, `InventoryCycling` |
 | `player-camera` | `CameraRecoilHandoff`, `apply_recoil_handoff`; look gated on delivery |
-| `firearm-user` | `apply_fire_intents` reads D1; recoil writes the handoff only; `register_firearm_user_runtime` |
-| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,take_live_cook}`; `register_grenade_user_runtime` |
+| `firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger; recoil writes the handoff only; `register_firearm_user_runtime` |
+| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime` |
 | `world` | category owner + holster commit; `request_lubikan_activation` |
 | `intelligence/combat/firearm` | unchanged NPC `WeaponTrigger` writer |
 
@@ -432,7 +435,8 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 | `CharacterIntent::UseItem` / `PowerUseItem` | `EquippedItemUse` / `EquippedPowerUse` | D1 Bind |
 | `EquippedItemUse` firearm + held | `WeaponTrigger` | D2 |
 | `EquippedItemUse` grenade | cook / latch / explicit release | D3 |
-| `RoutingEvent` `ReleaseNeutral` | `take_live_cook` + `DropLiveGrenade` | D3 |
+| `RoutingEvent` disconnect / reassign / removal | `take_live_cook` + `DropLiveGrenade` | D3 |
+| `RoutingEvent` `Captured` | cancel leftover item latch / trigger; keep a live cook | D3 / D2 |
 | `InputRouter` suspension | freeze `advance_throw` clocks | D3 |
 | `WeaponFired` | `CameraRecoilHandoff` | D4 → C5 |
 | `EquippedPowerUse` | `LubikanActivationRequest::equipped` | D7 |
@@ -462,10 +466,11 @@ steps `app.update()`. GPU / audio systems stay on the full plugins:
 - grenade handler does not squeeze a firearm
 - denied shot runs real fire + recoil clocks (cooldown denies; a later
   ready shot kicks)
-- capture keeps ticking a live fuse; suspension freezes fuse and windup
+- capture keeps ticking a live fuse and cancels a leftover item latch /
+  held firearm trigger; suspension freezes fuse and windup
 - reassignment / disconnect emit `ReleaseNeutral` and drop via
-  `take_live_cook` (production `assign_local_player` undo waits on
-  [#1442](https://github.com/ramate-io/maybraid/issues/1442))
+  `take_live_cook`; disconnect stays disconnected under production
+  `PlayerPlugin` / `assign_local_player`
 - Start + held trigger in one pad frame leaves an idle firearm / ready
   grenade (`PlayerSystems::Intent` after `SessionCapabilitySystems`)
 - category then cycle in one frame
@@ -486,8 +491,6 @@ steps `app.update()`. GPU / audio systems stay on the full plugins:
   `stash` `Gamepad` presence, `game::toggle_world_pause` Start / A.
 - Full `WorldPlugin` is not headless-safe; stack tests use the extracted
   headless runtime registration, not terrain / vegetation assemble.
-- Host re-assignment after `disconnect` and capture-triggered gesture / hold
-  cancellation wait on [#1442](https://github.com/ramate-io/maybraid/issues/1442).
 
 ## Review baselines
 

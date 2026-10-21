@@ -27,7 +27,7 @@ pub use maybraid_world_controller::WorldGameplayEnabled;
 /// Production uses the game-shell pause state; stack tests register this in
 /// [`maybraid_world_controller::SessionCapabilitySystems`].
 pub fn apply_in_game_menu_pause(
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	session: Res<SessionCapabilities>,
 	mut intents: MessageReader<CharacterIntent>,

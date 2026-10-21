@@ -7170,6 +7170,7 @@ dependencies = [
  "maputo",
  "material-ref",
  "maybraid-agent",
+ "maybraid-audio",
  "maybraid-character-controller",
  "maybraid-controllers-core",
  "maybraid-game-mode-discover",

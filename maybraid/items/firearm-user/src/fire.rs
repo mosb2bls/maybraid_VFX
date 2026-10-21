@@ -5,7 +5,9 @@ use firearms::{
 	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, FireControl,
 	FireOnTrigger, ProjectileSource, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger,
 };
-use maybraid_character_controller::{delivered_item_use, EquippedItemUse, InputRouter};
+use maybraid_character_controller::{
+	delivered_item_use, EquippedItemUse, InputRouter, InputSource, RoutingEvent, RoutingKind,
+};
 use player::{CameraFollow, Player};
 use player_camera::CameraRecoilHandoff;
 
@@ -34,6 +36,45 @@ pub fn apply_fire_intents(
 		});
 		if let Ok(mut trigger) = triggers.get_mut(user.held) {
 			trigger.0 = fire && !swapping;
+		}
+	}
+}
+
+/// Clear a held trigger when routing cancels the pad. Capture must not keep
+/// squeezing; disconnect / reassignment / removal drop the lost actor's hold.
+pub fn apply_fire_routing(
+	mut events: MessageReader<RoutingEvent>,
+	router: Res<InputRouter>,
+	users: Query<(Entity, &FirearmUser), With<Player>>,
+	mut triggers: Query<&mut WeaponTrigger>,
+) {
+	let source = InputSource::local_pad();
+	let current = router.actor(source).map(|actor| actor.entity());
+	let mut clear_lost = false;
+	let mut clear_assigned = false;
+	for event in events.read() {
+		if event.source() != source {
+			continue;
+		}
+		match event.kind() {
+			RoutingKind::Disconnected | RoutingKind::Removed | RoutingKind::Reassigned => {
+				clear_lost = true;
+			}
+			RoutingKind::Captured => {
+				clear_assigned = true;
+			}
+			_ => {}
+		}
+	}
+	if !clear_lost && !clear_assigned {
+		return;
+	}
+	for (entity, user) in &users {
+		let assigned = current == Some(entity);
+		if (clear_assigned && assigned) || (clear_lost && !assigned) {
+			if let Ok(mut trigger) = triggers.get_mut(user.held) {
+				trigger.0 = false;
+			}
 		}
 	}
 }
@@ -164,9 +205,11 @@ fn mix(seed: u64, value: u64) -> u64 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use bevy::ecs::system::RunSystemOnce;
 	use bevy::time::TimeUpdateStrategy;
 	use maybraid_character_controller::{
-		ActorTarget, EquippedItemHandler, EquippedItemUse, InputRouter,
+		ActorTarget, CaptureKind, EquippedItemHandler, EquippedItemUse, InputRouter, InputRouting,
+		InputSource, RoutingEvent, ScopeOwner, UiTarget,
 	};
 	use player::PlayerLook;
 	use player_camera::{CameraController, CameraPov, FollowCamera};
@@ -225,6 +268,29 @@ mod tests {
 			1.0,
 			true,
 		));
+		app.update();
+		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(false));
+	}
+
+	#[test]
+	fn capture_clears_a_held_weapon_trigger() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.init_resource::<InputRouter>()
+			.add_message::<RoutingEvent>()
+			.add_systems(Update, apply_fire_routing);
+		let gun = app.world_mut().spawn(WeaponTrigger(true)).id();
+		let shooter = app.world_mut().spawn((Player, FirearmUser::holding(gun))).id();
+		app.world_mut()
+			.run_system_once(move |mut routing: InputRouting| {
+				routing.assign_actor(InputSource::local_pad(), ActorTarget::new(shooter));
+				routing.acquire_capture(
+					InputSource::local_pad(),
+					ScopeOwner::ui(UiTarget::new(Entity::from_bits(3))),
+					CaptureKind::Overlay,
+				);
+			})
+			.expect("capture");
 		app.update();
 		assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(false));
 	}
