@@ -12,13 +12,13 @@ mod stack;
 use bevy::prelude::*;
 use characters::CharacterMotionSystems;
 use damage::Downed;
-use maybraid_character_controller::{
-	CharacterBindSystems, OrdinaryLocomotion, OrdinaryLocomotionEnabled, RoutedActorControl,
-};
+use maybraid_character_controller::{CharacterBindSystems, OrdinaryLocomotion, RoutedActorControl};
 use maybraid_controllers_core::{ActorTarget, ControllerPipeline, MotorRequestStage};
-use maybraid_skill_map::{SkillMapFlick, SkillMapSteerPolicy, SkillMapSystems, SkillMapUser};
+use maybraid_skill_map::{SkillMapFlick, SkillMapSystems, SkillMapUser};
 use menu_components::sync_loading_bar_fill;
-use player::{Player, PlayerLook, PlayerSystems};
+use player::{PlayerLook, PlayerSystems};
+#[cfg(test)]
+use player::Player;
 
 pub use actions::{
 	dash_ground_speed, forward_dash, healing_salute, left_strafe, right_strafe, starter_stack,
@@ -134,6 +134,12 @@ impl TanzUser {
 		info!("tanz control mode -> {:?}", self.mode);
 		true
 	}
+
+	/// Ordinary locomotion participation for this actor. Written once on
+	/// install and again only when mode actually changes.
+	pub fn ordinary_locomotion(&self) -> bool {
+		!self.mode.is_tanzer()
+	}
 }
 
 /// Tunable recognition and toggle thresholds.
@@ -184,9 +190,7 @@ impl Plugin for TanzUserPlugin {
 		ControllerPipeline::configure(app);
 		app.add_message::<TanzInput>()
 			.add_message::<ExecuteTanz>()
-			.init_resource::<OrdinaryLocomotionEnabled>()
 			.init_resource::<RoutedActorControl>()
-			.init_resource::<SkillMapSteerPolicy>()
 			.configure_sets(
 				Update,
 				(
@@ -212,7 +216,7 @@ impl Plugin for TanzUserPlugin {
 			)
 			.add_systems(
 				Update,
-				(toggle_control_mode, sync_tanz_policies)
+				(toggle_control_mode, sync_tanz_participation)
 					.chain()
 					.in_set(TanzUserSystems::Toggle),
 			)
@@ -264,25 +268,15 @@ fn toggle_control_mode(
 	user.apply_toggle(time.delta_secs(), sample.bumper_chord(), &mut execution);
 }
 
-fn sync_tanz_policies(
+/// One-time Standard ↔ Tanzer participation. Does not restamp a global
+/// mode table. `Changed<TanzUser>` covers spawn and the cleaned-up toggle.
+fn sync_tanz_participation(
 	mut commands: Commands,
-	users: Query<(Entity, &TanzUser, Has<Player>)>,
-	mut ordinary: ResMut<OrdinaryLocomotionEnabled>,
-	mut policy: ResMut<SkillMapSteerPolicy>,
+	changed: Query<(Entity, &TanzUser), Changed<TanzUser>>,
 ) {
-	let mut player_tanzer = None;
-	let mut any_tanzer = false;
-	for (entity, user, is_player) in &users {
-		let tanzer = user.mode.is_tanzer();
-		any_tanzer |= tanzer;
-		commands.entity(entity).insert(OrdinaryLocomotion(!tanzer));
-		if is_player {
-			player_tanzer = Some(tanzer);
-		}
+	for (entity, user) in &changed {
+		commands.entity(entity).insert(OrdinaryLocomotion(user.ordinary_locomotion()));
 	}
-	let tanzer = player_tanzer.unwrap_or(any_tanzer);
-	ordinary.0 = !tanzer;
-	*policy = if tanzer { SkillMapSteerPolicy::Tanz } else { SkillMapSteerPolicy::Standard };
 }
 
 fn recognize_tanz_inputs(
@@ -426,17 +420,12 @@ mod tests {
 	#[test]
 	fn tanzer_policy_disables_ordinary_locomotion() -> anyhow::Result<()> {
 		let mut app = App::new();
-		app.add_plugins(MinimalPlugins)
-			.init_resource::<OrdinaryLocomotionEnabled>()
-			.init_resource::<SkillMapSteerPolicy>()
-			.add_systems(Update, sync_tanz_policies);
+		app.add_plugins(MinimalPlugins).add_systems(Update, sync_tanz_participation);
 		let npc = app
 			.world_mut()
 			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() })
 			.id();
 		app.update();
-		assert_eq!(*app.world().resource::<SkillMapSteerPolicy>(), SkillMapSteerPolicy::Tanz);
-		assert!(!app.world().resource::<OrdinaryLocomotionEnabled>().0);
 		assert_eq!(app.world().get::<OrdinaryLocomotion>(npc).map(|flag| flag.0), Some(false));
 		Ok(())
 	}
@@ -444,17 +433,50 @@ mod tests {
 	#[test]
 	fn npc_tanzer_does_not_steal_a_standard_player_pad() -> anyhow::Result<()> {
 		let mut app = App::new();
-		app.add_plugins(MinimalPlugins)
-			.init_resource::<OrdinaryLocomotionEnabled>()
-			.init_resource::<SkillMapSteerPolicy>()
-			.add_systems(Update, sync_tanz_policies);
-		app.world_mut()
-			.spawn((Player, TanzUser { mode: ControlMode::Standard, ..TanzUser::default() }));
-		app.world_mut()
-			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() });
+		app.add_plugins(MinimalPlugins).add_systems(Update, sync_tanz_participation);
+		let player = app
+			.world_mut()
+			.spawn((Player, TanzUser { mode: ControlMode::Standard, ..TanzUser::default() }))
+			.id();
+		let npc = app
+			.world_mut()
+			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() })
+			.id();
 		app.update();
-		assert!(app.world().resource::<OrdinaryLocomotionEnabled>().0);
-		assert_eq!(*app.world().resource::<SkillMapSteerPolicy>(), SkillMapSteerPolicy::Standard);
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(player).map(|flag| flag.0), Some(true));
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(npc).map(|flag| flag.0), Some(false));
+		Ok(())
+	}
+
+	#[test]
+	fn two_actors_keep_independent_modes_without_global_restamp() -> anyhow::Result<()> {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins).add_systems(Update, sync_tanz_participation);
+		let standard = app.world_mut().spawn(TanzUser::default()).id();
+		let tanzer = app
+			.world_mut()
+			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() })
+			.id();
+		app.update();
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(standard).map(|flag| flag.0), Some(true));
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(tanzer).map(|flag| flag.0), Some(false));
+
+		app.world_mut().entity_mut(tanzer).insert(OrdinaryLocomotion(true));
+		app.update();
+		assert_eq!(
+			app.world().get::<OrdinaryLocomotion>(tanzer).map(|flag| flag.0),
+			Some(true),
+			"unchanged TanzUser must not restamp locomotion from mode"
+		);
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(standard).map(|flag| flag.0), Some(true));
+
+		app.world_mut()
+			.entity_mut(tanzer)
+			.get_mut::<TanzUser>()
+			.expect("user")
+			.set_mode(ControlMode::Standard, &mut TanzExecution::default());
+		app.update();
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(tanzer).map(|flag| flag.0), Some(true));
 		Ok(())
 	}
 
@@ -584,8 +606,6 @@ mod tests {
 				std::time::Duration::from_secs_f32(1.0 / 60.0),
 			))
 			.init_resource::<RoutedActorControl>()
-			.init_resource::<OrdinaryLocomotionEnabled>()
-			.init_resource::<SkillMapSteerPolicy>()
 			.init_resource::<ButtonInput<MouseButton>>()
 			.add_message::<TanzInput>()
 			.add_message::<ExecuteTanz>()
@@ -596,7 +616,7 @@ mod tests {
 				(
 					reset_motor_intents,
 					toggle_control_mode,
-					sync_tanz_policies,
+					sync_tanz_participation,
 					recognize_tanz_inputs,
 					publish_tanz_map_inputs,
 					match_tanz_inputs,

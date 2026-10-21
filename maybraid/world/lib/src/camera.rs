@@ -87,16 +87,22 @@ pub(crate) fn spawn_world_camera(
 }
 
 /// Enable shared gameplay follow only while the world owns gameplay input.
-pub(crate) fn sync_camera_mode(
+/// One writer for follow, POV lock, and look suppress.
+pub(crate) fn sync_camera_session_state(
 	mut commands: Commands,
 	mode: Res<PlaygroundMode>,
 	gameplay: Res<WorldGameplayEnabled>,
 	inventory_edit: Option<Res<InventoryEditCameraFollow>>,
+	map: Option<Res<WorldMapView>>,
 	players: Query<(Entity, Has<CameraFollow>), With<VegetationPlayer>>,
+	mut locked: Option<ResMut<CameraPovLocked>>,
+	mut suppressed: Option<ResMut<CameraLookSuppressed>>,
+	mut cameras: Query<&mut CameraController, With<FollowCamera>>,
 ) {
-	// Map is [`CameraPov::Map`] on the follow camera, not a detached eye.
-	let follow = *mode == PlaygroundMode::Character
-		&& (gameplay.0 || inventory_edit.is_some_and(|edit| edit.0));
+	let edit = inventory_edit.is_some_and(|edit| edit.0);
+	let map_open = map.is_some_and(|map| map.open);
+	let presenting = map_open && gameplay.0;
+	let follow = *mode == PlaygroundMode::Character && (gameplay.0 || edit);
 	for (entity, following) in &players {
 		if follow && !following {
 			commands.entity(entity).insert(CameraFollow);
@@ -104,23 +110,13 @@ pub(crate) fn sync_camera_mode(
 			commands.entity(entity).remove::<CameraFollow>();
 		}
 	}
-}
-
-pub(crate) fn sync_inventory_edit_look(
-	edit: Res<InventoryEditCameraFollow>,
-	map: Option<Res<WorldMapView>>,
-	mut locked: Option<ResMut<CameraPovLocked>>,
-	mut suppressed: Option<ResMut<CameraLookSuppressed>>,
-	mut cameras: Query<&mut CameraController, With<FollowCamera>>,
-) {
-	let map_open = map.is_some_and(|map| map.open);
 	if let Some(locked) = locked.as_deref_mut() {
-		locked.0 = edit.0 || map_open;
+		locked.0 = presenting || edit || map_open;
 	}
 	if let Some(suppressed) = suppressed.as_deref_mut() {
-		suppressed.0 = map_open;
+		suppressed.0 = presenting;
 	}
-	if !edit.0 || map_open {
+	if !edit || map_open {
 		return;
 	}
 	for mut controller in &mut cameras {
@@ -241,7 +237,7 @@ pub(crate) fn configure(app: &mut App) {
 	app.add_systems(Startup, spawn_world_camera)
 		.add_systems(
 			Update,
-			(sync_camera_mode, sync_inventory_edit_look)
+			sync_camera_session_state
 				.after(WorldMapSet::Toggle)
 				.before(PlayerCameraSystems::Look),
 		)
@@ -306,7 +302,7 @@ mod tests {
 		world.insert_resource(InventoryEditCameraFollow(true));
 		let player = world.spawn((VegetationPlayer, Player)).id();
 		world
-			.run_system_once(sync_camera_mode)
+			.run_system_once(sync_camera_session_state)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert!(world.get::<CameraFollow>(player).is_some());
 		Ok(())

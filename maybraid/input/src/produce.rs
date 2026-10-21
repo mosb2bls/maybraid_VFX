@@ -4,7 +4,7 @@ use bevy::input::InputSystems;
 use bevy::prelude::*;
 
 use crate::config::VirtualPadConfig;
-use crate::gate::PadGameplayEnabled;
+use crate::gate::PadInputPolicy;
 use crate::pad::VirtualPad;
 
 pub mod gamepad;
@@ -18,10 +18,10 @@ pub fn begin_produce(mut pad: ResMut<VirtualPad>) {
 pub fn finish_produce(
 	mut pad: ResMut<VirtualPad>,
 	config: Res<VirtualPadConfig>,
-	enabled: Res<PadGameplayEnabled>,
+	policy: Res<PadInputPolicy>,
 	time: Res<Time>,
 ) {
-	if !enabled.is_enabled() {
+	if policy.suppress_gameplay() {
 		pad.suppress_gameplay();
 	}
 	pad.apply_trigger_digital(config.trigger_press_threshold);

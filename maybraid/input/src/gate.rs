@@ -1,90 +1,65 @@
-//! Gameplay suppress flag and which keyboard keys feed the pad.
+//! Derived pad policy. Written only by the capture resolver (U5).
 
 use bevy::prelude::*;
 
-/// When [`Self::is_enabled`] is false, analog and pad buttons are cleared after
-/// produce. The keyboard overlay stays so debug keys and text hosts can still
-/// see physical keys.
+/// Keyboard layout and analog suppress derived from [`CaptureStack`].
 ///
-/// Hosts write independent lanes so they cannot clobber each other. The pad is
-/// on only when every lane allows it.
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PadGameplayEnabled {
-	/// Command console / other text-entry hosts.
-	from_text: bool,
-	/// Menu lock. A short-text modal still allows the pad so the keypad works.
-	from_menu: bool,
-}
-
-impl Default for PadGameplayEnabled {
-	fn default() -> Self {
-		Self { from_text: true, from_menu: true }
-	}
-}
-
-impl PadGameplayEnabled {
-	pub fn is_enabled(self) -> bool {
-		self.from_text && self.from_menu
-	}
-
-	pub fn set_text(&mut self, allow: bool) {
-		self.from_text = allow;
-	}
-
-	pub fn set_menu(&mut self, allow: bool) {
-		self.from_menu = allow;
-	}
-
-	pub fn text_allows(self) -> bool {
-		self.from_text
-	}
-
-	pub fn menu_allows(self) -> bool {
-		self.from_menu
-	}
-}
-
-/// When true, a focused menu owns **B** as Back. Character `collect` skips stance.
+/// One writer. Hosts must not poke independent lanes — push or pop a capture
+/// layer instead.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MenuOwnsBack(pub bool);
+pub struct PadInputPolicy {
+	keyboard_menu: bool,
+	suppress_gameplay: bool,
+}
 
-/// Which keyboard keys become pad buttons. Gamepad bindings are unchanged.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum KeyboardPadMap {
-	/// WASD + arrows on the move stick, Space → A, Escape → B.
-	#[default]
-	Gameplay,
-	/// Menus and text: arrows on the D-Pad, Escape → Back, Enter → Start.
-	Menu,
+impl PadInputPolicy {
+	pub const fn new(keyboard_menu: bool, suppress_gameplay: bool) -> Self {
+		Self { keyboard_menu, suppress_gameplay }
+	}
+
+	pub const fn gameplay() -> Self {
+		Self { keyboard_menu: false, suppress_gameplay: false }
+	}
+
+	pub const fn menu() -> Self {
+		Self { keyboard_menu: true, suppress_gameplay: false }
+	}
+
+	pub const fn console() -> Self {
+		Self { keyboard_menu: true, suppress_gameplay: true }
+	}
+
+	pub const fn keyboard_menu(self) -> bool {
+		self.keyboard_menu
+	}
+
+	pub const fn suppress_gameplay(self) -> bool {
+		self.suppress_gameplay
+	}
 }
 
 #[cfg(test)]
 mod tests {
-	use super::PadGameplayEnabled;
+	use super::PadInputPolicy;
 
 	#[test]
-	fn both_lanes_must_allow() {
-		let mut enabled = PadGameplayEnabled::default();
-		assert!(enabled.is_enabled());
-		enabled.set_text(false);
-		assert!(!enabled.is_enabled());
-		assert!(enabled.menu_allows());
-		enabled.set_menu(false);
-		enabled.set_text(true);
-		assert!(!enabled.is_enabled());
-		assert!(enabled.text_allows());
-		enabled.set_menu(true);
-		assert!(enabled.is_enabled());
+	fn gameplay_keeps_the_pad() {
+		let policy = PadInputPolicy::gameplay();
+		assert!(!policy.keyboard_menu());
+		assert!(!policy.suppress_gameplay());
 	}
 
 	#[test]
-	fn writers_do_not_clobber() {
-		let mut enabled = PadGameplayEnabled::default();
-		enabled.set_menu(true);
-		enabled.set_text(false);
-		enabled.set_menu(true);
-		assert!(!enabled.is_enabled(), "text lane stays off after a later menu write");
-		enabled.set_text(true);
-		assert!(enabled.is_enabled());
+	fn menu_keeps_the_pad_for_nav() {
+		let policy = PadInputPolicy::menu();
+		assert!(policy.keyboard_menu());
+		assert!(!policy.suppress_gameplay());
+	}
+
+	#[test]
+	fn console_suppresses_analog() {
+		let policy = PadInputPolicy::console();
+		assert!(policy.keyboard_menu());
+		assert!(policy.suppress_gameplay());
 	}
 }

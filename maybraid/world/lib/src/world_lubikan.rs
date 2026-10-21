@@ -3,19 +3,15 @@
 use bevy::prelude::*;
 use game_commands::command::TextEntryFocus;
 use lubikans::{
-	LubikanActivationRequest, LubikanHealingEnabled, LubikanOwner, LubikanOwnerLifetime,
-	LubikanOwnerLifetimeKind, LubikanSystems, LubikansPlugin,
+	LubikanActivationRequest, LubikanHealingEnabled, LubikanOwner, LubikanSystems, LubikansPlugin,
 };
 use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
-use player::{
-	CharacterController, CharacterStance, LocomotionCapsule, MotorTraction, RestLocomotionCapsule,
-	StanceKind,
-};
-use world_player::{Player, PlayerPhysicsEnabled};
+use maybraid_world_controller::SessionCapabilitySystems;
+use world_player::Player;
 
 use crate::control::{
-	apply_world_player_motor, strip_world_player_motor, WorldGameplayEnabled, WorldPlaySessionEnded,
+	grant_world_player_lubikan_owner, sync_lubikan_session, WorldGameplayEnabled,
 };
 use crate::map_view::WorldMapView;
 
@@ -51,10 +47,8 @@ impl Plugin for WorldLubikanPlugin {
 		app.add_systems(
 			PreUpdate,
 			(
-				stamp_vegetation_motor_traction,
-				stamp_world_player_motor,
-				crate::control::grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
-				forward_world_session_end.before(LubikanSystems::Owner),
+				grant_world_player_lubikan_owner.before(LubikanSystems::Owner),
+				sync_lubikan_session.before(LubikanSystems::Owner),
 			),
 		);
 
@@ -64,70 +58,12 @@ impl Plugin for WorldLubikanPlugin {
 				sync_lubikan_healing_enabled.before(LubikanSystems::Activate),
 				request_lubikan_activation
 					.after(CharacterControlSystems)
+					.after(SessionCapabilitySystems)
 					.after(sync_lubikan_healing_enabled)
 					.before(LubikanSystems::Activate),
 			),
 		);
 	}
-}
-
-/// Vegetation capsule already has `ActiveCollisionHooks`; pair it with the shared motor marker.
-fn stamp_vegetation_motor_traction(
-	mut commands: Commands,
-	players: Query<Entity, (With<Player>, Without<MotorTraction>)>,
-) {
-	for entity in &players {
-		commands.entity(entity).insert(player::motor_traction_bundle());
-	}
-}
-
-/// Put the world player on the player-crate capsule motor so column buoyancy runs.
-fn stamp_world_player_motor(
-	physics: Res<PlayerPhysicsEnabled>,
-	mut commands: Commands,
-	missing: Query<Entity, (With<Player>, Without<CharacterController>)>,
-	present: Query<
-		(
-			Entity,
-			Option<&CharacterStance>,
-			Option<&RestLocomotionCapsule>,
-			Option<&LocomotionCapsule>,
-		),
-		(With<Player>, With<CharacterController>),
-	>,
-) {
-	if physics.0 {
-		for entity in &missing {
-			apply_world_player_motor(&mut commands, entity);
-		}
-		for (entity, stance, rest, live) in &present {
-			if stance.is_none() {
-				commands.entity(entity).insert(CharacterStance::settled(StanceKind::Stand));
-			}
-			if rest.is_none() {
-				commands.entity(entity).insert(RestLocomotionCapsule(
-					live.copied().unwrap_or(LocomotionCapsule::HUMANOID),
-				));
-			}
-		}
-	} else {
-		for (entity, _, _, _) in &present {
-			strip_world_player_motor(&mut commands, entity);
-		}
-	}
-}
-
-/// Removed - now in control.rs as public function for world player lifecycle.
-
-/// Forward world session teardown to Lubikan lifetime events.
-fn forward_world_session_end(
-	mut ended: MessageReader<WorldPlaySessionEnded>,
-	mut lives: MessageWriter<LubikanOwnerLifetime>,
-) {
-	if ended.read().next().is_none() {
-		return;
-	}
-	lives.write(LubikanOwnerLifetime::new(None, None, LubikanOwnerLifetimeKind::RestartSession));
 }
 
 /// Sync Lubikan healing enabled state with world gameplay enabled (pause gates healing).
@@ -181,7 +117,9 @@ fn request_lubikan_activation(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::control::WorldPlaySessionEnded;
 	use bevy::ecs::system::RunSystemOnce;
+	use lubikans::LubikanOwnerLifetime;
 
 	#[test]
 	fn power_use_item_requests_equipped_activation() -> anyhow::Result<()> {
@@ -224,7 +162,7 @@ mod tests {
 		world.init_resource::<Messages<LubikanOwnerLifetime>>();
 		world.write_message(WorldPlaySessionEnded);
 		world
-			.run_system_once(forward_world_session_end)
+			.run_system_once(sync_lubikan_session)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let count = world
 			.run_system_once(|mut lives: MessageReader<LubikanOwnerLifetime>| lives.read().count())

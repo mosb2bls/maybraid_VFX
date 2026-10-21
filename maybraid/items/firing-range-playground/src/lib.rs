@@ -43,7 +43,8 @@ use hiding_intelligence::{HidingPlugin, HidingSystems};
 use les_halles::LesHallesSpawn;
 use lod::LodRefreshSystems;
 use maybraid_character_controller::CharacterControllerPlugin;
-use maybraid_input::{PadGameplayEnabled, VirtualPadSystems};
+use maybraid_controllers_core::{CaptureLayer, CaptureStack, InputSource};
+use maybraid_input::{PadInputPolicy, VirtualPadSystems};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;
 use movement_intelligence::{
 	CandidateBudget, MovementIntelligenceLimits, MovementIntelligencePlugin,
@@ -561,8 +562,13 @@ fn spawn_reticle_system(
 	spawn_reticle(&mut commands, &mut meshes, &mut materials);
 }
 
-fn gate_pad(focus: Res<TextEntryFocus>, mut enabled: ResMut<PadGameplayEnabled>) {
-	enabled.set_text(!focus.0);
+fn gate_pad(
+	focus: Res<TextEntryFocus>,
+	mut capture: ResMut<CaptureStack>,
+	mut policy: ResMut<PadInputPolicy>,
+) {
+	capture.set_layer(CaptureLayer::console(InputSource::local_pad()), focus.0);
+	*policy = capture.pad_policy();
 }
 
 fn setup_lighting(mut commands: Commands) {

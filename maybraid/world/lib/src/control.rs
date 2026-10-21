@@ -7,8 +7,10 @@ use durham::{
 };
 use game_commands::command::{CommandConsoleOutput, TextEntryFocus};
 use maybraid_character_controller::CharacterIntent;
+use maybraid_controllers_core::{CaptureLayer, CaptureStack, InputSource, SuspensionStack};
 use maybraid_skill_map::SkillMapEnabled;
 use maybraid_sky::{SkyDome, SKY_HORIZON};
+use maybraid_world_controller::SessionCapabilities;
 use player::{
 	apply_character_controller, Buoyant, CharacterController, CharacterStance, JumpWish, Jumping,
 	LocomotionCapsule, MotorIntent, MotorTraction, MoveWish as PlayerMoveWish,
@@ -137,13 +139,29 @@ pub(crate) fn sync_combat_hud_visible(
 	}
 }
 
+pub(crate) fn sync_console_capture(
+	focus: Option<Res<TextEntryFocus>>,
+	mut capture: Option<ResMut<CaptureStack>>,
+) {
+	let Some(capture) = capture.as_deref_mut() else {
+		return;
+	};
+	capture.set_layer(
+		CaptureLayer::console(InputSource::local_pad()),
+		focus.is_some_and(|focus| focus.0),
+	);
+}
+
 pub(crate) fn sync_skill_map_enabled(
 	gameplay: Res<WorldGameplayEnabled>,
 	text_focus: Res<TextEntryFocus>,
 	map: Option<Res<WorldMapView>>,
+	capture: Option<Res<CaptureStack>>,
 	mut enabled: ResMut<SkillMapEnabled>,
 ) {
-	let next = gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open));
+	let blocked = capture.is_some_and(|stack| stack.blocks_actor(InputSource::local_pad()));
+	let next =
+		gameplay.accepts_character_input(text_focus.0 || blocked, map.is_some_and(|map| map.open));
 	if enabled.0 != next {
 		enabled.0 = next;
 	}
@@ -156,13 +174,24 @@ pub(crate) fn apply_world_motor_filter(
 	mode: Res<PlaygroundMode>,
 	text_focus: Res<TextEntryFocus>,
 	gameplay: Res<WorldGameplayEnabled>,
+	session: Option<Res<SessionCapabilities>>,
+	suspensions: Option<Res<SuspensionStack>>,
+	capture: Option<Res<CaptureStack>>,
 	map: Option<Res<WorldMapView>>,
 	mut vegetation: Query<&mut MoveWish, With<Player>>,
 	mut motors: Query<&mut MotorIntent, (With<CharacterController>, With<MaybraidPlayer>)>,
 ) {
-	if *mode == PlaygroundMode::Character
-		&& gameplay.accepts_character_input(text_focus.0, map.is_some_and(|map| map.open))
-	{
+	let capture_blocks = capture.is_some_and(|stack| stack.blocks_actor(InputSource::local_pad()));
+	let map_open = map.is_some_and(|map| map.open);
+	let allowed = match (session.as_deref(), suspensions.as_deref()) {
+		(Some(session), Some(suspensions)) => session.player_realization_allowed(
+			suspensions,
+			capture_blocks || text_focus.0,
+			map_open,
+		),
+		_ => gameplay.accepts_character_input(text_focus.0 || capture_blocks, map_open),
+	};
+	if *mode == PlaygroundMode::Character && allowed {
 		return;
 	}
 	for mut wish in &mut vegetation {
@@ -400,6 +429,23 @@ mod tests {
 	}
 
 	#[test]
+	fn pause_keeps_installed_motors() {
+		use bevy::ecs::system::RunSystemOnce;
+
+		let mut world = World::new();
+		world.insert_resource(PlayerPhysicsEnabled(true));
+		world.insert_resource(WorldGameplayEnabled(false));
+		let player = world.spawn(Player).id();
+		apply_world_player_motor(&mut world.commands(), player);
+		world.flush();
+		world
+			.run_system_once(stamp_world_player_motor)
+			.expect("keep world player motor while paused");
+		assert!(world.get::<CharacterController>(player).is_some());
+		assert!(world.get::<PlayerMoveWish>(player).is_some());
+	}
+
+	#[test]
 	fn world_player_motor_is_stripped_when_physics_is_off() {
 		use bevy::ecs::system::RunSystemOnce;
 
@@ -473,5 +519,58 @@ mod tests {
 		let notices = world.run_system_once(take_notices).expect("read restart notices");
 		assert_eq!(notices.len(), 1);
 		assert_eq!(notices[0].kind, LubikanOwnerLifetimeKind::RestartSession);
+	}
+
+	#[test]
+	fn same_frame_pause_suppresses_the_player_before_item_realization() -> anyhow::Result<()> {
+		use maybraid_controllers_core::{CaptureStack, SuspensionStack};
+		use player::{apply_motor, MotorSample, Npc};
+
+		#[derive(Resource, Default)]
+		struct ItemFired(bool);
+
+		fn realize_item(
+			gameplay: Res<WorldGameplayEnabled>,
+			capture: Res<CaptureStack>,
+			mut fired: ResMut<ItemFired>,
+		) {
+			fired.0 = gameplay.0 && !capture.blocks_actor(InputSource::local_pad());
+		}
+
+		let mut world = World::new();
+		world.insert_resource(PlaygroundMode::Character);
+		world.insert_resource(TextEntryFocus(false));
+		world.insert_resource(WorldGameplayEnabled(false));
+		let mut capabilities = SessionCapabilities::default();
+		capabilities.install_play(true);
+		world.insert_resource(capabilities);
+		let mut suspensions = SuspensionStack::default();
+		suspensions.set_pause(true);
+		world.insert_resource(suspensions);
+		world.init_resource::<CaptureStack>();
+		world.init_resource::<ItemFired>();
+		let mut player_intent = MotorIntent::default();
+		player_intent.set_standard(MotorSample::translation(Vec3::X));
+		let player = world
+			.spawn((CharacterController, MaybraidPlayer, PlayerMoveWish(Vec3::X), player_intent))
+			.id();
+		let mut npc_intent = MotorIntent::default();
+		npc_intent.set_npc(MotorSample::translation(Vec3::Z));
+		let npc = world
+			.spawn((Npc, CharacterController, PlayerMoveWish(Vec3::Z), npc_intent))
+			.id();
+		world
+			.run_system_once(apply_world_motor_filter)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(apply_motor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(realize_item)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(world.get::<PlayerMoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
+		assert_eq!(world.get::<PlayerMoveWish>(npc).map(|wish| wish.0), Some(Vec3::Z));
+		assert!(!world.resource::<ItemFired>().0);
+		Ok(())
 	}
 }

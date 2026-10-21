@@ -218,8 +218,8 @@ mod tests {
 		pad.finish_digital();
 		let sample = ActorControlSample::from_pad(&pad);
 		assert!(sample.a().just_pressed());
-		assert!(collect(&pad, 0.5, 0.0, true, true).contains(&CharacterIntent::Jump));
-		assert!(!collect(&pad, 0.5, 0.0, true, false).contains(&CharacterIntent::Jump));
+		assert!(collect(&pad, 0.5, 0.0, true, true, false).contains(&CharacterIntent::Jump));
+		assert!(!collect(&pad, 0.5, 0.0, true, false, false).contains(&CharacterIntent::Jump));
 	}
 
 	#[test]

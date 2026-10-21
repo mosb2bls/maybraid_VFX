@@ -81,6 +81,10 @@ pub use maybraid_sky::{
 	ShadowQuality, SkyClock, SkyCommand, SKY_BLUE, SKY_CLEAR, SKY_HORIZON, SKY_NADIR, SKY_ZENITH,
 	SUN_COLOR, SUN_ILLUMINANCE,
 };
+pub use maybraid_world_controller::{
+	CapabilityToken, SessionCapabilities, SessionCapabilitySystems, SuspensionClaim,
+	SuspensionScope, SuspensionStack,
+};
 pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use player_camera::{CameraPov, CameraPovLocked};
 pub use player_lifecycle::{
@@ -140,9 +144,9 @@ use maybraid_sky::SkyDomePlugin;
 use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
 use maybraid_world_controller::WorldControllerPlugin;
-use player::{
-	register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin, PlayerSystems,
-};
+#[cfg(test)]
+use player::PlayerSystems;
+use player::{register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin};
 use player_camera::{PlayerCameraPlugin, PlayerCameraSystems};
 use world_player::{
 	CharacterCameraFollowEnabled, CharacterLocomotion, CharacterSpecies, MeshStatsPlugin,
@@ -294,7 +298,11 @@ impl Plugin for WorldPlugin {
 		app.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,
-				(control::stamp_vegetation_motor_traction, control::stamp_world_player_motor),
+				(
+					control::sync_console_capture,
+					control::stamp_vegetation_motor_traction,
+					control::stamp_world_player_motor,
+				),
 			)
 			.configure_sets(Update, control::WorldSurfaceSet)
 			.add_systems(

@@ -18,21 +18,9 @@ use maybraid_input::VirtualPadPlugin;
 
 use crate::produce::produce_character_intents;
 
-/// When `false`, pad move / jump / stance / sprint are not turned into intents.
-/// Look and item controls stay live. Derived from the local [`Player`] Tanz
-/// mode when one exists so an NPC Tanzer does not steal the pad.
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OrdinaryLocomotionEnabled(pub bool);
-
-impl Default for OrdinaryLocomotionEnabled {
-	fn default() -> Self {
-		Self(true)
-	}
-}
-
 /// Per-actor ordinary locomotion participation. Missing means enabled.
-/// Tanz-user stamps this from control mode so an NPC Tanzer does not
-/// disable walking for a Standard local player.
+/// Tanz-user writes this once on spawn and again only when that actor's
+/// Standard ↔ Tanzer mode actually changes.
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OrdinaryLocomotion(pub bool);
 
@@ -67,7 +55,6 @@ impl Plugin for CharacterControllerPlugin {
 			app.add_plugins(VirtualPadPlugin::default());
 		}
 		app.add_message::<CharacterIntent>()
-			.init_resource::<OrdinaryLocomotionEnabled>()
 			.init_resource::<RoutedActorControl>()
 			.configure_sets(Update, CharacterControlSystems.in_set(ControllerPipeline::Bind))
 			.configure_sets(

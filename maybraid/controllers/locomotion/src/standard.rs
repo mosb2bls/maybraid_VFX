@@ -1,9 +1,7 @@
 //! Broadcast [`CharacterIntent`] → one actor-local Standard [`MotorIntent`].
 
 use bevy::prelude::*;
-use maybraid_character_controller::{
-	CharacterIntent, OrdinaryLocomotion, OrdinaryLocomotionEnabled,
-};
+use maybraid_character_controller::{CharacterIntent, OrdinaryLocomotion};
 use maybraid_controllers_core::LocalActor;
 use player::{
 	CharacterController, MotorIntent, MotorSample, Player, PlayerLook, SpeedCapRequest,
@@ -15,7 +13,6 @@ const FOCUS_EPS: f32 = 1e-6;
 /// Interpret pad locomotion for the local [`Player`] only.
 pub fn interpret_standard_locomotion(
 	mouse: Res<ButtonInput<MouseButton>>,
-	ordinary_pad: Option<Res<OrdinaryLocomotionEnabled>>,
 	local: Option<Res<LocalActor>>,
 	mut intents: MessageReader<CharacterIntent>,
 	mut actors: Query<
@@ -23,7 +20,6 @@ pub fn interpret_standard_locomotion(
 		(With<CharacterController>, With<Player>),
 	>,
 ) {
-	let pad_ordinary = ordinary_pad.is_none_or(|enabled| enabled.0);
 	let mut move_stick = Vec2::ZERO;
 	let mut jump = false;
 	let mut focusing = mouse.pressed(MouseButton::Right);
@@ -52,7 +48,7 @@ pub fn interpret_standard_locomotion(
 	let Ok((_, mut intent, look, ordinary)) = actors.get_mut(target) else {
 		return;
 	};
-	let ordinary = pad_ordinary && ordinary.is_none_or(|enabled| enabled.0);
+	let ordinary = ordinary.is_none_or(|enabled| enabled.0);
 	let sprint = if focusing {
 		SprintRequest::Release
 	} else if ordinary && start_sprint {

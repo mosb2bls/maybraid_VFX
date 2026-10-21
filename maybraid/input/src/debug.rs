@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 
 use crate::config::VirtualPadConfig;
-use crate::gate::PadGameplayEnabled;
+use crate::gate::PadInputPolicy;
 use crate::pad::VirtualPad;
 use crate::produce::gamepad::GamepadAxes;
 use crate::surface::menu::MenuNavPad;
@@ -39,7 +39,7 @@ fn spawn_debug_overlay(config: Res<VirtualPadConfig>, mut commands: Commands) {
 
 fn update_debug_overlay(
 	config: Res<VirtualPadConfig>,
-	enabled: Res<PadGameplayEnabled>,
+	policy: Res<PadInputPolicy>,
 	pad: Res<VirtualPad>,
 	nav: Res<MenuNavPad>,
 	gamepads: Query<(Entity, &Gamepad)>,
@@ -54,7 +54,7 @@ fn update_debug_overlay(
 	let mut out = String::new();
 	out.push_str(&format!(
 		"enabled={} nav={:?} move=({:.2},{:.2}) dpad=({:.2},{:.2}) A={} B={} Start={} Select={}\n",
-		enabled.is_enabled(),
+		!policy.suppress_gameplay(),
 		nav.events,
 		pad.move_stick.x,
 		pad.move_stick.y,

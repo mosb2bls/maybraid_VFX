@@ -17,7 +17,7 @@ pub mod surface;
 pub use analog::{Cardinal, Deadzone};
 pub use button::{ButtonPhase, ButtonStroke, PadButton, PAD_BUTTON_COUNT};
 pub use config::VirtualPadConfig;
-pub use gate::{KeyboardPadMap, MenuOwnsBack, PadGameplayEnabled};
+pub use gate::PadInputPolicy;
 pub use hid::{with_pad_hid, PadHidPlugins};
 pub use history::{PadEdge, PadHistory, PadSnapshot, Timed};
 pub use overlay::PadOverlay;
@@ -66,9 +66,7 @@ impl Plugin for VirtualPadPlugin {
 		app.insert_resource(self.config.clone())
 			.init_resource::<VirtualPad>()
 			.init_resource::<PadHistory>()
-			.init_resource::<PadGameplayEnabled>()
-			.init_resource::<KeyboardPadMap>()
-			.init_resource::<MenuOwnsBack>()
+			.init_resource::<PadInputPolicy>()
 			.init_resource::<MenuNavPad>()
 			.init_resource::<PadCursor>()
 			.add_message::<rumble::PadRumble>()

@@ -11,6 +11,7 @@ use world_player::Player as VegetationPlayer;
 use crate::control::WorldGameplayEnabled;
 use crate::map_view::WorldMapView;
 use crate::weapon::WorldPlayerLoadout;
+use maybraid_world_controller::SessionCapabilitySystems;
 
 /// Readable active equipped-queue category for HUD lanes ([#1113](https://github.com/ramate-io/maybraid/issues/1113)).
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,6 +44,7 @@ pub(crate) fn configure(app: &mut App) {
 			apply_inventory_category_selection
 				.in_set(InventoryCyclingCategorySystems)
 				.after(maybraid_character_controller::CharacterControlSystems)
+				.after(SessionCapabilitySystems)
 				.after(LubikanSystems::Owner)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
 		)
@@ -51,6 +53,7 @@ pub(crate) fn configure(app: &mut App) {
 			cycle_equipped_inventory_queues
 				.in_set(InventoryCyclingSystems)
 				.after(maybraid_character_controller::CharacterControlSystems)
+				.after(SessionCapabilitySystems)
 				.after(LubikanSystems::Owner)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
 		);

@@ -1,14 +1,18 @@
 # World controller
 
-Owns [`WorldGameplayEnabled`](src/enabled.rs): the live-play flag that
-gates character intents, combat HUD, skill-map sync, inventory cycling,
-and Lubikan activation.
+Owns [`SessionCapabilities`](src/capabilities.rs): actor/session participation
+that is installed or removed. [`SuspensionStack`](../core/src/suspension.rs)
+is a separate owned-token freeze. [`WorldGameplayEnabled`](src/enabled.rs)
+is the live-play projection of installed gameplay minus gameplay suspensions.
 
-`WorldGameplayEnabled::accepts_character_input` is live play with no text
-console and no world map sheet. `WorldGameplayEnabled::combat_hud_visible`
-is the same without the console (vitals stay up while typing).
+Capabilities are independent — not a game-mode enum and not a per-frame
+`SessionActivity` table. Loading streams with gameplay off. Pause writes the
+pause token; motors stay installed; NPCs keep simulating. Leave / Home
+uninstalls play and releases the pause token only.
 
-Pause writes this resource. Pause is not a play-session teardown.
-`apply_world_motor_filter` declares `MotorIntent` suppress for the local
-player in `MotorRequestStage::WorldFilter`; it does not write live
-`player::MoveWish` or the Discovery vegetation motor path.
+Capture (U5) is a third operation: it redirects or blocks delivery without
+freezing simulation. [`SessionCapabilitySystems`](src/lib.rs) applies a
+pending pause after Bind and before WorldFilter / item realization.
+
+Standard ↔ Tanzer is per-actor participation, written once on change. It
+does not restamp a global mode table.

@@ -8,6 +8,8 @@ use durham::DurhamSurface;
 use game_commands::command::TextEntryFocus;
 use geneva::{LanguageOverlay, NameKey, NamedOverlay};
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
+use maybraid_controllers_core::{CaptureLayer, CaptureStack, InputSource};
+use maybraid_world_controller::SessionCapabilitySystems;
 use menu_components::{
 	BARLOW_BLACK, BONES_ICON, ITEM_FONT_SIZE, MAP_ARROW_ICON, MAP_GROVE_ICON, MAP_HOUSE_ICON,
 	MAP_MOUNTAIN_ICON, MAP_TOWN_ICON, MAP_TREE_ICON, MAP_WATER_ICON, NOTO_SANS_REGULAR,
@@ -15,14 +17,12 @@ use menu_components::{
 };
 use mob_characters::{LOCAL_POI, SALOON_POI, URBAN_POI, VEGETATION_POI};
 use player::CameraFollow;
-use player_camera::{
-	CameraController, CameraLookSuppressed, CameraPovLocked, FollowCamera, PlayerCameraSystems,
-};
+use player_camera::{CameraController, FollowCamera, PlayerCameraSystems};
 use poi_intelligence::{PoiId, PoiKind, PoiRecord, PoiRegistry};
 use richmond::DiscoverablePlace;
 use world_player::{Player as VegetationPlayer, PlayerLifeSet, PlaygroundMode};
 
-use crate::control::{InventoryEditCameraFollow, WorldGameplayEnabled};
+use crate::control::WorldGameplayEnabled;
 use crate::player_lifecycle::WorldPlayerRespawnState;
 use combat_hud::ScreenPin;
 
@@ -245,16 +245,18 @@ impl Plugin for WorldMapViewPlugin {
 		app.init_resource::<WorldMapView>()
 			.init_resource::<LanguageOverlay>()
 			.init_resource::<MapPresentation>()
+			.init_resource::<CaptureStack>()
 			.configure_sets(
 				Update,
 				WorldMapSet::Toggle
 					.after(CharacterControlSystems)
+					.after(SessionCapabilitySystems)
 					.before(PlayerCameraSystems::Look),
 			)
 			.add_systems(Startup, spawn_map_name_hud)
 			.add_systems(
 				Update,
-				(toggle_map_view, sync_map_camera_locks, pan_map_view)
+				(toggle_map_view, sync_map_capture, pan_map_view)
 					.chain()
 					.in_set(WorldMapSet::Toggle),
 			)
@@ -404,21 +406,8 @@ pub(crate) fn toggle_map_view(
 	map.open_at(xz, false);
 }
 
-fn sync_map_camera_locks(
-	map: Res<WorldMapView>,
-	gameplay: Res<WorldGameplayEnabled>,
-	edit: Option<Res<InventoryEditCameraFollow>>,
-	mut locked: Option<ResMut<CameraPovLocked>>,
-	mut suppressed: Option<ResMut<CameraLookSuppressed>>,
-) {
-	let presenting = map.open && gameplay.0;
-	let hold = presenting || edit.is_some_and(|edit| edit.0);
-	if let Some(locked) = locked.as_deref_mut() {
-		locked.0 = hold;
-	}
-	if let Some(suppressed) = suppressed.as_deref_mut() {
-		suppressed.0 = presenting;
-	}
+fn sync_map_capture(map: Res<WorldMapView>, mut capture: ResMut<CaptureStack>) {
+	capture.set_layer(CaptureLayer::map_sheet(InputSource::local_pad()), map.open);
 }
 
 fn pan_map_view(
@@ -1538,13 +1527,12 @@ fn sync_map_death_bones(
 	surface: DurhamSurface,
 	mut markers: Query<(&mut Node, &mut Visibility), With<MapDeathBones>>,
 ) {
-	let screen = if !picker_prompt_visible(&map, gameplay.0)
-		|| pending_is_first_life(pending.as_deref())
-	{
-		None
-	} else {
-		death_xz(pending.as_deref()).and_then(|xz| MapHudMarker::project(&surface, &camera, xz))
-	};
+	let screen =
+		if !picker_prompt_visible(&map, gameplay.0) || pending_is_first_life(pending.as_deref()) {
+			None
+		} else {
+			death_xz(pending.as_deref()).and_then(|xz| MapHudMarker::project(&surface, &camera, xz))
+		};
 	for (mut node, mut visibility) in &mut markers {
 		MapHudMarker::DEATH_BONES.apply(&mut node, &mut visibility, screen);
 	}
@@ -1930,12 +1918,16 @@ mod tests {
 			.spawn((VegetationPlayer, CameraFollow, Transform::from_xyz(12.0, 3.0, -8.0)))
 			.id();
 
+		world.init_resource::<CaptureStack>();
 		write_toggle(&mut world);
 		world
 			.run_system_once(toggle_map_view)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		world
-			.run_system_once(crate::camera::sync_camera_mode)
+			.run_system_once(sync_map_capture)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(crate::camera::sync_camera_session_state)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 
 		let map = world.resource::<WorldMapView>();
@@ -1943,6 +1935,49 @@ mod tests {
 		assert_eq!(map.focus, Vec2::new(12.0, -8.0));
 		assert!(!map.close_locked);
 		assert!(world.get::<CameraFollow>(player).is_some());
+		assert!(world.resource::<CaptureStack>().blocks_actor(InputSource::local_pad()));
+		Ok(())
+	}
+
+	#[test]
+	fn map_and_menu_captures_release_independently() -> anyhow::Result<()> {
+		use maybraid_controllers_core::{CapabilityToken, CaptureKind, CaptureLayer};
+
+		let mut world = World::new();
+		world.insert_resource(WorldMapView {
+			open: true,
+			focus: Vec2::ZERO,
+			height: DEFAULT_MAP_HEIGHT,
+			close_locked: false,
+			begin_life: false,
+		});
+		world.init_resource::<CaptureStack>();
+		world
+			.run_system_once(sync_map_capture)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let menu = CapabilityToken::from_bits(7);
+		world.resource_mut::<CaptureStack>().push(CaptureLayer::new(
+			InputSource::local_pad(),
+			menu,
+			CaptureKind::MenuNav,
+		));
+		assert_eq!(world.resource::<CaptureStack>().len(), 2);
+
+		world.resource_mut::<CaptureStack>().pop_token(menu);
+		world
+			.run_system_once(sync_map_capture)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<CaptureStack>().blocks_actor(InputSource::local_pad()));
+		assert_eq!(
+			world.resource::<CaptureStack>().top().map(|layer| layer.kind()),
+			Some(CaptureKind::Overlay)
+		);
+
+		world.resource_mut::<WorldMapView>().close();
+		world
+			.run_system_once(sync_map_capture)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<CaptureStack>().is_empty());
 		Ok(())
 	}
 
