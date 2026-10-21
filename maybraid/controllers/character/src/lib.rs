@@ -6,7 +6,8 @@ pub mod sample;
 
 pub use intent::{CharacterIntent, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
-	ActorTarget, ControllerPipeline, InputRouter, InputSource, Routed,
+	ActorTarget, ControllerPipeline, InputRouter, InputRouting, InputSource, Routed, RoutingEvent,
+	SourceConnection,
 };
 pub use sample::{
 	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,

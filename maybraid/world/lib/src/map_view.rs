@@ -8,7 +8,9 @@ use durham::DurhamSurface;
 use game_commands::command::TextEntryFocus;
 use geneva::{LanguageOverlay, NameKey, NamedOverlay};
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
-use maybraid_controllers_core::{CaptureKind, CaptureToken, InputRouter, InputSource, ScopeOwner};
+use maybraid_controllers_core::{
+	CaptureKind, CaptureToken, InputRouter, InputRouting, InputSource, ScopeOwner,
+};
 use maybraid_world_controller::SessionCapabilitySystems;
 use menu_components::{
 	BARLOW_BLACK, BONES_ICON, ITEM_FONT_SIZE, MAP_ARROW_ICON, MAP_GROVE_ICON, MAP_HOUSE_ICON,
@@ -413,7 +415,7 @@ struct MapOverlayCapture {
 
 fn sync_map_capture(
 	map: Res<WorldMapView>,
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut capture: ResMut<MapOverlayCapture>,
 ) {
 	router.replace_owned_capture(
@@ -1933,6 +1935,7 @@ mod tests {
 			.id();
 
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<maybraid_controllers_core::RoutingEvent>>();
 		world.init_resource::<MapOverlayCapture>();
 		write_toggle(&mut world);
 		world
@@ -1967,6 +1970,7 @@ mod tests {
 			begin_life: false,
 		});
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<maybraid_controllers_core::RoutingEvent>>();
 		world.init_resource::<MapOverlayCapture>();
 		world
 			.run_system_once(sync_map_capture)

@@ -6,7 +6,8 @@ pub mod dispatch;
 pub use controller::MenuController;
 pub use dispatch::{exclusive_nav_menu, ExclusiveNav, MenuNavCapture};
 pub use maybraid_controllers_core::{
-	CaptureKind, CaptureToken, InputRouter, InputSource, ScopeOwner, UiTarget,
+	CaptureKind, CaptureToken, InputRouter, InputRouting, InputSource, RoutingEvent, ScopeOwner,
+	UiTarget,
 };
 
 use bevy::prelude::*;
@@ -51,7 +52,7 @@ impl Plugin for MenuControllerPlugin {
 fn sync_text_menu_capture(
 	lock: Res<TextMenuInputLock>,
 	modal: Res<ShortTextModal>,
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut menu_capture: ResMut<MenuNavCapture>,
 ) {
 	router.replace_owned_capture(
@@ -72,7 +73,9 @@ mod tests {
 	use crate::dispatch::MenuNavCapture;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
-	use maybraid_controllers_core::{CaptureKind, InputRouter, InputSource, ScopeOwner};
+	use maybraid_controllers_core::{
+		CaptureKind, InputRouter, InputSource, RoutingEvent, ScopeOwner,
+	};
 	use maybraid_input::PadInputPolicy;
 	use menu_components::controls::short_text::ShortTextSession;
 	use menu_components::{ShortTextModal, TextMenuInputLock};
@@ -82,6 +85,7 @@ mod tests {
 		world.init_resource::<TextMenuInputLock>();
 		world.init_resource::<ShortTextModal>();
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.init_resource::<MenuNavCapture>();
 		world.init_resource::<PadInputPolicy>();
 		world

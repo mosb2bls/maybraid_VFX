@@ -277,8 +277,11 @@ impl Plugin for TanzUserPlugin {
 	}
 }
 
-fn apply_tanz_routing_events(router: Res<InputRouter>, mut users: Query<&mut TanzUser>) {
-	for event in router.events() {
+fn apply_tanz_routing_events(
+	mut events: MessageReader<RoutingEvent>,
+	mut users: Query<&mut TanzUser>,
+) {
+	for event in events.read() {
 		for mut user in &mut users {
 			user.apply_routing(*event);
 		}
@@ -636,9 +639,7 @@ mod tests {
 				std::time::Duration::from_secs_f32(1.0 / 60.0),
 			))
 			.init_resource::<InputRouter>()
-			.add_systems(Last, |mut router: ResMut<InputRouter>| {
-				router.take_events();
-			})
+			.add_message::<RoutingEvent>()
 			.init_resource::<RoutedActorControl>()
 			.init_resource::<ButtonInput<MouseButton>>()
 			.add_message::<TanzInput>()
@@ -671,7 +672,6 @@ mod tests {
 	#[test]
 	fn unrelated_tanz_actor_is_unaffected() -> anyhow::Result<()> {
 		use maybraid_character_controller::ActorControlSample;
-		use maybraid_controllers_core::{InputRouter, InputSource};
 
 		let mut app = pipeline_app();
 		let local = app
@@ -700,9 +700,7 @@ mod tests {
 				player::ResolvedMotorRequest::default(),
 			))
 			.id();
-		app.world_mut()
-			.resource_mut::<InputRouter>()
-			.assign_actor(InputSource::local_pad(), ActorTarget::new(local));
+		assign_pad(&mut app, local);
 		app.world_mut().insert_resource(RoutedActorControl::from_sample(
 			ActorTarget::new(local),
 			ActorControlSample::default().with_move_stick(Vec2::NEG_X),
@@ -794,7 +792,6 @@ mod tests {
 	#[test]
 	fn switching_standard_and_tanzer_leaves_no_stale_motion() -> anyhow::Result<()> {
 		use maybraid_character_controller::{ActorControlSample, CharacterIntent};
-		use maybraid_controllers_core::{InputRouter, InputSource};
 		use player::{MoveSpeedCap, MoveWish, Sprinting};
 
 		let mut app = pipeline_app();
@@ -814,9 +811,7 @@ mod tests {
 				Sprinting,
 			))
 			.id();
-		app.world_mut()
-			.resource_mut::<InputRouter>()
-			.assign_actor(InputSource::local_pad(), ActorTarget::new(player));
+		assign_pad(&mut app, player);
 		app.update();
 		app.world_mut().write_message(CharacterIntent::Move(Vec2::Y));
 		app.world_mut().write_message(CharacterIntent::StartSprint);
@@ -887,10 +882,16 @@ mod tests {
 	}
 
 	fn assign_pad(app: &mut App, entity: Entity) {
-		use maybraid_controllers_core::{InputRouter, InputSource};
+		use bevy::ecs::system::RunSystemOnce;
+		use maybraid_controllers_core::{InputRouting, InputSource};
+
+		let actor = ActorTarget::new(entity);
 		app.world_mut()
-			.resource_mut::<InputRouter>()
-			.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
+			.run_system_once(move |mut routing: InputRouting| {
+				routing.connect(InputSource::local_pad());
+				routing.assign_actor(InputSource::local_pad(), actor);
+			})
+			.expect("assign pad");
 	}
 
 	#[test]
@@ -959,8 +960,9 @@ mod tests {
 
 	#[test]
 	fn disconnect_releases_a_bumper_hold() -> anyhow::Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
 		use maybraid_character_controller::ActorControlSample;
-		use maybraid_controllers_core::{InputRouter, InputSource};
+		use maybraid_controllers_core::{InputRouting, InputSource};
 
 		let mut app = pipeline_app();
 		let player = spawn_tanzer(&mut app, ControlMode::Standard);
@@ -979,8 +981,10 @@ mod tests {
 		assert!(app.world().get::<TanzUser>(player).is_some_and(|user| user.toggle.is_partial()));
 
 		app.world_mut()
-			.resource_mut::<InputRouter>()
-			.disconnect(InputSource::local_pad());
+			.run_system_once(|mut routing: InputRouting| {
+				routing.disconnect(InputSource::local_pad());
+			})
+			.expect("disconnect");
 		app.world_mut().insert_resource(RoutedActorControl::default());
 		app.update();
 		assert!(
@@ -1026,6 +1030,7 @@ mod tests {
 				std::time::Duration::from_secs_f32(0.04),
 			))
 			.init_resource::<InputRouter>()
+			.add_message::<RoutingEvent>()
 			.init_resource::<RoutedActorControl>()
 			.init_resource::<SkillMapEnabled>()
 			.init_resource::<SkillMapController>()
@@ -1126,10 +1131,15 @@ mod tests {
 	}
 
 	fn assign_lifecycle(app: &mut App, entity: Entity) {
-		use maybraid_controllers_core::{InputRouter, InputSource};
+		use bevy::ecs::system::RunSystemOnce;
+		use maybraid_controllers_core::{InputRouting, InputSource};
+
+		let actor = ActorTarget::new(entity);
 		app.world_mut()
-			.resource_mut::<InputRouter>()
-			.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
+			.run_system_once(move |mut routing: InputRouting| {
+				routing.assign_actor(InputSource::local_pad(), actor);
+			})
+			.expect("assign lifecycle actor");
 	}
 
 	#[test]
@@ -1191,8 +1201,9 @@ mod tests {
 
 	#[test]
 	fn plugin_pause_during_a_healing_tanz_freezes_the_local_actor() -> anyhow::Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
 		use damage::Health;
-		use maybraid_controllers_core::{InputRouter, InputSource};
+		use maybraid_controllers_core::{InputRouter, InputRouting, InputSource};
 		use maybraid_world_controller::SessionCapabilities;
 
 		let mut app = lifecycle_plugins();
@@ -1210,7 +1221,11 @@ mod tests {
 			))
 			.id();
 		assign_lifecycle(&mut app, player);
-		app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+		app.world_mut()
+			.run_system_once(|mut routing: InputRouting| {
+				routing.set_paused(true);
+			})
+			.expect("pause");
 		assert!(app.world().resource::<InputRouter>().is_suspended(InputSource::local_pad()));
 		let mut npc_execution = TanzExecution::default();
 		npc_execution.submit(TanzId::HealingSalute);

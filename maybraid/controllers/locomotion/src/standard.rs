@@ -10,7 +10,7 @@ use player::{
 
 const FOCUS_EPS: f32 = 1e-6;
 
-/// Interpret pad locomotion for [`InputRouter::local_actor`] only.
+/// Interpret pad locomotion for [`InputRouter::delivered_local_actor`] only.
 pub fn interpret_standard_locomotion(
 	mouse: Res<ButtonInput<MouseButton>>,
 	router: Res<InputRouter>,
@@ -40,7 +40,7 @@ pub fn interpret_standard_locomotion(
 		}
 	}
 
-	let Some(target) = router.local_actor() else {
+	let Some(target) = router.delivered_local_actor() else {
 		return;
 	};
 	let Ok((mut intent, look, ordinary)) = actors.get_mut(target.entity()) else {
@@ -78,7 +78,7 @@ pub fn interpret_standard_locomotion(
 mod tests {
 	use super::*;
 	use anyhow::{anyhow, Result};
-	use maybraid_controllers_core::{ActorTarget, InputSource};
+	use maybraid_controllers_core::{ActorTarget, CaptureKind, InputSource, ScopeOwner, UiTarget};
 	use player::MoveWish;
 
 	fn assign_local(app: &mut App, entity: Entity) {
@@ -163,6 +163,45 @@ mod tests {
 			.and_then(MotorIntent::standard)
 			.ok_or_else(|| anyhow!("standard sample"))?;
 		assert_eq!(sample.sprint, SprintRequest::Release);
+		Ok(())
+	}
+
+	#[test]
+	fn captured_assignment_writes_nobody() -> Result<()> {
+		let (mut app, player, other) = loco_app();
+		assign_local(&mut app, player);
+		app.world_mut().resource_mut::<InputRouter>().acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(other)),
+			CaptureKind::MenuNav,
+		);
+		write_intents(&mut app, &[CharacterIntent::Move(Vec2::Y)]);
+		app.update();
+		assert!(app
+			.world()
+			.get::<MotorIntent>(player)
+			.is_some_and(|intent| intent.standard().is_none()));
+		assert_eq!(
+			app.world().resource::<InputRouter>().local_actor(),
+			Some(ActorTarget::new(player)),
+			"capture keeps assignment while blocking delivery"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn disconnect_writes_nobody() -> Result<()> {
+		let (mut app, player, _) = loco_app();
+		assign_local(&mut app, player);
+		app.world_mut()
+			.resource_mut::<InputRouter>()
+			.disconnect(InputSource::local_pad());
+		write_intents(&mut app, &[CharacterIntent::Move(Vec2::Y)]);
+		app.update();
+		assert!(app
+			.world()
+			.get::<MotorIntent>(player)
+			.is_some_and(|intent| intent.standard().is_none()));
 		Ok(())
 	}
 

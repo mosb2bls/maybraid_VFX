@@ -7,7 +7,7 @@ use durham::{
 };
 use game_commands::command::{CommandConsoleOutput, TextEntryFocus};
 use maybraid_character_controller::CharacterIntent;
-use maybraid_controllers_core::{CaptureKind, InputRouter, InputSource, ScopeOwner};
+use maybraid_controllers_core::{CaptureKind, InputRouter, InputRouting, InputSource, ScopeOwner};
 use maybraid_skill_map::SkillMapEnabled;
 use maybraid_sky::{SkyDome, SKY_HORIZON};
 use maybraid_world_controller::SessionCapabilities;
@@ -146,12 +146,9 @@ pub(crate) struct ConsoleCapture {
 
 pub(crate) fn sync_console_capture(
 	focus: Option<Res<TextEntryFocus>>,
-	mut router: Option<ResMut<InputRouter>>,
-	mut capture: Option<ResMut<ConsoleCapture>>,
+	mut router: InputRouting,
+	mut capture: ResMut<ConsoleCapture>,
 ) {
-	let (Some(router), Some(capture)) = (router.as_deref_mut(), capture.as_deref_mut()) else {
-		return;
-	};
 	router.replace_owned_capture(
 		&mut capture.token,
 		InputSource::local_pad(),

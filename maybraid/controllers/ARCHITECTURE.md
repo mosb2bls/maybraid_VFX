@@ -112,17 +112,27 @@ phase 2 registers those sets beside locomotion / Tanz / world systems
 (`player::MotorRequestStage`).
 
 `InputRouter` is the sole routing owner. Sources have an explicit actor and
-optional UI assignment. Assignment loss, disconnect, and removal clear
-delivery and emit `HoldEffect::ReleaseNeutral` + `GestureEffect::Cancel`.
-Suspension emits `HoldEffect::Freeze` + `GestureEffect::Freeze`. Captures and
-suspensions are token- and owner-scoped: releasing one owner cannot release
-another.
+optional UI assignment. `SourceConnection::Connected` with no actor is
+awaiting host fallback; `Disconnected` is an explicit source-lifecycle
+state. Assignment loss, disconnect, removal, and the first blocking capture
+clear actor delivery and emit `HoldEffect::ReleaseNeutral` +
+`GestureEffect::Cancel`. The last blocking capture release emits
+`Uncaptured` (`None` / `None`). Nested captures emit only when effective
+delivery changes. Suspension emits `HoldEffect::Freeze` +
+`GestureEffect::Freeze`. Captures and suspensions are token- and
+owner-scoped: releasing one owner cannot release another.
+
+Lifecycle events are a Bevy `Message` (`RoutingEvent`). Each consumer uses a
+`MessageReader` cursor and sees every event exactly once, regardless of
+stage. Mutating systems should use `InputRouting` so the message is
+published in the same system. `take_events` is only the unpublished buffer.
 
 Controllers read `InputRouter::actor` / `delivered_actor` / `local_actor`.
 They never rediscover a "current player". The lowest-ID `Player` fallback is
 resolved **once** at the host assignment boundary
 (`InputRouter::assign_lowest_id_actor`, called from `player`'s
-`assign_local_player`).
+`assign_local_player`) and only while the source is connected. Reconnect is
+`InputRouter::connect` from the source lifecycle.
 
 Same-frame pause and capture (invariant 10): menu focus + capture write run
 in the same `Update` chain as dispatch. Pause declares a token-owned
@@ -160,8 +170,8 @@ the current owner. Later phases change the owner column, not the role id.
 | B8 | In-game menu | `CharacterIntent::InGameMenu` | A5 | E1 `toggle_world_pause` | character crate | Broadcast. |
 | B9 | Inventory | `CharacterIntent::Inventory` | A5 | E2 `stash.rs` | character crate | Broadcast. |
 | B10 | Toggle map | `CharacterIntent::ToggleMap` | A5 | E3 `map_view.rs` | character crate | Broadcast. |
-| B11 | Ordinary locomotion | `controllers/locomotion` `interpret_standard_locomotion` | A5 + `InputRouter::local_actor` | `MotorIntent` Standard contribution | `LocomotionControllerPlugin` | **Phase 2.** One routed actor. No lowest-ID lookup. |
-| B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` from `RoutedActorControl` | Tanz match → `ExecuteTanz`; skill-map fan-out | `TanzUser` component | **Phase 3.** Source/actor-owned history; physical A/B, not Jump. `RoutingEvent` cancels partial gestures. |
+| B11 | Ordinary locomotion | `controllers/locomotion` `interpret_standard_locomotion` | A5 + `InputRouter::delivered_local_actor` | `MotorIntent` Standard contribution | `LocomotionControllerPlugin` | **Phase 2.** One delivered actor. Capture / disconnect / suspend do not write Standard. No lowest-ID lookup. |
+| B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` from `RoutedActorControl` | Tanz match → `ExecuteTanz`; skill-map fan-out | `TanzUser` component | **Phase 3.** Source/actor-owned history; physical A/B, not Jump. `RoutingEvent` messages cancel partial gestures. |
 | B13 | Standard flick | `SkillMapFlick` | `SkillMapController::detect_skill_map_flicks` from `RoutedActorControl` | skill-map interpreter | `SkillMapController` resource | **Phase 3.** Actor/session-addressed; `look_throw`. History scoped to owner; session change cannot complete against the new session. |
 
 ### C — camera interpreter
@@ -205,9 +215,9 @@ the current owner. Later phases change the owner column, not the role id.
 | U2 | Actor routing | `ActorTarget`, `InputRouter::actor`, `RoutedActorControl` | host `assign_local_player` | A5; B11 / B12 / B13 | `InputRouter` (sole owner) | Lowest-ID `Player` assigned **once** at the host boundary. Controllers do not rediscover. |
 | U3 | UI routing | `UiTarget`, `RouteTarget::Ui`, `InputRouter::ui` | A4 capture; host `assign_ui` | M1 / M2 | `InputRouter` | Menu path uses token-scoped capture; UI assignment is available for hosts. |
 | U4 | Focus pick | `MenuController::pick_focus` / `resolve` | screen subtree | A4 | `MenuController` | Overlay > HUD > text. |
-| U5 | Scoped capture | `CaptureToken`, `ScopeOwner`, `CaptureStack` via `InputRouter` | A4 `refresh_menu_focus` (`MenuNavCapture`); console / map / text | A4 dispatch; A5 `delivered_actor`; pad policy | `InputRouter` | Token- and owner-scoped. Nested menu / text / overlay. Updating a claim keeps stack order. |
-| U6 | Suspension | `SuspensionToken`, `InputRouter::suspend` / `set_paused` | E1 pause; hosts | A5 delivery; Tanz execute (session-local); E4 projection | `InputRouter` | Delivery freeze. Motor freeze is `MotorSuppressionToken`. Pause is not session end. |
-| U7 | Lifecycle cleanup | `RoutingEvent` hold / gesture effects; Tanz `reset_input` / `apply_toggle`; death despawn | A3 events; mode flip; death | wishes, execution, items | `InputRouter` + per-domain | Router defines reassignment / disconnect / removal / suspension effects. Domain uninstall is phase 4–5. |
+| U5 | Scoped capture | `CaptureToken`, `ScopeOwner`, `CaptureStack` via `InputRouter` | A4 `refresh_menu_focus` (`MenuNavCapture`); console / map / text | A4 dispatch; A5 `delivered_actor`; pad policy | `InputRouter` | Token- and owner-scoped. Nested menu / text / overlay. First/last blocking capture emits `RoutingKind::{Captured,Uncaptured}`. Updating a claim keeps stack order. |
+| U6 | Suspension | `SuspensionToken`, `InputRouter::suspend` / `set_paused` | E1 pause; hosts | A5 delivery; Tanz execute (session-local); E4 projection | `InputRouter` | Delivery freeze. Motor freeze is `MotorSuppressionToken`. Pause is not session end. Session writes go through `InputRouting` so later stages see the messages. |
+| U7 | Lifecycle cleanup | `RoutingEvent` hold / gesture effects; Tanz `reset_input` / `apply_toggle`; death despawn | A3 events; mode flip; death | wishes, execution, items | `InputRouter` + per-domain | Consumers read `MessageReader<RoutingEvent>` (`InputRouting` publishes). `ReleaseNeutral` / `Cancel` drop Standard holds and partial Tanz / flick history (disconnect / capture / reassignment / removal). |
 
 ### M — menu
 
@@ -234,7 +244,7 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | `CharacterIntent` | `produce_character_intents` | `controllers/character/src/produce.rs` | `InputRouter::actor`, capture blocks, per-actor `OrdinaryLocomotion` | A5 Bind. Single producer. Becomes `Routed` per actor. |
 | `RoutedActorControl` | `produce_actor_control_samples` | `controllers/character/src/sample.rs` | `InputRouter::delivered_actor` | Bind. Analog + physical A/B for one actor. Sole pad sample for B12 / B13. |
 | `ExecuteTanz` | `match_tanz_inputs` | `items/tanz-user/src/execute.rs` | ordered `TanzStack` + cooldown | Selection only. Independent of `SkillMapFlick`. |
-| `MotorIntent` Standard | `interpret_standard_locomotion` | `controllers/locomotion/src/standard.rs` | `InputRouter::local_actor`; per-actor `OrdinaryLocomotion` | P3 Standard. One routed actor. |
+| `MotorIntent` Standard | `interpret_standard_locomotion` | `controllers/locomotion/src/standard.rs` | `InputRouter::delivered_local_actor`; per-actor `OrdinaryLocomotion` | P3 Standard. One delivered actor. |
 | `MotorIntent` Tanz | `apply_tanz_movement` | `items/tanz-user/src/execute.rs` | `TanzUser.mode.is_tanzer()` | P3 Tanz. Declares sprint/cap in the sample. Compose selects; apply does not inspect Tanz. |
 | `SkillMapFlick` | Tanz `publish_tanz_map_inputs` / Standard `detect_skill_map_flicks` | `tanz-user` / `skill-map` | actor + optional session | Independent of Tanz match / execution success. |
 | `MotorIntent` suppress | `apply_world_motor_filter` | `world/lib/src/control.rs` | `WORLD_GAMEPLAY` on Player; `SIMULATION` on every `CharacterController` when the Simulation bit is absent | P3 WorldFilter. Token-owned; zeros leftover vegetation `MoveWish`. |
@@ -280,7 +290,7 @@ applies the last sample to **every** matching entity.
 | Path | Mechanism | Phase 1 | Removal |
 |---|---|---|---|
 | **Menu nav (M1)** | `Routed<MenuNav>` → `MenuNavImpulse` on one `UiTarget`; exclusive modal acquires a `CaptureToken` | **Migrated** | — |
-| `CharacterIntent` (B1–B11) | `MessageWriter` / `MessageReader`, no actor | adapter | 3–5 per consumer. B11 consumes via `InputRouter::local_actor`. |
+| `CharacterIntent` (B1–B11) | `MessageWriter` / `MessageReader`, no actor | adapter | 3–5 per consumer. B11 consumes via `InputRouter::delivered_local_actor`. |
 | `apply_move_intents` | removed | **Phase 2** | locomotion + compose / apply |
 | `apply_intents_to_movement` | removed live writes | **Phase 2** | `apply_world_motor_filter` suppress |
 | `apply_look_intents` | broadcast → every `FollowCamera` | adapter | 5 |
@@ -314,8 +324,11 @@ Do not add a second copy of these. Remove in the named phase.
 |---|---|---|---|
 | First assign | `HoldEffect::None` | `GestureEffect::None` | Source delivers to the assigned actor / UI |
 | Reassignment | `ReleaseNeutral` | `Cancel` | Old target loses the source; new target receives later samples |
-| Disconnect | `ReleaseNeutral` | `Cancel` | Assignment cleared; `delivered_*` is `None` |
+| Disconnect | `ReleaseNeutral` | `Cancel` | Assignment cleared; `delivered_*` is `None`; host fallback must not assign until `connect` |
 | Removal (actor / UI gone, or host `clear_*`) | `ReleaseNeutral` | `Cancel` | That side of the assignment is cleared |
+| First blocking capture | `ReleaseNeutral` | `Cancel` | Assignment kept; actor delivery blocked |
+| Nested capture / release | (no event) | (no event) | Effective actor delivery unchanged |
+| Last blocking capture released | `None` | `None` | Actor delivery restored if still assigned and not suspended |
 | Suspension | `Freeze` | `Freeze` | Assignment kept; `delivered_*` is `None` until resume |
 | Resume | `None` | `None` | Delivery returns if still assigned and not captured |
 
@@ -343,6 +356,9 @@ and does not inspect the producer.
 When the previously selected base contributor disappears, translation is the
 new base (or zero if none) and that contributor's unclaimed sprint / cap /
 jump holds are released. "No request" does not preserve stale ownership.
+`apply_routing_hold_effects` reads `MessageReader<RoutingEvent>` and treats
+`HoldEffect::ReleaseNeutral` (disconnect, first capture, reassignment,
+removal) as Standard contributor loss on the actor that just lost delivery.
 
 ## Invariants (checklist)
 
