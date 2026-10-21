@@ -110,13 +110,17 @@ pub enum GestureEffect {
 /// One routing lifecycle event with its hold / gesture contract.
 ///
 /// Published as a Bevy [`Message`] so each consumer's [`MessageReader`] cursor
-/// sees every event exactly once, regardless of schedule stage.
+/// sees every event exactly once, regardless of schedule stage. `previous` /
+/// `next` name the actors on either side of the transition so consumers do
+/// not reconstruct ownership from the router's later state.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RoutingEvent {
 	source: InputSource,
 	kind: RoutingKind,
 	hold: HoldEffect,
 	gesture: GestureEffect,
+	previous: Option<ActorTarget>,
+	next: Option<ActorTarget>,
 }
 
 impl RoutingEvent {
@@ -134,6 +138,44 @@ impl RoutingEvent {
 
 	pub const fn gesture(self) -> GestureEffect {
 		self.gesture
+	}
+
+	/// Actor assignment / delivery before this transition.
+	pub const fn previous(self) -> Option<ActorTarget> {
+		self.previous
+	}
+
+	/// Actor assignment / delivery after this transition.
+	pub const fn next(self) -> Option<ActorTarget> {
+		self.next
+	}
+
+	/// Actor that lost assignment or delivery. `None` when the actor side
+	/// did not change (UI-only reassignment / removal).
+	pub fn lost_actor(self) -> Option<ActorTarget> {
+		match (self.previous, self.next) {
+			(Some(previous), Some(next)) if previous == next => None,
+			(previous, _) => previous,
+		}
+	}
+
+	/// Actor that gained assignment or delivery. `None` when the actor side
+	/// did not change.
+	pub fn gained_actor(self) -> Option<ActorTarget> {
+		match (self.previous, self.next) {
+			(Some(previous), Some(next)) if previous == next => None,
+			(_, next) => next,
+		}
+	}
+
+	/// Whether this event's hold / gesture contract applies to `actor`.
+	pub fn applies_to(self, actor: impl Into<ActorTarget>) -> bool {
+		let actor = actor.into();
+		match self.hold() {
+			HoldEffect::ReleaseNeutral => self.lost_actor() == Some(actor),
+			HoldEffect::Freeze => self.previous() == Some(actor),
+			HoldEffect::None => self.next() == Some(actor),
+		}
 	}
 }
 
@@ -206,6 +248,11 @@ impl InputRouter {
 		self.actor(InputSource::local_pad())
 	}
 
+	/// Local-pad actor delivery: assigned, connected, not captured, not suspended.
+	pub fn delivered_local_actor(&self) -> Option<ActorTarget> {
+		self.delivered_actor(InputSource::local_pad())
+	}
+
 	pub fn connection(&self, source: InputSource) -> SourceConnection {
 		self.binding(source).connection
 	}
@@ -243,6 +290,25 @@ impl InputRouter {
 		!self.binding(source).suspensions.is_empty()
 	}
 
+	/// Whether `owner` currently holds a suspension on `source`.
+	pub fn has_suspension(&self, source: InputSource, owner: ScopeOwner) -> bool {
+		self.binding(source).suspensions.iter().any(|layer| layer.owner() == owner)
+	}
+
+	/// Derived pad policy from the capture stack. One writer.
+	pub fn pad_policy(&self) -> maybraid_input::PadInputPolicy {
+		self.captures.pad_policy()
+	}
+
+	/// Session pause of local-pad delivery. Other owners stay frozen.
+	pub fn set_paused(&mut self, paused: bool) {
+		if paused {
+			self.suspend(InputSource::local_pad(), ScopeOwner::pause());
+		} else {
+			self.resume_owner(ScopeOwner::pause());
+		}
+	}
+
 	/// Actor delivery: assigned, connected, not captured, not suspended.
 	pub fn delivered_actor(&self, source: InputSource) -> Option<ActorTarget> {
 		if !self.connected(source) || self.blocks_actor(source) || self.is_suspended(source) {
@@ -274,6 +340,8 @@ impl InputRouter {
 		self.emit(
 			source,
 			if previous.is_some() { RoutingKind::Reassigned } else { RoutingKind::Assigned },
+			previous,
+			Some(actor),
 		);
 		previous
 	}
@@ -287,9 +355,12 @@ impl InputRouter {
 			return previous;
 		}
 		self.binding_mut(source).assignment.ui = Some(ui);
+		let actor = self.actor(source);
 		self.emit(
 			source,
 			if previous.is_some() { RoutingKind::Reassigned } else { RoutingKind::Assigned },
+			actor,
+			actor,
 		);
 		previous
 	}
@@ -334,14 +405,15 @@ impl InputRouter {
 	pub fn clear_actor(&mut self, source: InputSource) -> Option<ActorTarget> {
 		let previous = self.actor(source)?;
 		self.binding_mut(source).assignment.actor = None;
-		self.emit(source, RoutingKind::Removed);
+		self.emit(source, RoutingKind::Removed, Some(previous), None);
 		Some(previous)
 	}
 
 	pub fn clear_ui(&mut self, source: InputSource) -> Option<UiTarget> {
 		let previous = self.ui(source)?;
+		let actor = self.actor(source);
 		self.binding_mut(source).assignment.ui = None;
-		self.emit(source, RoutingKind::Removed);
+		self.emit(source, RoutingKind::Removed, actor, actor);
 		Some(previous)
 	}
 
@@ -350,8 +422,9 @@ impl InputRouter {
 		if previous.is_empty() {
 			return previous;
 		}
+		let actor = previous.actor();
 		self.binding_mut(source).assignment = SourceAssignment::empty();
-		self.emit(source, RoutingKind::Removed);
+		self.emit(source, RoutingKind::Removed, actor, None);
 		previous
 	}
 
@@ -360,9 +433,10 @@ impl InputRouter {
 		if binding.connection == SourceConnection::Disconnected && binding.assignment.is_empty() {
 			return false;
 		}
+		let previous = binding.assignment.actor();
 		binding.connection = SourceConnection::Disconnected;
 		binding.assignment = SourceAssignment::empty();
-		self.emit(source, RoutingKind::Disconnected);
+		self.emit(source, RoutingKind::Disconnected, previous, None);
 		true
 	}
 
@@ -408,6 +482,9 @@ impl InputRouter {
 	}
 
 	/// Replace `token`'s capture without releasing any other owner.
+	///
+	/// Updating the same token's owner keeps its stack position. A new claim
+	/// is appended.
 	pub fn replace_owned_capture(
 		&mut self,
 		token: &mut Option<CaptureToken>,
@@ -417,10 +494,13 @@ impl InputRouter {
 	) -> Option<CaptureToken> {
 		if let Some(owner) = owner {
 			if let Some(current) = *token {
-				if self.capture(current).is_some_and(|layer| {
-					layer.source() == source && layer.owner() == owner && layer.kind() == kind
-				}) {
-					return Some(current);
+				if let Some(layer) = self.capture(current) {
+					if layer.source() == source && layer.kind() == kind {
+						if layer.owner() != owner {
+							self.captures.update_owner(current, owner);
+						}
+						return Some(current);
+					}
 				}
 			}
 			let before = self.delivered_actor(source);
@@ -455,21 +535,26 @@ impl InputRouter {
 		{
 			return existing.token();
 		}
+		let actor = self.actor(source);
 		let token = SuspensionToken::from_raw(self.mint());
 		self.binding_mut(source).suspensions.push(Suspension { token, source, owner });
-		self.emit(source, RoutingKind::Suspended);
+		self.emit(source, RoutingKind::Suspended, actor, None);
 		token
 	}
 
 	pub fn resume(&mut self, token: SuspensionToken) -> Option<Suspension> {
 		for source in [InputSource::local_pad()] {
-			let binding = self.binding_mut(source);
-			let Some(index) = binding.suspensions.iter().position(|layer| layer.token() == token)
-			else {
-				continue;
+			let layer = {
+				let binding = self.binding_mut(source);
+				let Some(index) =
+					binding.suspensions.iter().position(|layer| layer.token() == token)
+				else {
+					continue;
+				};
+				binding.suspensions.remove(index)
 			};
-			let layer = binding.suspensions.remove(index);
-			self.emit(source, RoutingKind::Resumed);
+			let next = self.delivered_actor(source);
+			self.emit(source, RoutingKind::Resumed, None, next);
 			return Some(layer);
 		}
 		None
@@ -479,18 +564,21 @@ impl InputRouter {
 	pub fn resume_owner(&mut self, owner: ScopeOwner) -> Vec<Suspension> {
 		let mut resumed = Vec::new();
 		for source in [InputSource::local_pad()] {
-			let binding = self.binding_mut(source);
-			let mut keep = Vec::new();
-			for layer in binding.suspensions.drain(..) {
-				if layer.owner() == owner {
-					resumed.push(layer);
-				} else {
-					keep.push(layer);
+			{
+				let binding = self.binding_mut(source);
+				let mut keep = Vec::new();
+				for layer in binding.suspensions.drain(..) {
+					if layer.owner() == owner {
+						resumed.push(layer);
+					} else {
+						keep.push(layer);
+					}
 				}
+				binding.suspensions = keep;
 			}
-			binding.suspensions = keep;
 			if !resumed.is_empty() {
-				self.emit(source, RoutingKind::Resumed);
+				let next = self.delivered_actor(source);
+				self.emit(source, RoutingKind::Resumed, None, next);
 			}
 		}
 		resumed
@@ -524,15 +612,21 @@ impl InputRouter {
 			return;
 		}
 		if before.is_some() && after.is_none() {
-			self.emit(source, RoutingKind::Captured);
+			self.emit(source, RoutingKind::Captured, before, after);
 		} else if before.is_none() && after.is_some() {
-			self.emit(source, RoutingKind::Uncaptured);
+			self.emit(source, RoutingKind::Uncaptured, before, after);
 		}
 	}
 
-	fn emit(&mut self, source: InputSource, kind: RoutingKind) {
+	fn emit(
+		&mut self,
+		source: InputSource,
+		kind: RoutingKind,
+		previous: Option<ActorTarget>,
+		next: Option<ActorTarget>,
+	) {
 		let (hold, gesture) = kind.effects();
-		self.events.push(RoutingEvent { source, kind, hold, gesture });
+		self.events.push(RoutingEvent { source, kind, hold, gesture, previous, next });
 	}
 
 	fn mint(&mut self) -> u64 {
@@ -635,10 +729,36 @@ mod tests {
 		let mut router = InputRouter::default();
 		let source = InputSource::local_pad();
 		router.assign_actor(source, actor(1));
-		router.take_events();
+		let assigned = last_event(&mut router);
+		assert_eq!(assigned.kind(), RoutingKind::Assigned);
+		assert_eq!(assigned.previous(), None);
+		assert_eq!(assigned.next(), Some(actor(1)));
 		router.assign_actor(source, actor(2));
 		assert_eq!(router.actor(source), Some(actor(2)));
-		assert_release_cancel(last_event(&mut router), RoutingKind::Reassigned);
+		let event = last_event(&mut router);
+		assert_release_cancel(event, RoutingKind::Reassigned);
+		assert_eq!(event.previous(), Some(actor(1)));
+		assert_eq!(event.next(), Some(actor(2)));
+		assert_eq!(event.lost_actor(), Some(actor(1)));
+		assert_eq!(event.gained_actor(), Some(actor(2)));
+		assert!(event.applies_to(actor(1)));
+		assert!(!event.applies_to(actor(2)));
+	}
+
+	#[test]
+	fn ui_reassignment_does_not_name_a_lost_actor() {
+		let mut router = InputRouter::default();
+		let source = InputSource::local_pad();
+		router.assign_actor(source, actor(1));
+		router.assign_ui(source, ui(8));
+		router.take_events();
+		router.assign_ui(source, ui(9));
+		let event = last_event(&mut router);
+		assert_eq!(event.kind(), RoutingKind::Reassigned);
+		assert_eq!(event.previous(), Some(actor(1)));
+		assert_eq!(event.next(), Some(actor(1)));
+		assert_eq!(event.lost_actor(), None);
+		assert!(!event.applies_to(actor(1)));
 	}
 
 	#[test]
@@ -658,7 +778,11 @@ mod tests {
 		assert_eq!(router.actor(source), None);
 		assert_eq!(router.delivered_actor(source), None);
 		assert_eq!(router.delivered_ui(source), None);
-		assert_release_cancel(last_event(&mut router), RoutingKind::Disconnected);
+		let event = last_event(&mut router);
+		assert_release_cancel(event, RoutingKind::Disconnected);
+		assert_eq!(event.previous(), Some(actor(3)));
+		assert_eq!(event.next(), None);
+		assert_eq!(event.lost_actor(), Some(actor(3)));
 	}
 
 	#[test]
@@ -706,10 +830,18 @@ mod tests {
 		assert_eq!(router.actor(source), Some(actor(7)));
 		assert_eq!(router.delivered_actor(source), None);
 		assert_eq!(router.delivered_ui(source), Some(ui(9)));
-		assert_release_cancel(last_event(&mut router), RoutingKind::Captured);
+		let captured = last_event(&mut router);
+		assert_release_cancel(captured, RoutingKind::Captured);
+		assert_eq!(captured.previous(), Some(actor(7)));
+		assert_eq!(captured.next(), None);
+		assert!(captured.applies_to(actor(7)));
 		router.release_capture(token);
 		assert_eq!(router.delivered_actor(source), Some(actor(7)));
-		assert_eq!(last_event(&mut router).kind(), RoutingKind::Uncaptured);
+		let uncaptured = last_event(&mut router);
+		assert_eq!(uncaptured.kind(), RoutingKind::Uncaptured);
+		assert_eq!(uncaptured.previous(), None);
+		assert_eq!(uncaptured.next(), Some(actor(7)));
+		assert!(uncaptured.applies_to(actor(7)));
 	}
 
 	#[test]
@@ -772,6 +904,51 @@ mod tests {
 		router.replace_owned_capture(&mut menu, source, None, CaptureKind::MenuNav);
 		assert_eq!(router.capture(overlay).map(CaptureLayer::kind), Some(CaptureKind::Overlay));
 		assert!(router.top_capture_of_kind(CaptureKind::MenuNav).is_none());
+	}
+
+	#[test]
+	fn replace_owned_capture_updates_owner_in_place() {
+		let mut router = InputRouter::default();
+		let source = InputSource::local_pad();
+		let mut menu = None;
+		router.replace_owned_capture(
+			&mut menu,
+			source,
+			Some(ScopeOwner::ui(ui(1))),
+			CaptureKind::MenuNav,
+		);
+		let overlay = router.acquire_capture(source, ScopeOwner::ui(ui(2)), CaptureKind::Overlay);
+		router.replace_owned_capture(
+			&mut menu,
+			source,
+			Some(ScopeOwner::ui(ui(3))),
+			CaptureKind::MenuNav,
+		);
+		assert_eq!(router.captures().len(), 2);
+		assert_eq!(router.top_capture().map(CaptureLayer::kind), Some(CaptureKind::Overlay));
+		assert_eq!(
+			router
+				.top_capture_of_kind(CaptureKind::MenuNav)
+				.and_then(CaptureLayer::ui_owner),
+			Some(ui(3))
+		);
+		assert_eq!(router.capture(overlay).map(CaptureLayer::kind), Some(CaptureKind::Overlay));
+	}
+
+	#[test]
+	fn pause_suspends_delivery_without_clearing_assignment() {
+		let mut router = InputRouter::default();
+		let source = InputSource::local_pad();
+		router.assign_actor(source, actor(5));
+		router.take_events();
+		router.set_paused(true);
+		assert!(router.has_suspension(source, ScopeOwner::pause()));
+		assert!(router.is_suspended(source));
+		assert_eq!(router.actor(source), Some(actor(5)));
+		assert_eq!(router.delivered_actor(source), None);
+		router.set_paused(false);
+		assert!(!router.is_suspended(source));
+		assert_eq!(router.delivered_actor(source), Some(actor(5)));
 	}
 
 	#[test]

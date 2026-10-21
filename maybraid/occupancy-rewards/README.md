@@ -60,10 +60,10 @@ Actors without a ledger that frame are skipped.
 
 - [`OccupancyRewardsPaused`](src/plugin.rs) and `OccupancyRewardsUser.enabled`
   freeze timers; identity still updates so leaving while paused is recorded.
-  The world adapter copies [`WorldGameplayEnabled`](../world/lib/src/control.rs)
+  The world adapter copies [`WorldGameplayEnabled`](../gameplay/session/src/suspension.rs)
   onto that gate **before** Evaluate, so pause cannot credit a frame.
 - [`OccupancySession::close`](src/occupancy.rs) ends a session. Retiring
-  (downed) bodies and [`WorldPlaySessionEnded`](../world/lib/src/control.rs)
+  (downed) bodies and [`WorldPlaySessionEnded`](../gameplay/session/src/lifecycle.rs)
   close the user so leftover timers cannot award.
 - Leaving a geometric cell drops Reset timers. Persist keeps leftover
   progress for the same `(rule, cell)` key.

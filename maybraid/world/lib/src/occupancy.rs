@@ -115,7 +115,10 @@ struct ActorCellId {
 
 impl ActorCellId {
 	fn from_position(position: Vec3) -> Self {
-		Self { forest: ForestCellId::containing(position), grove: GroveTileId::containing(position) }
+		Self {
+			forest: ForestCellId::containing(position),
+			grove: GroveTileId::containing(position),
+		}
 	}
 
 	fn forest_id(self) -> Id {
@@ -277,7 +280,10 @@ where
 }
 
 fn occupancy_actor_cells(actors: &OccupancyActors) -> BTreeSet<ActorCellId> {
-	actors.iter().map(|transform| ActorCellId::from_position(transform.translation())).collect()
+	actors
+		.iter()
+		.map(|transform| ActorCellId::from_position(transform.translation()))
+		.collect()
 }
 
 struct OccupancyForest<'a>(&'a ChicoForest);
@@ -664,7 +670,8 @@ mod tests {
 	}
 
 	#[test]
-	fn player_in_qualifying_grove_accrues_self_charge_at_configured_interval() -> anyhow::Result<()> {
+	fn player_in_qualifying_grove_accrues_self_charge_at_configured_interval() -> anyhow::Result<()>
+	{
 		let storage = publish_lush_origin_cells()?;
 		let mut app = occupancy_app(storage);
 		let player = spawn_player(&mut app, STAND);
@@ -988,11 +995,10 @@ mod tests {
 		gate_before_evaluate(&mut app, Duration::from_secs(5))?;
 		anyhow::ensure!(app.world().resource::<WorldOccupancySessionClosed>().0);
 		anyhow::ensure!(app.world().resource::<OccupancyRewardsPaused>().0);
-		anyhow::ensure!(
-			app.world()
-				.get::<OccupancyRewardsUser>(player)
-				.is_some_and(|user| user.session.is_closed())
-		);
+		anyhow::ensure!(app
+			.world()
+			.get::<OccupancyRewardsUser>(player)
+			.is_some_and(|user| user.session.is_closed()));
 		flush_award(&mut app);
 		anyhow::ensure!(drain_changes(app.world_mut()).is_empty());
 		Ok(())

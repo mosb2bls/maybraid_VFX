@@ -42,9 +42,8 @@ use camera::{
 use character::{apply_set_character, drive_player_locomotion};
 use characters::{CharacterHostsPlugin, CharacterMotionSystems};
 use durham::DurhamSurface;
-use game_commands::command::TextEntryFocus;
 use game_commands::ui::GameCommandStatusText;
-use maybraid_input::{PadGameplayEnabled, VirtualPadPlugin, VirtualPadSystems};
+use maybraid_input::VirtualPadPlugin;
 use player::{respawn_player_on_layout, snap_player_to_composed_surface};
 
 /// Character, camera, snap, and locomotion without owning Durham fill.
@@ -70,20 +69,19 @@ impl Plugin for VegetationHostPlugin {
 		if !app.is_plugin_added::<CharacterHostsPlugin>() {
 			app.add_plugins(CharacterHostsPlugin);
 		}
-		app.add_systems(PreUpdate, sync_pad_gameplay.before(VirtualPadSystems::Produce))
-			.add_systems(
-				Update,
-				(
-					apply_set_character,
-					apply_mode_commands.after(apply_set_character),
-					snap_player_to_composed_surface
-						.after(apply_mode_commands)
-						.before(PlayerControlSystems),
-					drive_player_locomotion
-						.after(PlayerControlSystems)
-						.before(CharacterMotionSystems::Anim),
-				),
-			);
+		app.add_systems(
+			Update,
+			(
+				apply_set_character,
+				apply_mode_commands.after(apply_set_character),
+				snap_player_to_composed_surface
+					.after(apply_mode_commands)
+					.before(PlayerControlSystems),
+				drive_player_locomotion
+					.after(PlayerControlSystems)
+					.before(CharacterMotionSystems::Anim),
+			),
+		);
 		if self.register_camera {
 			app.add_systems(Startup, setup_camera).add_systems(
 				Update,
@@ -134,12 +132,6 @@ fn apply_mode_commands(
 		}
 		commands.entity(entity).despawn();
 	}
-}
-
-fn sync_pad_gameplay(focus: Option<Res<TextEntryFocus>>, mut enabled: ResMut<PadGameplayEnabled>) {
-	// Only the console focus lane. A name-modal sets `TextEntryBlocked` so `/`
-	// stays off the field; the pad must stay up for the keypad.
-	enabled.set_text(!focus.is_some_and(|focus| focus.0));
 }
 
 #[cfg(test)]

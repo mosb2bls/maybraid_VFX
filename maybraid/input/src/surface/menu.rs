@@ -196,7 +196,7 @@ mod tests {
 	}
 
 	/// Gamepad left stick still navigates. Keyboard WASD does not — it never
-	/// reaches the stick under [`crate::KeyboardPadMap::Menu`].
+	/// reaches the stick when capture derives a menu [`crate::PadInputPolicy`].
 	#[test]
 	fn stick_becomes_cardinal() -> anyhow::Result<()> {
 		let mut pad = VirtualPad::default();

@@ -1,34 +1,55 @@
 //! Character controller: pad analog + edges → [`CharacterIntent`].
+//!
+//! Equipped-item meaning lives in `maybraid-equipment`. This crate keeps the
+//! broadcast [`CharacterIntent::UseItem`] / [`CharacterIntent::PowerUseItem`]
+//! samples.
 
 pub mod intent;
 pub mod produce;
+pub mod sample;
 
 pub use intent::{CharacterIntent, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
-	ControllerPipeline, InputRouter, InputRouting, RoutingEvent, SourceConnection,
+	ActorTarget, CaptureKind, ControllerPipeline, HoldEffect, InputRouter, InputRouting,
+	InputSource, Routed, RoutingEvent, RoutingKind, ScopeOwner, SourceConnection, UiTarget,
+};
+pub use sample::{
+	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,
 };
 
 use bevy::prelude::*;
-use maybraid_controllers_core::ControllersCorePlugin;
+use maybraid_controllers_core::{CaptureResolveSystems, ControllersCorePlugin};
 use maybraid_input::VirtualPadPlugin;
 
 use crate::produce::produce_character_intents;
 
-/// When `false`, pad move / jump / stance / sprint are not turned into intents.
-/// Look and item controls stay live. Tanz-user clears this in Tanzer mode.
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OrdinaryLocomotionEnabled(pub bool);
+/// Per-actor ordinary locomotion participation. Missing means enabled.
+/// Tanz-user writes this once on spawn and again only when that actor's
+/// Standard ↔ Tanzer mode actually changes.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OrdinaryLocomotion(pub bool);
 
-impl Default for OrdinaryLocomotionEnabled {
+impl Default for OrdinaryLocomotion {
 	fn default() -> Self {
 		Self(true)
 	}
 }
 
-/// Bind-stage alias so existing `.after(CharacterControlSystems)` hosts keep working.
-/// Removed in phase 2 once those hosts join [`ControllerPipeline::Bind`].
+/// Bind-stage alias so leftover `.after(CharacterControlSystems)` item / camera
+/// / shell hosts keep working. Motor hosts join [`ControllerPipeline`] sets.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CharacterControlSystems;
+
+/// Ordered Bind work inside [`CharacterControlSystems`].
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CharacterBindSystems {
+	/// Stamp [`RoutedActorControl`] from the local pad.
+	Route,
+	/// Broadcast [`CharacterIntent`] (session / shell still read this).
+	Produce,
+	/// Address UseItem / PowerUseItem to the delivered actor's handler.
+	Dispatch,
+}
 
 pub struct CharacterControllerPlugin;
 
@@ -41,9 +62,24 @@ impl Plugin for CharacterControllerPlugin {
 			app.add_plugins(VirtualPadPlugin::default());
 		}
 		app.add_message::<CharacterIntent>()
-			.init_resource::<OrdinaryLocomotionEnabled>()
+			.init_resource::<RoutedActorControl>()
 			.configure_sets(Update, CharacterControlSystems.in_set(ControllerPipeline::Bind))
-			.add_systems(Update, produce_character_intents.in_set(CharacterControlSystems));
+			.configure_sets(
+				Update,
+				(
+					CharacterBindSystems::Route
+						.in_set(CharacterControlSystems)
+						.after(CaptureResolveSystems),
+					CharacterBindSystems::Produce
+						.in_set(CharacterControlSystems)
+						.after(CharacterBindSystems::Route),
+					CharacterBindSystems::Dispatch
+						.in_set(CharacterControlSystems)
+						.after(CharacterBindSystems::Produce),
+				),
+			)
+			.add_systems(Update, produce_actor_control_samples.in_set(CharacterBindSystems::Route))
+			.add_systems(Update, produce_character_intents.in_set(CharacterBindSystems::Produce));
 	}
 }
 
@@ -69,10 +105,10 @@ mod tests {
 				Update,
 				(
 					note("bind").in_set(CharacterControlSystems),
-					note("interpret").in_set(ControllerPipeline::Interpret),
+					note("reset").in_set(ControllerPipeline::ResetMotorRequests),
 				),
 			);
 		app.update();
-		assert_eq!(app.world().resource::<StageOrder>().0, ["bind", "interpret"]);
+		assert_eq!(app.world().resource::<StageOrder>().0, ["bind", "reset"]);
 	}
 }

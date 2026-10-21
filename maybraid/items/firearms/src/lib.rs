@@ -13,13 +13,15 @@ pub mod muzzle_flame;
 pub mod parts;
 pub mod plugin;
 pub mod pose;
+pub mod presentation;
 pub mod projectiles;
+pub mod runtime;
 pub mod sound;
 
 pub use ::projectiles::{BoltSpec, BulletSpec, Flight, PenetrationCost, ProjectileSource};
 pub use cadence::{
-	advance_shot_clock, catch_up_limit, idle_shot_clock, Cadence, FireControl, ShotClockTick,
-	WeaponFired, WeaponRecoil, CATCH_UP_SHOTS,
+	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, Cadence, FireControl,
+	ShotClockTick, WeaponFired, WeaponRecoil, WeaponShotRequest, CATCH_UP_SHOTS,
 };
 pub use concepts::FirearmConcept;
 pub use energy::{
@@ -45,10 +47,12 @@ pub use parts::{
 };
 pub use plugin::FirearmHostsPlugin;
 pub use pose::{aim_plus_x, BoneFit, FirearmPose};
+pub use presentation::register_firearm_presentation;
 pub use projectiles::{
-	muzzle_world, FireOnTrigger, FirearmWeaponSystems, FirearmWeaponsPlugin, LaserBeam, LaserSpec,
-	ProjectileLoad, Weapon, WeaponTrigger, WeaponsArmed, BARREL_REST_LENGTH,
+	decide_weapon_fire, muzzle_world, FireOnTrigger, FirearmWeaponSystems, FirearmWeaponsPlugin,
+	LaserBeam, LaserSpec, ProjectileLoad, Weapon, WeaponTrigger, WeaponsArmed, BARREL_REST_LENGTH,
 };
+pub use runtime::register_firearm_runtime;
 pub use sound::{
 	FirearmFireSounds, FlightFizz, FIRE_LISTENER_GAP, FIRE_SPATIAL_RADIUS, FIRE_SPATIAL_SCALE,
 	FIRE_VOLUME, FIZZ_SPATIAL_RADIUS, FIZZ_SPATIAL_SCALE, FIZZ_VOLUME, HAMMER_SPATIAL_RADIUS,

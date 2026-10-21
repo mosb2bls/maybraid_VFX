@@ -15,7 +15,7 @@ pub use router::{
 	publish_routing_events, GestureEffect, HoldEffect, InputRouter, InputRouting, RoutingEvent,
 	RoutingKind, SourceAssignment, SourceConnection, Suspension, SuspensionToken,
 };
-pub use schedule::ControllerPipeline;
+pub use schedule::{CaptureResolveSystems, ControllerPipeline};
 pub use source::InputSource;
 pub use ui::UiTarget;
 
@@ -82,8 +82,8 @@ mod tests {
 					record_bind.in_set(ControllerPipeline::Bind),
 					disconnect_after_bind
 						.after(ControllerPipeline::Bind)
-						.before(ControllerPipeline::Interpret),
-					record_later.in_set(ControllerPipeline::Interpret),
+						.before(ControllerPipeline::ResetMotorRequests),
+					record_later.in_set(ControllerPipeline::ResetMotorRequests),
 				),
 			);
 		app.update();

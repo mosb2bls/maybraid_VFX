@@ -4,7 +4,7 @@ Install [`MovementIntelligence`](src/user.rs) on a capsule and register
 [`MovementIntelligencePlugin`](src/plugin.rs) with a
 [`MovementIntelligenceSurface`](src/surface.rs) `SystemParam`.
 
-Writes [`MoveWish`](../../player/src/body.rs) as an XZ heading toward the next
+Writes [`MoveWish`](../../../player/lib/src/body.rs) as an XZ heading toward the next
 waypoint. The capsule motor projects that onto the current walkable plane
 while grounded; this crate does not own physics. Higher-order systems write
 [`MovementObjective`](src/objective.rs) and insert

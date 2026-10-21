@@ -38,6 +38,8 @@ pub enum CharacterIntent {
 }
 
 /// Which equipped inventory queue responds to **Y** / **[** / **]**.
+///
+/// Actor ownership of the selected category lives in `maybraid-equipment`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum InventoryCyclingCategory {
 	#[default]

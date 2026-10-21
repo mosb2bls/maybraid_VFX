@@ -240,11 +240,12 @@ mod tests {
 	use bevy::input::{ButtonState, InputPlugin, InputSystems};
 	use bevy::prelude::*;
 	use maybraid_input::{
-		produce::keyboard::produce_keyboard, KeyboardPadMap, MenuNavPad, MenuOwnsBack, PadButton,
-		PadGameplayEnabled, VirtualPad, VirtualPadConfig,
+		produce::keyboard::produce_keyboard, MenuNavPad, PadButton, PadInputPolicy, VirtualPad,
+		VirtualPadConfig,
 	};
 	use maybraid_menu_controller::{
-		dispatch, InputRouter, MenuController, MenuNavCapture, RoutingEvent,
+		dispatch, CaptureKind, InputRouter, InputRouting, InputSource, MenuController,
+		MenuNavCapture, RoutingEvent, ScopeOwner,
 	};
 	use menu_components::{
 		HudMenu, HudMenuItem, MenuComponentsPlugin, ShortTextField, ShortTextKey, ShortTextModal,
@@ -261,16 +262,17 @@ mod tests {
 	fn gate_pad(
 		lock: Res<TextMenuInputLock>,
 		modal: Res<ShortTextModal>,
-		owns: Res<MenuOwnsBack>,
-		mut enabled: ResMut<PadGameplayEnabled>,
-		mut keys: ResMut<KeyboardPadMap>,
+		mut router: InputRouting,
+		mut menu_capture: ResMut<MenuNavCapture>,
+		mut policy: ResMut<PadInputPolicy>,
 	) {
-		enabled.set_menu(!lock.0 || modal.is_open());
-		*keys = if modal.is_open() || lock.0 || owns.0 {
-			KeyboardPadMap::Menu
-		} else {
-			KeyboardPadMap::Gameplay
-		};
+		router.replace_owned_capture(
+			&mut menu_capture.text,
+			InputSource::local_pad(),
+			(lock.0 && !modal.is_open()).then_some(ScopeOwner::text_lock()),
+			CaptureKind::TextEntry,
+		);
+		*policy = router.pad_policy();
 	}
 
 	fn begin_held_pad(held: Res<HeldPad>, mut pad: ResMut<VirtualPad>) {
@@ -282,11 +284,11 @@ mod tests {
 
 	fn finish_held_pad(
 		config: Res<VirtualPadConfig>,
-		enabled: Res<PadGameplayEnabled>,
+		policy: Res<PadInputPolicy>,
 		mut pad: ResMut<VirtualPad>,
 		mut nav: ResMut<MenuNavPad>,
 	) {
-		if !enabled.is_enabled() {
+		if policy.suppress_gameplay() {
 			pad.suppress_gameplay();
 		}
 		pad.finish_digital();
@@ -307,12 +309,10 @@ mod tests {
 		.init_resource::<VirtualPad>()
 		.init_resource::<VirtualPadConfig>()
 		.init_resource::<MenuNavPad>()
-		.init_resource::<MenuOwnsBack>()
 		.init_resource::<InputRouter>()
 		.init_resource::<Messages<RoutingEvent>>()
 		.init_resource::<MenuNavCapture>()
-		.init_resource::<PadGameplayEnabled>()
-		.init_resource::<KeyboardPadMap>()
+		.init_resource::<PadInputPolicy>()
 		.init_resource::<bevy::picking::hover::HoverMap>()
 		.init_resource::<crate::CharacterMenuState>()
 		.insert_resource(character_persist::SaveRoot::at(

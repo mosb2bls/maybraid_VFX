@@ -2,6 +2,10 @@
 
 Tanzer control mode, starter Tanz definitions, and the Laufer / Tanzer charge HUD.
 
+Phase 3 of the composable controller stack. Tanz recognition reads
+[`RoutedActorControl`](../../controllers/character/src/sample.rs) for the
+delivered actor. See [ARCHITECTURE.md](../../controllers/ARCHITECTURE.md).
+
 Hold LB+RB for one second to switch between **Laufer** (ordinary locomotion) and
 **Tanzer**. A corner plate shows the active mode and a Maybraid-style charge bar
 (0 = Laufer, 1 = Tanzer). Releasing the chord before the bar completes drains or

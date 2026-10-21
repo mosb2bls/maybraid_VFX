@@ -2,11 +2,15 @@
 
 use bevy::prelude::*;
 
+/// Capture claims written before actor samples are produced.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CaptureResolveSystems;
+
 /// Update-schedule stages of the controller lane.
 ///
 /// Target order:
 /// `VirtualPad` (PreUpdate) → [`Bind`](Self::Bind) → camera / item branch →
-/// [`Interpret`](Self::Interpret) → [`MotorRequest`](Self::MotorRequest) →
+/// [`ResetMotorRequests`](Self::ResetMotorRequests) → [`MotorRequest`](Self::MotorRequest) →
 /// [`Motor`](Self::Motor).
 ///
 /// Pad production stays on `VirtualPadSystems` in PreUpdate. Camera look and
@@ -16,18 +20,19 @@ use bevy::prelude::*;
 /// Shared stages stay generic. Domain ordering (ordinary locomotion, Tanz,
 /// world filters) lives beside those domain systems, not in this crate.
 ///
-/// [`Self::Interpret`] is reserved for later per-actor interpreters that do
-/// not also write `MoveWish`. Phase 1 registers the graph so later PRs can
-/// move writers into the named sets.
+/// [`CaptureResolveSystems`] runs first inside [`Self::Bind`] so actor
+/// delivery sees this frame's capture. [`Self::ResetMotorRequests`] clears
+/// per-actor motor slots so writers in [`Self::MotorRequest`] declare this
+/// frame only.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ControllerPipeline {
 	/// Pad → routed character / menu samples.
 	Bind,
-	/// Per-actor interpreters. Empty in phase 1.
-	Interpret,
-	/// One resolved motor request per actor (`MoveWish` / `JumpWish` / stance).
+	/// Clear motor slots. Composition happens later; this stage does not apply.
+	ResetMotorRequests,
+	/// Declared motor requests / modifiers. Domain sets order writers.
 	MotorRequest,
-	/// Shared capsule motor (`PlayerSystems::Body`).
+	/// One compose + apply, then the shared capsule motor (`PlayerSystems::Body`).
 	Motor,
 }
 
@@ -38,12 +43,13 @@ impl ControllerPipeline {
 			Update,
 			(
 				Self::Bind,
-				Self::Interpret.after(Self::Bind),
-				Self::MotorRequest.after(Self::Interpret),
+				Self::ResetMotorRequests.after(Self::Bind),
+				Self::MotorRequest.after(Self::ResetMotorRequests),
 				Self::Motor.after(Self::MotorRequest),
 			)
 				.chain(),
-		);
+		)
+		.configure_sets(Update, CaptureResolveSystems.in_set(Self::Bind));
 	}
 }
 
@@ -59,14 +65,14 @@ mod tests {
 	}
 
 	#[test]
-	fn stages_run_bind_interpret_motor_request_motor() {
+	fn stages_run_bind_reset_motor_request_motor() {
 		let mut app = App::new();
 		ControllerPipeline::configure(&mut app);
 		app.init_resource::<StageOrder>().add_systems(
 			Update,
 			(
 				note("bind").in_set(ControllerPipeline::Bind),
-				note("interpret").in_set(ControllerPipeline::Interpret),
+				note("reset").in_set(ControllerPipeline::ResetMotorRequests),
 				note("request").in_set(ControllerPipeline::MotorRequest),
 				note("motor").in_set(ControllerPipeline::Motor),
 			),
@@ -74,7 +80,22 @@ mod tests {
 		app.update();
 		assert_eq!(
 			app.world().resource::<StageOrder>().0,
-			["bind", "interpret", "request", "motor"]
+			["bind", "reset", "request", "motor"]
 		);
+	}
+
+	#[test]
+	fn capture_resolve_runs_inside_bind() {
+		let mut app = App::new();
+		ControllerPipeline::configure(&mut app);
+		app.init_resource::<StageOrder>().add_systems(
+			Update,
+			(
+				note("capture").in_set(CaptureResolveSystems),
+				note("bind").in_set(ControllerPipeline::Bind).after(CaptureResolveSystems),
+			),
+		);
+		app.update();
+		assert_eq!(app.world().resource::<StageOrder>().0, ["capture", "bind"]);
 	}
 }

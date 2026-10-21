@@ -15,6 +15,9 @@ use crate::button::{ButtonPhase, ButtonStroke, PadButton, PAD_BUTTON_COUNT};
 pub struct VirtualPad {
 	pub move_stick: Vec2,
 	pub look_stick: Vec2,
+	/// Raw right-stick throw (deadzoned, not camera-look pixels). Skill-map
+	/// Standard flicks consume this; mouse look does not fill it.
+	pub look_throw: Vec2,
 	pub trigger_focus: f32,
 	pub trigger_fire: f32,
 	pub dpad: Vec2,
@@ -37,6 +40,7 @@ impl Default for VirtualPad {
 		Self {
 			move_stick: Vec2::ZERO,
 			look_stick: Vec2::ZERO,
+			look_throw: Vec2::ZERO,
 			trigger_focus: 0.0,
 			trigger_fire: 0.0,
 			dpad: Vec2::ZERO,
@@ -85,6 +89,7 @@ impl VirtualPad {
 	pub fn begin_frame(&mut self) {
 		self.move_stick = Vec2::ZERO;
 		self.look_stick = Vec2::ZERO;
+		self.look_throw = Vec2::ZERO;
 		self.trigger_focus = 0.0;
 		self.trigger_fire = 0.0;
 		self.dpad = Vec2::ZERO;
@@ -101,6 +106,10 @@ impl VirtualPad {
 
 	pub fn add_look(&mut self, value: Vec2) {
 		self.look_stick += value;
+	}
+
+	pub fn add_look_throw(&mut self, value: Vec2) {
+		self.look_throw += value;
 	}
 
 	pub fn add_dpad(&mut self, value: Vec2) {
@@ -125,6 +134,7 @@ impl VirtualPad {
 	pub fn suppress_gameplay(&mut self) {
 		self.move_stick = Vec2::ZERO;
 		self.look_stick = Vec2::ZERO;
+		self.look_throw = Vec2::ZERO;
 		self.trigger_focus = 0.0;
 		self.trigger_fire = 0.0;
 		self.dpad = Vec2::ZERO;
@@ -287,6 +297,19 @@ mod tests {
 		frame(&mut pad, &[], true);
 		frame(&mut pad, &[PadButton::A], false);
 		assert!(pad.just_pressed(PadButton::A));
+	}
+
+	#[test]
+	fn look_throw_is_independent_of_camera_look() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.add_look(Vec2::new(12.0, -4.0));
+		pad.add_look_throw(Vec2::new(0.8, 0.2));
+		assert_eq!(pad.look_stick, Vec2::new(12.0, -4.0));
+		assert_eq!(pad.look_throw, Vec2::new(0.8, 0.2));
+		pad.begin_frame();
+		assert_eq!(pad.look_throw, Vec2::ZERO);
+		Ok(())
 	}
 
 	#[test]

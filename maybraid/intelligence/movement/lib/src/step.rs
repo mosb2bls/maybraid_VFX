@@ -8,7 +8,7 @@ pub enum MovementStep {
 	MoveTo(MovementLocation),
 }
 
-/// How a plan step drives [`player::MoveWish`].
+/// How a plan step drives a [`player::MotorIntent`] NPC slot.
 pub trait MovementDrive {
 	fn drive_target(&self) -> Option<MovementLocation>;
 }

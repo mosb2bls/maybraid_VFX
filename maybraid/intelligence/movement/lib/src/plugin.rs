@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use bevy::ecs::system::{StaticSystemParam, SystemParam};
 use bevy::prelude::*;
-use player::MoveWish;
+use player::{MotorIntent, MotorSample};
 
 use intelligence_lod::{
 	IntelligenceBand, IntelligenceDueEntities, IntelligenceLod, IntelligencePriority,
@@ -134,33 +134,31 @@ pub fn replan_movement<S, I, A>(
 
 pub fn drive_movement<I, A>(
 	time: Res<Time>,
-	mut movers: Query<(Entity, &Transform, &mut MovementIntelligence<I, A>, &mut MoveWish)>,
+	mut movers: Query<(Entity, &Transform, &mut MovementIntelligence<I, A>, &mut MotorIntent)>,
 	mut commands: Commands,
 ) where
 	I: MovementDrive + Send + Sync + 'static,
 	A: Send + Sync + 'static,
 {
 	let dt = time.delta_secs();
-	for (entity, transform, mut brain, mut wish) in &mut movers {
-		match brain.drive(dt, transform.translation) {
-			MovementDriveResult::Wish(dir) => {
-				// Motor unstick may override this wish later this frame.
-				wish.set_if_neq(MoveWish(dir));
-			}
+	for (entity, transform, mut brain, mut intent) in &mut movers {
+		let sample = match brain.drive(dt, transform.translation) {
+			MovementDriveResult::Wish(dir) => MotorSample::translation(dir),
 			MovementDriveResult::Stuck { wish: dir } => {
-				wish.set_if_neq(MoveWish(dir));
 				if dir.length_squared() < 1e-6 {
 					commands.entity(entity).insert(ReplanMovement);
 				}
+				MotorSample::translation(dir)
 			}
-			MovementDriveResult::Hold => {
-				wish.set_if_neq(MoveWish(Vec3::ZERO));
-			}
+			MovementDriveResult::Hold => MotorSample::translation(Vec3::ZERO),
 			MovementDriveResult::Retry => {
-				wish.set_if_neq(MoveWish(Vec3::ZERO));
 				commands.entity(entity).insert(ReplanMovement);
+				MotorSample::translation(Vec3::ZERO)
 			}
-		}
+		};
+		let mut next = *intent;
+		next.set_npc(sample);
+		intent.set_if_neq(next);
 	}
 }
 
@@ -389,7 +387,7 @@ mod tests {
 				MovementIntelligence::<MovementStep, MovementAbility>::new(
 					MovementObjective::Reach(MovementLocation::new(Vec3::ZERO, 0.5)),
 				),
-				MoveWish(Vec3::ZERO),
+				MotorIntent::default(),
 			))
 			.id();
 		anyhow::ensure!(world
@@ -397,8 +395,8 @@ mod tests {
 			.is_ok());
 		let before = world
 			.entity(entity)
-			.get_change_ticks::<MoveWish>()
-			.ok_or_else(|| anyhow::anyhow!("missing wish"))?
+			.get_change_ticks::<MotorIntent>()
+			.ok_or_else(|| anyhow::anyhow!("missing intent"))?
 			.changed
 			.get();
 		anyhow::ensure!(world
@@ -406,8 +404,8 @@ mod tests {
 			.is_ok());
 		let after = world
 			.entity(entity)
-			.get_change_ticks::<MoveWish>()
-			.ok_or_else(|| anyhow::anyhow!("missing wish"))?
+			.get_change_ticks::<MotorIntent>()
+			.ok_or_else(|| anyhow::anyhow!("missing intent"))?
 			.changed
 			.get();
 		anyhow::ensure!(before == after);

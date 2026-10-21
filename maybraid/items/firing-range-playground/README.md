@@ -18,14 +18,14 @@ writes [`VantageOn`](../../intelligence/movement/lib/src/objective.rs)
 into [`movement-intelligence`](../../intelligence/movement/lib) at an ~8 m
 standoff (no close-range flee). Lost sightlines raise sightline weight so the
 NPC does not glue to a cover crack. Firearm combat aims
-[`PlayerLook`](../../player/src/identity.rs) from the stock (shoulder pivot), not
+[`PlayerLook`](../../player/lib/src/identity.rs) from the stock (shoulder pivot), not
 the muzzle, and holds the trigger after the first on-target acquire;
 `trigger_happiness` is only the delay before that first pull.
 Projectile sweeps include both fixed geometry and animated character capsules.
 Collider size comes from the character recipe
 [`LocomotionCapsule`](../../world/layers/mobs/characters/lib/src/components.rs) (Braidman is
 the 0.4 / 1.0 humanoid hull). Walk uses the shared player
-[`MotorTraction`](../../player/src/contact.rs) contact hooks so Les Halles
+[`MotorTraction`](../../player/lib/src/contact.rs) contact hooks so Les Halles
 floors keep grip for props without dragging the capsule. Each character starts with 100 health and takes 25 damage per bolt contact
 in `duel`. `free-for-all` bakes the rolled firearm's DPC, speed, range,
 penetration, cadence, and recoil (plus clothing HP / outgoing damage) into the

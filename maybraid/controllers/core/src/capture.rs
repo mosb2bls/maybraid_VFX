@@ -1,6 +1,7 @@
 //! Token-scoped, composable capture. Releasing one owner cannot release another.
 
 use bevy::prelude::*;
+use maybraid_input::PadInputPolicy;
 
 use crate::actor::ActorTarget;
 use crate::source::InputSource;
@@ -12,6 +13,24 @@ pub enum CaptureKind {
 	MenuNav,
 	TextEntry,
 	Overlay,
+}
+
+impl CaptureKind {
+	/// Focused UI owns **B** as Back. Character collect skips stance.
+	pub const fn owns_back(self) -> bool {
+		true
+	}
+
+	/// Console text clears analog / face buttons. Menu and overlay keep the pad
+	/// so nav and keypads still work.
+	pub const fn suppresses_pad(self) -> bool {
+		matches!(self, Self::TextEntry)
+	}
+
+	/// Overlay and text sit above menu nav when they are the top claim.
+	pub const fn precedes_menu_nav(self) -> bool {
+		matches!(self, Self::Overlay | Self::TextEntry)
+	}
 }
 
 /// Opaque handle for one capture layer. Only this token (or its owner) releases it.
@@ -42,6 +61,31 @@ impl ScopeOwner {
 
 	pub const fn ui(target: UiTarget) -> Self {
 		Self::Ui(target)
+	}
+
+	/// Session pause / gameplay freeze of local-pad delivery.
+	pub fn pause() -> Self {
+		Self::ui(UiTarget::new(Entity::from_bits(u64::MAX)))
+	}
+
+	/// World map sheet overlay.
+	pub fn map_overlay() -> Self {
+		Self::ui(UiTarget::new(Entity::from_bits(u64::MAX - 1)))
+	}
+
+	/// Command console text entry.
+	pub fn console() -> Self {
+		Self::ui(UiTarget::new(Entity::from_bits(u64::MAX - 2)))
+	}
+
+	/// Text-menu lock without a keypad.
+	pub fn text_lock() -> Self {
+		Self::ui(UiTarget::new(Entity::from_bits(u64::MAX - 3)))
+	}
+
+	/// Exclusive nav is claimed but the HudMenu has not spawned yet.
+	pub fn awaiting_nav() -> Self {
+		Self::ui(UiTarget::new(Entity::from_bits(u64::MAX - 4)))
 	}
 
 	pub const fn actor_entity(self) -> Option<Entity> {
@@ -106,6 +150,14 @@ impl CaptureLayer {
 	pub fn blocks_actor(self, source: InputSource) -> bool {
 		self.source == source
 	}
+
+	pub const fn owns_back(self) -> bool {
+		self.kind.owns_back()
+	}
+
+	pub const fn suppresses_pad(self) -> bool {
+		self.kind.suppresses_pad()
+	}
 }
 
 /// Nested claims. The top layer wins; tokens and owners release independently.
@@ -150,8 +202,33 @@ impl CaptureStack {
 		self.layers.iter().any(|layer| layer.blocks_actor(source))
 	}
 
+	pub fn owns_back(&self, source: InputSource) -> bool {
+		self.layers.iter().any(|layer| layer.source() == source && layer.owns_back())
+	}
+
+	pub fn suppresses_pad(&self, source: InputSource) -> bool {
+		self.layers
+			.iter()
+			.any(|layer| layer.source() == source && layer.suppresses_pad())
+	}
+
+	/// Single derived pad policy. Hosts must not write lanes of their own.
+	pub fn pad_policy(&self) -> PadInputPolicy {
+		PadInputPolicy::new(!self.layers.is_empty(), self.suppresses_pad(InputSource::local_pad()))
+	}
+
 	pub(crate) fn push(&mut self, layer: CaptureLayer) {
 		self.layers.push(layer);
+	}
+
+	/// Update an existing token's owner in place. Stack order is unchanged.
+	pub(crate) fn update_owner(&mut self, token: CaptureToken, owner: ScopeOwner) -> bool {
+		if let Some(layer) = self.layers.iter_mut().find(|layer| layer.token() == token) {
+			layer.owner = owner;
+			true
+		} else {
+			false
+		}
 	}
 
 	/// Release exactly this token. Other owners are left alone.
@@ -214,6 +291,8 @@ mod tests {
 			Some(UiTarget::new(Entity::from_bits(2)))
 		);
 		assert!(stack.blocks_actor(InputSource::local_pad()));
+		assert!(stack.owns_back(InputSource::local_pad()));
+		assert!(!stack.suppresses_pad(InputSource::local_pad()));
 
 		assert!(stack.release(CaptureToken::from_raw(2)).is_some());
 		assert_eq!(
@@ -221,6 +300,7 @@ mod tests {
 			Some(UiTarget::new(Entity::from_bits(1)))
 		);
 		assert_eq!(stack.len(), 1);
+		assert!(stack.blocks_actor(InputSource::local_pad()));
 	}
 
 	#[test]
@@ -232,5 +312,45 @@ mod tests {
 		assert_eq!(stack.len(), 1);
 		assert_eq!(stack.top().map(CaptureLayer::owner), Some(owner(2)));
 		assert!(stack.release(CaptureToken::from_raw(1)).is_none());
+	}
+
+	#[test]
+	fn updating_an_owner_keeps_its_position() {
+		let mut stack = stack_with(&[(1, 1, CaptureKind::MenuNav), (2, 2, CaptureKind::Overlay)]);
+		assert!(stack.update_owner(CaptureToken::from_raw(1), owner(3)));
+		assert_eq!(stack.len(), 2);
+		assert_eq!(stack.top().map(CaptureLayer::kind), Some(CaptureKind::Overlay));
+		assert_eq!(
+			stack.top_of_kind(CaptureKind::MenuNav).map(CaptureLayer::owner),
+			Some(owner(3))
+		);
+	}
+
+	#[test]
+	fn text_entry_is_the_console_pad_policy() {
+		let mut stack = CaptureStack::default();
+		assert_eq!(stack.pad_policy(), PadInputPolicy::gameplay());
+		stack.push(CaptureStack::new_layer(
+			CaptureToken::from_raw(1),
+			InputSource::local_pad(),
+			ScopeOwner::console(),
+			CaptureKind::TextEntry,
+		));
+		assert!(stack.suppresses_pad(InputSource::local_pad()));
+		assert_eq!(stack.pad_policy(), PadInputPolicy::console());
+		stack.push(CaptureStack::new_layer(
+			CaptureToken::from_raw(2),
+			InputSource::local_pad(),
+			owner(4),
+			CaptureKind::MenuNav,
+		));
+		assert_eq!(stack.pad_policy(), PadInputPolicy::console());
+	}
+
+	#[test]
+	fn well_known_owners_are_distinct() {
+		assert_ne!(ScopeOwner::pause(), ScopeOwner::map_overlay());
+		assert_ne!(ScopeOwner::console(), ScopeOwner::text_lock());
+		assert_ne!(ScopeOwner::awaiting_nav(), ScopeOwner::pause());
 	}
 }

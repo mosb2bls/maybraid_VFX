@@ -3,7 +3,7 @@
 //! Install [`MovementIntelligence`] on a capsule and register
 //! [`MovementIntelligencePlugin`] with a [`MovementIntelligenceSurface`]
 //! [`bevy::ecs::system::SystemParam`]. The brain fields [`MovementObjective`]
-//! and writes [`player::MoveWish`]; it does not own physics, combat policy, or
+//! and writes [`player::MotorIntent`]; it does not own physics, combat policy, or
 //! entity lock-on.
 
 mod ability;
@@ -17,7 +17,8 @@ pub mod testing;
 mod user;
 
 use bevy::prelude::*;
-use player::PlayerSystems;
+use maybraid_controllers_core::ControllerPipeline;
+use player::{MotorRequestStage, PlayerSystems};
 
 pub use ability::{
 	Covering, MovementAbility, MovementBody, MovementSheet, VantageStandoffs,
@@ -38,7 +39,7 @@ pub use user::{
 	MovementDriveResult, MovementIntelligence, MovementIntelligenceSettings, ReplanMovement,
 };
 
-/// Plan, then write [`player::MoveWish`], before realization unstick and capsule accel.
+/// Plan, then declare a [`player::MotorIntent`] NPC slot, before recovery and apply.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MovementIntelligenceSystems {
 	Replan,
@@ -46,10 +47,16 @@ pub enum MovementIntelligenceSystems {
 }
 
 pub(crate) fn configure_movement_intelligence_sets(app: &mut App) {
+	ControllerPipeline::configure(app);
+	MotorRequestStage::configure(app);
 	app.configure_sets(
 		Update,
-		(MovementIntelligenceSystems::Replan, MovementIntelligenceSystems::Drive)
-			.chain()
-			.before(PlayerSystems::Body),
+		(
+			MovementIntelligenceSystems::Replan,
+			MovementIntelligenceSystems::Drive
+				.in_set(MotorRequestStage::Standard)
+				.before(PlayerSystems::Body),
+		)
+			.chain(),
 	);
 }

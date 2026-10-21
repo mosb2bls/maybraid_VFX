@@ -2,10 +2,10 @@
 
 use bevy::prelude::*;
 use maybraid_controllers_core::{InputRouter, InputSource};
-use maybraid_input::{MenuOwnsBack, PadButton, PadGameplayEnabled, VirtualPad, VirtualPadConfig};
+use maybraid_input::{PadButton, VirtualPad, VirtualPadConfig};
 
 use crate::intent::{CharacterIntent, InventoryCyclingCategory};
-use crate::OrdinaryLocomotionEnabled;
+use crate::OrdinaryLocomotion;
 
 const ANALOG_EPS: f32 = 1e-6;
 const STANCE_HOLD_SECS: f32 = 0.35;
@@ -14,19 +14,28 @@ pub fn produce_character_intents(
 	pad: Res<VirtualPad>,
 	config: Res<VirtualPadConfig>,
 	time: Res<Time>,
-	gameplay: Res<PadGameplayEnabled>,
-	menu_owns: Option<Res<MenuOwnsBack>>,
-	ordinary: Res<OrdinaryLocomotionEnabled>,
 	router: Res<InputRouter>,
+	actors: Query<&OrdinaryLocomotion>,
 	mut intents: MessageWriter<CharacterIntent>,
 ) {
-	if router.actor(InputSource::local_pad()).is_none() {
+	let source = InputSource::local_pad();
+	if router.actor(source).is_none() {
 		return;
 	}
-	let stance_enabled = gameplay.is_enabled() && !menu_owns.is_some_and(|owns| owns.0);
-	for intent in
-		collect(&pad, config.trigger_press_threshold, time.delta_secs(), stance_enabled, ordinary.0)
-	{
+	let captured = router.blocks_actor(source);
+	let stance_enabled = !router.captures().owns_back(source);
+	let ordinary = router
+		.actor(source)
+		.and_then(|actor| actors.get(actor.entity()).ok())
+		.is_none_or(|flag| flag.0);
+	for intent in collect(
+		&pad,
+		config.trigger_press_threshold,
+		time.delta_secs(),
+		stance_enabled,
+		ordinary,
+		captured,
+	) {
 		intents.write(intent);
 	}
 }
@@ -37,21 +46,26 @@ pub fn collect(
 	dt: f32,
 	stance_enabled: bool,
 	ordinary_locomotion: bool,
+	actor_captured: bool,
 ) -> Vec<CharacterIntent> {
 	let mut out = Vec::new();
+	let ordinary_locomotion = ordinary_locomotion && !actor_captured;
+	let stance_enabled = stance_enabled && !actor_captured;
 	if ordinary_locomotion && pad.move_stick.length_squared() > ANALOG_EPS {
 		out.push(CharacterIntent::Move(pad.move_stick));
 	}
-	if pad.look_stick.length_squared() > ANALOG_EPS {
+	if !actor_captured && pad.look_stick.length_squared() > ANALOG_EPS {
 		out.push(CharacterIntent::Look(pad.look_stick));
 	}
-	if pad.trigger_focus > ANALOG_EPS {
+	if !actor_captured && pad.trigger_focus > ANALOG_EPS {
 		out.push(CharacterIntent::Focus(pad.trigger_focus));
 	}
-	if pad.pressed(PadButton::BumperFocus) && !pad.bumper_chord_held() {
+	if !actor_captured && pad.pressed(PadButton::BumperFocus) && !pad.bumper_chord_held() {
 		out.push(CharacterIntent::Ads(1.0));
 	}
-	if pad.pressed(PadButton::TriggerFire) || pad.trigger_fire >= trigger_threshold {
+	if !actor_captured
+		&& (pad.pressed(PadButton::TriggerFire) || pad.trigger_fire >= trigger_threshold)
+	{
 		out.push(CharacterIntent::UseItem(pad.trigger_fire.max(trigger_threshold)));
 	}
 
@@ -61,7 +75,7 @@ pub fn collect(
 	if ordinary_locomotion && pad.just_released(PadButton::StickClickMove) {
 		out.push(CharacterIntent::StopSprint);
 	}
-	if pad.just_pressed(PadButton::StickClickLook) {
+	if !actor_captured && pad.just_pressed(PadButton::StickClickLook) {
 		out.push(CharacterIntent::SwapPov);
 	}
 	if ordinary_locomotion && pad.just_pressed(PadButton::A) {
@@ -78,36 +92,45 @@ pub fn collect(
 			out.push(CharacterIntent::ChangeProne);
 		}
 	}
-	if pad.just_pressed(PadButton::X) {
+	if !actor_captured && pad.just_pressed(PadButton::X) {
 		if pad.pressed(PadButton::TriggerFire) || pad.trigger_fire >= trigger_threshold {
 			out.push(CharacterIntent::PowerUseItem);
 		} else {
 			out.push(CharacterIntent::StartInteraction);
 		}
 	}
-	if pad.just_pressed(PadButton::Y) {
+	if !actor_captured && pad.just_pressed(PadButton::Y) {
 		out.push(CharacterIntent::SwapActive);
 	}
 	// D-Pad selects the equipped queue **Y** cycles. Arrow keys mirror D-Pad for menus/walk only.
-	if pad.just_pressed(PadButton::DpadLeft) && !pad.keys.just_pressed(KeyCode::ArrowLeft) {
+	if !actor_captured
+		&& pad.just_pressed(PadButton::DpadLeft)
+		&& !pad.keys.just_pressed(KeyCode::ArrowLeft)
+	{
 		out.push(CharacterIntent::SelectInventoryCyclingCategory(
 			InventoryCyclingCategory::Lubikans,
 		));
 	}
-	if pad.just_pressed(PadButton::DpadRight) && !pad.keys.just_pressed(KeyCode::ArrowRight) {
+	if !actor_captured
+		&& pad.just_pressed(PadButton::DpadRight)
+		&& !pad.keys.just_pressed(KeyCode::ArrowRight)
+	{
 		out.push(CharacterIntent::SelectInventoryCyclingCategory(
 			InventoryCyclingCategory::Weapons,
 		));
 	}
-	if pad.just_pressed(PadButton::DpadDown) && !pad.keys.just_pressed(KeyCode::ArrowDown) {
+	if !actor_captured
+		&& pad.just_pressed(PadButton::DpadDown)
+		&& !pad.keys.just_pressed(KeyCode::ArrowDown)
+	{
 		out.push(CharacterIntent::SelectInventoryCyclingCategory(
 			InventoryCyclingCategory::SkillMaps,
 		));
 	}
-	if pad.keys.just_pressed(KeyCode::BracketLeft) {
+	if !actor_captured && pad.keys.just_pressed(KeyCode::BracketLeft) {
 		out.push(CharacterIntent::CycleEquippedQueue(-1));
 	}
-	if pad.keys.just_pressed(KeyCode::BracketRight) {
+	if !actor_captured && pad.keys.just_pressed(KeyCode::BracketRight) {
 		out.push(CharacterIntent::CycleEquippedQueue(1));
 	}
 	if pad.just_pressed(PadButton::Start) {
@@ -136,7 +159,7 @@ mod tests {
 	}
 
 	fn intents(pad: &VirtualPad) -> Vec<CharacterIntent> {
-		collect(pad, 0.5, 0.0, true, true)
+		collect(pad, 0.5, 0.0, true, true, false)
 	}
 
 	#[test]
@@ -234,13 +257,13 @@ mod tests {
 		pad.hold_digital(PadButton::B);
 		finish(&mut pad);
 		pad.tick_holds(0.2);
-		assert!(!collect(&pad, 0.5, 0.2, true, true).contains(&CharacterIntent::ChangeProne));
+		assert!(!collect(&pad, 0.5, 0.2, true, true, false).contains(&CharacterIntent::ChangeProne));
 
 		pad.begin_frame();
 		pad.hold_digital(PadButton::B);
 		finish(&mut pad);
 		pad.tick_holds(0.2);
-		let crossing = collect(&pad, 0.5, 0.2, true, true);
+		let crossing = collect(&pad, 0.5, 0.2, true, true, false);
 		assert!(crossing.contains(&CharacterIntent::ChangeProne));
 		assert!(!crossing.contains(&CharacterIntent::ChangeSquat));
 
@@ -248,11 +271,13 @@ mod tests {
 		pad.hold_digital(PadButton::B);
 		finish(&mut pad);
 		pad.tick_holds(0.16);
-		assert!(!collect(&pad, 0.5, 0.16, true, true).contains(&CharacterIntent::ChangeProne));
+		assert!(
+			!collect(&pad, 0.5, 0.16, true, true, false).contains(&CharacterIntent::ChangeProne)
+		);
 
 		pad.begin_frame();
 		finish(&mut pad);
-		let release = collect(&pad, 0.5, 0.16, true, true);
+		let release = collect(&pad, 0.5, 0.16, true, true, false);
 		assert!(!release.contains(&CharacterIntent::ChangeSquat));
 		assert!(!release.contains(&CharacterIntent::ChangeProne));
 		Ok(())
@@ -267,7 +292,7 @@ mod tests {
 		pad.tick_holds(0.1);
 		pad.begin_frame();
 		finish(&mut pad);
-		assert!(collect(&pad, 0.5, 0.1, false, true).is_empty());
+		assert!(collect(&pad, 0.5, 0.1, false, true, false).is_empty());
 		Ok(())
 	}
 
@@ -357,7 +382,7 @@ mod tests {
 		pad.add_look(Vec2::X);
 		pad.hold_digital(PadButton::A);
 		finish(&mut pad);
-		let collected = collect(&pad, 0.5, 0.0, true, false);
+		let collected = collect(&pad, 0.5, 0.0, true, false, false);
 		assert!(!collected.iter().any(|intent| matches!(intent, CharacterIntent::Move(_))));
 		assert!(!collected.contains(&CharacterIntent::Jump));
 		assert_eq!(
@@ -481,33 +506,48 @@ mod tests {
 	}
 
 	#[test]
+	fn capture_skips_realization_but_keeps_start_and_map() -> anyhow::Result<()> {
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.add_move(Vec2::Y);
+		pad.add_look(Vec2::X);
+		pad.hold_digital(PadButton::A);
+		pad.hold_digital(PadButton::Start);
+		pad.hold_digital(PadButton::Select);
+		pad.max_triggers(0.0, 0.9);
+		pad.apply_trigger_digital(0.5);
+		finish(&mut pad);
+		let collected = collect(&pad, 0.5, 0.0, true, true, true);
+		assert!(!collected.iter().any(|intent| matches!(intent, CharacterIntent::Move(_))));
+		assert!(!collected.iter().any(|intent| matches!(intent, CharacterIntent::Look(_))));
+		assert!(!collected.iter().any(|intent| matches!(intent, CharacterIntent::UseItem(_))));
+		assert!(!collected.contains(&CharacterIntent::Jump));
+		assert!(collected.contains(&CharacterIntent::InGameMenu));
+		assert!(collected.contains(&CharacterIntent::ToggleMap));
+		Ok(())
+	}
+
+	#[test]
 	fn produce_requires_host_assignment() {
 		use bevy::ecs::system::RunSystemOnce;
 		use maybraid_controllers_core::{ActorTarget, InputRouter};
-		use maybraid_input::{PadGameplayEnabled, VirtualPadConfig};
-
-		use crate::OrdinaryLocomotionEnabled;
+		use maybraid_input::VirtualPadConfig;
 
 		fn write(
 			pad: Res<VirtualPad>,
 			config: Res<VirtualPadConfig>,
 			time: Res<Time>,
-			gameplay: Res<PadGameplayEnabled>,
-			ordinary: Res<OrdinaryLocomotionEnabled>,
 			router: Res<InputRouter>,
+			actors: Query<&OrdinaryLocomotion>,
 			intents: MessageWriter<CharacterIntent>,
 		) {
-			super::produce_character_intents(
-				pad, config, time, gameplay, None, ordinary, router, intents,
-			);
+			super::produce_character_intents(pad, config, time, router, actors, intents);
 		}
 
 		let mut world = World::new();
 		world.init_resource::<VirtualPad>();
 		world.init_resource::<VirtualPadConfig>();
 		world.init_resource::<Time>();
-		world.init_resource::<PadGameplayEnabled>();
-		world.init_resource::<OrdinaryLocomotionEnabled>();
 		world.init_resource::<InputRouter>();
 		world.init_resource::<Messages<CharacterIntent>>();
 		world.resource_mut::<VirtualPad>().begin_frame();

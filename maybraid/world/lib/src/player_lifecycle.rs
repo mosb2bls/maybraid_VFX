@@ -8,8 +8,7 @@ use damage::{DamageSystems, DespawnAfter, Downed};
 use durham::{DurhamSurface, TerrainCellLayout, WorldBaseTerrain};
 use firearm_user::FirearmUser;
 use firearms::WeaponTrigger;
-use grenade_user::{GrenadeUser, GrenadeUserSystems};
-use lubikans::LubikanOwner;
+use grenade_user::GrenadeUserSystems;
 use maybraid_character_controller::CharacterIntent;
 use maybraid_input::{PadButton, VirtualPad};
 use mob_characters::{LOCAL_POI, SALOON_POI, URBAN_POI, VEGETATION_POI};
@@ -35,8 +34,8 @@ use crate::control::strip_world_player_motor;
 use crate::map_view::WorldMapView;
 use crate::weapon::WorldPlayerAppearanceRequested;
 use crate::{
-	FirstWave, HcsgDemand, LodJobCounter, PlayerPositionWaypoints, WorldGameplayEnabled,
-	WorldPlayerLoadout,
+	ActorRetired, FirstWave, HcsgDemand, LodJobCounter, PlayerPositionWaypoints,
+	SessionLifecycleSystems, WorldGameplayEnabled, WorldPlayerLoadout,
 };
 
 const MAP_OPEN_SECS: f32 = 0.18;
@@ -122,14 +121,8 @@ pub struct PlayerChoseRespawnPoi {
 #[derive(Component)]
 struct PlayerDeathGlaze;
 
-type DownedWorldPlayer<'a> = (
-	Entity,
-	&'a Transform,
-	&'a mut LinearVelocity,
-	Option<&'a FirearmUser>,
-	Option<&'a GrenadeUser>,
-	Option<&'a InventoryUser>,
-);
+type DownedWorldPlayer<'a> =
+	(Entity, &'a Transform, &'a mut LinearVelocity, Option<&'a InventoryUser>);
 
 pub struct WorldPlayerLifecyclePlugin;
 
@@ -141,6 +134,7 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 			.add_message::<PlayerLifeEnded>()
 			.add_message::<PlayerChoseRespawnPoi>()
 			.add_message::<CharacterIntent>()
+			.add_message::<ActorRetired>()
 			.configure_sets(
 				Update,
 				PlayerLifeSet::Resolve.before(player_camera::PlayerCameraSystems::Look),
@@ -151,7 +145,8 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 				queue_downed_world_player
 					.after(DamageSystems::Down)
 					.after(CharacterRagdollSystems::Handoff)
-					.after(GrenadeUserSystems::Interrupt),
+					.after(GrenadeUserSystems::Interrupt)
+					.in_set(SessionLifecycleSystems::Notify),
 			)
 			.add_systems(
 				Update,
@@ -228,10 +223,10 @@ fn queue_downed_world_player(
 	mut commands: Commands,
 	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
 	mut players: Query<DownedWorldPlayer<'_>, (With<VegetationPlayer>, Added<Downed>)>,
-	mut triggers: Query<&mut WeaponTrigger>,
+	mut retired: MessageWriter<ActorRetired>,
 	bags: Query<&character_items::Inventory>,
 ) {
-	for (player, transform, mut velocity, firearm, grenade, inventory) in &mut players {
+	for (player, transform, mut velocity, inventory) in &mut players {
 		let now = mode.as_deref().and_then(|mode| mode.get().mode_id());
 		let ends_life = policies.as_deref().is_some_and(|policies| policies.respawn_ends_life(now));
 		state.pending = Some(PendingPlayerRespawn {
@@ -249,20 +244,10 @@ fn queue_downed_world_player(
 			picker_nearby_scratch: Vec::new(),
 		});
 		velocity.0 = Vec3::ZERO;
-		if let Some(firearm) = firearm {
-			if let Ok(mut trigger) = triggers.get_mut(firearm.held) {
-				trigger.0 = false;
-			}
-			commands.entity(firearm.held).try_insert(DespawnAfter::seconds(0.0));
-		}
-		if let Some(grenade) = grenade {
-			commands.entity(grenade.held).try_despawn();
-		}
 		if let Some(inventory) = inventory {
 			if let (Some(loadout), Ok(bag)) = (loadout.as_deref_mut(), bags.get(inventory.bag)) {
 				loadout.retarget_inventory(bag.clone());
 			}
-			commands.entity(inventory.bag).try_despawn();
 		}
 		strip_world_player_motor(&mut commands, player);
 		commands.entity(player).remove::<(
@@ -270,21 +255,12 @@ fn queue_downed_world_player(
 			MaybraidPlayer,
 			CameraFollow,
 			PlayerUse,
-			FirearmUser,
-			GrenadeUser,
-			grenade_user::GrenadeThrow,
-			InventoryUser,
 			MoveWish,
 			SpotSubject,
 			ThreatSubject,
 			Affiliations,
-			LubikanOwner,
 		)>();
-		commands.entity(player).remove::<(
-			tanz_user::TanzUser,
-			tanz_user::TanzStack,
-			tanz_user::TanzExecution,
-		)>();
+		retired.write(ActorRetired::new(player));
 	}
 }
 
@@ -1148,6 +1124,7 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<WorldPlayerRespawnConfig>();
 		world.init_resource::<WorldPlayerRespawnState>();
+		world.init_resource::<Messages<ActorRetired>>();
 		let held = world.spawn(WeaponTrigger(true)).id();
 		let bag = world.spawn_empty().id();
 		let player = world
@@ -1173,11 +1150,15 @@ mod tests {
 			world.get::<LinearVelocity>(player).map(|velocity| velocity.0),
 			Some(Vec3::ZERO)
 		);
-		assert_eq!(world.get::<WeaponTrigger>(held).map(|trigger| trigger.0), Some(false));
-		assert!(world.get::<DespawnAfter>(held).is_some());
-		assert!(!world.entities().contains(bag));
+		assert!(
+			world.get::<FirearmUser>(player).is_some(),
+			"item teardown is gameplay's ActorRetired coordinator"
+		);
+		assert!(world.entities().contains(bag));
 		let pending = &world.resource::<WorldPlayerRespawnState>().pending;
 		assert!(pending.is_some());
+		let notices: Vec<_> = world.resource_mut::<Messages<ActorRetired>>().drain().collect();
+		assert_eq!(notices, vec![ActorRetired::new(player)]);
 		Ok(())
 	}
 

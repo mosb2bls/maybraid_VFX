@@ -62,7 +62,7 @@ pub(crate) fn configure(app: &mut App) {
 		Update,
 		(
 			sync_combat_hud_cycle_category
-				.after(crate::inventory_cycling::InventoryCyclingCategorySystems),
+				.after(maybraid_equipment::EquipmentSystems::SelectCategory),
 			stamp_cycle_panel_markers,
 		),
 	);

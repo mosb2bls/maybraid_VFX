@@ -4,18 +4,19 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 
 use crate::button::{ButtonPhase, ButtonStroke, PadButton};
-use crate::gate::KeyboardPadMap;
+use crate::gate::PadInputPolicy;
 use crate::pad::VirtualPad;
 
 pub fn produce_keyboard(
 	keyboard: Res<ButtonInput<KeyCode>>,
-	map: Res<KeyboardPadMap>,
+	policy: Res<PadInputPolicy>,
 	mut key_reader: MessageReader<KeyboardInput>,
 	mut pad: ResMut<VirtualPad>,
 ) {
-	match *map {
-		KeyboardPadMap::Gameplay => produce_gameplay_keys(&keyboard, &mut pad),
-		KeyboardPadMap::Menu => produce_menu_keys(&keyboard, &mut pad),
+	if policy.keyboard_menu() {
+		produce_menu_keys(&keyboard, &mut pad);
+	} else {
+		produce_gameplay_keys(&keyboard, &mut pad);
 	}
 
 	pad.keys = keyboard.clone();
@@ -117,7 +118,7 @@ fn hold_arrows(keyboard: &ButtonInput<KeyCode>, pad: &mut VirtualPad) {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::gate::KeyboardPadMap;
+	use crate::gate::PadInputPolicy;
 
 	fn press(app: &mut App, key: KeyCode) {
 		app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
@@ -129,7 +130,7 @@ mod tests {
 		let mut app = App::new();
 		app.init_resource::<ButtonInput<KeyCode>>()
 			.init_resource::<VirtualPad>()
-			.init_resource::<KeyboardPadMap>()
+			.init_resource::<PadInputPolicy>()
 			.add_message::<KeyboardInput>()
 			.add_systems(Update, produce_keyboard);
 		app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::ShiftLeft);
@@ -199,11 +200,11 @@ mod tests {
 		assert!(pad.digital_held(PadButton::BumperFire));
 	}
 
-	fn produce_app(map: KeyboardPadMap) -> App {
+	fn produce_app(policy: PadInputPolicy) -> App {
 		let mut app = App::new();
 		app.init_resource::<ButtonInput<KeyCode>>()
 			.init_resource::<VirtualPad>()
-			.insert_resource(map)
+			.insert_resource(policy)
 			.add_message::<KeyboardInput>()
 			.add_systems(Update, produce_keyboard);
 		app
@@ -211,7 +212,7 @@ mod tests {
 
 	#[test]
 	fn escape_is_the_only_keyboard_back() {
-		let mut app = produce_app(KeyboardPadMap::Gameplay);
+		let mut app = produce_app(PadInputPolicy::gameplay());
 		press(&mut app, KeyCode::KeyB);
 		assert!(!app.world().resource::<VirtualPad>().digital_held(PadButton::B));
 		press(&mut app, KeyCode::Escape);
@@ -220,7 +221,7 @@ mod tests {
 
 	#[test]
 	fn menu_map_uses_arrows_not_wasd() {
-		let mut app = produce_app(KeyboardPadMap::Menu);
+		let mut app = produce_app(PadInputPolicy::menu());
 		press(&mut app, KeyCode::KeyW);
 		press(&mut app, KeyCode::KeyA);
 		press(&mut app, KeyCode::Space);
@@ -242,7 +243,7 @@ mod tests {
 	#[test]
 	fn menu_map_e_and_x_hold_drop() {
 		for key in [KeyCode::KeyE, KeyCode::KeyX] {
-			let mut app = produce_app(KeyboardPadMap::Menu);
+			let mut app = produce_app(PadInputPolicy::menu());
 			press(&mut app, key);
 			assert!(app.world().resource::<VirtualPad>().digital_held(PadButton::X));
 		}

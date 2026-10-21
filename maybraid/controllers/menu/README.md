@@ -13,4 +13,7 @@ broadcast to every child. Exclusive modal nav acquires a
 This is the phase 1 targeted path. See [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 **B** remains `MenuNav::Back`. Character stance also reads **B** (tap squat /
-hold prone) but only when no `MenuController` has focus.
+hold prone) but only when [`CaptureStack`](../core/src/capture.rs) does not
+own the local pad. Nested captures release independently; dispatch reads
+[`InputRouter::top_capture`](../core/src/router.rs) and does not re-resolve
+exclusive nav.

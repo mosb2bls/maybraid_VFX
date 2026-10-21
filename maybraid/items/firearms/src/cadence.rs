@@ -166,6 +166,25 @@ impl WeaponFired {
 	}
 }
 
+/// Authoritative fire decision. Presentation realizes projectiles from this.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct WeaponShotRequest {
+	pub weapon: Entity,
+	pub shooter: Entity,
+	pub recoil: f32,
+	pub age: f32,
+}
+
+impl WeaponShotRequest {
+	pub fn new(weapon: Entity, shooter: Entity, recoil: f32, age: f32) -> Self {
+		Self { weapon, shooter, recoil, age }
+	}
+
+	pub fn fired(self) -> WeaponFired {
+		WeaponFired { shooter: self.shooter, recoil: self.recoil, age: self.age }
+	}
+}
+
 pub fn trigger_allows_fire(control: Option<&mut FireControl>, manual: bool, held: bool) -> bool {
 	if !manual {
 		return true;

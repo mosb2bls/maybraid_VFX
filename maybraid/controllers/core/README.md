@@ -7,7 +7,7 @@ token-scoped capture and suspension. This crate depends only on
 ```text
 InputSource ──► InputRouter assignment
             ├──► RouteTarget::Ui(UiTarget)      ──► menu consumers
-            └──► RouteTarget::Actor(ActorTarget) ──► character / motor
+            └──► RouteTarget::Actor(ActorTarget) ──► character / Tanz / skill-map
 Capture / suspension tokens are owner-scoped. Releasing one owner cannot
 release another. Assignment loss clears delivery.
 ```
