@@ -88,6 +88,11 @@ impl ScopeOwner {
 		Self::ui(UiTarget::new(Entity::from_bits(u64::MAX - 4)))
 	}
 
+	/// Locked first-spawn / death respawn map picker.
+	pub fn spawn_picker() -> Self {
+		Self::ui(UiTarget::new(Entity::from_bits(u64::MAX - 5)))
+	}
+
 	pub const fn actor_entity(self) -> Option<Entity> {
 		match self {
 			Self::Actor(target) => Some(target.entity()),
@@ -352,5 +357,7 @@ mod tests {
 		assert_ne!(ScopeOwner::pause(), ScopeOwner::map_overlay());
 		assert_ne!(ScopeOwner::console(), ScopeOwner::text_lock());
 		assert_ne!(ScopeOwner::awaiting_nav(), ScopeOwner::pause());
+		assert_ne!(ScopeOwner::spawn_picker(), ScopeOwner::map_overlay());
+		assert_ne!(ScopeOwner::spawn_picker(), ScopeOwner::awaiting_nav());
 	}
 }

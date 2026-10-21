@@ -31,6 +31,7 @@ pub mod world_debug;
 mod mob_spawn;
 mod pitch;
 mod player_lifecycle;
+mod spawn_picker;
 mod player_position;
 mod poi;
 pub mod render_scale;
@@ -90,6 +91,7 @@ pub use player_camera::{CameraPov, CameraPovLocked};
 pub use player_lifecycle::{
 	reset_first_spawn_offer, WorldPlayerLifecyclePlugin, WorldPlayerRespawnConfig,
 };
+pub use spawn_picker::{SpawnPickerCapture, SpawnPickerController};
 pub use player_position::{
 	resume_discovery_from_saved_waypoints, PlayerPositionPlugin, PlayerPositionWaypoints,
 };
