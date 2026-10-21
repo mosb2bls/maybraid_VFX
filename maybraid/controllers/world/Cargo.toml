@@ -10,11 +10,7 @@ publish = { workspace = true }
 rust-version = { workspace = true }
 
 [dependencies]
-bevy = { workspace = true }
-maybraid-controllers-core = { workspace = true }
-
-[dev-dependencies]
-anyhow = { workspace = true }
+maybraid-session = { workspace = true }
 
 [lints]
 workspace = true

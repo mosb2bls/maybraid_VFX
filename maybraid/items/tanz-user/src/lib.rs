@@ -1097,7 +1097,7 @@ mod tests {
 		use bevy::time::TimeUpdateStrategy;
 		use maybraid_character_controller::CharacterControllerPlugin;
 		use maybraid_menu_controller::MenuControllerPlugin;
-		use maybraid_world_controller::WorldControllerPlugin;
+		use maybraid_session::SessionPlugin;
 
 		let mut app = App::new();
 		app.add_plugins((
@@ -1106,7 +1106,7 @@ mod tests {
 			bevy::asset::AssetPlugin::default(),
 			CharacterControllerPlugin,
 			TanzUserPlugin,
-			WorldControllerPlugin,
+			SessionPlugin,
 			MenuControllerPlugin,
 		))
 		.insert_resource(TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f32(
@@ -1204,7 +1204,7 @@ mod tests {
 		use bevy::ecs::system::RunSystemOnce;
 		use damage::Health;
 		use maybraid_controllers_core::{InputRouter, InputRouting, InputSource};
-		use maybraid_world_controller::SessionCapabilities;
+		use maybraid_session::SessionCapabilities;
 
 		let mut app = lifecycle_plugins();
 		app.world_mut().resource_mut::<SessionCapabilities>().install_play(true);

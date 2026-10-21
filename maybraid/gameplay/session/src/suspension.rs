@@ -1,7 +1,8 @@
-//! Pause / live-play flag for world character input and combat HUD.
+//! Pause / live-play projection. Pause must not uninstall play.
 
 use bevy::prelude::*;
-use maybraid_controllers_core::InputRouter;
+use maybraid_character_controller::CharacterIntent;
+use maybraid_controllers_core::{InputRouter, InputRouting};
 
 use crate::SessionCapabilities;
 
@@ -34,6 +35,21 @@ impl WorldGameplayEnabled {
 	pub fn combat_hud_visible(&self, map_open: bool) -> bool {
 		self.0 && !map_open
 	}
+}
+
+/// Honor Start the same frame Bind published [`CharacterIntent::InGameMenu`].
+/// Production uses the game-shell pause state; stack tests register this in
+/// [`crate::SessionCapabilitySystems`].
+pub fn apply_in_game_menu_pause(
+	mut router: InputRouting,
+	mut gameplay: ResMut<WorldGameplayEnabled>,
+	session: Res<SessionCapabilities>,
+	mut intents: MessageReader<CharacterIntent>,
+) {
+	if intents.read().any(|intent| matches!(intent, CharacterIntent::InGameMenu)) {
+		router.set_paused(true);
+	}
+	*gameplay = WorldGameplayEnabled::from_session(*session, &router);
 }
 
 #[cfg(test)]

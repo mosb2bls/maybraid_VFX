@@ -8,10 +8,8 @@ use durham::DurhamSurface;
 use game_commands::command::TextEntryFocus;
 use geneva::{LanguageOverlay, NameKey, NamedOverlay};
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
-use maybraid_controllers_core::{
-	CaptureKind, CaptureToken, InputRouter, InputRouting, InputSource, ScopeOwner,
-};
-use maybraid_world_controller::SessionCapabilitySystems;
+use maybraid_controllers_core::{CaptureKind, CaptureToken, InputRouting, InputSource, ScopeOwner};
+use maybraid_session::SessionCapabilitySystems;
 use menu_components::{
 	BARLOW_BLACK, BONES_ICON, ITEM_FONT_SIZE, MAP_ARROW_ICON, MAP_GROVE_ICON, MAP_HOUSE_ICON,
 	MAP_MOUNTAIN_ICON, MAP_TOWN_ICON, MAP_TREE_ICON, MAP_WATER_ICON, NOTO_SANS_REGULAR,
@@ -1916,6 +1914,7 @@ mod tests {
 	use super::*;
 	use bevy::ecs::system::RunSystemOnce;
 	use game_commands::command::TextEntryFocus;
+	use maybraid_controllers_core::InputRouter;
 	use player::CameraFollow;
 
 	fn write_toggle(world: &mut World) {

@@ -119,7 +119,7 @@ impl SessionCapabilities {
 	/// Production gate: hosts that need a full sim stop
 	/// [`Self::release`]`(SessionBit::Simulation)`.
 	/// [`player::MotorSuppressionToken::SIMULATION`] is the motor token
-	/// `apply_world_motor_filter` writes when this bit is absent.
+	/// hosts write when this bit is absent.
 	pub const fn simulation_active(self) -> bool {
 		self.simulation.is_installed()
 	}

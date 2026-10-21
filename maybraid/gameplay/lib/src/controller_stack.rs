@@ -5,13 +5,13 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventoryItem};
-use firearm_user::{register_firearm_user_runtime, FirearmUser, RecoilPattern};
+use firearm_user::{FirearmUser, RecoilPattern};
 use firearms::{FireControl, FireOnTrigger, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger};
-use grenade_user::{register_grenade_user_runtime, GrenadePhase, GrenadeThrow, GrenadeUser};
+use grenade_user::{GrenadePhase, GrenadeThrow, GrenadeUser};
 use grenades::DropLiveGrenade;
 use lubikans::{
 	LubikanActivationDenied, LubikanActivationRefused, LubikanLedger, LubikanOwner,
-	LubikanSelfConfig, LubikansPlugin,
+	LubikanSelfConfig,
 };
 use maybraid_audio::AudioClip;
 use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
@@ -20,10 +20,13 @@ use maybraid_controllers_core::{
 	UiTarget,
 };
 use maybraid_equipment::{
-	EquippedItemHandler, EquippedItemUse, EquippedPowerUse, InventoryCycling, RoutedItemActor,
+	ActiveInventoryCyclingCategory, EquippedItemHandler, EquippedItemUse, EquippedPowerUse,
+	InventoryCycling, RoutedItemActor,
 };
 use maybraid_input::{PadButton, VirtualPad, VirtualPadSystems};
-use maybraid_world_controller::{SessionCapabilities, SessionCapabilitySystems};
+use maybraid_session::{
+	apply_in_game_menu_pause, SessionCapabilities, SessionCapabilitySystems, WorldGameplayEnabled,
+};
 use player::{CameraFollow, Player, PlayerLook, PlayerPlugin};
 use player_camera::{
 	register_player_camera_runtime, CameraController, CameraRecoilHandoff, FollowCamera,
@@ -31,26 +34,17 @@ use player_camera::{
 use std::time::Duration;
 use world_player::Player as VegetationPlayer;
 
-use crate::control::apply_in_game_menu_pause;
-use crate::inventory_cycling::ActiveInventoryCyclingCategory;
-use crate::register_world_controller_runtime;
-use crate::{world_lubikan, WorldGameplayEnabled};
-use game_commands::command::TextEntryFocus;
+use crate::register_gameplay_runtime;
 
 fn stack_app() -> App {
 	let mut app = App::new();
 	app.add_plugins(MinimalPlugins)
 		.add_plugins(bevy::input::InputPlugin)
 		.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(1.0 / 60.0)));
-	register_world_controller_runtime(&mut app);
-	register_firearm_user_runtime(&mut app);
-	register_grenade_user_runtime(&mut app);
+	register_gameplay_runtime(&mut app);
 	register_player_camera_runtime(&mut app);
-	app.add_plugins(LubikansPlugin)
-		.add_systems(Update, apply_in_game_menu_pause.in_set(SessionCapabilitySystems))
-		.insert_resource(WorldGameplayEnabled(true))
-		.insert_resource(TextEntryFocus(false));
-	world_lubikan::configure(&mut app);
+	app.add_systems(Update, apply_in_game_menu_pause.in_set(SessionCapabilitySystems))
+		.insert_resource(WorldGameplayEnabled(true));
 	app.world_mut().resource_mut::<SessionCapabilities>().install_play(true);
 	app
 }

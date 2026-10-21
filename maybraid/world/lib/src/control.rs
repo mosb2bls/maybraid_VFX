@@ -8,9 +8,9 @@ use durham::{
 use game_commands::command::{CommandConsoleOutput, TextEntryFocus};
 use maybraid_character_controller::CharacterIntent;
 use maybraid_controllers_core::{CaptureKind, InputRouter, InputRouting, InputSource, ScopeOwner};
+use maybraid_session::SessionCapabilities;
 use maybraid_skill_map::SkillMapEnabled;
 use maybraid_sky::{SkyDome, SKY_HORIZON};
-use maybraid_world_controller::SessionCapabilities;
 use player::{
 	apply_character_controller, Buoyant, CharacterController, CharacterStance, JumpWish, Jumping,
 	LocomotionCapsule, MotorIntent, MotorTraction, MoveWish as PlayerMoveWish,
@@ -21,27 +21,7 @@ use world_player::{MoveWish, Player, PlayerPhysicsEnabled, PlayerSpawnXz, Playgr
 
 use crate::map_view::WorldMapView;
 
-pub use maybraid_world_controller::WorldGameplayEnabled;
-
-/// Honor Start the same frame Bind published [`CharacterIntent::InGameMenu`].
-/// Production uses the game-shell pause state; stack tests register this in
-/// [`maybraid_world_controller::SessionCapabilitySystems`].
-pub fn apply_in_game_menu_pause(
-	mut router: InputRouting,
-	mut gameplay: ResMut<WorldGameplayEnabled>,
-	session: Res<SessionCapabilities>,
-	mut intents: MessageReader<CharacterIntent>,
-) {
-	if intents.read().any(|intent| matches!(intent, CharacterIntent::InGameMenu)) {
-		router.set_paused(true);
-	}
-	*gameplay = WorldGameplayEnabled::from_session(*session, &router);
-}
-
-/// Explicit play-session teardown. The game shell writes this when leaving
-/// to Home. Pause must not write it.
-#[derive(Message, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct WorldPlaySessionEnded;
+pub use maybraid_session::{WorldGameplayEnabled, WorldPlaySessionEnded};
 
 /// Keep third-person follow while the in-game inventory editor is open.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -645,7 +625,7 @@ mod tests {
 
 	#[test]
 	fn simulation_scope_is_the_world_wide_motor_gate() -> anyhow::Result<()> {
-		use maybraid_world_controller::SessionBit;
+		use maybraid_session::SessionBit;
 		use player::{
 			apply_motor, compose_motor, MotorSample, MotorSelection, Npc, ResolvedMotorRequest,
 		};

@@ -35,6 +35,7 @@ use bevy::prelude::*;
 use bevy::render::renderer::RenderAdapterInfo;
 use bevy::window::PrimaryWindow;
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
+use maybraid_gameplay::GameplayPlugin;
 use maybraid_input::{MenuNav, MenuNavPad, PadButton, VirtualPad};
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
@@ -68,6 +69,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
 	fn build(&self, app: &mut App) {
 		app.add_plugins(WorldPlugin::game())
+			.add_plugins(GameplayPlugin)
 			.insert_resource(WorldGameplayEnabled(false))
 			.insert_resource(SessionCapabilities::default())
 			.insert_resource(WorldMenuShell(true))

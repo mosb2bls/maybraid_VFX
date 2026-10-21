@@ -17,6 +17,7 @@ path = "src/main.rs"
 bevy = { workspace = true }
 maybraid-agent = { workspace = true }
 maybraid-input = { workspace = true }
+maybraid-gameplay = { workspace = true }
 maybraid-world = { workspace = true }
 
 [lints]

@@ -5,8 +5,8 @@
 //! from DamageApplied hits. Headless-safe systems tested:
 //! - grant_world_player_lubikan_owner
 //! - sync_lubikan_session  
-//! - request_lubikan_activation (PowerUseItem → LubikanActivationRequest)
-//! - sync_lubikan_healing_enabled
+//! - gameplay powers adapter (PowerUseItem → LubikanActivationRequest)
+//! - gameplay healing gate (WorldGameplayEnabled → LubikanHealingEnabled)
 //!
 //! **Not tested headless:** Rendering (VFX, HUD), full WorldPlugin layers (terrain,
 //! vegetation, sky), combat intelligence, weapon systems.
@@ -22,7 +22,7 @@ use lubikans::{
 use lubikans_damage::LubikanDamagePlugin;
 use maybraid_character_controller::ActorTarget;
 use maybraid_equipment::EquippedPowerUse;
-use maybraid_world::{control, world_lubikan, WorldGameplayEnabled, WorldPlaySessionEnded};
+use maybraid_world::{control, WorldGameplayEnabled, WorldPlaySessionEnded};
 use std::time::Duration;
 use world_player::Player;
 
@@ -48,7 +48,7 @@ fn self_loop_app() -> App {
 			control::sync_lubikan_session.before(LubikanSystems::Owner),
 		),
 	);
-	world_lubikan::configure(&mut app);
+	maybraid_gameplay::powers::configure(&mut app);
 
 	app.world_mut()
 		.resource_mut::<Time<Virtual>>()

@@ -6911,6 +6911,7 @@ dependencies = [
  "maybraid-character-controller",
  "maybraid-game-mode-discover",
  "maybraid-game-mode-reliquary",
+ "maybraid-gameplay",
  "maybraid-input",
  "maybraid-menu-controller",
  "maybraid-world",
@@ -7007,6 +7008,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "maybraid-gameplay"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "character-inventory-user",
+ "character-items",
+ "damage",
+ "firearm-user",
+ "firearms",
+ "grenade-user",
+ "grenades",
+ "lubikans",
+ "lubikans-damage",
+ "maybraid-audio",
+ "maybraid-character-controller",
+ "maybraid-controllers-core",
+ "maybraid-equipment",
+ "maybraid-input",
+ "maybraid-session",
+ "maybraid-skill-map",
+ "player",
+ "player-camera",
+ "tanz-user",
+ "world-player",
+]
+
+[[package]]
 name = "maybraid-input"
 version = "0.1.5"
 dependencies = [
@@ -7084,6 +7113,16 @@ dependencies = [
  "maybraid-controllers-core",
  "maybraid-input",
  "menu-components",
+]
+
+[[package]]
+name = "maybraid-session"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "maybraid-character-controller",
+ "maybraid-controllers-core",
 ]
 
 [[package]]
@@ -7192,13 +7231,14 @@ dependencies = [
  "maybraid-controllers-core",
  "maybraid-equipment",
  "maybraid-game-mode-discover",
+ "maybraid-gameplay",
  "maybraid-input",
  "maybraid-locomotion-controller",
+ "maybraid-session",
  "maybraid-skill-map",
  "maybraid-sky",
  "maybraid-vfx",
  "maybraid-weather",
- "maybraid-world-controller",
  "meandering-intelligence",
  "menu-components",
  "mob-characters",
@@ -7238,9 +7278,7 @@ dependencies = [
 name = "maybraid-world-controller"
 version = "0.1.5"
 dependencies = [
- "anyhow",
- "bevy",
- "maybraid-controllers-core",
+ "maybraid-session",
 ]
 
 [[package]]
@@ -7249,6 +7287,7 @@ version = "0.1.5"
 dependencies = [
  "bevy",
  "maybraid-agent",
+ "maybraid-gameplay",
  "maybraid-input",
  "maybraid-world",
 ]
@@ -11564,8 +11603,8 @@ dependencies = [
  "maybraid-input",
  "maybraid-locomotion-controller",
  "maybraid-menu-controller",
+ "maybraid-session",
  "maybraid-skill-map",
- "maybraid-world-controller",
  "menu-components",
  "player",
  "screen-capture",

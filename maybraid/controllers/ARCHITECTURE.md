@@ -68,10 +68,10 @@ bevy / maybraid-input
 controllers/core          (router, capture, generic schedule — no game deps)
         ▲
         │
-controllers/character     controllers/menu     controllers/world
+controllers/character     controllers/menu     gameplay/session
         ▲                        ▲                     ▲
         │                        │                     │
-player (motor contract)    menu widgets           world / game assemble
+player (motor contract)    menu widgets           gameplay / world / game assemble
         ▲
         │
 controllers/locomotion / tanz-user / intelligence / player-camera / skill-map / items
@@ -86,8 +86,9 @@ Rules:
 - Locomotion and Tanz write the motor contract; they do not own apply.
 - Apply realizes translation / jump / stance / sprint / cap without checking
   whether the producer was Tanz.
-- `game` / `world` assemble plugins. They are not controllers unless a type
-  in them produces follow-on intents (E1–E4 today).
+- `game` assembles World + Gameplay + shell. `world` keeps terrain / POI /
+  collision-support readiness. They are not controllers unless a type in
+  them produces follow-on intents (E1–E4 today).
 
 ## Scheduling boundaries
 
@@ -457,10 +458,9 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 Unit: `dispatch.rs`, `fire.rs`, `throw.rs` (`missing_use_does_not_release_a_live_cook`),
 `inventory_cycling.rs`, `weapon.rs`, `world_lubikan.rs`, `look.rs`.
 
-Stack tip (`world/lib/src/controller_stack.rs`) calls the same headless
+Stack tip (`gameplay/lib/src/controller_stack.rs`) calls the same headless
 runtime registration production uses
-(`register_world_controller_runtime`, `register_firearm_user_runtime`,
-`register_grenade_user_runtime`, `register_player_camera_runtime`) and
+(`register_gameplay_runtime`, `register_player_camera_runtime`) and
 steps `app.update()`. GPU / audio systems stay on the full plugins:
 
 - two delivered actors; two item modes

@@ -334,12 +334,12 @@ pub(crate) fn configure(app: &mut App) {
 				.after(EquipmentSystems::CycleQueue)
 				.after(EquipmentSystems::CommitHolster)
 				.after(CharacterControlSystems)
-				.after(maybraid_world_controller::SessionCapabilitySystems)
+				.after(maybraid_session::SessionCapabilitySystems)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
 			sync_skill_map_equip
 				.after(EquipmentSystems::CycleQueue)
 				.after(CharacterControlSystems)
-				.after(maybraid_world_controller::SessionCapabilitySystems)
+				.after(maybraid_session::SessionCapabilitySystems)
 				.before(SkillMapSystems::Spawn)
 				.run_if(resource_equals(WorldGameplayEnabled(true))),
 			spawn_detonation_vfx,

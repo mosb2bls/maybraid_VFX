@@ -77,13 +77,13 @@ pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
 pub use maybraid_equipment::ActiveInventoryCyclingCategory;
+pub use maybraid_session::{
+	ActorRetired, InputRouter, InputRouting, RoutingEvent, SessionBit, SessionCapabilities,
+	SessionCapabilitySystems, SessionLifecycleSystems, SessionPlugin,
+};
 pub use maybraid_sky::{
 	ShadowQuality, SkyClock, SkyCommand, SKY_BLUE, SKY_CLEAR, SKY_HORIZON, SKY_NADIR, SKY_ZENITH,
 	SUN_COLOR, SUN_ILLUMINANCE,
-};
-pub use maybraid_world_controller::{
-	InputRouter, InputRouting, RoutingEvent, SessionBit, SessionCapabilities,
-	SessionCapabilitySystems,
 };
 pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use player_camera::{CameraPov, CameraPovLocked};
@@ -133,19 +133,17 @@ use firearms::EnergyMaterialPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
-use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
-use maybraid_controllers_core::{CaptureResolveSystems, ControllerPipeline};
+use maybraid_character_controller::CharacterControlSystems;
+use maybraid_controllers_core::CaptureResolveSystems;
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;
-use maybraid_skill_map::{SkillMapPlugin, SkillMapSystems};
+use maybraid_skill_map::SkillMapSystems;
 use maybraid_sky::SkyDomePlugin;
 use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
-use maybraid_world_controller::WorldControllerPlugin;
 use player::{
 	register_motor_traction_physics, MotorRequestStage, PlayerPlugin, PlayerPresentationPlugin,
-	PlayerSystems,
 };
 use player_camera::{PlayerCameraPlugin, PlayerCameraSystems};
 use world_player::{
@@ -179,27 +177,10 @@ const WORLD_COMBAT_HUD: CombatHudPlugin = CombatHudPlugin {
 };
 const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbes(false);
 
-/// Headless-safe controller + item-session registration shared by
-/// [`WorldPlugin`] and stack-tip tests. Rendering / audio stay on the full
-/// plugin.
-pub fn register_world_controller_runtime(app: &mut App) {
-	if !app.is_plugin_added::<CharacterControllerPlugin>() {
-		app.add_plugins(CharacterControllerPlugin);
-	}
-	if !app.is_plugin_added::<WorldControllerPlugin>() {
-		app.add_plugins(WorldControllerPlugin);
-	}
-	app.configure_sets(
-		Update,
-		PlayerSystems::Intent
-			.after(CharacterControlSystems)
-			.after(SessionCapabilitySystems)
-			.before(ControllerPipeline::Motor),
-	);
-	inventory_cycling::configure(app);
-}
-
 /// Assembled world: Durham terrain, streamed forest, urbanization, sky dome, character.
+///
+/// Session, equipment, and item-runtime assembly live on `GameplayPlugin`.
+/// Game and the world playground add that plugin beside this one.
 ///
 /// Playground chrome (command drawer and FPS HUD) is on by default.
 /// The game executable uses [`WorldPlugin::game`] (FPS log, no HUD or console).
@@ -248,7 +229,6 @@ impl Plugin for WorldPlugin {
 				debug_overlay: self.input_debug_enabled,
 				..default()
 			}));
-		register_world_controller_runtime(app);
 		app.add_plugins(LocomotionControllerPlugin)
 			.add_plugins(PlayerPresentationPlugin)
 			.add_plugins(PlayerCameraPlugin)
@@ -262,7 +242,6 @@ impl Plugin for WorldPlugin {
 			.add_plugins(WorldIntelligencePlugin)
 			.add_plugins(crate::spawn_surface::SpawnSurfacePlugin)
 			.add_plugins(WeatherPlugin)
-			.add_plugins(SkillMapPlugin)
 			.add_plugins(world_lubikan::WorldLubikanPlugin)
 			.insert_resource(maybraid_skill_map::SkillMapEnabled(false))
 			.add_plugins(WorldPoiPlugin)
@@ -275,7 +254,6 @@ impl Plugin for WorldPlugin {
 			.insert_resource(PadMovementEnabled(false))
 			.insert_resource(VegetationPlayerMotor(false))
 			.insert_resource(CharacterCameraFollowEnabled(false))
-			.add_message::<control::WorldPlaySessionEnded>()
 			.init_resource::<InventoryEditCameraFollow>()
 			.init_resource::<WorldSurfaceReady>()
 			.init_resource::<crate::WorldMenuShell>()
@@ -391,9 +369,6 @@ impl Plugin for WorldPlugin {
 fn spawn_default_braidman(mut commands: Commands) {
 	commands.spawn(RequestSetCharacter { species: CharacterSpecies::Braidman });
 }
-
-#[cfg(test)]
-mod controller_stack;
 
 #[cfg(test)]
 mod tests {
