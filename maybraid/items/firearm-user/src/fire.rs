@@ -39,6 +39,27 @@ pub fn apply_fire_intents(
 	}
 }
 
+/// Delivery snapshot used to interpret a [`RoutingEvent`] until the event
+/// itself carries actor identity.
+#[derive(Clone, Copy)]
+struct RoutedHold {
+	current: Option<Entity>,
+}
+
+impl RoutedHold {
+	fn from_router(router: &InputRouter, source: InputSource) -> Self {
+		Self { current: router.actor(source).map(|actor| actor.entity()) }
+	}
+
+	fn applies_capture(self, actor: Entity) -> bool {
+		self.current == Some(actor)
+	}
+
+	fn applies_lost_hold(self, actor: Entity) -> bool {
+		self.current != Some(actor)
+	}
+}
+
 /// Clear a held trigger when routing cancels the pad. Capture must not keep
 /// squeezing; disconnect / reassignment / removal drop the lost actor's hold.
 pub fn apply_fire_routing(
@@ -48,7 +69,7 @@ pub fn apply_fire_routing(
 	mut triggers: Query<&mut WeaponTrigger>,
 ) {
 	let source = InputSource::local_pad();
-	let current = router.actor(source).map(|actor| actor.entity());
+	let hold = RoutedHold::from_router(&router, source);
 	let mut clear_lost = false;
 	let mut clear_assigned = false;
 	for event in events.read() {
@@ -69,8 +90,9 @@ pub fn apply_fire_routing(
 		return;
 	}
 	for (entity, user) in &users {
-		let assigned = current == Some(entity);
-		if (clear_assigned && assigned) || (clear_lost && !assigned) {
+		if (clear_assigned && hold.applies_capture(entity))
+			|| (clear_lost && hold.applies_lost_hold(entity))
+		{
 			if let Ok(mut trigger) = triggers.get_mut(user.held) {
 				trigger.0 = false;
 			}
@@ -79,7 +101,8 @@ pub fn apply_fire_routing(
 }
 
 /// Headless fire clock: write [`WeaponFired`] from a held trigger without
-/// spawning meshes. [`FirearmWeaponsPlugin`] owns the GPU path when present.
+/// spawning meshes. [`firearms::FirearmWeaponsPlugin`] still owns a second
+/// clock inside `fire_weapons` when present. Do not add a third.
 pub fn realize_held_weapon_fire(
 	time: Res<Time>,
 	users: Query<(Entity, &FirearmUser)>,

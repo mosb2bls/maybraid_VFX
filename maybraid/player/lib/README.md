@@ -7,7 +7,7 @@ The collider size comes from the character recipe's
 crate. Spawn uses the humanoid default until a visual is attached; attaching a
 recipe reapplies that hull (`Collider`, `ShapeCaster`, component). This crate
 does not know about firearms or melee. Item-user crates write the
-slots; `player-camera` and overlay systems read them. [`Npc`](src/identity.rs)
+slots; [`player/camera`](../camera/README.md) and overlay systems read them. [`Npc`](src/identity.rs)
 reuses the capsule, [`PlayerLook`](src/identity.rs), and locomotion clips
 without pad input, `CameraFollow`, or `PlayerVisual` (so first-person face hide
 stays on the followed body). Insert [`CharacterLocomotion`](src/body.rs) before
@@ -53,7 +53,7 @@ stays on the body.
 
 ```text
 CharacterIntent ─► MotorIntent (locomotion) ─► compose ─► apply_motor ─► wish / jump
-               ─► look / POV            (player-camera)
+               ─► look / POV            (player/camera)
                ─► UseItem               (firearm-user, melee-user)
 
 PlayerLook          camera → item users read this, not Camera3d

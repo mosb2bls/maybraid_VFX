@@ -19,9 +19,11 @@ than sampling trial poses. Hold posing runs only for actively animated,
 non-suspended body rigs, so culled LODs and ragdolls pay no arm-IK cost.
 
 [`spawn_held_kit`](src/pose.rs) installs [`EquippedItemHandler::Firearm`](../equipment/src/dispatch.rs)
-at the equipment boundary. Headless clocks, fire, and recoil use
-[`register_firearm_user_runtime`](src/lib.rs); pose / reticle / audio stay on
-[`FirearmUserPlugin`](src/lib.rs).
+at the equipment boundary. Execution (`fire`, recoil, equipment realize) lives in
+[`runtime`](src/runtime.rs) via [`register_firearm_user_runtime`](src/runtime.rs).
+Pose / reticle / rumble live in [`presentation`](src/presentation.rs) via
+[`register_firearm_user_presentation`](src/presentation.rs). [`FirearmUserPlugin`](src/lib.rs)
+registers both. Headless gameplay uses the runtime path only.
 
 Writes player handoff slots ([`PlayerUse`](../../player/lib/src/identity.rs),
 [`PlayerCameraAim`](../../player/lib/src/identity.rs),

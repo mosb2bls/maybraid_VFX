@@ -71,10 +71,12 @@ controllers/core          (router, capture, generic schedule — no game deps)
 controllers/character     controllers/menu     gameplay/session
         ▲                        ▲                     ▲
         │                        │                     │
-player (motor contract)    menu widgets           gameplay / world / game assemble
+player/lib (motor)         menu widgets          gameplay/lib + world + game
         ▲
         │
-controllers/locomotion / tanz-user / intelligence / player-camera / skill-map / items
+controllers/locomotion / items/tanz-user / intelligence
+player/camera / items/skill-map / items/{equipment,firearm-user,grenade-user}
+movement/realization
 ```
 
 Rules:
@@ -86,9 +88,37 @@ Rules:
 - Locomotion and Tanz write the motor contract; they do not own apply.
 - Apply realizes translation / jump / stance / sprint / cap without checking
   whether the producer was Tanz.
-- `game` assembles World + Gameplay + shell. `world` keeps terrain / POI /
-  collision-support readiness. They are not controllers unless a type in
-  them produces follow-on intents (E1–E4 today).
+- `game` assembles World + Gameplay + shell. `gameplay/lib` registers session,
+  equipment, and item runtimes. `world` keeps terrain / POI / population /
+  presentation / `spawn_surface` plus world-specific adapters (loadout, stash,
+  map, occupancy). They are not controllers unless a type in them produces
+  follow-on intents (E1–E4 today).
+
+### Crate layout
+
+Package names stay; only directories moved. See [#1450](https://github.com/ramate-io/maybraid/issues/1450).
+
+| Directory | Package | Owns |
+|---|---|---|
+| `player/lib` | `player` | Capsule, motor compose / apply, handoff slots |
+| `player/camera` | `player-camera` | Follow camera, look, recoil apply |
+| `movement/realization` | `movement-realization` | Recovery modifier |
+| `items/skill-map` | `maybraid-skill-map` | Map session + flick |
+| `items/equipment` | `maybraid-equipment` | Category, holster, equipped dispatch |
+| `items/firearm-user` | `firearm-user` | Hold / fire realize (`runtime` / `presentation`) |
+| `items/firearms` | `firearms` | Cadence + kit (`runtime` / `presentation`) |
+| `items/grenade-user` | `grenade-user` | Cook / throw realize (`runtime` / `presentation`) |
+| `items/grenades` | `grenades` | Fuse / blast vs thrown-body spawn |
+| `items/tanz-user` | `tanz-user` | Tanz recognize / execute |
+| `gameplay/session` | `maybraid-session` | Capabilities, pause, play-session end |
+| `gameplay/lib` | `maybraid-gameplay` | Cross-domain schedule, adapters |
+| `world/lib` | `maybraid-world` | Terrain, POIs, population, presentation, `spawn_surface` |
+| `game/src` | `maybraid` | Assembles World + Gameplay + shell / flow |
+
+`controllers/world` is a compatibility re-export of `gameplay/session`.
+Persistent equipment state lives in `items/equipment`, grenade cooking in
+`grenade-user`, firing cadence in `firearms`. `gameplay/lib` adapters only
+translate or coordinate.
 
 ## Scheduling boundaries
 
@@ -186,10 +216,10 @@ the current owner. Later phases change the owner column, not the role id.
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
-| C1 | Look | `player_camera::look::apply_look_intents` (`Look`) | B1 | `CameraController` yaw / pitch | `player-camera` | **Phase 5.** Follow camera; gated on `InputRouter::delivered_actor`. |
-| C2 | Focus | same system (`Focus`) | B2 | `CameraController.focus` | `player-camera` | **Phase 5.** Intent only — no parallel mouse read. |
-| C3 | Ads | same system (`Ads`) | B3 | `CameraController.ads` | `player-camera` | **Phase 5.** Intent only — no parallel mouse read. |
-| C4 | Swap POV | same system (`SwapPov`) | B4 | `CameraController::toggle` | `player-camera` | Gated by `CameraPovLocked`. **Phase 5.** |
+| C1 | Look | `player_camera::look::apply_look_intents` (`Look`) | B1 | `CameraController` yaw / pitch | `player/camera` | **Phase 5.** Follow camera; gated on `InputRouter::delivered_actor`. |
+| C2 | Focus | same system (`Focus`) | B2 | `CameraController.focus` | `player/camera` | **Phase 5.** Intent only — no parallel mouse read. |
+| C3 | Ads | same system (`Ads`) | B3 | `CameraController.ads` | `player/camera` | **Phase 5.** Intent only — no parallel mouse read. |
+| C4 | Swap POV | same system (`SwapPov`) | B4 | `CameraController::toggle` | `player/camera` | Gated by `CameraPovLocked`. **Phase 5.** |
 | C5 | Recoil | `CameraRecoilHandoff` via `apply_recoil_handoff` | D4 `WeaponFired` | `CameraController` follow yaw / pitch + shooter `PlayerLook` | camera is the only follow-yaw writer | **Phase 5.** Denied / zero-recoil shots write nothing. |
 
 ### D — item interpreter
@@ -202,7 +232,7 @@ the current owner. Later phases change the owner column, not the role id.
 | D4 | Recoil handoff | `queue_weapon_recoil` → `advance_weapon_recoil` | `WeaponFired` | C5 `CameraRecoilHandoff` | firearm-user | **Phase 5.** Camera applies; firearm-user does not write look / camera. |
 | D5 | Inventory category | `apply_inventory_category_selection` | B7 `SelectInventoryCyclingCategory` | per-actor `InventoryCycling`; HUD `ActiveInventoryCyclingCategory` | `items/equipment` `selection.rs` | **Phase 5.** Actor component is the owner; resource is a mirror. |
 | D6 | Queue cycle / swap | `cycle_equipped_inventory_queues` / `begin_equipment_holster` + `commit_equipment_holster` | B7 + `InventoryCycling` | skill-map / Lubikan cycle, or `EquipmentHolster` commit | `items/equipment` | **Phase 5.** Weapons commit the handler at the holster midpoint. Item crates realize hold / teardown. |
-| D7 | Lubikan activation | `world_lubikan::request_lubikan_activation` | D1 `EquippedPowerUse` | `LubikanActivationRequest::equipped(owner)` | world | **Phase 5.** Spends once; refusal keeps charge. |
+| D7 | Lubikan activation | `gameplay/lib/src/powers.rs` `request_lubikan_activation` | D1 `EquippedPowerUse` | `LubikanActivationRequest::equipped(owner)` | `gameplay/lib` | **Phase 5.** Spends once; refusal keeps charge. |
 | D8 | Interaction / stash | `stash.rs` `StartInteraction` | `CharacterIntent::StartInteraction` | stash / crate loot | world | Broadcast. |
 | D9 | Item presentation | `PlayerPoseSystems::Item` / `WeaponSwap` | D6, Tanz pose | held meshes | player presentation | Not a controller. Listed so D6 does not own pose. |
 
@@ -210,10 +240,10 @@ the current owner. Later phases change the owner column, not the role id.
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
-| E1 | In-game menu / pause | `game::toggle_world_pause` | B8 + `VirtualPad` (A vs Start) | `WorldPause`, `WorldGameplayEnabled` | `GamePlugin` | Also writes gameplay. Phase 4. |
+| E1 | In-game menu / pause | `game::toggle_world_pause` | B8 + `VirtualPad` (A vs Start) | `WorldPause`, `SessionCapabilities` pause token, `WorldGameplayEnabled` | `GamePlugin` + `gameplay/session` | Pause writes the session token; session projects live-play. |
 | E2 | Inventory sheet | `stash.rs` Inventory reader | B9 | inventory editor | world | Broadcast. |
 | E3 | World map | `map_view.rs` ToggleMap reader | B10 | `WorldMapView` | world | Broadcast. Two camera-lock writers remain. |
-| E4 | Session gameplay gate | `WorldGameplayEnabled`, `WorldSceneryVisible`, `WorldMenuShell` | E1, flow enter, pause | B11 world filter, HUD, cycling | world + game | Independent bools, several writers. Phase 4 replaces with capabilities. [#1395](https://github.com/ramate-io/maybraid/pull/1395) `SessionActivity` is a review baseline, not merged. |
+| E4 | Session gameplay gate | `SessionCapabilities`, `WorldGameplayEnabled` | E1, `game/src/flow.rs` enter, pause | B11 world filter, HUD, cycling | `gameplay/session` | Capabilities + live-play projection. World keeps scenery / menu-shell bits. |
 
 ### U — routing, capture, lifecycle
 
@@ -257,7 +287,7 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | `SkillMapFlick` | Tanz `publish_tanz_map_inputs` / Standard `detect_skill_map_flicks` | `tanz-user` / `skill-map` | actor + optional session | Independent of Tanz match / execution success. |
 | `MotorIntent` suppress | `apply_world_motor_filter` | `world/lib/src/control.rs` | `WORLD_GAMEPLAY` on Player; `SIMULATION` on every `CharacterController` when the Simulation bit is absent | P3 WorldFilter. Token-owned; zeros leftover vegetation `MoveWish`. |
 | `MotorIntent` NPC | `drive_movement` | `intelligence/movement` | `MovementIntelligence` | A6. Declares. |
-| `MotorIntent` recovery | `realize_movement` | `movement-realization` | `MotorModifier::Recovery` | P3 modifier. |
+| `MotorIntent` recovery | `realize_movement` | `movement/realization` | `MotorModifier::Recovery` | P3 modifier. |
 | `MotorIntent` separation | `declare_npc_soft_bump` | `player/lib/src/separation.rs` | `MotorModifier::Separation` | P3 modifier. |
 | `ResolvedMotorRequest` | `compose_motor` | `player/lib/src/motor.rs` | Tanz else NPC else Standard; then modifiers / suppression | Composition only. |
 | `MoveWish` / `JumpWish` / `Sprinting` / `MoveSpeedCap` | `apply_motor` | `player/lib/src/motor.rs` | composed request | **Only apply path.** |
@@ -266,7 +296,7 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | velocity | `apply_character_movement` | `world/player/src/player.rs` | `VegetationPlayerMotor` (false in Discovery) | Playground host motor. |
 | `CameraController` look / POV | `apply_look_intents` | `player/camera/src/look.rs` | `CameraLookSuppressed`, `CameraPovLocked`, `delivered_actor` | C1–C4. **Phase 5.** |
 | Follow camera recoil yaw / pitch | `apply_recoil_handoff` | `player/camera/src/look.rs` | `CameraRecoilHandoff` from `WeaponFired` | C5. **Phase 5.** Sole follow-yaw recoil writer. |
-| `EquippedItemHandler` | `hold_primary_weapon` / `commit_weapon_swap` | `world/lib/src/weapon.rs` | inventory primary at arm / holster commit | D1 stamp. **Phase 5.** |
+| `EquippedItemHandler` | `PendingEquipmentHold::request` / item `spawn_held_*` | `items/equipment` + item crates | holster commit requests; items stamp at realize | D1 stamp. **Phase 5.** World `hold_primary_weapon` still arms the first loadout. |
 | `EquippedItemUse` / `EquippedPowerUse` | `dispatch_equipped_item` | `items/equipment/src/dispatch.rs` | `delivered_actor` + handler | D1. **Phase 5.** Sole Bind writer. |
 | `WeaponTrigger` (player) | `apply_fire_intents` | `items/firearm-user/src/fire.rs` | `Player` + addressed firearm use | D2. **Phase 5.** |
 | `WeaponTrigger` (NPC) | `intelligence::combat::firearm` | `intelligence/combat/firearm/src/combat.rs` | planner cadence | A6 item path. Keep. |
@@ -413,8 +443,8 @@ InputRouter::delivered_actor + EquippedItemHandler
                  → LubikanActivationRequest::equipped(owner)
 InventoryCycling (per-actor) ← SelectInventoryCyclingCategory
        → HUD ActiveInventoryCyclingCategory (mirror)
-       → cycle_equipped_inventory_queues | begin_weapon_swap
-            → commit_weapon_swap stamps EquippedItemHandler
+       → cycle_equipped_inventory_queues | begin_equipment_holster
+            → commit_equipment_holster requests hold; item crates stamp the handler
 WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_handoff
 ```
 
@@ -424,10 +454,13 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 |---|---|
 | `controllers/character` | `CharacterIntent::UseItem` / `PowerUseItem` / queue samples; `InventoryCyclingCategory` |
 | `items/equipment` | `EquippedItemHandler`, `EquippedItemUse`, `EquippedPowerUse`, `dispatch_equipped_item`, `InventoryCycling`, `EquipmentHolster` |
-| `player-camera` | `CameraRecoilHandoff`, `apply_recoil_handoff`; look gated on delivery |
-| `firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger; recoil writes the handoff only; `register_firearm_user_runtime`; realizes hold / teardown |
-| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime`; realizes hold / teardown |
-| `world` | loadout / arm / VFX adapters; `request_lubikan_activation` |
+| `player/camera` | `CameraRecoilHandoff`, `apply_recoil_handoff`; look gated on delivery |
+| `items/firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger; recoil writes the handoff only; `register_firearm_user_runtime` / `register_firearm_user_presentation`; realizes hold / teardown |
+| `items/grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime` / `register_grenade_user_presentation`; realizes hold / teardown |
+| `items/firearms` | cadence + `WeaponFired`; `register_firearm_runtime` / `register_firearm_presentation`. `fire_weapons` still mixes clock + spawn until a follow-up unifies fire. |
+| `gameplay/lib` | `request_lubikan_activation`; equipment ↔ item wiring; actor teardown coordinate |
+| `gameplay/session` | capabilities, pause token, play-session end |
+| `world` | loadout / arm / VFX adapters; world-dependent Lubikan owner grant |
 | `intelligence/combat/firearm` | unchanged NPC `WeaponTrigger` writer |
 
 ### Controller I/O
@@ -456,7 +489,8 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 ### Tests
 
 Unit: `dispatch.rs`, `fire.rs`, `throw.rs` (`missing_use_does_not_release_a_live_cook`),
-`inventory_cycling.rs`, `weapon.rs`, `world_lubikan.rs`, `look.rs`.
+`items/equipment` selection / transition, `gameplay/lib` `powers.rs` / `actor_lifecycle.rs`,
+`player/camera` `look.rs`. World still tests loadout arm and Lubikan owner grant.
 
 Stack tip (`gameplay/lib/src/controller_stack.rs`) calls the same headless
 runtime registration production uses
@@ -492,6 +526,13 @@ steps `app.update()`. GPU / audio systems stay on the full plugins:
   `stash` `Gamepad` presence, `game::toggle_world_pause` Start / A.
 - Full `WorldPlugin` is not headless-safe; stack tests use the extracted
   headless runtime registration, not terrain / vegetation assemble.
+- `RoutingEvent` does not yet carry actor identity; item consumers infer
+  lost delivery from the router after the write.
+- Firearm fire still has two clocks: headless `realize_held_weapon_fire` and
+  `fire_weapons` (clock + spawn). Presentation should later consume
+  `WeaponFired` only.
+- Throw still realizes `ThrownGrenadeSpawn` immediately. Drop already uses
+  `DropLiveGrenade`; a follow-up will publish `SpawnThrownGrenade`.
 
 ## Review baselines
 

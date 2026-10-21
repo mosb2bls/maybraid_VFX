@@ -8,11 +8,10 @@
 
 use ::projectiles::{
 	ballistic_after_age, spawn_flight_aged, BoltSpec, BulletSpec, ProjectileContact,
-	ProjectileSource, ProjectileSystems, ProjectileVisualCache, ProjectilesPlugin,
+	ProjectileSource, ProjectileVisualCache,
 };
 
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
-use bevy::camera::visibility::VisibilitySystems;
 use bevy::ecs::query::Has;
 use bevy::ecs::system::SystemParam;
 use bevy::light::NotShadowCaster;
@@ -26,26 +25,20 @@ use bevy_hanabi::prelude::{
 	SizeOverLifetimeModifier, SpawnerSettings,
 };
 use bevy_hanabi::Gradient;
-use damage::{DamageSystems, Hit, HitPayload};
-use firearms_components::{BoneMap, FirearmHostSystems, FirearmMembers, FirearmRoot, RigRoot};
+use damage::{Hit, HitPayload};
+use firearms_components::{BoneMap, FirearmMembers, FirearmRoot, RigRoot};
 use lod_avian::PhysicsInteractionLayer;
-use maybraid_audio::{Audio, AudioClip, AudioPlugin, AudioSystems, Mixer};
+use maybraid_audio::{Audio, AudioClip, Mixer};
 
 use crate::cadence::{
 	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, Cadence, FireControl,
 	WeaponFired, WeaponRecoil,
 };
-use crate::impact::{
-	puff_mask, setup_impact_effects, spawn_impact, tick_impact_bursts, ImpactEffects,
-};
+use crate::impact::{puff_mask, spawn_impact, ImpactEffects};
 use crate::muzzle_flame::{
-	init_muzzle_flame_caches, muzzle_flame_ref, resolve_muzzle_flame, MuzzleFlameMaterial,
-	MuzzleFlameMaterialPlugin, MuzzleFlameMaterialRefCache,
+	muzzle_flame_ref, resolve_muzzle_flame, MuzzleFlameMaterial, MuzzleFlameMaterialRefCache,
 };
-use crate::sound::{
-	copy_flight_audio_velocity, ensure_camera_spatial_listener, setup_fire_sounds,
-	FirearmFireSounds,
-};
+use crate::sound::FirearmFireSounds;
 
 /// Authored rest length of the `barrel` bone (head → tail) in bone-local units.
 pub const BARREL_REST_LENGTH: f32 = 1.0;
@@ -161,50 +154,8 @@ pub struct FirearmWeaponsPlugin;
 
 impl Plugin for FirearmWeaponsPlugin {
 	fn build(&self, app: &mut App) {
-		if !app.is_plugin_added::<ProjectilesPlugin>() {
-			app.add_plugins(ProjectilesPlugin);
-		}
-		if !app.is_plugin_added::<damage::DamagePlugin>() {
-			app.add_plugins(damage::DamagePlugin);
-		}
-		if !app.is_plugin_added::<bevy_hanabi::HanabiPlugin>() {
-			app.add_plugins(bevy_hanabi::HanabiPlugin);
-		}
-		init_muzzle_flame_caches(app);
-		if !app.is_plugin_added::<MuzzleFlameMaterialPlugin>() {
-			app.add_plugins(MuzzleFlameMaterialPlugin);
-		}
-		if !app.is_plugin_added::<AudioPlugin>() {
-			app.add_plugins(AudioPlugin);
-		}
-		app.init_resource::<WeaponsArmed>()
-			.add_message::<WeaponFired>()
-			.add_systems(Startup, (setup_impact_effects, setup_muzzle_flash, setup_fire_sounds))
-			.add_systems(Update, ensure_camera_spatial_listener)
-			.add_systems(
-				PostUpdate,
-				(
-					fire_weapons
-						.in_set(FirearmWeaponSystems::Fire)
-						.before(VisibilitySystems::VisibilityPropagate),
-					// Show the flash before visibility propagates, then let Hanabi tick the
-					// reset spawner before this system considers hiding it again.
-					tick_muzzle_flashes
-						.after(FirearmWeaponSystems::Fire)
-						.after(bevy_hanabi::EffectSystems::TickSpawners),
-					tick_lasers.after(FirearmWeaponSystems::Fire),
-					tick_laser_hits
-						.in_set(DamageSystems::Collect)
-						.after(FirearmWeaponSystems::Fire),
-					copy_flight_audio_velocity.after(FirearmWeaponSystems::Fire),
-					spawn_impacts_from_contacts,
-					tick_impact_bursts.after(bevy_hanabi::EffectSystems::TickSpawners),
-				)
-					.after(TransformSystems::Propagate)
-					.after(FirearmHostSystems::Pose)
-					.after(ProjectileSystems::Sweep)
-					.before(AudioSystems::Sync),
-			);
+		crate::runtime::register_firearm_runtime(app);
+		crate::presentation::register_firearm_presentation(app);
 	}
 }
 
@@ -367,7 +318,7 @@ impl WeaponFx<'_, '_> {
 	}
 }
 
-fn setup_muzzle_flash(
+pub(crate) fn setup_muzzle_flash(
 	mut commands: Commands,
 	mut effects: ResMut<Assets<EffectAsset>>,
 	mut images: ResMut<Assets<Image>>,
@@ -599,7 +550,7 @@ fn muzzle_flash_finished(age: f32, life: f32, sustain: bool, laser_alive: bool) 
 	}
 }
 
-fn tick_muzzle_flashes(
+pub(crate) fn tick_muzzle_flashes(
 	time: Res<Time>,
 	lasers: Query<(), With<LaserBeam>>,
 	mut flashes: Query<(&mut MuzzleFlash, &mut Visibility, &Children)>,
@@ -994,7 +945,7 @@ type LaserWeaponQuery<'w, 's> = Query<
 const LASER_HIT_INTERVAL: f32 = 0.15;
 
 #[allow(clippy::too_many_arguments)]
-fn tick_laser_hits(
+pub(crate) fn tick_laser_hits(
 	time: Res<Time>,
 	armed: Res<WeaponsArmed>,
 	spatial: SpatialQuery,
@@ -1087,7 +1038,7 @@ pub fn tick_lasers(
 	}
 }
 
-fn spawn_impacts_from_contacts(
+pub(crate) fn spawn_impacts_from_contacts(
 	mut contacts: MessageReader<ProjectileContact>,
 	effects: Option<Res<ImpactEffects>>,
 	mut sounds: Option<ResMut<FirearmFireSounds>>,

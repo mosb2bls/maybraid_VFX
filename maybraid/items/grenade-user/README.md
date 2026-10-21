@@ -13,7 +13,11 @@ Disconnect / reassign / removal drop through
 [`GrenadeThrow::apply_routing`](src/throw.rs).
 [`GrenadeThrow::take_live_cook`](src/throw.rs) is the single swap / death /
 cancel drop owner. [`spawn_held_grenade`](src/hold.rs) installs the grenade
-handler. Headless clocks use [`register_grenade_user_runtime`](src/lib.rs).
+handler. Execution (cook / windup, routing, recharge, equipment realize) lives
+in [`runtime`](src/runtime.rs) via [`register_grenade_user_runtime`](src/runtime.rs).
+HUD / pose / feel live in [`presentation`](src/presentation.rs). Throw builds
+[`ThrownGrenadeSpawn`](../grenades/src/runtime.rs) and realizes it immediately;
+a follow-up will publish that payload as `SpawnThrownGrenade`.
 
 See [ARCHITECTURE.md](../../controllers/ARCHITECTURE.md) for the D1 / D3
 contract.

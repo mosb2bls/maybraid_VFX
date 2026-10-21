@@ -1,10 +1,14 @@
 # World controller
 
-Owns [`SessionCapabilities`](src/capabilities.rs): actor/session participation
+Compatibility re-export of [`maybraid-session`](../../gameplay/session/src/lib.rs).
+Session capabilities live in `gameplay/session`. This crate keeps the existing
+package name (`maybraid-world-controller`).
+
+Owns [`SessionCapabilities`](../../gameplay/session/src/capabilities.rs): actor/session participation
 that is installed or removed. Delivery freeze is an owned
 [`InputRouter`](../core/src/router.rs) [`SuspensionToken`](../core/src/router.rs).
 Motor freeze uses [`player::MotorSuppressionToken`].
-[`WorldGameplayEnabled`](src/enabled.rs) is the live-play projection of
+[`WorldGameplayEnabled`](../../gameplay/session/src/suspension.rs) is the live-play projection of
 installed gameplay minus the pause suspension.
 
 Capabilities are independent — not a game-mode enum and not a per-frame
@@ -13,7 +17,7 @@ pause token; motors stay installed; NPCs keep simulating. Leave / Home
 uninstalls play and resumes the pause owner only.
 
 Capture (U5) is a third operation: it redirects or blocks delivery without
-freezing simulation. [`SessionCapabilitySystems`](src/lib.rs) applies a
+freezing simulation. [`SessionCapabilitySystems`](../../gameplay/session/src/lib.rs) applies a
 pending pause after Bind and before Interpret / Tanz execute / WorldFilter.
 
 `apply_world_motor_filter` declares token-owned `MotorIntent` suppression
@@ -26,6 +30,6 @@ does not restamp a global mode table.
 
 Item / camera / Lubikan interpreters join this session after Bind.
 [`PlayerSystems::Intent`](../../player/lib/src/lib.rs) is ordered after
-[`SessionCapabilitySystems`](src/lib.rs) so item realization sees the
+[`SessionCapabilitySystems`](../../gameplay/session/src/lib.rs) so item realization sees the
 same-frame pause. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the phase 5
 D1–D7 and C5 contracts.

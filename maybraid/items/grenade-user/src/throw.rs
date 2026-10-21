@@ -8,8 +8,8 @@ use characters::{CharacterHeading, CharacterRoot};
 use damage::Downed;
 use firearm_user::WeaponSwap;
 use grenades::{
-	spawn_thrown_grenade, DropLiveGrenade, GrenadeDetonated, GrenadeEffect, GrenadeMaterial,
-	GrenadeSounds,
+	DropLiveGrenade, GrenadeDetonated, GrenadeEffect, GrenadeMaterial, GrenadeSounds,
+	ThrownGrenadeSpawn,
 };
 use maybraid_audio::{Audio, AudioClip, Mixer};
 use maybraid_character_controller::HoldEffect;
@@ -217,6 +217,27 @@ pub fn apply_throw_intents(
 	}
 }
 
+/// Delivery snapshot used to interpret a [`RoutingEvent`] until the event
+/// itself carries actor identity.
+#[derive(Clone, Copy)]
+struct RoutedHold {
+	current: Option<Entity>,
+}
+
+impl RoutedHold {
+	fn from_router(router: &InputRouter, source: InputSource) -> Self {
+		Self { current: router.actor(source).map(ActorTarget::entity) }
+	}
+
+	fn applies_capture(self, actor: Entity) -> bool {
+		self.current == Some(actor)
+	}
+
+	fn applies_lost_hold(self, actor: Entity) -> bool {
+		self.current != Some(actor)
+	}
+}
+
 /// Cancel or drop from published [`RoutingEvent`] messages.
 ///
 /// Disconnect / reassign / removal drop a live cook on the actor that lost
@@ -258,17 +279,16 @@ pub fn apply_throw_routing(
 	let Some(event) = action else {
 		return;
 	};
-	let current = router.actor(source).map(ActorTarget::entity);
+	let hold = RoutedHold::from_router(&router, source);
 	for (user_entity, user, mut throw, local, global) in &mut users {
-		let assigned = current == Some(user_entity);
 		match event.kind() {
 			RoutingKind::Captured => {
-				if assigned {
+				if hold.applies_capture(user_entity) {
 					throw.apply_routing(event);
 				}
 			}
 			RoutingKind::Disconnected | RoutingKind::Removed | RoutingKind::Reassigned => {
-				if assigned {
+				if !hold.applies_lost_hold(user_entity) {
 					continue;
 				}
 				let Some(fuse) = throw.apply_routing(event) else {
@@ -580,10 +600,7 @@ fn release_grenade(
 	let (Some(meshes), Some(materials)) = (meshes, materials) else {
 		return;
 	};
-	spawn_thrown_grenade(
-		commands,
-		meshes,
-		materials,
+	ThrownGrenadeSpawn::from_throw(
 		origin,
 		launch_velocity(aim, &stats, inherit),
 		spec,
@@ -591,7 +608,8 @@ fn release_grenade(
 		GrenadeEffect::from_stats(&stats),
 		user_entity,
 		fuse_remaining,
-	);
+	)
+	.realize(commands, meshes, materials);
 }
 
 fn detonate_in_hand(

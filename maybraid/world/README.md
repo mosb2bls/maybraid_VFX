@@ -16,6 +16,15 @@ fading red screen glaze, wait four active-gameplay seconds, then receive a fresh
 loadout-equipped body at a terrain-fitted nearby urban, interior, or vegetation
 POI.
 
+`game` and the world playground assemble this crate beside
+[`GameplayPlugin`](../gameplay/lib/src/lib.rs). World keeps terrain, POIs,
+population, presentation, and [`spawn_surface`](lib/src/spawn_surface.rs),
+plus world-specific adapters (loadout / arm, stash, map, occupancy, and
+world-dependent Lubikan owner grant). Session, equipment, and item-runtime
+assembly live in `gameplay/lib`. Persistent equipment state is in
+`items/equipment`, grenade cooking in `grenade-user`, firing cadence in
+`firearms`.
+
 Equipped-item dispatch, inventory category ownership, holster-commit handler
 stamps, and Lubikan activation are documented in
 [ARCHITECTURE.md](../controllers/ARCHITECTURE.md).
