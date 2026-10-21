@@ -415,7 +415,7 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(world.get::<MoveWish>(vegetation).map(|wish| wish.0), Some(Vec3::X));
 		assert_eq!(world.get::<PlayerMoveWish>(body).map(|wish| wish.0), Some(Vec3::X));
-		assert!(!world.get::<MotorIntent>(body).is_some_and(|intent| intent.suppressed()));
+		assert!(!world.get::<MotorIntent>(body).is_some_and(MotorIntent::suppressed));
 		Ok(())
 	}
 
@@ -465,9 +465,9 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert_eq!(world.get::<MoveWish>(vegetation).map(|wish| wish.0), Some(Vec3::ZERO));
 		assert_eq!(world.get::<PlayerMoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
-		assert!(world.get::<MotorIntent>(player).is_some_and(|intent| intent.suppressed()));
+		assert!(world.get::<MotorIntent>(player).is_some_and(MotorIntent::suppressed));
 		assert_eq!(world.get::<PlayerMoveWish>(npc).map(|wish| wish.0), Some(Vec3::Z));
-		assert!(!world.get::<MotorIntent>(npc).is_some_and(|intent| intent.suppressed()));
+		assert!(!world.get::<MotorIntent>(npc).is_some_and(MotorIntent::suppressed));
 		Ok(())
 	}
 
