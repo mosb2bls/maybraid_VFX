@@ -5,6 +5,17 @@
 use bevy::prelude::*;
 use maybraid_controllers_core::{SuspensionScope, SuspensionStack};
 
+/// One independently acquired session capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SessionBit {
+	Gameplay,
+	Physics,
+	Streaming,
+	Scenery,
+	MenuShell,
+	Simulation,
+}
+
 /// Installed participation. Suspend lives on [`SuspensionStack`], not here.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Participation {
@@ -121,52 +132,73 @@ impl SessionCapabilities {
 		self.gameplay_enabled(suspensions) && !map_open
 	}
 
+	fn bit_mut(&mut self, bit: SessionBit) -> &mut Participation {
+		match bit {
+			SessionBit::Gameplay => &mut self.gameplay,
+			SessionBit::Physics => &mut self.physics,
+			SessionBit::Streaming => &mut self.streaming,
+			SessionBit::Scenery => &mut self.scenery,
+			SessionBit::MenuShell => &mut self.menu_shell,
+			SessionBit::Simulation => &mut self.simulation,
+		}
+	}
+
+	/// Independent acquire. Does not rewrite other bits.
+	pub fn acquire(&mut self, bit: SessionBit) {
+		self.bit_mut(bit).install();
+	}
+
+	/// Independent release. Does not rewrite other bits.
+	pub fn release(&mut self, bit: SessionBit) {
+		self.bit_mut(bit).uninstall();
+	}
+
 	/// Home / Characters: preview shell, no play session.
 	pub fn install_menu_shell(&mut self) {
-		self.gameplay.uninstall();
-		self.physics.uninstall();
-		self.streaming.uninstall();
-		self.scenery.uninstall();
-		self.simulation.uninstall();
-		self.menu_shell.install();
+		self.release(SessionBit::Gameplay);
+		self.release(SessionBit::Physics);
+		self.release(SessionBit::Streaming);
+		self.release(SessionBit::Scenery);
+		self.release(SessionBit::Simulation);
+		self.acquire(SessionBit::MenuShell);
 	}
 
 	/// LoadingWorld: stream the playable rings when Discovery is armed.
 	pub fn install_loading(&mut self, stream: bool) {
-		self.gameplay.uninstall();
-		self.physics.uninstall();
-		self.scenery.uninstall();
-		self.menu_shell.uninstall();
-		self.simulation.uninstall();
+		self.release(SessionBit::Gameplay);
+		self.release(SessionBit::Physics);
+		self.release(SessionBit::Scenery);
+		self.release(SessionBit::MenuShell);
+		self.release(SessionBit::Simulation);
 		if stream {
-			self.streaming.install();
+			self.acquire(SessionBit::Streaming);
 		} else {
-			self.streaming.uninstall();
+			self.release(SessionBit::Streaming);
 		}
 	}
 
 	/// Live Discovery play. Motors are installed; NPCs keep simulating.
 	pub fn install_play(&mut self, stream: bool) {
-		self.gameplay.install();
-		self.physics.install();
-		self.scenery.install();
-		self.menu_shell.uninstall();
-		self.simulation.install();
+		self.acquire(SessionBit::Gameplay);
+		self.acquire(SessionBit::Physics);
+		self.acquire(SessionBit::Scenery);
+		self.release(SessionBit::MenuShell);
+		self.acquire(SessionBit::Simulation);
 		if stream {
-			self.streaming.install();
+			self.acquire(SessionBit::Streaming);
 		} else {
-			self.streaming.uninstall();
+			self.release(SessionBit::Streaming);
 		}
 	}
 
 	/// Leave / Home teardown. Pause must not call this.
 	pub fn uninstall_play(&mut self) {
-		self.gameplay.uninstall();
-		self.physics.uninstall();
-		self.streaming.uninstall();
-		self.scenery.uninstall();
-		self.simulation.uninstall();
-		self.menu_shell.install();
+		self.release(SessionBit::Gameplay);
+		self.release(SessionBit::Physics);
+		self.release(SessionBit::Streaming);
+		self.release(SessionBit::Scenery);
+		self.release(SessionBit::Simulation);
+		self.acquire(SessionBit::MenuShell);
 	}
 }
 
@@ -182,6 +214,19 @@ mod tests {
 		assert!(bit.is_installed());
 		bit.uninstall();
 		assert!(!bit.is_installed());
+	}
+
+	#[test]
+	fn acquire_and_release_are_independent() {
+		use super::SessionBit;
+
+		let mut session = SessionCapabilities::default();
+		session.acquire(SessionBit::Gameplay);
+		assert!(session.gameplay().is_installed());
+		assert!(session.menu_shell_active());
+		session.release(SessionBit::MenuShell);
+		assert!(session.gameplay().is_installed());
+		assert!(!session.menu_shell_active());
 	}
 
 	#[test]

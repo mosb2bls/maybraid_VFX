@@ -44,8 +44,8 @@ impl CapabilityToken {
 		self.0
 	}
 
-	/// Temporary: menu dispatch still addresses [`UiTarget`] until #1442
-	/// tokens carry assignment. One call site to delete.
+	/// Bit-cast only. Delivery must use a stored [`UiTarget`] on the layer,
+	/// not this reconstruction.
 	pub const fn as_ui_target(self) -> UiTarget {
 		UiTarget::new(Entity::from_bits(self.0))
 	}

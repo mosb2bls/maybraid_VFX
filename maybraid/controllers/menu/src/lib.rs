@@ -10,7 +10,7 @@ pub use maybraid_controllers_core::{
 };
 
 use bevy::prelude::*;
-use maybraid_controllers_core::ControllersCorePlugin;
+use maybraid_controllers_core::{CaptureResolveSystems, ControllersCorePlugin};
 use maybraid_input::{PadInputPolicy, VirtualPadPlugin, VirtualPadSystems};
 use menu_components::{
 	KeyboardMenuNav, MenuComponentsPlugin, ShortTextModal, TextMenuInputLock, TextMenuSystems,
@@ -37,10 +37,11 @@ impl Plugin for MenuControllerPlugin {
 		);
 		app.add_systems(
 			Update,
-			(dispatch::refresh_menu_focus, dispatch::dispatch_menu_nav)
-				.chain()
-				.in_set(TextMenuSystems::Navigate),
+			dispatch::refresh_menu_focus
+				.in_set(CaptureResolveSystems)
+				.before(TextMenuSystems::Navigate),
 		);
+		app.add_systems(Update, dispatch::dispatch_menu_nav.in_set(TextMenuSystems::Navigate));
 	}
 }
 

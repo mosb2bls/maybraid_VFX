@@ -12,7 +12,7 @@ uninstalls play and releases the pause token only.
 
 Capture (U5) is a third operation: it redirects or blocks delivery without
 freezing simulation. [`SessionCapabilitySystems`](src/lib.rs) applies a
-pending pause after Bind and before WorldFilter / item realization.
+pending pause after Bind and before Interpret / Tanz execute / WorldFilter.
 
 Standard ↔ Tanzer is per-actor participation, written once on change. It
 does not restamp a global mode table.

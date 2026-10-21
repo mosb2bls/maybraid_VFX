@@ -6,8 +6,8 @@ use maybraid_controllers_core::{
 };
 use maybraid_input::{MenuNav, MenuNavPad};
 use menu_components::{
-	hud_menu_under_modal, HudMenu, HudOverlayMenu, MenuModal, MenuModalId, MenuModalStack,
-	ShortTextModal, ShortTextPad, TextMenu, TextMenuInputLock,
+	HudMenu, HudOverlayMenu, MenuModal, MenuModalId, MenuModalStack, ShortTextModal, ShortTextPad,
+	TextMenu, TextMenuInputLock, hud_menu_under_modal,
 };
 
 use crate::controller::MenuController;
@@ -60,9 +60,10 @@ impl ExclusiveNav {
 
 	pub fn capture_layer(self, source: InputSource) -> Option<CaptureLayer> {
 		match self {
-			Self::Target(owner) => Some(CaptureLayer::new(
+			Self::Target(owner) => Some(CaptureLayer::to_ui(
 				source,
 				CapabilityToken::from_ui(owner),
+				owner,
 				CaptureKind::MenuNav,
 			)),
 			Self::Awaiting => Some(CaptureLayer::awaiting(source)),
@@ -97,9 +98,10 @@ pub fn refresh_menu_focus(
 		};
 		if menu_layer.is_none() {
 			if let Some(focus) = controller.focus {
-				menu_layer = Some(CaptureLayer::new(
+				menu_layer = Some(CaptureLayer::to_ui(
 					InputSource::local_pad(),
 					CapabilityToken::from_ui(focus),
+					focus,
 					CaptureKind::MenuNav,
 				));
 			}
@@ -130,19 +132,22 @@ pub fn dispatch_menu_nav(
 	if events.is_empty() {
 		return;
 	}
-	if let Some(layer) = capture.top_of_kind(CaptureKind::MenuNav) {
-		for event in events {
-			MenuController::trigger_routed(
-				&mut commands,
-				Routed::to_ui(layer.source(), layer.token().as_ui_target(), event),
-			);
+	if let Some(layer) = capture.top() {
+		if layer.kind() == CaptureKind::MenuNav {
+			let Some(destination) = layer.destination() else {
+				return;
+			};
+			for event in events {
+				MenuController::trigger_routed(
+					&mut commands,
+					Routed::to_ui(layer.source(), destination, event),
+				);
+			}
+			return;
 		}
-		return;
-	}
-	if capture.top_of_kind(CaptureKind::Overlay).is_some()
-		|| capture.top_of_kind(CaptureKind::TextEntry).is_some()
-	{
-		return;
+		if layer.kind().precedes_menu_nav() {
+			return;
+		}
 	}
 	if modal.dismissed || stack.consumed() {
 		return;
@@ -159,7 +164,7 @@ pub fn dispatch_menu_nav(
 
 #[cfg(test)]
 mod tests {
-	use super::{dispatch_menu_nav, refresh_menu_focus, ExclusiveNav};
+	use super::{ExclusiveNav, dispatch_menu_nav, refresh_menu_focus};
 	use crate::controller::MenuController;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
@@ -364,6 +369,95 @@ mod tests {
 			.resource_mut::<CaptureStack>()
 			.set_layer(CaptureLayer::text_lock(InputSource::local_pad()), false);
 		assert!(!world.resource::<CaptureStack>().suppresses_pad(InputSource::local_pad()));
+		Ok(())
+	}
+
+	#[test]
+	fn higher_overlay_blocks_an_existing_menu() -> anyhow::Result<()> {
+		use maybraid_controllers_core::CaptureLayer;
+
+		let (mut world, catalog, drop_menu) = catalog_under_drop();
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::ITEM_DROP);
+		let open = run_down(&mut world)?;
+		assert_eq!(open, vec![(drop_menu.to_bits(), MenuNav::Down)]);
+		world
+			.resource_mut::<CaptureStack>()
+			.push(CaptureLayer::map_sheet(InputSource::local_pad()));
+		world.resource_mut::<CaptureStack>().replace_kind(
+			CaptureKind::MenuNav,
+			Some(CaptureLayer::to_ui(
+				InputSource::local_pad(),
+				CapabilityToken::from_entity(drop_menu),
+				UiTarget::new(drop_menu),
+				CaptureKind::MenuNav,
+			)),
+		);
+		assert_eq!(
+			world.resource::<CaptureStack>().top().map(|layer| layer.kind()),
+			Some(CaptureKind::Overlay)
+		);
+		world.resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		world.resource_mut::<NavHits>().0.clear();
+		world
+			.run_system_once(dispatch_menu_nav)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+		assert!(
+			world.resource::<NavHits>().0.is_empty(),
+			"overlay above menu must block catalog and drop nav, got {:?}",
+			world.resource::<NavHits>().0
+		);
+		assert_ne!(catalog.to_bits(), drop_menu.to_bits());
+		Ok(())
+	}
+
+	#[test]
+	fn plugin_wired_overlay_stays_above_a_refreshed_menu() -> anyhow::Result<()> {
+		use crate::MenuControllerPlugin;
+		use maybraid_controllers_core::CaptureLayer;
+
+		let mut app = App::new();
+		app.add_plugins((
+			MinimalPlugins,
+			bevy::input::InputPlugin,
+			bevy::asset::AssetPlugin::default(),
+			MenuControllerPlugin,
+		));
+		app.add_message::<bevy::input::keyboard::KeyboardInput>()
+			.add_message::<bevy::window::Ime>()
+			.add_message::<bevy::input::mouse::MouseMotion>()
+			.add_message::<bevy::input::gamepad::GamepadRumbleRequest>()
+			.init_resource::<ButtonInput<KeyCode>>()
+			.init_resource::<ButtonInput<MouseButton>>()
+			.init_resource::<MenuNavPad>()
+			.init_resource::<bevy::picking::hover::HoverMap>()
+			.init_resource::<NavHits>()
+			.add_observer(record);
+		let catalog = app.world_mut().spawn((HudMenu::new(4), HudOverlayMenu)).id();
+		let root = app.world_mut().spawn(MenuController::default()).id();
+		app.world_mut().entity_mut(root).add_child(catalog);
+		app.world_mut().resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		app.finish();
+		app.cleanup();
+		app.world_mut().run_schedule(Update);
+		app.world_mut().flush();
+		assert_eq!(app.world().resource::<NavHits>().0, vec![(catalog.to_bits(), MenuNav::Down)]);
+
+		app.world_mut()
+			.resource_mut::<CaptureStack>()
+			.push(CaptureLayer::map_sheet(InputSource::local_pad()));
+		app.world_mut().resource_mut::<NavHits>().0.clear();
+		app.world_mut().resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		app.world_mut().run_schedule(Update);
+		app.world_mut().flush();
+		assert!(
+			app.world().resource::<NavHits>().0.is_empty(),
+			"refresh must keep the overlay on top of the existing menu"
+		);
+		assert_eq!(
+			app.world().resource::<CaptureStack>().top().map(|layer| layer.kind()),
+			Some(CaptureKind::Overlay)
+		);
 		Ok(())
 	}
 

@@ -2,20 +2,22 @@
 
 use bevy::prelude::*;
 use durham::{
-	terrain_collider_covers_xz, CascadeChunk, DurhamSurface, TerrainCellLayout,
-	TerrainTrimeshCollider,
+	CascadeChunk, DurhamSurface, TerrainCellLayout, TerrainTrimeshCollider,
+	terrain_collider_covers_xz,
 };
 use game_commands::command::{CommandConsoleOutput, TextEntryFocus};
 use maybraid_character_controller::CharacterIntent;
-use maybraid_controllers_core::{CaptureLayer, CaptureStack, InputSource, SuspensionStack};
+use maybraid_controllers_core::{
+	CaptureLayer, CaptureStack, InputSource, SuspensionScope, SuspensionStack,
+};
 use maybraid_skill_map::SkillMapEnabled;
-use maybraid_sky::{SkyDome, SKY_HORIZON};
+use maybraid_sky::{SKY_HORIZON, SkyDome};
 use maybraid_world_controller::SessionCapabilities;
 use player::{
-	apply_character_controller, Buoyant, CharacterController, CharacterStance, JumpWish, Jumping,
-	LocomotionCapsule, MotorIntent, MotorTraction, MoveWish as PlayerMoveWish,
-	Player as MaybraidPlayer, PlayerCameraAim, PlayerLook, PlayerYawOwner, RestLocomotionCapsule,
-	Sprinting, StanceKind, Wading,
+	Buoyant, CharacterController, CharacterStance, JumpWish, Jumping, LocomotionCapsule,
+	MotorIntent, MotorTraction, MoveWish as PlayerMoveWish, Player as MaybraidPlayer,
+	PlayerCameraAim, PlayerLook, PlayerYawOwner, RestLocomotionCapsule, Sprinting, StanceKind,
+	Wading, apply_character_controller,
 };
 use world_player::{MoveWish, Player, PlayerPhysicsEnabled, PlayerSpawnXz, PlaygroundMode};
 
@@ -180,9 +182,13 @@ pub(crate) fn apply_world_motor_filter(
 	map: Option<Res<WorldMapView>>,
 	mut vegetation: Query<&mut MoveWish, With<Player>>,
 	mut motors: Query<&mut MotorIntent, (With<CharacterController>, With<MaybraidPlayer>)>,
+	mut world_motors: Query<&mut MotorIntent, (With<CharacterController>, Without<MaybraidPlayer>)>,
 ) {
 	let capture_blocks = capture.is_some_and(|stack| stack.blocks_actor(InputSource::local_pad()));
 	let map_open = map.is_some_and(|map| map.open);
+	let simulation_frozen = suspensions
+		.as_deref()
+		.is_some_and(|stack| stack.freezes(SuspensionScope::Simulation));
 	let allowed = match (session.as_deref(), suspensions.as_deref()) {
 		(Some(session), Some(suspensions)) => session.player_realization_allowed(
 			suspensions,
@@ -191,6 +197,18 @@ pub(crate) fn apply_world_motor_filter(
 		),
 		_ => gameplay.accepts_character_input(text_focus.0 || capture_blocks, map_open),
 	};
+	if simulation_frozen {
+		for mut wish in &mut vegetation {
+			wish.0 = Vec3::ZERO;
+		}
+		for mut intent in &mut motors {
+			intent.set_suppress(true);
+		}
+		for mut intent in &mut world_motors {
+			intent.set_suppress(true);
+		}
+		return;
+	}
 	if *mode == PlaygroundMode::Character && allowed {
 		return;
 	}
@@ -336,7 +354,7 @@ pub(crate) fn strip_world_player_motor(commands: &mut Commands, body: Entity) {
 mod tests {
 	use super::*;
 	use bevy::ecs::system::RunSystemOnce;
-	use durham::{terrain_collider_covers_xz, CascadeChunk};
+	use durham::{CascadeChunk, terrain_collider_covers_xz};
 
 	#[test]
 	fn surface_ready_requires_local_column() {
@@ -397,7 +415,7 @@ mod tests {
 
 	#[test]
 	fn paused_gameplay_suppresses_the_player_and_zeros_vegetation() -> anyhow::Result<()> {
-		use player::{apply_motor, MotorSample, Npc};
+		use player::{MotorSample, Npc, apply_motor};
 
 		let mut world = World::new();
 		world.insert_resource(PlaygroundMode::Character);
@@ -524,7 +542,7 @@ mod tests {
 	#[test]
 	fn same_frame_pause_suppresses_the_player_before_item_realization() -> anyhow::Result<()> {
 		use maybraid_controllers_core::{CaptureStack, SuspensionStack};
-		use player::{apply_motor, MotorSample, Npc};
+		use player::{MotorSample, Npc, apply_motor};
 
 		#[derive(Resource, Default)]
 		struct ItemFired(bool);
@@ -571,6 +589,56 @@ mod tests {
 		assert_eq!(world.get::<PlayerMoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
 		assert_eq!(world.get::<PlayerMoveWish>(npc).map(|wish| wish.0), Some(Vec3::Z));
 		assert!(!world.resource::<ItemFired>().0);
+		Ok(())
+	}
+
+	#[test]
+	fn simulation_scope_is_the_world_wide_motor_gate() -> anyhow::Result<()> {
+		use maybraid_controllers_core::{
+			CapabilityToken, SuspensionClaim, SuspensionScope, SuspensionStack, SuspensionSubject,
+		};
+		use player::{MotorSample, Npc, apply_motor};
+
+		let mut world = World::new();
+		world.insert_resource(PlaygroundMode::Character);
+		world.insert_resource(TextEntryFocus(false));
+		world.insert_resource(WorldGameplayEnabled(true));
+		let mut capabilities = SessionCapabilities::default();
+		capabilities.install_play(true);
+		world.insert_resource(capabilities);
+		let mut suspensions = SuspensionStack::default();
+		suspensions.set(
+			SuspensionClaim::new(
+				CapabilityToken::from_bits(8),
+				SuspensionScope::Simulation,
+				SuspensionSubject::session_local(),
+			),
+			true,
+		);
+		world.insert_resource(suspensions);
+		world.init_resource::<CaptureStack>();
+		let mut player_intent = MotorIntent::default();
+		player_intent.set_standard(MotorSample::translation(Vec3::X));
+		let player = world
+			.spawn((CharacterController, MaybraidPlayer, PlayerMoveWish(Vec3::X), player_intent))
+			.id();
+		let mut npc_intent = MotorIntent::default();
+		npc_intent.set_npc(MotorSample::translation(Vec3::Z));
+		let npc = world
+			.spawn((Npc, CharacterController, PlayerMoveWish(Vec3::Z), npc_intent))
+			.id();
+		world
+			.run_system_once(apply_world_motor_filter)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(apply_motor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(world.get::<PlayerMoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
+		assert_eq!(
+			world.get::<PlayerMoveWish>(npc).map(|wish| wish.0),
+			Some(Vec3::ZERO),
+			"Simulation scope freezes NPC motors; pause Gameplay must not"
+		);
 		Ok(())
 	}
 }

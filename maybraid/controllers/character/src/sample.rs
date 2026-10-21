@@ -4,7 +4,7 @@
 //! semantic [`crate::CharacterIntent::Jump`].
 
 use bevy::prelude::*;
-use maybraid_controllers_core::{ActorTarget, InputSource, LocalActor, Routed};
+use maybraid_controllers_core::{ActorTarget, CaptureStack, InputSource, LocalActor, Routed};
 use maybraid_input::{PadButton, VirtualPad};
 
 /// One frame of analog sticks and physical face / bumper state for one actor.
@@ -180,15 +180,22 @@ impl RoutedActorControl {
 	}
 }
 
-/// Copy the local pad onto [`RoutedActorControl`] when a [`LocalActor`] is set.
+/// Copy the local pad onto [`RoutedActorControl`] when actor delivery is live.
 ///
-/// Locomotion fills the same resource with the Player fallback when hosts have
-/// not installed [`LocalActor`]. This system does not clear a fallback write.
+/// Capture blocks actor delivery and clears the sample so recognizers see a
+/// revoke. UI delivery is a separate path. Locomotion may write a Player
+/// fallback first; this system is the capture gate.
 pub fn produce_actor_control_samples(
 	pad: Option<Res<VirtualPad>>,
 	local: Option<Res<LocalActor>>,
+	capture: Option<Res<CaptureStack>>,
 	mut routed: ResMut<RoutedActorControl>,
 ) {
+	let source = InputSource::local_pad();
+	if capture.as_deref().is_some_and(|stack| stack.blocks_actor(source)) {
+		routed.clear();
+		return;
+	}
 	let Some(local) = local else {
 		return;
 	};
@@ -196,18 +203,14 @@ pub fn produce_actor_control_samples(
 		routed.clear();
 		return;
 	};
-	routed.set(Routed::to_actor(
-		InputSource::local_pad(),
-		local.target(),
-		ActorControlSample::from_pad(&pad),
-	));
+	routed.set(Routed::to_actor(source, local.target(), ActorControlSample::from_pad(&pad)));
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::produce::collect;
 	use crate::CharacterIntent;
+	use crate::produce::collect;
 	use maybraid_input::VirtualPad;
 
 	#[test]
@@ -250,5 +253,33 @@ mod tests {
 		let routed = RoutedActorControl::from_sample(actor, ActorControlSample::default());
 		assert!(routed.addresses(actor.entity()));
 		assert!(!routed.addresses(other));
+	}
+
+	#[test]
+	fn capture_clears_actor_delivery() {
+		use maybraid_controllers_core::{
+			CapabilityToken, CaptureKind, CaptureLayer, CaptureStack, InputSource, LocalActor,
+		};
+
+		let mut app = App::new();
+		app.init_resource::<RoutedActorControl>()
+			.init_resource::<VirtualPad>()
+			.init_resource::<CaptureStack>()
+			.add_systems(Update, produce_actor_control_samples);
+		let actor = app.world_mut().spawn_empty().id();
+		app.world_mut().insert_resource(LocalActor::new(actor));
+		app.update();
+		assert!(app.world().resource::<RoutedActorControl>().addresses(actor));
+
+		app.world_mut().resource_mut::<CaptureStack>().push(CaptureLayer::new(
+			InputSource::local_pad(),
+			CapabilityToken::from_bits(1),
+			CaptureKind::MenuNav,
+		));
+		app.update();
+		assert!(
+			app.world().resource::<RoutedActorControl>().actor().is_none(),
+			"capture must revoke actor delivery"
+		);
 	}
 }

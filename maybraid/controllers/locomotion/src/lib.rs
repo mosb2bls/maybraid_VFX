@@ -11,7 +11,8 @@ use maybraid_character_controller::{
 	RoutedActorControl,
 };
 use maybraid_controllers_core::{
-	ControllerPipeline, ControllersCorePlugin, InputSource, MotorRequestStage, Routed,
+	CaptureResolveSystems, CaptureStack, ControllerPipeline, ControllersCorePlugin, InputSource,
+	MotorRequestStage, Routed,
 };
 use maybraid_input::VirtualPad;
 use player::Player;
@@ -31,6 +32,7 @@ impl Plugin for LocomotionControllerPlugin {
 				Update,
 				route_actor_control_samples
 					.in_set(ControllerPipeline::Bind)
+					.after(CaptureResolveSystems)
 					.before(CharacterControlSystems)
 					.before(CharacterBindSystems::Route),
 			)
@@ -43,10 +45,17 @@ impl Plugin for LocomotionControllerPlugin {
 pub fn route_actor_control_samples(
 	pad: Option<Res<VirtualPad>>,
 	local: Option<Res<LocalActor>>,
+	capture: Option<Res<CaptureStack>>,
 	players: Query<Entity, With<Player>>,
 	mut routed: ResMut<RoutedActorControl>,
 ) {
-	let Some(target) = LocalActor::resolve(local.as_deref(), players.iter()) else {
+	let source = InputSource::local_pad();
+	let assigned = LocalActor::resolve(local.as_deref(), players.iter()).map(ActorTarget::new);
+	let delivered = capture
+		.as_deref()
+		.map(|stack| stack.delivered_actor(source, assigned))
+		.unwrap_or(assigned);
+	let Some(target) = delivered else {
 		routed.clear();
 		return;
 	};
@@ -54,11 +63,7 @@ pub fn route_actor_control_samples(
 		routed.clear();
 		return;
 	};
-	routed.set(Routed::to_actor(
-		InputSource::local_pad(),
-		ActorTarget::new(target),
-		ActorControlSample::from_pad(&pad),
-	));
+	routed.set(Routed::to_actor(source, target, ActorControlSample::from_pad(&pad)));
 }
 
 #[cfg(test)]
@@ -67,7 +72,7 @@ mod tests {
 	use maybraid_character_controller::CharacterIntent;
 	use maybraid_controllers_core::ControllerPipeline;
 	use player::{
-		apply_motor, CharacterController, MotorIntent, MoveWish, Player, PlayerLook, Sprinting,
+		CharacterController, MotorIntent, MoveWish, Player, PlayerLook, Sprinting, apply_motor,
 	};
 
 	fn motor_app() -> App {

@@ -2,6 +2,10 @@
 
 use bevy::prelude::*;
 
+/// Capture claims written before actor samples are produced.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CaptureResolveSystems;
+
 /// Update-schedule stages of the controller lane.
 ///
 /// Target order:
@@ -13,8 +17,9 @@ use bevy::prelude::*;
 /// item intents read after [`Self::Bind`] and must not write the shared motor
 /// wish.
 ///
-/// [`Self::Interpret`] resets per-actor motor slots so writers in
-/// [`Self::MotorRequest`] declare this frame only.
+/// [`CaptureResolveSystems`] runs first inside [`Self::Bind`] so actor
+/// delivery sees this frame's capture. [`Self::Interpret`] resets per-actor
+/// motor slots so writers in [`Self::MotorRequest`] declare this frame only.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ControllerPipeline {
 	/// Pad → routed character / menu samples.
@@ -55,6 +60,7 @@ impl ControllerPipeline {
 			)
 				.chain(),
 		)
+		.configure_sets(Update, CaptureResolveSystems.in_set(Self::Bind))
 		.configure_sets(
 			Update,
 			(

@@ -89,8 +89,9 @@ PreUpdate
 
 Update
   ControllerPipeline::Bind           (P1)  character produce, menu focus+dispatch
+    CaptureResolveSystems ⊂ Bind     menu focus writes capture first
     CharacterControlSystems ⊂ Bind   (item / camera / shell alias)
-  SessionCapabilitySystems           pending pause + scenery/editor write
+  SessionCapabilitySystems           pending pause; before Interpret / Tanz execute
   camera / item / shell / map        (C*, D*, E*) after Bind + session
   ControllerPipeline::Interpret      (P2)  reset MotorIntent slots
   ControllerPipeline::MotorRequest   (P3)
@@ -108,12 +109,15 @@ PostUpdate
 order is not. Phase 2 keeps the #1394 names and replaces overwrite priority
 with one actor-local resolver.
 
-Same-frame pause and capture (invariant 10): menu focus + capture write run
-in the same `Update` chain as dispatch. `SessionCapabilitySystems` honors a
-pending `WorldPause` after Bind and before map / items / WorldFilter. Pause
-declares `MotorIntent` suppress on the local player; apply releases sprint,
-jump, and caps. NPC slots and installed motors stay. Capture blocks the
-local pad without suspending simulation.
+Same-frame pause and capture (invariant 10): `CaptureResolveSystems` writes
+menu claims before actor samples are produced. Capture blocks
+`RoutedActorControl` at actor delivery; UI dispatch reads the top layer's
+stored destination. `SessionCapabilitySystems` honors a pending `WorldPause`
+after Bind and before Interpret / Tanz execute / WorldFilter. Pause declares
+`MotorIntent` suppress on the local player and freezes that actor's Tanz
+timers; apply releases sprint, jump, and caps. NPC slots and installed
+motors stay unless a `SuspensionScope::Simulation` claim is present. Capture
+blocks the local pad without suspending simulation.
 
 ## Role inventory
 
@@ -146,7 +150,7 @@ the current owner. Later phases change the owner column, not the role id.
 | B9 | Inventory | `CharacterIntent::Inventory` | A5 | E2 `stash.rs` | character crate | Broadcast. |
 | B10 | Toggle map | `CharacterIntent::ToggleMap` | A5 | E3 `map_view.rs` | character crate | Broadcast. |
 | B11 | Ordinary locomotion | `controllers/locomotion` `interpret_standard_locomotion` | A5 + `LocalActor` / lowest-id `Player` | `MotorIntent` Standard slot | `LocomotionControllerPlugin` | **Phase 2.** One actor. |
-| B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` from `RoutedActorControl` | Tanz match → `ExecuteTanz`; skill-map fan-out | `TanzUser` component | **Phase 3/4.** One routed actor. Mode change writes `OrdinaryLocomotion` once for that actor; no global `SkillMapSteerPolicy` restamp. |
+| B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` from `RoutedActorControl` | Tanz match → `ExecuteTanz`; skill-map fan-out | `TanzUser` component | **Phase 3/4.** One routed actor. Capture revoke resets recognizer / bumper hold. Participation is written on spawn and real mode transitions only. |
 | B13 | Standard flick | `SkillMapFlick` | `SkillMapController::detect_skill_map_flicks` from `RoutedActorControl` | skill-map interpreter | `SkillMapController` resource | **Phase 3.** Actor/session-addressed; `look_throw`, not raw `Gamepad`. |
 
 ### C — camera interpreter
@@ -190,8 +194,8 @@ the current owner. Later phases change the owner column, not the role id.
 | U2 | Actor routing | `ActorTarget`, `LocalActor`, `RoutedActorControl` | locomotion / hosts | B11 / B12 / B13 | `controllers/core` + character Bind | **Phase 3.** Local pad actor. |
 | U3 | UI routing | `UiTarget`, `RouteTarget::Ui` | A4 | M1 / M2 | `controllers/core` + menu | Used by the migrated menu path. |
 | U4 | Focus pick | `MenuController::pick_focus` / `resolve` | screen subtree | A4 | `MenuController` | Overlay > HUD > text. |
-| U5 | Scoped capture | `CaptureStack`, `CaptureLayer`, `CapabilityToken` | A4 refresh, text lock, console, map | A4 dispatch, A5 produce, WorldFilter | `ControllersCorePlugin` | **Phase 4.** Nested claims release by token. Capture owns **B**. Not simulation halt. |
-| U6 | Suspension | `SuspensionStack`, `SuspensionClaim` | E1 pending pause | WorldFilter, stamp (motors stay) | `WorldControllerPlugin` | **Phase 4.** Owned freeze; releasing pause cannot release another token. NPCs keep simulating. |
+| U5 | Scoped capture | `CaptureStack`, `CaptureLayer`, `CapabilityToken` | A4 refresh, text lock, console, map | A4 dispatch, A5 produce, WorldFilter | `ControllersCorePlugin` | **Phase 4.** Nested claims release by token. Destination is stored on the layer. Updates keep stack order unless `focus`. Capture owns **B**. Not simulation halt. |
+| U6 | Suspension | `SuspensionStack`, `SuspensionClaim`, `SuspensionSubject` | E1 pending pause | Tanz execute, WorldFilter, stamp (motors stay) | `WorldControllerPlugin` | **Phase 4.** Owned freeze with an explicit session/actor target. Pause is `SessionLocal` + Gameplay. `Simulation` is the world-wide motor gate; no production writer installs it yet. |
 | U7 | Lifecycle cleanup | Tanz `reset_input` / `apply_toggle`; death despawn; `uninstall_play` | mode flip, death, Home | wishes, execution, items, motors | per-domain + session | Shared uninstall on leave. Phase 5 still owns item/death edges. |
 
 ### M — menu

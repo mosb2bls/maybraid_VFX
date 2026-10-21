@@ -82,8 +82,8 @@ pub use maybraid_sky::{
 	SUN_COLOR, SUN_ILLUMINANCE,
 };
 pub use maybraid_world_controller::{
-	CapabilityToken, SessionCapabilities, SessionCapabilitySystems, SuspensionClaim,
-	SuspensionScope, SuspensionStack,
+	CapabilityToken, SessionBit, SessionCapabilities, SessionCapabilitySystems, SuspensionClaim,
+	SuspensionScope, SuspensionStack, SuspensionSubject,
 };
 pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use player_camera::{CameraPov, CameraPovLocked};

@@ -9,11 +9,11 @@ pub use maybraid_controllers_core::{
 	ActorTarget, ControllerPipeline, InputSource, LocalActor, MotorRequestStage, Routed,
 };
 pub use sample::{
-	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,
+	ActorControlSample, FaceButtonSample, RoutedActorControl, produce_actor_control_samples,
 };
 
 use bevy::prelude::*;
-use maybraid_controllers_core::ControllersCorePlugin;
+use maybraid_controllers_core::{CaptureResolveSystems, ControllersCorePlugin};
 use maybraid_input::VirtualPadPlugin;
 
 use crate::produce::produce_character_intents;
@@ -60,7 +60,9 @@ impl Plugin for CharacterControllerPlugin {
 			.configure_sets(
 				Update,
 				(
-					CharacterBindSystems::Route.in_set(CharacterControlSystems),
+					CharacterBindSystems::Route
+						.in_set(CharacterControlSystems)
+						.after(CaptureResolveSystems),
 					CharacterBindSystems::Produce
 						.in_set(CharacterControlSystems)
 						.after(CharacterBindSystems::Route),

@@ -3,10 +3,10 @@
 pub mod capabilities;
 pub mod enabled;
 
-pub use capabilities::{Participation, SessionCapabilities};
+pub use capabilities::{Participation, SessionBit, SessionCapabilities};
 pub use enabled::WorldGameplayEnabled;
 pub use maybraid_controllers_core::{
-	CapabilityToken, SuspensionClaim, SuspensionScope, SuspensionStack,
+	CapabilityToken, SuspensionClaim, SuspensionScope, SuspensionStack, SuspensionSubject,
 };
 
 use bevy::prelude::*;
@@ -30,6 +30,7 @@ impl Plugin for WorldControllerPlugin {
 				Update,
 				SessionCapabilitySystems
 					.after(ControllerPipeline::Bind)
+					.before(ControllerPipeline::Interpret)
 					.before(MotorRequestStage::WorldFilter),
 			);
 	}
@@ -49,7 +50,7 @@ mod tests {
 	}
 
 	#[test]
-	fn session_capabilities_run_after_bind_before_world_filter() {
+	fn session_capabilities_run_after_bind_before_interpret() {
 		let mut app = App::new();
 		app.add_plugins(WorldControllerPlugin)
 			.init_resource::<StageOrder>()
@@ -58,11 +59,15 @@ mod tests {
 				(
 					note("bind").in_set(ControllerPipeline::Bind),
 					note("session").in_set(SessionCapabilitySystems),
+					note("interpret").in_set(ControllerPipeline::Interpret),
 					note("world").in_set(MotorRequestStage::WorldFilter),
 				),
 			);
 		app.update();
-		assert_eq!(app.world().resource::<StageOrder>().0, ["bind", "session", "world"]);
+		assert_eq!(
+			app.world().resource::<StageOrder>().0,
+			["bind", "session", "interpret", "world"]
+		);
 	}
 
 	#[test]

@@ -12,9 +12,9 @@ pub mod ui;
 pub use actor::{ActorTarget, LocalActor};
 pub use capture::{CaptureKind, CaptureLayer, CaptureStack};
 pub use route::{RouteTarget, Routed};
-pub use schedule::{ControllerPipeline, MotorRequestStage};
+pub use schedule::{CaptureResolveSystems, ControllerPipeline, MotorRequestStage};
 pub use source::InputSource;
-pub use suspension::{SuspensionClaim, SuspensionScope, SuspensionStack};
+pub use suspension::{SuspensionClaim, SuspensionScope, SuspensionStack, SuspensionSubject};
 pub use token::CapabilityToken;
 pub use ui::UiTarget;
 

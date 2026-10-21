@@ -10,12 +10,12 @@ use characters::{
 use damage::Health;
 use player::{MotorIntent, MotorSample, PlayerLook, SpeedCapRequest, SprintRequest};
 
-use maybraid_controllers_core::ActorTarget;
+use maybraid_controllers_core::{ActorTarget, LocalActor, SuspensionScope, SuspensionStack};
 
-use crate::actions::{dash_ground_speed, TanzAction};
+use crate::actions::{TanzAction, dash_ground_speed};
 use crate::input::TanzInput;
 use crate::stack::{TanzId, TanzStack};
-use crate::{look_wish, look_yaw, ControlMode, TanzDefinitionExt, TanzUser};
+use crate::{ControlMode, TanzDefinitionExt, TanzUser, look_wish, look_yaw};
 
 /// Selection result. Execution consumes this; matching does not submit.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
@@ -206,11 +206,28 @@ pub fn match_tanz_inputs(
 	}
 }
 
+fn tanz_execution_frozen(
+	suspensions: Option<&SuspensionStack>,
+	actor: ActorTarget,
+	local: Option<ActorTarget>,
+) -> bool {
+	let Some(suspensions) = suspensions else {
+		return false;
+	};
+	suspensions.freezes_actor(actor, SuspensionScope::Gameplay, local)
+}
+
 pub fn submit_tanz_executions(
+	local: Option<Res<LocalActor>>,
+	suspensions: Option<Res<SuspensionStack>>,
 	mut users: Query<&mut TanzExecution>,
 	mut execute: MessageReader<ExecuteTanz>,
 ) {
+	let local = local.map(|local| local.target());
 	for request in execute.read() {
+		if tanz_execution_frozen(suspensions.as_deref(), request.actor(), local) {
+			continue;
+		}
 		let Ok(mut execution) = users.get_mut(request.actor().entity()) else {
 			continue;
 		};
@@ -220,10 +237,16 @@ pub fn submit_tanz_executions(
 
 pub fn advance_tanz_execution(
 	time: Res<Time>,
-	mut users: Query<(&TanzUser, &mut TanzExecution, Option<&mut Health>)>,
+	local: Option<Res<LocalActor>>,
+	suspensions: Option<Res<SuspensionStack>>,
+	mut users: Query<(Entity, &TanzUser, &mut TanzExecution, Option<&mut Health>)>,
 ) {
 	let dt = time.delta_secs();
-	for (user, mut execution, health) in &mut users {
+	let local = local.map(|local| local.target());
+	for (entity, user, mut execution, health) in &mut users {
+		if tanz_execution_frozen(suspensions.as_deref(), ActorTarget::new(entity), local) {
+			continue;
+		}
 		if user.mode != ControlMode::Tanzer
 			&& execution.active.is_none()
 			&& execution.buffered.is_none()
@@ -244,9 +267,15 @@ pub fn advance_tanz_execution(
 }
 
 pub fn apply_tanz_movement(
-	mut users: Query<(&TanzUser, &TanzExecution, Option<&PlayerLook>, &mut MotorIntent)>,
+	local: Option<Res<LocalActor>>,
+	suspensions: Option<Res<SuspensionStack>>,
+	mut users: Query<(Entity, &TanzUser, &TanzExecution, Option<&PlayerLook>, &mut MotorIntent)>,
 ) {
-	for (user, execution, look, mut intent) in &mut users {
+	let local = local.map(|local| local.target());
+	for (entity, user, execution, look, mut intent) in &mut users {
+		if tanz_execution_frozen(suspensions.as_deref(), ActorTarget::new(entity), local) {
+			continue;
+		}
 		if !user.mode.is_tanzer() {
 			continue;
 		}
@@ -317,9 +346,9 @@ pub fn drive_tanz_animation(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::TanzUser;
 	use crate::actions::TanzAction;
 	use crate::input::TanzButton;
-	use crate::TanzUser;
 
 	fn input(user: Entity, direction: Vec2, button: TanzButton) -> TanzInput {
 		TanzInput { user, direction, magnitude: 0.9, coherence: 1.0, button }
@@ -385,10 +414,11 @@ mod tests {
 			.id();
 		app.world_mut().write_message(input(user, Vec2::ZERO, TanzButton::APress));
 		app.update();
-		assert!(app
-			.world()
-			.get::<TanzExecution>(user)
-			.is_some_and(|execution| execution.active.is_none()));
+		assert!(
+			app.world()
+				.get::<TanzExecution>(user)
+				.is_some_and(|execution| execution.active.is_none())
+		);
 		Ok(())
 	}
 

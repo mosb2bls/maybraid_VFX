@@ -16,25 +16,25 @@ use maybraid_character_controller::{CharacterBindSystems, OrdinaryLocomotion, Ro
 use maybraid_controllers_core::{ActorTarget, ControllerPipeline, MotorRequestStage};
 use maybraid_skill_map::{SkillMapFlick, SkillMapSystems, SkillMapUser};
 use menu_components::sync_loading_bar_fill;
-use player::{PlayerLook, PlayerSystems};
 #[cfg(test)]
 use player::Player;
+use player::{PlayerLook, PlayerSystems};
 
 pub use actions::{
-	dash_ground_speed, forward_dash, healing_salute, left_strafe, right_strafe, starter_stack,
-	TanzAction, DASH_BRAKE_END, DASH_COMPRESS_END, DASH_HOLD_END, DASH_PUSH_END,
-	FORWARD_DASH_CRUISE, POWER_STRAFE_CRUISE,
+	DASH_BRAKE_END, DASH_COMPRESS_END, DASH_HOLD_END, DASH_PUSH_END, FORWARD_DASH_CRUISE,
+	POWER_STRAFE_CRUISE, TanzAction, dash_ground_speed, forward_dash, healing_salute, left_strafe,
+	right_strafe, starter_stack,
 };
-pub use callout::{TanzCallout, TanzCalloutView, TANZ_CALLOUT_SECS};
+pub use callout::{TANZ_CALLOUT_SECS, TanzCallout, TanzCalloutView};
 pub use execute::{
-	advance_tanz_execution, apply_tanz_movement, drive_tanz_animation, match_tanz_inputs,
-	submit_tanz_executions, ActiveTanz, BufferedTanz, ExecuteTanz, TanzExecution, TanzPhase,
+	ActiveTanz, BufferedTanz, ExecuteTanz, TanzExecution, TanzPhase, advance_tanz_execution,
+	apply_tanz_movement, drive_tanz_animation, match_tanz_inputs, submit_tanz_executions,
 };
 pub use input::{
-	CommittedGesture, ModeToggle, TanzButton, TanzFaceSample, TanzInput, TanzRecognizer,
-	TanzRecognizerConfig, TANZ_B_HOLD_SECS, TANZ_TOGGLE_SECS,
+	CommittedGesture, ModeToggle, TANZ_B_HOLD_SECS, TANZ_TOGGLE_SECS, TanzButton, TanzFaceSample,
+	TanzInput, TanzRecognizer, TanzRecognizerConfig,
 };
-pub use pose::{request_inventory_tanz_icons, TanzPose};
+pub use pose::{TanzPose, request_inventory_tanz_icons};
 pub use stack::{TanzDefinition, TanzDefinitionExt, TanzId, TanzInputRange, TanzStack, TanzTiming};
 
 /// Standard locomotion versus Tanzer gesture play.
@@ -216,7 +216,12 @@ impl Plugin for TanzUserPlugin {
 			)
 			.add_systems(
 				Update,
-				(toggle_control_mode, sync_tanz_participation)
+				(
+					apply_revoked_actor_delivery,
+					toggle_control_mode,
+					install_tanz_participation,
+					release_tanz_participation,
+				)
 					.chain()
 					.in_set(TanzUserSystems::Toggle),
 			)
@@ -251,9 +256,26 @@ impl Plugin for TanzUserPlugin {
 	}
 }
 
+fn apply_revoked_actor_delivery(
+	routed: Res<RoutedActorControl>,
+	mut users: Query<&mut TanzUser>,
+	mut previous: Local<Option<ActorTarget>>,
+) {
+	let current = routed.actor();
+	if let Some(lost) = *previous {
+		if current != Some(lost) {
+			if let Ok(mut user) = users.get_mut(lost.entity()) {
+				user.reset_input();
+			}
+		}
+	}
+	*previous = current;
+}
+
 fn toggle_control_mode(
 	time: Res<Time>,
 	routed: Res<RoutedActorControl>,
+	mut commands: Commands,
 	mut users: Query<(&mut TanzUser, &mut TanzExecution)>,
 ) {
 	let Some(target) = routed.actor() else {
@@ -265,17 +287,29 @@ fn toggle_control_mode(
 	let Ok((mut user, mut execution)) = users.get_mut(target.entity()) else {
 		return;
 	};
-	user.apply_toggle(time.delta_secs(), sample.bumper_chord(), &mut execution);
+	if user.apply_toggle(time.delta_secs(), sample.bumper_chord(), &mut execution) {
+		commands
+			.entity(target.entity())
+			.insert(OrdinaryLocomotion(user.ordinary_locomotion()));
+	}
 }
 
-/// One-time Standard ↔ Tanzer participation. Does not restamp a global
-/// mode table. `Changed<TanzUser>` covers spawn and the cleaned-up toggle.
-fn sync_tanz_participation(
+/// Install participation on spawn. Mode flips write from [`toggle_control_mode`]
+/// or agent `set_mode`; temporal recognizer/toggle mutation must not restamp.
+fn install_tanz_participation(
 	mut commands: Commands,
-	changed: Query<(Entity, &TanzUser), Changed<TanzUser>>,
+	added: Query<(Entity, &TanzUser), Added<TanzUser>>,
 ) {
-	for (entity, user) in &changed {
+	for (entity, user) in &added {
 		commands.entity(entity).insert(OrdinaryLocomotion(user.ordinary_locomotion()));
+	}
+}
+
+fn release_tanz_participation(mut commands: Commands, mut removed: RemovedComponents<TanzUser>) {
+	for entity in removed.read() {
+		if let Ok(mut entity) = commands.get_entity(entity) {
+			entity.remove::<OrdinaryLocomotion>();
+		}
 	}
 }
 
@@ -417,10 +451,21 @@ mod tests {
 		Ok(())
 	}
 
+	fn participation_app() -> App {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins)
+			.init_resource::<RoutedActorControl>()
+			.add_message::<TanzInput>()
+			.add_systems(
+				Update,
+				(toggle_control_mode, recognize_tanz_inputs, install_tanz_participation).chain(),
+			);
+		app
+	}
+
 	#[test]
 	fn tanzer_policy_disables_ordinary_locomotion() -> anyhow::Result<()> {
-		let mut app = App::new();
-		app.add_plugins(MinimalPlugins).add_systems(Update, sync_tanz_participation);
+		let mut app = participation_app();
 		let npc = app
 			.world_mut()
 			.spawn(TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() })
@@ -432,8 +477,7 @@ mod tests {
 
 	#[test]
 	fn npc_tanzer_does_not_steal_a_standard_player_pad() -> anyhow::Result<()> {
-		let mut app = App::new();
-		app.add_plugins(MinimalPlugins).add_systems(Update, sync_tanz_participation);
+		let mut app = participation_app();
 		let player = app
 			.world_mut()
 			.spawn((Player, TanzUser { mode: ControlMode::Standard, ..TanzUser::default() }))
@@ -450,8 +494,7 @@ mod tests {
 
 	#[test]
 	fn two_actors_keep_independent_modes_without_global_restamp() -> anyhow::Result<()> {
-		let mut app = App::new();
-		app.add_plugins(MinimalPlugins).add_systems(Update, sync_tanz_participation);
+		let mut app = participation_app();
 		let standard = app.world_mut().spawn(TanzUser::default()).id();
 		let tanzer = app
 			.world_mut()
@@ -466,7 +509,7 @@ mod tests {
 		assert_eq!(
 			app.world().get::<OrdinaryLocomotion>(tanzer).map(|flag| flag.0),
 			Some(true),
-			"unchanged TanzUser must not restamp locomotion from mode"
+			"toggle + recognition must not restamp locomotion without a mode flip"
 		);
 		assert_eq!(app.world().get::<OrdinaryLocomotion>(standard).map(|flag| flag.0), Some(true));
 
@@ -476,7 +519,11 @@ mod tests {
 			.expect("user")
 			.set_mode(ControlMode::Standard, &mut TanzExecution::default());
 		app.update();
-		assert_eq!(app.world().get::<OrdinaryLocomotion>(tanzer).map(|flag| flag.0), Some(true));
+		assert_eq!(
+			app.world().get::<OrdinaryLocomotion>(tanzer).map(|flag| flag.0),
+			Some(true),
+			"mutating TanzUser without apply_toggle must not restamp participation"
+		);
 		Ok(())
 	}
 
@@ -615,8 +662,10 @@ mod tests {
 				Update,
 				(
 					reset_motor_intents,
+					apply_revoked_actor_delivery,
 					toggle_control_mode,
-					sync_tanz_participation,
+					install_tanz_participation,
+					release_tanz_participation,
 					recognize_tanz_inputs,
 					publish_tanz_map_inputs,
 					match_tanz_inputs,
@@ -684,7 +733,7 @@ mod tests {
 	#[test]
 	fn unmatched_gesture_moves_only_its_own_map() -> anyhow::Result<()> {
 		use maybraid_skill_map::{
-			apply_flicks, spawn_skill_maps, SkillMapId, SkillMapMember, SkillMapViewportCamera,
+			SkillMapId, SkillMapMember, SkillMapViewportCamera, apply_flicks, spawn_skill_maps,
 		};
 
 		let mut app = App::new();
@@ -815,6 +864,213 @@ mod tests {
 		assert_eq!(app.world().get::<MoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
 		assert!(app.world().get::<MoveSpeedCap>(player).is_none());
 		assert!(app.world().get::<Sprinting>(player).is_none());
+		Ok(())
+	}
+
+	#[test]
+	fn removing_tanz_user_releases_ordinary_locomotion() -> anyhow::Result<()> {
+		let mut app = participation_app();
+		app.add_systems(Update, release_tanz_participation);
+		let user = app.world_mut().spawn(TanzUser::default()).id();
+		app.update();
+		assert!(app.world().get::<OrdinaryLocomotion>(user).is_some());
+		app.world_mut().entity_mut(user).remove::<TanzUser>();
+		app.update();
+		assert!(app.world().get::<OrdinaryLocomotion>(user).is_none());
+		Ok(())
+	}
+
+	#[derive(Resource, Default)]
+	struct NavHits(Vec<maybraid_input::MenuNav>);
+
+	fn record_menu_nav(impulse: On<maybraid_input::MenuNavImpulse>, mut hits: ResMut<NavHits>) {
+		hits.0.push(impulse.event().nav);
+	}
+
+	fn lifecycle_plugins() -> App {
+		use bevy::time::TimeUpdateStrategy;
+		use maybraid_character_controller::CharacterControllerPlugin;
+		use maybraid_menu_controller::MenuControllerPlugin;
+		use maybraid_world_controller::WorldControllerPlugin;
+
+		let mut app = App::new();
+		app.add_plugins((
+			MinimalPlugins,
+			bevy::input::InputPlugin,
+			bevy::asset::AssetPlugin::default(),
+			CharacterControllerPlugin,
+			TanzUserPlugin,
+			WorldControllerPlugin,
+			MenuControllerPlugin,
+		))
+		.insert_resource(TimeUpdateStrategy::ManualDuration(std::time::Duration::from_secs_f32(
+			1.0 / 60.0,
+		)))
+		.add_message::<bevy::input::keyboard::KeyboardInput>()
+		.add_message::<bevy::window::Ime>()
+		.add_message::<bevy::input::mouse::MouseMotion>()
+		.add_message::<bevy::input::gamepad::GamepadRumbleRequest>()
+		.add_message::<maybraid_skill_map::SkillMapFlick>()
+		.init_resource::<ButtonInput<KeyCode>>()
+		.init_resource::<ButtonInput<MouseButton>>()
+		.init_resource::<bevy::picking::hover::HoverMap>();
+		app.finish();
+		app.cleanup();
+		app
+	}
+
+	fn step_lifecycle(app: &mut App) {
+		app.world_mut().run_schedule(bevy::app::First);
+		app.world_mut().run_schedule(Update);
+	}
+
+	#[test]
+	fn plugin_menu_nav_while_in_tanz_mode_does_not_commit_gestures() -> anyhow::Result<()> {
+		use maybraid_character_controller::RoutedActorControl;
+		use maybraid_controllers_core::LocalActor;
+		use maybraid_input::{MenuNav, MenuNavPad, PadButton, VirtualPad};
+		use maybraid_menu_controller::MenuController;
+		use menu_components::{HudMenu, HudOverlayMenu};
+
+		let mut app = lifecycle_plugins();
+		app.init_resource::<NavHits>()
+			.init_resource::<MenuNavPad>()
+			.add_observer(record_menu_nav);
+		let player = app
+			.world_mut()
+			.spawn((
+				Player,
+				TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() },
+				TanzStack::starter(),
+				TanzExecution::default(),
+			))
+			.id();
+		app.world_mut().insert_resource(LocalActor::new(player));
+		let catalog = app.world_mut().spawn((HudMenu::new(4), HudOverlayMenu)).id();
+		let root = app.world_mut().spawn(MenuController::default()).id();
+		app.world_mut().entity_mut(root).add_child(catalog);
+
+		{
+			let mut pad = app.world_mut().resource_mut::<VirtualPad>();
+			pad.begin_frame();
+			pad.add_move(Vec2::NEG_X);
+			pad.hold_digital(PadButton::A);
+			pad.finish_digital();
+		}
+		app.world_mut().resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		for _ in 0..20 {
+			step_lifecycle(&mut app);
+			app.world_mut().resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+			let mut pad = app.world_mut().resource_mut::<VirtualPad>();
+			pad.begin_frame();
+			pad.add_move(Vec2::NEG_X);
+			pad.hold_digital(PadButton::A);
+			pad.finish_digital();
+		}
+		assert!(
+			app.world().resource::<RoutedActorControl>().actor().is_none(),
+			"menu capture must revoke actor delivery"
+		);
+		assert!(
+			app.world().get::<TanzExecution>(player).is_some_and(|ex| ex.active.is_none()),
+			"captured tanzer must not commit a gesture"
+		);
+		assert!(
+			!app.world().resource::<NavHits>().0.is_empty(),
+			"menu must still receive nav while the actor is in Tanz mode"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn plugin_pause_during_a_healing_tanz_freezes_the_local_actor() -> anyhow::Result<()> {
+		use damage::Health;
+		use maybraid_controllers_core::{LocalActor, SuspensionStack};
+		use maybraid_world_controller::SessionCapabilities;
+
+		let mut app = lifecycle_plugins();
+		app.world_mut().resource_mut::<SessionCapabilities>().install_play(true);
+		app.world_mut().resource_mut::<SuspensionStack>().set_pause(true);
+		let mut execution = TanzExecution::default();
+		execution.submit(TanzId::HealingSalute);
+		let player = app
+			.world_mut()
+			.spawn((
+				Player,
+				TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() },
+				TanzStack::starter(),
+				execution,
+				Health { current: 40.0, max: 100.0 },
+			))
+			.id();
+		app.world_mut().insert_resource(LocalActor::new(player));
+		let mut npc_execution = TanzExecution::default();
+		npc_execution.submit(TanzId::HealingSalute);
+		let npc = app
+			.world_mut()
+			.spawn((
+				TanzUser { mode: ControlMode::Tanzer, ..TanzUser::default() },
+				TanzStack::starter(),
+				npc_execution,
+				Health { current: 40.0, max: 100.0 },
+			))
+			.id();
+		for _ in 0..20 {
+			step_lifecycle(&mut app);
+		}
+		let player_health = app.world().get::<Health>(player).expect("player health").current;
+		assert!(
+			(player_health - 40.0).abs() < 1e-4,
+			"paused local healing Tanz must not apply, got {player_health}"
+		);
+		assert!(
+			app.world()
+				.get::<TanzExecution>(player)
+				.is_some_and(|ex| { ex.active.is_some_and(|active| active.age == 0.0) }),
+			"paused execution timers must freeze"
+		);
+		let npc_health = app.world().get::<Health>(npc).expect("npc health").current;
+		assert!(
+			(npc_health - 65.0).abs() < 1e-3,
+			"session pause must not freeze NPC Tanz execution, got {npc_health}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn plugin_ordinary_sampling_does_not_restamp_without_a_transition() -> anyhow::Result<()> {
+		use maybraid_character_controller::OrdinaryLocomotion;
+		use maybraid_controllers_core::LocalActor;
+		use maybraid_input::{PadButton, VirtualPad};
+
+		let mut app = lifecycle_plugins();
+		let player = app
+			.world_mut()
+			.spawn((Player, TanzUser::default(), TanzStack::default(), TanzExecution::default()))
+			.id();
+		app.world_mut().insert_resource(LocalActor::new(player));
+		step_lifecycle(&mut app);
+		assert_eq!(app.world().get::<OrdinaryLocomotion>(player).map(|flag| flag.0), Some(true));
+		app.world_mut().entity_mut(player).insert(OrdinaryLocomotion(false));
+		for _ in 0..12 {
+			{
+				let mut pad = app.world_mut().resource_mut::<VirtualPad>();
+				pad.begin_frame();
+				pad.add_move(Vec2::Y);
+				pad.hold_digital(PadButton::A);
+				pad.finish_digital();
+			}
+			step_lifecycle(&mut app);
+		}
+		assert_eq!(
+			app.world().get::<TanzUser>(player).map(|user| user.mode),
+			Some(ControlMode::Standard)
+		);
+		assert_eq!(
+			app.world().get::<OrdinaryLocomotion>(player).map(|flag| flag.0),
+			Some(false),
+			"toggle + recognition must not restamp OrdinaryLocomotion without a mode flip"
+		);
 		Ok(())
 	}
 }

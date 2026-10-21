@@ -25,7 +25,10 @@ screen-capture = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 character-animations = { workspace = true }
+maybraid-input = { workspace = true }
 maybraid-locomotion-controller = { workspace = true }
+maybraid-menu-controller = { workspace = true }
+maybraid-world-controller = { workspace = true }
 
 [lints]
 workspace = true
