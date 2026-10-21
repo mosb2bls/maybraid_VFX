@@ -4,7 +4,7 @@
 //! semantic [`crate::CharacterIntent::Jump`].
 
 use bevy::prelude::*;
-use maybraid_controllers_core::{ActorTarget, CaptureStack, InputSource, LocalActor, Routed};
+use maybraid_controllers_core::{ActorTarget, InputRouter, InputSource, Routed};
 use maybraid_input::{PadButton, VirtualPad};
 
 /// One frame of analog sticks and physical face / bumper state for one actor.
@@ -178,39 +178,41 @@ impl RoutedActorControl {
 	pub fn from_sample(target: ActorTarget, sample: ActorControlSample) -> Self {
 		Self(Some(Routed::to_actor(InputSource::local_pad(), target, sample)))
 	}
+
+	pub fn source(&self) -> Option<InputSource> {
+		self.0.as_ref().map(Routed::source)
+	}
 }
 
-/// Copy the local pad onto [`RoutedActorControl`] when actor delivery is live.
+/// Copy the local pad onto [`RoutedActorControl`] for [`InputRouter::delivered_actor`].
 ///
-/// Capture blocks actor delivery and clears the sample so recognizers see a
-/// revoke. UI delivery is a separate path. Locomotion may write a Player
-/// fallback first; this system is the capture gate.
+/// This is the sole Bind-stage pad sample for Tanz and skill-map. Capture,
+/// suspension, and disconnect clear delivery so those consumers see no sample.
 pub fn produce_actor_control_samples(
 	pad: Option<Res<VirtualPad>>,
-	local: Option<Res<LocalActor>>,
-	capture: Option<Res<CaptureStack>>,
+	router: Res<InputRouter>,
 	mut routed: ResMut<RoutedActorControl>,
 ) {
-	let source = InputSource::local_pad();
-	if capture.as_deref().is_some_and(|stack| stack.blocks_actor(source)) {
+	let Some(target) = router.delivered_actor(InputSource::local_pad()) else {
 		routed.clear();
-		return;
-	}
-	let Some(local) = local else {
 		return;
 	};
 	let Some(pad) = pad else {
 		routed.clear();
 		return;
 	};
-	routed.set(Routed::to_actor(source, local.target(), ActorControlSample::from_pad(&pad)));
+	routed.set(Routed::to_actor(
+		InputSource::local_pad(),
+		target,
+		ActorControlSample::from_pad(&pad),
+	));
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::CharacterIntent;
 	use crate::produce::collect;
+	use crate::CharacterIntent;
 	use maybraid_input::VirtualPad;
 
 	#[test]
@@ -256,30 +258,36 @@ mod tests {
 	}
 
 	#[test]
-	fn capture_clears_actor_delivery() {
-		use maybraid_controllers_core::{
-			CapabilityToken, CaptureKind, CaptureLayer, CaptureStack, InputSource, LocalActor,
-		};
+	fn produce_addresses_the_delivered_actor_only() {
+		use bevy::ecs::system::RunSystemOnce;
 
-		let mut app = App::new();
-		app.init_resource::<RoutedActorControl>()
-			.init_resource::<VirtualPad>()
-			.init_resource::<CaptureStack>()
-			.add_systems(Update, produce_actor_control_samples);
-		let actor = app.world_mut().spawn_empty().id();
-		app.world_mut().insert_resource(LocalActor::new(actor));
-		app.update();
-		assert!(app.world().resource::<RoutedActorControl>().addresses(actor));
+		fn write(
+			pad: Option<Res<VirtualPad>>,
+			router: Res<InputRouter>,
+			routed: ResMut<RoutedActorControl>,
+		) {
+			super::produce_actor_control_samples(pad, router, routed);
+		}
 
-		app.world_mut().resource_mut::<CaptureStack>().push(CaptureLayer::new(
-			InputSource::local_pad(),
-			CapabilityToken::from_bits(1),
-			CaptureKind::MenuNav,
-		));
-		app.update();
-		assert!(
-			app.world().resource::<RoutedActorControl>().actor().is_none(),
-			"capture must revoke actor delivery"
-		);
+		let mut world = World::new();
+		world.init_resource::<VirtualPad>();
+		world.init_resource::<InputRouter>();
+		world.init_resource::<RoutedActorControl>();
+		world.resource_mut::<VirtualPad>().begin_frame();
+		world.resource_mut::<VirtualPad>().add_move(Vec2::NEG_X);
+		world.resource_mut::<VirtualPad>().finish_digital();
+
+		world.run_system_once(write).expect("unassigned");
+		assert!(world.resource::<RoutedActorControl>().payload().is_none());
+
+		let actor = Entity::from_bits(3);
+		world
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(actor));
+		world.run_system_once(write).expect("assigned");
+		let routed = world.resource::<RoutedActorControl>();
+		assert!(routed.addresses(actor));
+		assert_eq!(routed.payload().map(ActorControlSample::move_stick), Some(Vec2::NEG_X));
+		assert_eq!(routed.source(), Some(InputSource::local_pad()));
 	}
 }

@@ -6,10 +6,10 @@ pub mod sample;
 
 pub use intent::{CharacterIntent, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
-	ActorTarget, ControllerPipeline, InputSource, LocalActor, MotorRequestStage, Routed,
+	ActorTarget, ControllerPipeline, InputRouter, InputSource, Routed,
 };
 pub use sample::{
-	ActorControlSample, FaceButtonSample, RoutedActorControl, produce_actor_control_samples,
+	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,
 };
 
 use bevy::prelude::*;

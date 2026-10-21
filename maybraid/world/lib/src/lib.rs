@@ -82,8 +82,7 @@ pub use maybraid_sky::{
 	SUN_COLOR, SUN_ILLUMINANCE,
 };
 pub use maybraid_world_controller::{
-	CapabilityToken, SessionBit, SessionCapabilities, SessionCapabilitySystems, SuspensionClaim,
-	SuspensionScope, SuspensionStack, SuspensionSubject,
+	InputRouter, SessionBit, SessionCapabilities, SessionCapabilitySystems,
 };
 pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use player_camera::{CameraPov, CameraPovLocked};
@@ -133,9 +132,8 @@ use firearms::EnergyMaterialPlugin;
 use game_commands::command::{GameCommandPlugin, TextEntryFocus};
 use game_commands::ui::GameCommandDrawerConfig;
 use lod::{Bullseye, OpenLattice};
-use maybraid_character_controller::{
-	CharacterControlSystems, CharacterControllerPlugin, MotorRequestStage,
-};
+use maybraid_character_controller::{CharacterControlSystems, CharacterControllerPlugin};
+use maybraid_controllers_core::CaptureResolveSystems;
 use maybraid_game_mode_discover::DiscoveryPlayerPlugin;
 use maybraid_input::{VirtualPadConfig, VirtualPadPlugin};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;
@@ -144,9 +142,9 @@ use maybraid_sky::SkyDomePlugin;
 use maybraid_vfx::VfxPlugin;
 use maybraid_weather::WeatherPlugin;
 use maybraid_world_controller::WorldControllerPlugin;
-#[cfg(test)]
-use player::PlayerSystems;
-use player::{register_motor_traction_physics, PlayerPlugin, PlayerPresentationPlugin};
+use player::{
+	register_motor_traction_physics, MotorRequestStage, PlayerPlugin, PlayerPresentationPlugin,
+};
 use player_camera::{PlayerCameraPlugin, PlayerCameraSystems};
 use world_player::{
 	CharacterCameraFollowEnabled, CharacterLocomotion, CharacterSpecies, MeshStatsPlugin,
@@ -262,6 +260,7 @@ impl Plugin for WorldPlugin {
 			.init_resource::<crate::WorldMenuShell>()
 			.init_resource::<crate::FirstWave>()
 			.init_resource::<WorldSceneryVisible>()
+			.init_resource::<control::ConsoleCapture>()
 			.insert_resource(WorldMobHudEnabled::from_debug_chrome(self.debug_chrome))
 			.insert_resource(Bullseye { inner: 50.0, outer: WORLD_BULLSEYE_OUTER_M })
 			.insert_resource(OpenLattice {
@@ -285,6 +284,7 @@ impl Plugin for WorldPlugin {
 		} else {
 			app.init_resource::<TextEntryFocus>();
 		}
+		MotorRequestStage::configure(app);
 		app.add_systems(Startup, vsync::apply_startup_vsync).add_systems(
 			Update,
 			(
@@ -298,11 +298,7 @@ impl Plugin for WorldPlugin {
 		app.add_systems(PostStartup, spawn_default_braidman)
 			.add_systems(
 				PreUpdate,
-				(
-					control::sync_console_capture,
-					control::stamp_vegetation_motor_traction,
-					control::stamp_world_player_motor,
-				),
+				(control::stamp_vegetation_motor_traction, control::stamp_world_player_motor),
 			)
 			.configure_sets(Update, control::WorldSurfaceSet)
 			.add_systems(
@@ -311,6 +307,7 @@ impl Plugin for WorldPlugin {
 					control::update_world_surface_ready.in_set(control::WorldSurfaceSet),
 					control::sync_world_scenery,
 					control::sync_combat_hud_visible,
+					control::sync_console_capture.in_set(CaptureResolveSystems),
 					control::sync_skill_map_enabled.before(SkillMapSystems::Spawn),
 					control::apply_world_motor_filter
 						.in_set(MotorRequestStage::WorldFilter)
@@ -378,6 +375,7 @@ fn spawn_default_braidman(mut commands: Commands) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use player::PlayerSystems;
 
 	#[test]
 	fn world_slope_is_below_wall_grade() {

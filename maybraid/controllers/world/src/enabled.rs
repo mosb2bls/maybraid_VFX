@@ -1,16 +1,16 @@
 //! Pause / live-play flag for world character input and combat HUD.
 
 use bevy::prelude::*;
-use maybraid_controllers_core::SuspensionStack;
+use maybraid_controllers_core::InputRouter;
 
 use crate::SessionCapabilities;
 
 /// When `false`, world movement / POV intents are ignored (menus, pause overlay).
 /// Pause must not be treated as a play-session teardown.
 ///
-/// This is the live projection of installed gameplay minus owned gameplay
-/// suspensions. Capture and the map sheet are consulted separately so they
-/// do not halt NPCs.
+/// This is the live projection of installed gameplay minus the pause
+/// [`InputRouter`] suspension. Capture and the map sheet are consulted
+/// separately so they do not halt NPCs.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorldGameplayEnabled(pub bool);
 
@@ -21,8 +21,8 @@ impl Default for WorldGameplayEnabled {
 }
 
 impl WorldGameplayEnabled {
-	pub fn from_session(session: SessionCapabilities, suspensions: &SuspensionStack) -> Self {
-		Self(session.gameplay_enabled(suspensions))
+	pub fn from_session(session: SessionCapabilities, router: &InputRouter) -> Self {
+		Self(session.gameplay_enabled(router))
 	}
 
 	/// Live play with no modal that steals character intents (console, world map).
@@ -40,7 +40,7 @@ impl WorldGameplayEnabled {
 mod tests {
 	use super::WorldGameplayEnabled;
 	use crate::SessionCapabilities;
-	use maybraid_controllers_core::SuspensionStack;
+	use maybraid_controllers_core::InputRouter;
 
 	#[test]
 	fn accepts_character_input_requires_live_play_without_modals() {
@@ -60,12 +60,12 @@ mod tests {
 	#[test]
 	fn projects_session_gameplay() {
 		let mut session = SessionCapabilities::default();
-		let mut suspensions = SuspensionStack::default();
-		assert!(!WorldGameplayEnabled::from_session(session, &suspensions).0);
+		let mut router = InputRouter::default();
+		assert!(!WorldGameplayEnabled::from_session(session, &router).0);
 		session.install_play(true);
-		assert!(WorldGameplayEnabled::from_session(session, &suspensions).0);
-		suspensions.set_pause(true);
-		assert!(!WorldGameplayEnabled::from_session(session, &suspensions).0);
+		assert!(WorldGameplayEnabled::from_session(session, &router).0);
+		router.set_paused(true);
+		assert!(!WorldGameplayEnabled::from_session(session, &router).0);
 		assert!(session.gameplay().is_installed());
 	}
 }

@@ -1424,7 +1424,9 @@ mod tests {
 		assert!((remaining - LOOT_SECS).abs() < 1e-3);
 		assert!(remaining > CORPSE_SECS);
 
-		world.resource_mut::<Time>().advance_by(Duration::from_secs_f32(CORPSE_SECS + 0.5));
+		world
+			.resource_mut::<Time>()
+			.advance_by(Duration::from_secs_f32(CORPSE_SECS + 0.5));
 		world
 			.run_system_once(tick_queued_despawns)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

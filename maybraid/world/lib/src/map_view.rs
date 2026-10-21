@@ -8,7 +8,7 @@ use durham::DurhamSurface;
 use game_commands::command::TextEntryFocus;
 use geneva::{LanguageOverlay, NameKey, NamedOverlay};
 use maybraid_character_controller::{CharacterControlSystems, CharacterIntent};
-use maybraid_controllers_core::{CaptureLayer, CaptureStack, InputSource};
+use maybraid_controllers_core::{CaptureKind, CaptureToken, InputRouter, InputSource, ScopeOwner};
 use maybraid_world_controller::SessionCapabilitySystems;
 use menu_components::{
 	BARLOW_BLACK, BONES_ICON, ITEM_FONT_SIZE, MAP_ARROW_ICON, MAP_GROVE_ICON, MAP_HOUSE_ICON,
@@ -245,7 +245,7 @@ impl Plugin for WorldMapViewPlugin {
 		app.init_resource::<WorldMapView>()
 			.init_resource::<LanguageOverlay>()
 			.init_resource::<MapPresentation>()
-			.init_resource::<CaptureStack>()
+			.init_resource::<MapOverlayCapture>()
 			.configure_sets(
 				Update,
 				WorldMapSet::Toggle
@@ -406,8 +406,22 @@ pub(crate) fn toggle_map_view(
 	map.open_at(xz, false);
 }
 
-fn sync_map_capture(map: Res<WorldMapView>, mut capture: ResMut<CaptureStack>) {
-	capture.set_layer(CaptureLayer::map_sheet(InputSource::local_pad()), map.open);
+#[derive(Resource, Default)]
+struct MapOverlayCapture {
+	token: Option<CaptureToken>,
+}
+
+fn sync_map_capture(
+	map: Res<WorldMapView>,
+	mut router: ResMut<InputRouter>,
+	mut capture: ResMut<MapOverlayCapture>,
+) {
+	router.replace_owned_capture(
+		&mut capture.token,
+		InputSource::local_pad(),
+		map.open.then_some(ScopeOwner::map_overlay()),
+		CaptureKind::Overlay,
+	);
 }
 
 fn pan_map_view(
@@ -1918,7 +1932,8 @@ mod tests {
 			.spawn((VegetationPlayer, CameraFollow, Transform::from_xyz(12.0, 3.0, -8.0)))
 			.id();
 
-		world.init_resource::<CaptureStack>();
+		world.init_resource::<InputRouter>();
+		world.init_resource::<MapOverlayCapture>();
 		write_toggle(&mut world);
 		world
 			.run_system_once(toggle_map_view)
@@ -1935,13 +1950,13 @@ mod tests {
 		assert_eq!(map.focus, Vec2::new(12.0, -8.0));
 		assert!(!map.close_locked);
 		assert!(world.get::<CameraFollow>(player).is_some());
-		assert!(world.resource::<CaptureStack>().blocks_actor(InputSource::local_pad()));
+		assert!(world.resource::<InputRouter>().blocks_actor(InputSource::local_pad()));
 		Ok(())
 	}
 
 	#[test]
 	fn map_and_menu_captures_release_independently() -> anyhow::Result<()> {
-		use maybraid_controllers_core::{CapabilityToken, CaptureKind, CaptureLayer};
+		use maybraid_controllers_core::{CaptureKind, ScopeOwner, UiTarget};
 
 		let mut world = World::new();
 		world.insert_resource(WorldMapView {
@@ -1951,25 +1966,25 @@ mod tests {
 			close_locked: false,
 			begin_life: false,
 		});
-		world.init_resource::<CaptureStack>();
+		world.init_resource::<InputRouter>();
+		world.init_resource::<MapOverlayCapture>();
 		world
 			.run_system_once(sync_map_capture)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		let menu = CapabilityToken::from_bits(7);
-		world.resource_mut::<CaptureStack>().push(CaptureLayer::new(
+		let menu = world.resource_mut::<InputRouter>().acquire_capture(
 			InputSource::local_pad(),
-			menu,
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(7))),
 			CaptureKind::MenuNav,
-		));
-		assert_eq!(world.resource::<CaptureStack>().len(), 2);
+		);
+		assert_eq!(world.resource::<InputRouter>().captures().len(), 2);
 
-		world.resource_mut::<CaptureStack>().pop_token(menu);
+		world.resource_mut::<InputRouter>().release_capture(menu);
 		world
 			.run_system_once(sync_map_capture)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert!(world.resource::<CaptureStack>().blocks_actor(InputSource::local_pad()));
+		assert!(world.resource::<InputRouter>().blocks_actor(InputSource::local_pad()));
 		assert_eq!(
-			world.resource::<CaptureStack>().top().map(|layer| layer.kind()),
+			world.resource::<InputRouter>().top_capture().map(|layer| layer.kind()),
 			Some(CaptureKind::Overlay)
 		);
 
@@ -1977,7 +1992,7 @@ mod tests {
 		world
 			.run_system_once(sync_map_capture)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert!(world.resource::<CaptureStack>().is_empty());
+		assert!(world.resource::<InputRouter>().captures().is_empty());
 		Ok(())
 	}
 

@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 
-/// Keyboard layout and analog suppress derived from [`CaptureStack`].
+/// Keyboard layout and analog suppress derived from [`InputRouter`] capture.
 ///
 /// One writer. Hosts must not poke independent lanes — push or pop a capture
 /// layer instead.

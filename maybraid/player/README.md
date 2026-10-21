@@ -33,9 +33,11 @@ plugin. Last plane is only a
 [`Grounded`](src/body.rs) snap when the caster missed. Off the ground, gravity
 owns Y (XZ heading only). A jump is takeoff (impulse delayed) → air → land
 recovery; only air is XZ-only. Ordinary locomotion, Tanz, and NPC drive declare
-[`MotorIntent`](src/motor.rs) slots. [`apply_motor`](src/motor.rs) is the
-only path that writes [`MoveWish`](src/body.rs) / [`JumpWish`](src/body.rs)
-/ sprint / speed cap. Overlapping [`Npc`](src/identity.rs) capsules declare
+[`MotorIntent`](src/motor.rs) contributions. [`compose_motor`](src/motor.rs)
+selects them into [`ResolvedMotorRequest`](src/motor.rs);
+[`apply_motor`](src/motor.rs) is the only path that writes
+[`MoveWish`](src/body.rs) / [`JumpWish`](src/body.rs) / sprint / speed cap
+and does not inspect whether the producer was Tanz. Overlapping [`Npc`](src/identity.rs) capsules declare
 a kinematic XZ [`SoftBump`](src/separation.rs) modifier so pack-mates start
 steering apart before capsule contacts shove them. Animated movers contact Fixed geometry and each other; restitution
 on the capsule stays zero. Pronograde recipes keep that vertical motor
@@ -50,7 +52,7 @@ yaw; `Health`
 stays on the body.
 
 ```text
-CharacterIntent ─► MotorIntent (locomotion) ─► apply_motor ─► wish / jump
+CharacterIntent ─► MotorIntent (locomotion) ─► compose ─► apply_motor ─► wish / jump
                ─► look / POV            (player-camera)
                ─► UseItem               (firearm-user, melee-user)
 
@@ -65,7 +67,7 @@ System sets other crates add to:
 | Set | When | Writers |
 |---|---|---|
 | `PlayerSystems::Intent` | after Bind, before Motor | item users (fire / throw) |
-| `PlayerSystems::Body` | `ControllerPipeline::Motor` | `apply_motor` then capsule physics |
+| `PlayerSystems::Body` | `ControllerPipeline::Motor` | `compose_motor` + `apply_motor` then capsule physics |
 | `PlayerPoseSystems::Item` | after body, before locomotion | held-mesh pose |
 | `PlayerSystems::Locomotion` | before `CharacterMotionSystems::Anim` | walk/run clips |
 | `PlayerPoseSystems::Overlay` | after Anim | IK / melee overlay |

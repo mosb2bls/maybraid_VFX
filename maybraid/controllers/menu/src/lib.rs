@@ -4,9 +4,9 @@ pub mod controller;
 pub mod dispatch;
 
 pub use controller::MenuController;
-pub use dispatch::ExclusiveNav;
+pub use dispatch::{exclusive_nav_menu, ExclusiveNav, MenuNavCapture};
 pub use maybraid_controllers_core::{
-	CaptureKind, CaptureLayer, CaptureStack, InputSource, UiTarget,
+	CaptureKind, CaptureToken, InputRouter, InputSource, ScopeOwner, UiTarget,
 };
 
 use bevy::prelude::*;
@@ -29,12 +29,15 @@ impl Plugin for MenuControllerPlugin {
 		if !app.is_plugin_added::<MenuComponentsPlugin>() {
 			app.add_plugins(MenuComponentsPlugin);
 		}
-		app.insert_resource(KeyboardMenuNav(false)).add_systems(
-			PreUpdate,
-			(sync_text_menu_capture, sync_pad_from_capture)
-				.chain()
-				.before(VirtualPadSystems::Produce),
-		);
+		app.init_resource::<MenuNavCapture>()
+			.init_resource::<PadInputPolicy>()
+			.insert_resource(KeyboardMenuNav(false))
+			.add_systems(
+				PreUpdate,
+				(sync_text_menu_capture, sync_pad_from_router)
+					.chain()
+					.before(VirtualPadSystems::Produce),
+			);
 		app.add_systems(
 			Update,
 			dispatch::refresh_menu_focus
@@ -48,27 +51,28 @@ impl Plugin for MenuControllerPlugin {
 fn sync_text_menu_capture(
 	lock: Res<TextMenuInputLock>,
 	modal: Res<ShortTextModal>,
-	mut capture: ResMut<CaptureStack>,
+	mut router: ResMut<InputRouter>,
+	mut menu_capture: ResMut<MenuNavCapture>,
 ) {
-	let console_like = lock.0 && !modal.is_open();
-	capture.set_layer(
-		maybraid_controllers_core::CaptureLayer::text_lock(
-			maybraid_controllers_core::InputSource::local_pad(),
-		),
-		console_like,
+	router.replace_owned_capture(
+		&mut menu_capture.text,
+		maybraid_controllers_core::InputSource::local_pad(),
+		(lock.0 && !modal.is_open()).then_some(ScopeOwner::text_lock()),
+		CaptureKind::TextEntry,
 	);
 }
 
-fn sync_pad_from_capture(capture: Res<CaptureStack>, mut policy: ResMut<PadInputPolicy>) {
-	*policy = capture.pad_policy();
+fn sync_pad_from_router(router: Res<InputRouter>, mut policy: ResMut<PadInputPolicy>) {
+	*policy = router.pad_policy();
 }
 
 #[cfg(test)]
 mod tests {
-	use super::{sync_pad_from_capture, sync_text_menu_capture};
+	use super::{sync_pad_from_router, sync_text_menu_capture};
+	use crate::dispatch::MenuNavCapture;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
-	use maybraid_controllers_core::{CaptureKind, CaptureLayer, CaptureStack, InputSource};
+	use maybraid_controllers_core::{CaptureKind, InputRouter, InputSource, ScopeOwner};
 	use maybraid_input::PadInputPolicy;
 	use menu_components::controls::short_text::ShortTextSession;
 	use menu_components::{ShortTextModal, TextMenuInputLock};
@@ -77,14 +81,15 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<TextMenuInputLock>();
 		world.init_resource::<ShortTextModal>();
-		world.init_resource::<CaptureStack>();
+		world.init_resource::<InputRouter>();
+		world.init_resource::<MenuNavCapture>();
 		world.init_resource::<PadInputPolicy>();
 		world
 	}
 
 	fn sync(world: &mut World) {
 		world.run_system_once(sync_text_menu_capture).expect("text capture");
-		world.run_system_once(sync_pad_from_capture).expect("pad policy");
+		world.run_system_once(sync_pad_from_router).expect("pad policy");
 	}
 
 	#[test]
@@ -101,12 +106,12 @@ mod tests {
 		});
 		sync(&mut world);
 		assert_eq!(*world.resource::<PadInputPolicy>(), PadInputPolicy::gameplay());
-		world.resource_mut::<CaptureStack>().push(CaptureLayer::new(
+		world.resource_mut::<InputRouter>().acquire_capture(
 			InputSource::local_pad(),
-			maybraid_controllers_core::CapabilityToken::from_bits(1),
+			ScopeOwner::ui(maybraid_controllers_core::UiTarget::new(Entity::from_bits(1))),
 			CaptureKind::MenuNav,
-		));
-		world.run_system_once(sync_pad_from_capture).expect("pad policy");
+		);
+		world.run_system_once(sync_pad_from_router).expect("pad policy");
 		assert_eq!(*world.resource::<PadInputPolicy>(), PadInputPolicy::menu());
 	}
 
@@ -116,17 +121,20 @@ mod tests {
 		world.resource_mut::<TextMenuInputLock>().0 = true;
 		sync(&mut world);
 		assert_eq!(*world.resource::<PadInputPolicy>(), PadInputPolicy::console());
-		assert!(world.resource::<CaptureStack>().suppresses_pad(InputSource::local_pad()));
+		assert!(world
+			.resource::<InputRouter>()
+			.captures()
+			.suppresses_pad(InputSource::local_pad()));
 	}
 
 	#[test]
 	fn a_focused_menu_switches_the_keyboard_map() {
 		let mut world = world();
-		world.resource_mut::<CaptureStack>().push(CaptureLayer::new(
+		world.resource_mut::<InputRouter>().acquire_capture(
 			InputSource::local_pad(),
-			maybraid_controllers_core::CapabilityToken::from_bits(2),
+			ScopeOwner::ui(maybraid_controllers_core::UiTarget::new(Entity::from_bits(2))),
 			CaptureKind::MenuNav,
-		));
+		);
 		sync(&mut world);
 		assert_eq!(*world.resource::<PadInputPolicy>(), PadInputPolicy::menu());
 	}
@@ -136,17 +144,12 @@ mod tests {
 		let mut world = world();
 		world.resource_mut::<TextMenuInputLock>().0 = true;
 		sync(&mut world);
-		world.resource_mut::<CaptureStack>().push(CaptureLayer::new(
+		world.resource_mut::<InputRouter>().acquire_capture(
 			InputSource::local_pad(),
-			maybraid_controllers_core::CapabilityToken::from_bits(3),
+			ScopeOwner::ui(maybraid_controllers_core::UiTarget::new(Entity::from_bits(3))),
 			CaptureKind::MenuNav,
-		));
-		world.run_system_once(sync_pad_from_capture).expect("pad policy");
+		);
+		world.run_system_once(sync_pad_from_router).expect("pad policy");
 		assert_eq!(*world.resource::<PadInputPolicy>(), PadInputPolicy::console());
-		world
-			.resource_mut::<CaptureStack>()
-			.pop_token(maybraid_controllers_core::CapabilityToken::from_bits(3));
-		world.run_system_once(sync_pad_from_capture).expect("pad policy");
-		assert!(world.resource::<CaptureStack>().suppresses_pad(InputSource::local_pad()));
 	}
 }

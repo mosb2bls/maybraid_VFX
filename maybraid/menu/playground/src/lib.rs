@@ -244,7 +244,7 @@ mod tests {
 		VirtualPadConfig,
 	};
 	use maybraid_menu_controller::{
-		dispatch, CaptureLayer, CaptureStack, InputSource, MenuController,
+		dispatch, CaptureKind, InputRouter, InputSource, MenuController, MenuNavCapture, ScopeOwner,
 	};
 	use menu_components::{
 		HudMenu, HudMenuItem, MenuComponentsPlugin, ShortTextField, ShortTextKey, ShortTextModal,
@@ -261,14 +261,17 @@ mod tests {
 	fn gate_pad(
 		lock: Res<TextMenuInputLock>,
 		modal: Res<ShortTextModal>,
-		mut capture: ResMut<CaptureStack>,
+		mut router: ResMut<InputRouter>,
+		mut menu_capture: ResMut<MenuNavCapture>,
 		mut policy: ResMut<PadInputPolicy>,
 	) {
-		capture.set_layer(
-			CaptureLayer::text_lock(InputSource::local_pad()),
-			lock.0 && !modal.is_open(),
+		router.replace_owned_capture(
+			&mut menu_capture.text,
+			InputSource::local_pad(),
+			(lock.0 && !modal.is_open()).then_some(ScopeOwner::text_lock()),
+			CaptureKind::TextEntry,
 		);
-		*policy = capture.pad_policy();
+		*policy = router.pad_policy();
 	}
 
 	fn begin_held_pad(held: Res<HeldPad>, mut pad: ResMut<VirtualPad>) {
@@ -305,7 +308,8 @@ mod tests {
 		.init_resource::<VirtualPad>()
 		.init_resource::<VirtualPadConfig>()
 		.init_resource::<MenuNavPad>()
-		.init_resource::<CaptureStack>()
+		.init_resource::<InputRouter>()
+		.init_resource::<MenuNavCapture>()
 		.init_resource::<PadInputPolicy>()
 		.init_resource::<bevy::picking::hover::HoverMap>()
 		.init_resource::<crate::CharacterMenuState>()

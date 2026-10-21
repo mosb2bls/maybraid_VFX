@@ -43,7 +43,7 @@ use hiding_intelligence::{HidingPlugin, HidingSystems};
 use les_halles::LesHallesSpawn;
 use lod::LodRefreshSystems;
 use maybraid_character_controller::CharacterControllerPlugin;
-use maybraid_controllers_core::{CaptureLayer, CaptureStack, InputSource};
+use maybraid_controllers_core::{CaptureKind, CaptureToken, InputRouter, InputSource, ScopeOwner};
 use maybraid_input::{PadInputPolicy, VirtualPadSystems};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;
 use movement_intelligence::{
@@ -151,6 +151,8 @@ impl Plugin for FiringRangePlugin {
 			.init_resource::<engagement::NpcEngagement>()
 			.init_resource::<RangeSession>()
 			.init_resource::<AppliedSession>()
+			.init_resource::<PadInputPolicy>()
+			.init_resource::<RangeConsoleCapture>()
 			.insert_resource(LoadoutRng(ItemRng::from_entropy()))
 			.add_plugins(GameCommandPlugin::<PlaygroundCommand>::with_config(ui::ui_config()))
 			.add_systems(
@@ -562,13 +564,24 @@ fn spawn_reticle_system(
 	spawn_reticle(&mut commands, &mut meshes, &mut materials);
 }
 
+#[derive(Resource, Default)]
+struct RangeConsoleCapture {
+	token: Option<CaptureToken>,
+}
+
 fn gate_pad(
 	focus: Res<TextEntryFocus>,
-	mut capture: ResMut<CaptureStack>,
+	mut router: ResMut<InputRouter>,
+	mut capture: ResMut<RangeConsoleCapture>,
 	mut policy: ResMut<PadInputPolicy>,
 ) {
-	capture.set_layer(CaptureLayer::console(InputSource::local_pad()), focus.0);
-	*policy = capture.pad_policy();
+	router.replace_owned_capture(
+		&mut capture.token,
+		InputSource::local_pad(),
+		focus.0.then_some(ScopeOwner::console()),
+		CaptureKind::TextEntry,
+	);
+	*policy = router.pad_policy();
 }
 
 fn setup_lighting(mut commands: Commands) {

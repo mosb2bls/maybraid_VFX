@@ -3,7 +3,9 @@
 
 use bevy::prelude::*;
 use maybraid_character_controller::{ActorControlSample, OrdinaryLocomotion, RoutedActorControl};
-use maybraid_controllers_core::ActorTarget;
+use maybraid_controllers_core::{
+	ActorTarget, GestureEffect, InputRouter, InputSource, RoutingEvent, RoutingKind,
+};
 
 use crate::user::SkillMapUser;
 use crate::SkillMapEnabled;
@@ -96,17 +98,6 @@ impl FlickLane {
 	}
 }
 
-/// How the map consumes stick input.
-///
-/// Standard keeps RB + either-stick flicks. Tanz disables that producer so
-/// committed Tanz gestures can publish [`SkillMapFlick`] instead.
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum SkillMapSteerPolicy {
-	#[default]
-	Standard,
-	Tanz,
-}
-
 /// True while the skill-map steer modifier is down (Xbox **RB** / keyboard **V**)
 /// and the Tanzer bumper chord is not held.
 pub fn skill_map_steer_held(sample: ActorControlSample) -> bool {
@@ -114,16 +105,90 @@ pub fn skill_map_steer_held(sample: ActorControlSample) -> bool {
 }
 
 /// Watches move and look sticks. One flick per sample, stronger stick wins if both land.
+///
+/// History is scoped to one `(source, actor)` owner and the session the
+/// gesture started against. Changing session cannot complete against the new
+/// session. `RoutingEvent` cancel / freeze apply here.
 #[derive(Resource, Clone, Debug, Default)]
 pub struct SkillMapController {
+	owner: Option<(InputSource, ActorTarget)>,
+	session: Option<Entity>,
+	frozen: bool,
 	move_lane: FlickLane,
 	look_lane: FlickLane,
 }
 
 impl SkillMapController {
 	pub fn reset(&mut self) {
+		self.owner = None;
+		self.session = None;
+		self.frozen = false;
 		self.move_lane.reset();
 		self.look_lane.reset();
+	}
+
+	pub const fn owner(&self) -> Option<(InputSource, ActorTarget)> {
+		self.owner
+	}
+
+	pub const fn session(&self) -> Option<Entity> {
+		self.session
+	}
+
+	pub const fn is_frozen(&self) -> bool {
+		self.frozen
+	}
+
+	pub fn has_partial(&self) -> bool {
+		self.move_lane.active || self.look_lane.active
+	}
+
+	/// Apply a router hold / gesture contract for this source.
+	pub fn apply_routing(&mut self, event: RoutingEvent) {
+		if self.owner.is_some_and(|(source, _)| source != event.source()) {
+			return;
+		}
+		if self.owner.is_none() && !self.has_partial() && !self.frozen {
+			return;
+		}
+		match event.gesture() {
+			GestureEffect::Cancel => self.reset(),
+			GestureEffect::Freeze => self.frozen = true,
+			GestureEffect::None => {
+				if matches!(event.kind(), RoutingKind::Assigned | RoutingKind::Resumed) {
+					self.frozen = false;
+				}
+			}
+		}
+	}
+
+	/// Bind this frame's owner and session. Returns whether sampling may complete.
+	///
+	/// A session change drops in-flight history so the return-to-rest cannot
+	/// emit a flick addressed at the new session.
+	pub fn bind_owner(
+		&mut self,
+		source: InputSource,
+		actor: ActorTarget,
+		session: Option<Entity>,
+	) -> bool {
+		if self.frozen {
+			return false;
+		}
+		if self.owner != Some((source, actor)) {
+			self.move_lane.reset();
+			self.look_lane.reset();
+			self.owner = Some((source, actor));
+			self.session = session;
+			return true;
+		}
+		if self.session != session {
+			self.move_lane.reset();
+			self.look_lane.reset();
+			self.session = session;
+			return false;
+		}
+		true
 	}
 
 	pub fn sample(&mut self, t: f32, move_stick: Vec2, look_stick: Vec2) -> Option<Vec2> {
@@ -140,26 +205,35 @@ impl SkillMapController {
 
 pub fn detect_skill_map_flicks(
 	time: Res<Time>,
+	router: Option<Res<InputRouter>>,
 	routed: Option<Res<RoutedActorControl>>,
 	enabled: Res<SkillMapEnabled>,
 	users: Query<(Entity, &SkillMapUser, Option<&OrdinaryLocomotion>)>,
 	mut controller: ResMut<SkillMapController>,
 	mut flicks: MessageWriter<SkillMapFlick>,
 ) {
+	if let Some(router) = router.as_deref() {
+		for event in router.events() {
+			controller.apply_routing(*event);
+		}
+	}
 	if !enabled.0 {
 		controller.reset();
 		return;
 	}
+	if controller.is_frozen() {
+		return;
+	}
 	let Some(routed) = routed.as_deref() else {
-		controller.reset();
 		return;
 	};
 	let Some(actor) = routed.actor() else {
-		controller.reset();
+		return;
+	};
+	let Some(source) = routed.source() else {
 		return;
 	};
 	let Some(sample) = routed.payload() else {
-		controller.reset();
 		return;
 	};
 	let Ok((_, user, ordinary)) = users.get(actor.entity()) else {
@@ -170,10 +244,13 @@ pub fn detect_skill_map_flicks(
 		controller.reset();
 		return;
 	}
+	if !controller.bind_owner(source, actor, Some(user.maps)) {
+		return;
+	}
 	if let Some(flick) =
 		controller.sample(time.elapsed_secs(), sample.move_stick(), sample.look_throw())
 	{
-		flicks.write(SkillMapFlick::new(actor, Some(user.maps), flick));
+		flicks.write(SkillMapFlick::new(actor, controller.session(), flick));
 	}
 }
 
@@ -234,5 +311,46 @@ mod tests {
 		assert!(controller.sample(0.0, Vec2::X * 0.15, Vec2::ZERO).is_none());
 		assert!(controller.sample(0.08, Vec2::X * 0.2, Vec2::ZERO).is_none());
 		assert!(controller.sample(0.12, Vec2::ZERO, Vec2::ZERO).is_none());
+	}
+
+	#[test]
+	fn changing_session_does_not_complete_against_the_new_session() {
+		let mut controller = SkillMapController::default();
+		let actor = ActorTarget::new(Entity::from_bits(1));
+		let source = InputSource::local_pad();
+		let session_a = Entity::from_bits(10);
+		let session_b = Entity::from_bits(11);
+		assert!(controller.bind_owner(source, actor, Some(session_a)));
+		assert!(controller.sample(0.00, Vec2::X * 0.0, Vec2::ZERO).is_none());
+		assert!(controller.sample(0.04, Vec2::X * 0.75, Vec2::ZERO).is_none());
+		assert!(controller.sample(0.08, Vec2::X * 1.0, Vec2::ZERO).is_none());
+		assert!(controller.has_partial());
+		assert!(!controller.bind_owner(source, actor, Some(session_b)));
+		assert!(!controller.has_partial());
+		assert_eq!(controller.session(), Some(session_b));
+		assert!(
+			controller.sample(0.12, Vec2::ZERO, Vec2::ZERO).is_none(),
+			"return-to-rest after a session change is not a completion"
+		);
+	}
+
+	#[test]
+	fn reassignment_cancels_a_partial_flick() {
+		let mut controller = SkillMapController::default();
+		let source = InputSource::local_pad();
+		let actor_a = ActorTarget::new(Entity::from_bits(1));
+		assert!(controller.bind_owner(source, actor_a, Some(Entity::from_bits(9))));
+		assert!(controller.sample(0.0, Vec2::X, Vec2::ZERO).is_none());
+		assert!(controller.has_partial());
+		let mut router = InputRouter::default();
+		router.assign_actor(source, actor_a);
+		router.take_events();
+		router.assign_actor(source, ActorTarget::new(Entity::from_bits(2)));
+		let event = router.events().last().copied().expect("reassigned");
+		assert_eq!(event.kind(), RoutingKind::Reassigned);
+		assert_eq!(event.gesture(), GestureEffect::Cancel);
+		controller.apply_routing(event);
+		assert!(!controller.has_partial());
+		assert!(controller.owner().is_none());
 	}
 }

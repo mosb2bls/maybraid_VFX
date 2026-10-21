@@ -8,6 +8,9 @@ use std::collections::VecDeque;
 
 use bevy::prelude::*;
 use maybraid_character_controller::{ActorControlSample, FaceButtonSample};
+use maybraid_controllers_core::{
+	GestureEffect, HoldEffect, InputSource, RoutingEvent, RoutingKind,
+};
 
 use crate::ControlMode;
 
@@ -88,8 +91,14 @@ struct StickSample {
 }
 
 /// Rolling left-stick history plus directional / button latch state.
+///
+/// History is scoped to one [`InputSource`]. Reassignment and disconnect
+/// cancel it; suspension freezes it so a later resume cannot complete against
+/// a different delivery.
 #[derive(Clone, Debug)]
 pub struct TanzRecognizer {
+	source: Option<InputSource>,
+	frozen: bool,
 	samples: VecDeque<StickSample>,
 	candidate: Option<Vec2>,
 	committed: Option<Vec2>,
@@ -100,6 +109,8 @@ pub struct TanzRecognizer {
 impl Default for TanzRecognizer {
 	fn default() -> Self {
 		Self {
+			source: None,
+			frozen: false,
 			samples: VecDeque::new(),
 			candidate: None,
 			committed: None,
@@ -111,11 +122,52 @@ impl Default for TanzRecognizer {
 
 impl TanzRecognizer {
 	pub fn reset(&mut self) {
+		self.source = None;
+		self.frozen = false;
 		self.samples.clear();
 		self.candidate = None;
 		self.committed = None;
 		self.sustain_secs = 0.0;
 		self.b_hold_emitted = false;
+	}
+
+	pub const fn source(&self) -> Option<InputSource> {
+		self.source
+	}
+
+	pub const fn is_frozen(&self) -> bool {
+		self.frozen
+	}
+
+	pub fn has_partial(&self) -> bool {
+		!self.samples.is_empty() || self.candidate.is_some() || self.committed.is_some()
+	}
+
+	/// Bind this recognizer to the source that is accumulating history.
+	pub fn bind_source(&mut self, source: InputSource) {
+		if self.source != Some(source) {
+			self.reset();
+			self.source = Some(source);
+		}
+	}
+
+	/// Apply a router hold / gesture contract for this source.
+	pub fn apply_routing(&mut self, event: RoutingEvent) {
+		if self.source.is_some_and(|source| source != event.source()) {
+			return;
+		}
+		if self.source.is_none() && !self.has_partial() && !self.frozen {
+			return;
+		}
+		match event.gesture() {
+			GestureEffect::Cancel => self.reset(),
+			GestureEffect::Freeze => self.frozen = true,
+			GestureEffect::None => {
+				if matches!(event.kind(), RoutingKind::Assigned | RoutingKind::Resumed) {
+					self.frozen = false;
+				}
+			}
+		}
 	}
 
 	/// Consume one frame of left-stick + physical face-button state.
@@ -131,6 +183,9 @@ impl TanzRecognizer {
 		face: TanzFaceSample,
 		cfg: &TanzRecognizerConfig,
 	) -> Option<CommittedGesture> {
+		if self.frozen {
+			return None;
+		}
 		let dt = dt.max(0.0);
 		if !face.b().pressed() {
 			self.b_hold_emitted = false;
@@ -261,11 +316,12 @@ pub struct ModeToggle {
 	charge: f32,
 	/// True after this hold has already fired; both bumpers must release to rearm.
 	pub fired: bool,
+	frozen: bool,
 }
 
 impl Default for ModeToggle {
 	fn default() -> Self {
-		Self { charge: 0.0, fired: false }
+		Self { charge: 0.0, fired: false, frozen: false }
 	}
 }
 
@@ -273,6 +329,24 @@ impl ModeToggle {
 	pub fn reset_for_mode(&mut self, _mode: ControlMode) {
 		self.charge = 0.0;
 		self.fired = false;
+		self.frozen = false;
+	}
+
+	pub const fn is_frozen(&self) -> bool {
+		self.frozen
+	}
+
+	pub fn is_partial(&self) -> bool {
+		self.charge > 0.0 || self.fired
+	}
+
+	/// Release or freeze a bumper hold from a [`RoutingEvent`].
+	pub fn apply_hold(&mut self, effect: HoldEffect) {
+		match effect {
+			HoldEffect::ReleaseNeutral => self.reset_for_mode(ControlMode::Standard),
+			HoldEffect::Freeze => self.frozen = true,
+			HoldEffect::None => self.frozen = false,
+		}
 	}
 
 	/// Displayed Standard=0 / Tanzer=1 bar.
@@ -289,6 +363,9 @@ impl ModeToggle {
 
 	/// Advance charge for one frame. Returns `true` on the frame the mode should flip.
 	pub fn sample(&mut self, dt: f32, chord: bool, charge_secs: f32, _mode: ControlMode) -> bool {
+		if self.frozen {
+			return false;
+		}
 		let dt = dt.max(0.0);
 		let rate = if charge_secs > 0.0 { dt / charge_secs } else { 1.0 };
 		if !chord {
@@ -713,7 +790,7 @@ mod tests {
 			ControlMode::Standard => start_bar,
 			ControlMode::Tanzer => 1.0 - start_bar,
 		};
-		let mut toggle = ModeToggle { charge, fired: start_fired };
+		let mut toggle = ModeToggle { charge, fired: start_fired, frozen: false };
 		let mut out = Vec::with_capacity(frames.len());
 		for frame in frames {
 			let toggled = toggle.sample(frame.dt, frame.chord, frame.charge_secs, mode);
@@ -803,6 +880,7 @@ mod tests {
 					ControlMode::Tanzer => 1.0 - last_new.0,
 				},
 				fired: last_new.1,
+				frozen: false,
 			};
 			toggle.reset_for_mode(flipped);
 			if (toggle.bar(flipped) - old_reset_bar).abs() > 1e-6 {
@@ -819,5 +897,49 @@ mod tests {
 			)?;
 		}
 		Ok(())
+	}
+
+	#[test]
+	fn reassignment_cancels_partial_stick_history() {
+		use maybraid_controllers_core::{InputSource, RoutingKind};
+
+		let mut recognizer = TanzRecognizer::default();
+		let cfg = TanzRecognizerConfig::default();
+		recognizer.bind_source(InputSource::local_pad());
+		for _ in 0..6 {
+			assert!(recognizer
+				.sample(1.0 / 60.0, Vec2::NEG_X, TanzFaceSample::default(), &cfg)
+				.is_none());
+		}
+		assert!(recognizer.has_partial());
+		let mut router = maybraid_controllers_core::InputRouter::default();
+		router.assign_actor(
+			InputSource::local_pad(),
+			maybraid_controllers_core::ActorTarget::new(bevy::prelude::Entity::from_bits(1)),
+		);
+		router.take_events();
+		router.assign_actor(
+			InputSource::local_pad(),
+			maybraid_controllers_core::ActorTarget::new(bevy::prelude::Entity::from_bits(2)),
+		);
+		let event = router.events().last().copied().expect("reassigned");
+		assert_eq!(event.kind(), RoutingKind::Reassigned);
+		assert_eq!(event.gesture(), GestureEffect::Cancel);
+		recognizer.apply_routing(event);
+		assert!(!recognizer.has_partial());
+		assert!(recognizer.source().is_none());
+	}
+
+	#[test]
+	fn disconnect_releases_a_bumper_hold() {
+		let mut toggle = ModeToggle::default();
+		for _ in 0..30 {
+			assert!(!toggle.sample(1.0 / 60.0, true, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		}
+		assert!(toggle.is_partial());
+		toggle.apply_hold(HoldEffect::ReleaseNeutral);
+		assert!(!toggle.is_partial());
+		assert!(!toggle.sample(1.0 / 60.0, true, TANZ_TOGGLE_SECS, ControlMode::Standard));
+		assert!(toggle.bar(ControlMode::Standard) < 0.05);
 	}
 }

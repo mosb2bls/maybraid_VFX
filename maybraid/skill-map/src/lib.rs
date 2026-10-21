@@ -33,7 +33,7 @@ pub use burst::{
 	ROCKADDER_RADIUS,
 };
 pub use controller::{
-	skill_map_steer_held, SkillMapController, SkillMapFlick, SkillMapSteerPolicy,
+	detect_skill_map_flicks, skill_map_steer_held, SkillMapController, SkillMapFlick,
 };
 pub use cursor::apply_flicks;
 pub use effects::{
@@ -108,7 +108,6 @@ impl Plugin for SkillMapPlugin {
 			.add_systems(Startup, fireball_embers::setup_fireball_effects)
 			.add_systems(Startup, burst::setup_burst_assets)
 			.init_resource::<SkillMapEnabled>()
-			.init_resource::<controller::SkillMapSteerPolicy>()
 			.init_resource::<controller::SkillMapController>()
 			.init_resource::<icon::SkillMapPaintSlots>()
 			.init_resource::<icon::SkillMapIconSubmitted>()

@@ -39,12 +39,12 @@ use maybraid_input::{MenuNav, MenuNavPad, PadButton, VirtualPad};
 use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	host_memory_bytes, parse_device_tier_env, parse_visual_style_env, reset_first_spawn_offer,
-	resume_discovery_from_saved_waypoints, AdapterKind, AgentDrive, Durham,
+	resume_discovery_from_saved_waypoints, AdapterKind, AgentDrive, Durham, InputRouter,
 	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, SessionCapabilities,
-	SessionCapabilitySystems, ShadowQuality, SuspensionStack, TerrainStreaming, VisualStyle,
-	VisualStyleSetting, VisualStyleSignals, WorldGameplayEnabled, WorldMenuShell,
-	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
-	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
+	SessionCapabilitySystems, ShadowQuality, TerrainStreaming, VisualStyle, VisualStyleSetting,
+	VisualStyleSignals, WorldGameplayEnabled, WorldMenuShell, WorldMobHudEnabled,
+	WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady,
+	WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
 	consume_screen_back, MenuModalStack, ScreenBackPressed, TextMenuSystems, MENU_CLEAR,
@@ -70,7 +70,6 @@ impl Plugin for GamePlugin {
 		app.add_plugins(WorldPlugin::game())
 			.insert_resource(WorldGameplayEnabled(false))
 			.insert_resource(SessionCapabilities::default())
-			.insert_resource(SuspensionStack::default())
 			.insert_resource(WorldMenuShell(true))
 			.insert_resource(InventoryEditCameraFollow(false))
 			.insert_resource(PlayerPhysicsEnabled(false))
@@ -256,7 +255,7 @@ fn clear_play_session(
 	mut mode: ResMut<GameMode>,
 	mut ready: ResMut<WorldSurfaceReady>,
 	mut capabilities: ResMut<SessionCapabilities>,
-	mut suspensions: ResMut<SuspensionStack>,
+	mut router: ResMut<InputRouter>,
 	mut ended: MessageWriter<WorldPlaySessionEnded>,
 ) {
 	if *session == PlaySession::Discovery {
@@ -268,7 +267,7 @@ fn clear_play_session(
 	*session = PlaySession::None;
 	mode.label = String::from(PlaySession::Discovery.label());
 	capabilities.uninstall_play();
-	suspensions.release_play();
+	router.set_paused(false);
 	ended.write(WorldPlaySessionEnded);
 }
 
@@ -639,7 +638,7 @@ mod tests {
 		visual_style_readout, GameFlow, PlaySession,
 	};
 	use maybraid_world::{
-		SessionCapabilities, ShadowQuality, SuspensionStack, VisualStyle, VisualStyleSetting,
+		InputRouter, SessionCapabilities, ShadowQuality, VisualStyle, VisualStyleSetting,
 		WorldPlaySessionEnded, WorldPlayerLoadout, WorldSurfaceReady,
 	};
 	use menu_playground::{
@@ -754,7 +753,7 @@ mod tests {
 		world.insert_resource(GameMode::new("Elsewhere"));
 		world.insert_resource(WorldSurfaceReady(true));
 		world.insert_resource(SessionCapabilities::default());
-		world.insert_resource(SuspensionStack::default());
+		world.init_resource::<InputRouter>();
 		world
 			.run_system_once(clear_play_session)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -770,7 +769,7 @@ mod tests {
 		world.insert_resource(GameMode::new("Elsewhere"));
 		world.insert_resource(WorldSurfaceReady(true));
 		world.insert_resource(SessionCapabilities::default());
-		world.insert_resource(SuspensionStack::default());
+		world.init_resource::<InputRouter>();
 		world
 			.run_system_once(clear_play_session)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

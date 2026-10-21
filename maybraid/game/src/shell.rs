@@ -17,7 +17,7 @@ use characters_playground::CameraController as PreviewCameraController;
 use layer_stack::ActiveGenerationMode;
 use maybraid_game_mode_discover::{streams_terrain, Discovery};
 use maybraid_world::{
-	Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, SessionCapabilities, SuspensionStack,
+	Durham, InputRouter, InventoryEditCameraFollow, PlayerPhysicsEnabled, SessionCapabilities,
 	TerrainStreaming, WorldGameplayEnabled, WorldMenuShell, WorldSceneryVisible, SKY_CLEAR,
 };
 use menu_components::MENU_CLEAR;
@@ -210,33 +210,33 @@ pub(crate) fn install_shell_capabilities(
 	session: PlaySession,
 	pause: Option<WorldPause>,
 	capabilities: &mut SessionCapabilities,
-	suspensions: &mut SuspensionStack,
+	router: &mut InputRouter,
 ) {
 	match flow {
 		GameFlow::Home | GameFlow::Characters => {
 			capabilities.install_menu_shell();
-			suspensions.release_play();
+			router.set_paused(false);
 		}
 		GameFlow::LoadingWorld => {
 			capabilities.install_loading(discovery_streams(session, flow));
-			suspensions.release_play();
+			router.set_paused(false);
 		}
 		GameFlow::World => {
 			capabilities.install_play(discovery_streams(session, flow));
-			suspensions.set_pause(!world_session_playing(flow, session, pause));
+			router.set_paused(!world_session_playing(flow, session, pause));
 		}
 	}
 }
 
 pub(crate) fn apply_session_projections(
 	capabilities: SessionCapabilities,
-	suspensions: &SuspensionStack,
+	router: &InputRouter,
 	gameplay: &mut WorldGameplayEnabled,
 	physics: &mut PlayerPhysicsEnabled,
 	streaming: &mut TerrainStreaming<Durham>,
 	menu_shell: &mut WorldMenuShell,
 ) {
-	*gameplay = WorldGameplayEnabled::from_session(capabilities, suspensions);
+	*gameplay = WorldGameplayEnabled::from_session(capabilities, router);
 	physics.0 = capabilities.physics_installed();
 	streaming.enabled = capabilities.streaming_enabled();
 	menu_shell.0 = capabilities.menu_shell_active();
@@ -266,7 +266,7 @@ pub(crate) fn resolve_session_capabilities(
 	next_pause: Option<Res<NextState<WorldPause>>>,
 	session: Res<PlaySession>,
 	capabilities: Res<SessionCapabilities>,
-	mut suspensions: ResMut<SuspensionStack>,
+	mut router: ResMut<InputRouter>,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	mut physics: ResMut<PlayerPhysicsEnabled>,
 	mut streaming: ResMut<TerrainStreaming<Durham>>,
@@ -275,14 +275,14 @@ pub(crate) fn resolve_session_capabilities(
 	let pause = pending_or_current_pause(pause.as_deref(), next_pause.as_deref());
 	if *flow.get() == GameFlow::World && *session == PlaySession::Discovery {
 		match pause {
-			Some(WorldPause::Menu) => suspensions.set_pause(true),
-			Some(WorldPause::Playing) => suspensions.set_pause(false),
+			Some(WorldPause::Menu) => router.set_paused(true),
+			Some(WorldPause::Playing) => router.set_paused(false),
 			None => {}
 		}
 	}
 	apply_session_projections(
 		*capabilities,
-		&suspensions,
+		&router,
 		&mut gameplay,
 		&mut physics,
 		&mut streaming,
@@ -302,7 +302,7 @@ pub(crate) fn apply_shell_look(
 	>,
 	mut loading_cameras: Query<&mut Camera, (With<LoadingBackdropCamera>, Without<Camera3d>)>,
 	mut capabilities: ResMut<SessionCapabilities>,
-	mut suspensions: ResMut<SuspensionStack>,
+	mut router: ResMut<InputRouter>,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	mut physics: ResMut<PlayerPhysicsEnabled>,
 	mut streaming: ResMut<TerrainStreaming<Durham>>,
@@ -333,11 +333,11 @@ pub(crate) fn apply_shell_look(
 		*session,
 		pause.as_deref().map(|pause| *pause.get()),
 		&mut capabilities,
-		&mut suspensions,
+		&mut router,
 	);
 	apply_session_projections(
 		*capabilities,
-		&suspensions,
+		&router,
 		&mut gameplay,
 		&mut physics,
 		&mut streaming,
@@ -410,9 +410,8 @@ mod tests {
 	use layer_stack::ActiveGenerationMode;
 	use maybraid_game_mode_discover::Discovery;
 	use maybraid_world::{
-		Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, SessionCapabilities,
-		SuspensionStack, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
-		WorldSceneryVisible,
+		Durham, InputRouter, InventoryEditCameraFollow, PlayerPhysicsEnabled, SessionCapabilities,
+		TerrainStreaming, WorldGameplayEnabled, WorldMenuShell, WorldSceneryVisible,
 	};
 	use menu_components::MENU_CLEAR;
 
@@ -458,7 +457,7 @@ mod tests {
 			world.insert_resource(ClearColor(MENU_CLEAR));
 			world.insert_resource(WorldGameplayEnabled(true));
 			world.insert_resource(SessionCapabilities::default());
-			world.insert_resource(SuspensionStack::default());
+			world.init_resource::<InputRouter>();
 			world.insert_resource(PlayerPhysicsEnabled(false));
 			world.insert_resource(TerrainStreaming::<Durham>::new(false));
 			world.insert_resource(WorldSceneryVisible(false));
@@ -495,7 +494,7 @@ mod tests {
 		world.insert_resource(ClearColor(MENU_CLEAR));
 		world.insert_resource(WorldGameplayEnabled(false));
 		world.insert_resource(SessionCapabilities::default());
-		world.insert_resource(SuspensionStack::default());
+		world.init_resource::<InputRouter>();
 		world.insert_resource(PlayerPhysicsEnabled(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(false));
 		world.insert_resource(WorldSceneryVisible(false));
@@ -513,7 +512,7 @@ mod tests {
 		assert!(world.resource::<WorldSceneryVisible>().0);
 		assert!(world
 			.resource::<SessionCapabilities>()
-			.gameplay_enabled(world.resource::<SuspensionStack>()));
+			.gameplay_enabled(world.resource::<InputRouter>()));
 		assert!(world.resource::<SessionCapabilities>().physics_installed());
 		Ok(())
 	}
@@ -541,9 +540,9 @@ mod tests {
 		let mut capabilities = SessionCapabilities::default();
 		capabilities.install_play(true);
 		world.insert_resource(capabilities);
-		let mut suspensions = SuspensionStack::default();
-		suspensions.set_pause(true);
-		world.insert_resource(suspensions);
+		let mut router = InputRouter::default();
+		router.set_paused(true);
+		world.insert_resource(router);
 		world.insert_resource(WorldSceneryVisible(true));
 		world.insert_resource(InventoryEditCameraFollow(false));
 		world.insert_resource(CharacterEditorReturn::InGame);
@@ -585,7 +584,7 @@ mod tests {
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		world.flush();
 		world.insert_resource(SessionCapabilities::default());
-		world.insert_resource(SuspensionStack::default());
+		world.init_resource::<InputRouter>();
 		world.insert_resource(WorldSceneryVisible(false));
 		world
 			.run_system_once(sync_scenery_and_editor)
@@ -613,7 +612,7 @@ mod tests {
 		let mut capabilities = SessionCapabilities::default();
 		capabilities.install_play(true);
 		world.insert_resource(capabilities);
-		world.insert_resource(SuspensionStack::default());
+		world.init_resource::<InputRouter>();
 		world.insert_resource(WorldSceneryVisible(true));
 		world.insert_resource(InventoryEditCameraFollow(false));
 		world.insert_resource(CharacterEditorReturn::Gallery);
@@ -644,7 +643,7 @@ mod tests {
 		let mut capabilities = SessionCapabilities::default();
 		capabilities.install_play(true);
 		world.insert_resource(capabilities);
-		world.insert_resource(SuspensionStack::default());
+		world.init_resource::<InputRouter>();
 		world.insert_resource(WorldGameplayEnabled(true));
 		world.insert_resource(PlayerPhysicsEnabled(true));
 		world.insert_resource(TerrainStreaming::<Durham>::new(true));
@@ -655,12 +654,10 @@ mod tests {
 		assert!(!world.resource::<WorldGameplayEnabled>().0);
 		assert!(world.resource::<PlayerPhysicsEnabled>().0);
 		assert!(world.resource::<SessionCapabilities>().physics_installed());
-		assert!(world
-			.resource::<SessionCapabilities>()
-			.simulation_active(world.resource::<SuspensionStack>()));
+		assert!(world.resource::<SessionCapabilities>().simulation_active());
 		assert!(!world
 			.resource::<SessionCapabilities>()
-			.gameplay_enabled(world.resource::<SuspensionStack>()));
+			.gameplay_enabled(world.resource::<InputRouter>()));
 		assert!(world.resource::<SessionCapabilities>().gameplay().is_installed());
 		Ok(())
 	}
@@ -674,7 +671,7 @@ mod tests {
 		world.insert_resource(State::new(GameFlow::LoadingWorld));
 		world.insert_resource(PlaySession::Discovery);
 		world.insert_resource(SessionCapabilities::default());
-		world.insert_resource(SuspensionStack::default());
+		world.init_resource::<InputRouter>();
 		world.insert_resource(ClearColor(MENU_CLEAR));
 		world.insert_resource(WorldGameplayEnabled(true));
 		world.insert_resource(PlayerPhysicsEnabled(false));
