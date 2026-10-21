@@ -17,8 +17,9 @@ use characters_playground::CameraController as PreviewCameraController;
 use layer_stack::ActiveGenerationMode;
 use maybraid_game_mode_discover::{streams_terrain, Discovery};
 use maybraid_world::{
-	Durham, InputRouter, InventoryEditCameraFollow, PlayerPhysicsEnabled, SessionCapabilities,
-	TerrainStreaming, WorldGameplayEnabled, WorldMenuShell, WorldSceneryVisible, SKY_CLEAR,
+	Durham, InputRouter, InputRouting, InventoryEditCameraFollow, PlayerPhysicsEnabled,
+	SessionCapabilities, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
+	WorldSceneryVisible, SKY_CLEAR,
 };
 use menu_components::MENU_CLEAR;
 use menu_playground::{
@@ -266,7 +267,7 @@ pub(crate) fn resolve_session_capabilities(
 	next_pause: Option<Res<NextState<WorldPause>>>,
 	session: Res<PlaySession>,
 	capabilities: Res<SessionCapabilities>,
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	mut physics: ResMut<PlayerPhysicsEnabled>,
 	mut streaming: ResMut<TerrainStreaming<Durham>>,
@@ -302,7 +303,7 @@ pub(crate) fn apply_shell_look(
 	>,
 	mut loading_cameras: Query<&mut Camera, (With<LoadingBackdropCamera>, Without<Camera3d>)>,
 	mut capabilities: ResMut<SessionCapabilities>,
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	mut physics: ResMut<PlayerPhysicsEnabled>,
 	mut streaming: ResMut<TerrainStreaming<Durham>>,
@@ -410,8 +411,9 @@ mod tests {
 	use layer_stack::ActiveGenerationMode;
 	use maybraid_game_mode_discover::Discovery;
 	use maybraid_world::{
-		Durham, InputRouter, InventoryEditCameraFollow, PlayerPhysicsEnabled, SessionCapabilities,
-		TerrainStreaming, WorldGameplayEnabled, WorldMenuShell, WorldSceneryVisible,
+		Durham, InputRouter, InventoryEditCameraFollow, PlayerPhysicsEnabled, RoutingEvent,
+		SessionCapabilities, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
+		WorldSceneryVisible,
 	};
 	use menu_components::MENU_CLEAR;
 
@@ -458,6 +460,7 @@ mod tests {
 			world.insert_resource(WorldGameplayEnabled(true));
 			world.insert_resource(SessionCapabilities::default());
 			world.init_resource::<InputRouter>();
+			world.init_resource::<Messages<RoutingEvent>>();
 			world.insert_resource(PlayerPhysicsEnabled(false));
 			world.insert_resource(TerrainStreaming::<Durham>::new(false));
 			world.insert_resource(WorldSceneryVisible(false));
@@ -495,6 +498,7 @@ mod tests {
 		world.insert_resource(WorldGameplayEnabled(false));
 		world.insert_resource(SessionCapabilities::default());
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.insert_resource(PlayerPhysicsEnabled(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(false));
 		world.insert_resource(WorldSceneryVisible(false));
@@ -585,6 +589,7 @@ mod tests {
 		world.flush();
 		world.insert_resource(SessionCapabilities::default());
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.insert_resource(WorldSceneryVisible(false));
 		world
 			.run_system_once(sync_scenery_and_editor)
@@ -613,6 +618,7 @@ mod tests {
 		capabilities.install_play(true);
 		world.insert_resource(capabilities);
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.insert_resource(WorldSceneryVisible(true));
 		world.insert_resource(InventoryEditCameraFollow(false));
 		world.insert_resource(CharacterEditorReturn::Gallery);
@@ -644,6 +650,7 @@ mod tests {
 		capabilities.install_play(true);
 		world.insert_resource(capabilities);
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.insert_resource(WorldGameplayEnabled(true));
 		world.insert_resource(PlayerPhysicsEnabled(true));
 		world.insert_resource(TerrainStreaming::<Durham>::new(true));
@@ -672,6 +679,7 @@ mod tests {
 		world.insert_resource(PlaySession::Discovery);
 		world.insert_resource(SessionCapabilities::default());
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.insert_resource(ClearColor(MENU_CLEAR));
 		world.insert_resource(WorldGameplayEnabled(true));
 		world.insert_resource(PlayerPhysicsEnabled(false));

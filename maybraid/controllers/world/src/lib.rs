@@ -6,7 +6,8 @@ pub mod enabled;
 pub use capabilities::{Participation, SessionBit, SessionCapabilities};
 pub use enabled::WorldGameplayEnabled;
 pub use maybraid_controllers_core::{
-	CaptureKind, CaptureToken, InputRouter, ScopeOwner, Suspension, SuspensionToken,
+	publish_routing_events, CaptureKind, CaptureToken, InputRouter, InputRouting, RoutingEvent,
+	ScopeOwner, Suspension, SuspensionToken,
 };
 
 use bevy::prelude::*;
@@ -22,7 +23,9 @@ pub struct WorldControllerPlugin;
 impl Plugin for WorldControllerPlugin {
 	fn build(&self, app: &mut App) {
 		ControllerPipeline::configure(app);
-		app.init_resource::<InputRouter>()
+		app.add_message::<RoutingEvent>()
+			.init_resource::<InputRouter>()
+			.add_systems(Last, publish_routing_events)
 			.init_resource::<WorldGameplayEnabled>()
 			.init_resource::<SessionCapabilities>()
 			.configure_sets(
@@ -38,7 +41,7 @@ impl Plugin for WorldControllerPlugin {
 mod tests {
 	use super::*;
 	use bevy::prelude::{App, ResMut, Resource, Update};
-	use maybraid_controllers_core::{InputRouter, ScopeOwner};
+	use maybraid_controllers_core::{InputRouter, InputRouting, ScopeOwner};
 
 	#[derive(Resource, Default)]
 	struct StageOrder(Vec<&'static str>);
@@ -76,14 +79,14 @@ mod tests {
 	fn plugin_schedule_honors_a_pause_token_the_same_frame() {
 		fn apply_pause(
 			mut capabilities: ResMut<SessionCapabilities>,
-			mut router: ResMut<InputRouter>,
+			mut routing: InputRouting,
 			mut gameplay: ResMut<WorldGameplayEnabled>,
 		) {
 			if !capabilities.gameplay().is_installed() {
 				capabilities.install_play(true);
 			}
-			router.set_paused(true);
-			*gameplay = WorldGameplayEnabled::from_session(*capabilities, &router);
+			routing.set_paused(true);
+			*gameplay = WorldGameplayEnabled::from_session(*capabilities, &routing);
 		}
 
 		let mut app = App::new();

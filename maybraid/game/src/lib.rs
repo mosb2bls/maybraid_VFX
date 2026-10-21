@@ -40,11 +40,11 @@ use maybraid_menu_controller::MenuControllerPlugin;
 use maybraid_world::{
 	host_memory_bytes, parse_device_tier_env, parse_visual_style_env, reset_first_spawn_offer,
 	resume_discovery_from_saved_waypoints, AdapterKind, AgentDrive, Durham, InputRouter,
-	InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz, SessionCapabilities,
-	SessionCapabilitySystems, ShadowQuality, TerrainStreaming, VisualStyle, VisualStyleSetting,
-	VisualStyleSignals, WorldGameplayEnabled, WorldMenuShell, WorldMobHudEnabled,
-	WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin, WorldSceneryVisible, WorldSurfaceReady,
-	WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
+	InputRouting, InventoryEditCameraFollow, PlayerPhysicsEnabled, PlayerSpawnXz,
+	SessionCapabilities, SessionCapabilitySystems, ShadowQuality, TerrainStreaming, VisualStyle,
+	VisualStyleSetting, VisualStyleSignals, WorldGameplayEnabled, WorldMenuShell,
+	WorldMobHudEnabled, WorldPlaySessionEnded, WorldPlayerLoadout, WorldPlugin,
+	WorldSceneryVisible, WorldSurfaceReady, WorldSurfaceSet, DEVICE_TIER_ENV, VISUAL_STYLE_ENV,
 };
 use menu_components::{
 	consume_screen_back, MenuModalStack, ScreenBackPressed, TextMenuSystems, MENU_CLEAR,
@@ -255,7 +255,7 @@ fn clear_play_session(
 	mut mode: ResMut<GameMode>,
 	mut ready: ResMut<WorldSurfaceReady>,
 	mut capabilities: ResMut<SessionCapabilities>,
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut ended: MessageWriter<WorldPlaySessionEnded>,
 ) {
 	if *session == PlaySession::Discovery {
@@ -638,8 +638,8 @@ mod tests {
 		visual_style_readout, GameFlow, PlaySession,
 	};
 	use maybraid_world::{
-		InputRouter, SessionCapabilities, ShadowQuality, VisualStyle, VisualStyleSetting,
-		WorldPlaySessionEnded, WorldPlayerLoadout, WorldSurfaceReady,
+		InputRouter, RoutingEvent, SessionCapabilities, ShadowQuality, VisualStyle,
+		VisualStyleSetting, WorldPlaySessionEnded, WorldPlayerLoadout, WorldSurfaceReady,
 	};
 	use menu_playground::{
 		CharacterEditBaseline, CharacterEditorReturn, CharacterMenuState, EditingCharacter,
@@ -754,6 +754,7 @@ mod tests {
 		world.insert_resource(WorldSurfaceReady(true));
 		world.insert_resource(SessionCapabilities::default());
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<maybraid_world::RoutingEvent>>();
 		world
 			.run_system_once(clear_play_session)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
@@ -770,6 +771,7 @@ mod tests {
 		world.insert_resource(WorldSurfaceReady(true));
 		world.insert_resource(SessionCapabilities::default());
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<maybraid_world::RoutingEvent>>();
 		world
 			.run_system_once(clear_play_session)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;

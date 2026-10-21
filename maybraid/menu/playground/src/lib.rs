@@ -244,7 +244,8 @@ mod tests {
 		VirtualPadConfig,
 	};
 	use maybraid_menu_controller::{
-		dispatch, CaptureKind, InputRouter, InputSource, MenuController, MenuNavCapture, ScopeOwner,
+		dispatch, CaptureKind, InputRouter, InputRouting, InputSource, MenuController,
+		MenuNavCapture, RoutingEvent, ScopeOwner,
 	};
 	use menu_components::{
 		HudMenu, HudMenuItem, MenuComponentsPlugin, ShortTextField, ShortTextKey, ShortTextModal,
@@ -261,7 +262,7 @@ mod tests {
 	fn gate_pad(
 		lock: Res<TextMenuInputLock>,
 		modal: Res<ShortTextModal>,
-		mut router: ResMut<InputRouter>,
+		mut router: InputRouting,
 		mut menu_capture: ResMut<MenuNavCapture>,
 		mut policy: ResMut<PadInputPolicy>,
 	) {
@@ -309,6 +310,7 @@ mod tests {
 		.init_resource::<VirtualPadConfig>()
 		.init_resource::<MenuNavPad>()
 		.init_resource::<InputRouter>()
+		.init_resource::<Messages<RoutingEvent>>()
 		.init_resource::<MenuNavCapture>()
 		.init_resource::<PadInputPolicy>()
 		.init_resource::<bevy::picking::hover::HoverMap>()

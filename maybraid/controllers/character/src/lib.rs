@@ -11,8 +11,8 @@ pub use dispatch::{
 };
 pub use intent::{CharacterIntent, InventoryCycling, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
-	ActorTarget, CaptureKind, ControllerPipeline, HoldEffect, InputRouter, InputSource, Routed,
-	RoutingEvent, RoutingKind, ScopeOwner, UiTarget,
+	ActorTarget, CaptureKind, ControllerPipeline, HoldEffect, InputRouter, InputRouting,
+	InputSource, Routed, RoutingEvent, RoutingKind, ScopeOwner, SourceConnection, UiTarget,
 };
 pub use sample::{
 	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,

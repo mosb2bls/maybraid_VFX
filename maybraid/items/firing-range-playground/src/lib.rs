@@ -43,7 +43,9 @@ use hiding_intelligence::{HidingPlugin, HidingSystems};
 use les_halles::LesHallesSpawn;
 use lod::LodRefreshSystems;
 use maybraid_character_controller::CharacterControllerPlugin;
-use maybraid_controllers_core::{CaptureKind, CaptureToken, InputRouter, InputSource, ScopeOwner};
+use maybraid_controllers_core::{
+	CaptureKind, CaptureToken, InputRouter, InputRouting, InputSource, ScopeOwner,
+};
 use maybraid_input::{PadInputPolicy, VirtualPadSystems};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;
 use movement_intelligence::{
@@ -571,7 +573,7 @@ struct RangeConsoleCapture {
 
 fn gate_pad(
 	focus: Res<TextEntryFocus>,
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut capture: ResMut<RangeConsoleCapture>,
 	mut policy: ResMut<PadInputPolicy>,
 ) {

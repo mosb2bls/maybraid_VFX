@@ -82,7 +82,8 @@ pub use maybraid_sky::{
 	SUN_COLOR, SUN_ILLUMINANCE,
 };
 pub use maybraid_world_controller::{
-	InputRouter, SessionBit, SessionCapabilities, SessionCapabilitySystems,
+	InputRouter, InputRouting, RoutingEvent, SessionBit, SessionCapabilities,
+	SessionCapabilitySystems,
 };
 pub use occupancy::{WorldOccupancyPlugin, WorldOccupancySystems};
 pub use player_camera::{CameraPov, CameraPovLocked};
