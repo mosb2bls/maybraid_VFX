@@ -17,8 +17,8 @@ pub mod testing;
 mod user;
 
 use bevy::prelude::*;
-use maybraid_controllers_core::{ControllerPipeline, MotorRequestStage};
-use player::PlayerSystems;
+use maybraid_controllers_core::ControllerPipeline;
+use player::{MotorRequestStage, PlayerSystems};
 
 pub use ability::{
 	Covering, MovementAbility, MovementBody, MovementSheet, VantageStandoffs,
@@ -48,6 +48,7 @@ pub enum MovementIntelligenceSystems {
 
 pub(crate) fn configure_movement_intelligence_sets(app: &mut App) {
 	ControllerPipeline::configure(app);
+	MotorRequestStage::configure(app);
 	app.configure_sets(
 		Update,
 		(

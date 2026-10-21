@@ -5,12 +5,16 @@ the current stick / trigger. Digital is a press or release edge. Chords are
 resolved here so consumers do not re-read the pad.
 
 Bind runs in [`ControllerPipeline::Bind`](../core/src/schedule.rs) from
-[`controllers/core`](../core/README.md). Analog and physical A / B land on
-[`RoutedActorControl`](src/sample.rs) for one [`ActorTarget`](../core/src/actor.rs).
-Intents are still a process-wide [`CharacterIntent`](src/intent.rs) broadcast.
-Physical A / B stay distinct from semantic `Jump`. Ordinary locomotion consumes
-move / jump / sprint / stance onto that actor in
-[`controllers/locomotion`](../locomotion/README.md). See
+[`controllers/core`](../core/README.md). Produce runs only when
+[`InputRouter`](../core/src/router.rs) has a host-assigned actor. Analog and
+physical A / B land on [`RoutedActorControl`](src/sample.rs) for the
+delivered [`ActorTarget`](../core/src/actor.rs). Intents are still a
+process-wide [`CharacterIntent`](src/intent.rs) broadcast — that adapter is
+removed as consumers become actor-addressed (phases 3–5). Physical A / B stay
+distinct from semantic `Jump`. Ordinary locomotion consumes move / jump /
+sprint / stance for [`InputRouter::local_actor`](../core/src/router.rs) in
+[`controllers/locomotion`](../locomotion/README.md). The lowest-ID `Player`
+fallback is resolved once in `player`, not here. See
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 `RightTrigger` + `X` is `PowerUseItem` and suppresses `StartInteraction`.

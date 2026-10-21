@@ -6,7 +6,7 @@ pub mod sample;
 
 pub use intent::{CharacterIntent, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
-	ActorTarget, ControllerPipeline, InputSource, LocalActor, MotorRequestStage, Routed,
+	ActorTarget, ControllerPipeline, InputRouter, InputSource, Routed,
 };
 pub use sample::{
 	produce_actor_control_samples, ActorControlSample, FaceButtonSample, RoutedActorControl,
@@ -21,6 +21,9 @@ use crate::produce::produce_character_intents;
 /// When `false`, pad move / jump / stance / sprint are not turned into intents.
 /// Look and item controls stay live. Derived from the local [`Player`] Tanz
 /// mode when one exists so an NPC Tanzer does not steal the pad.
+///
+/// Temporary until phase 4 replaces this global gate with installed
+/// participation. Per-actor [`OrdinaryLocomotion`] is the live bit.
 #[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OrdinaryLocomotionEnabled(pub bool);
 

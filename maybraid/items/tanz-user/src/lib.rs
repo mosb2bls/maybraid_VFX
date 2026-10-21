@@ -15,10 +15,10 @@ use damage::Downed;
 use maybraid_character_controller::{
 	CharacterBindSystems, OrdinaryLocomotion, OrdinaryLocomotionEnabled, RoutedActorControl,
 };
-use maybraid_controllers_core::{ActorTarget, ControllerPipeline, MotorRequestStage};
+use maybraid_controllers_core::{ActorTarget, ControllerPipeline};
 use maybraid_skill_map::{SkillMapFlick, SkillMapSteerPolicy, SkillMapSystems, SkillMapUser};
 use menu_components::sync_loading_bar_fill;
-use player::{Player, PlayerLook, PlayerSystems};
+use player::{MotorRequestStage, Player, PlayerLook, PlayerSystems};
 
 pub use actions::{
 	dash_ground_speed, forward_dash, healing_salute, left_strafe, right_strafe, starter_stack,
@@ -182,6 +182,7 @@ pub struct TanzUserPlugin;
 impl Plugin for TanzUserPlugin {
 	fn build(&self, app: &mut App) {
 		ControllerPipeline::configure(app);
+		MotorRequestStage::configure(app);
 		app.add_message::<TanzInput>()
 			.add_message::<ExecuteTanz>()
 			.init_resource::<OrdinaryLocomotionEnabled>()
@@ -575,7 +576,8 @@ mod tests {
 
 	fn pipeline_app() -> App {
 		use bevy::time::TimeUpdateStrategy;
-		use player::apply_motor;
+		use maybraid_controllers_core::InputRouter;
+		use player::{apply_motor, compose_motor};
 
 		let mut app = App::new();
 		ControllerPipeline::configure(&mut app);
@@ -583,6 +585,7 @@ mod tests {
 			.insert_resource(TimeUpdateStrategy::ManualDuration(
 				std::time::Duration::from_secs_f32(1.0 / 60.0),
 			))
+			.init_resource::<InputRouter>()
 			.init_resource::<RoutedActorControl>()
 			.init_resource::<OrdinaryLocomotionEnabled>()
 			.init_resource::<SkillMapSteerPolicy>()
@@ -604,6 +607,7 @@ mod tests {
 					submit_tanz_executions,
 					advance_tanz_execution,
 					apply_tanz_movement,
+					compose_motor,
 					apply_motor,
 				)
 					.chain(),
@@ -614,7 +618,7 @@ mod tests {
 	#[test]
 	fn unrelated_tanz_actor_is_unaffected() -> anyhow::Result<()> {
 		use maybraid_character_controller::ActorControlSample;
-		use maybraid_controllers_core::LocalActor;
+		use maybraid_controllers_core::{InputRouter, InputSource};
 
 		let mut app = pipeline_app();
 		let local = app
@@ -626,6 +630,8 @@ mod tests {
 				TanzExecution::default(),
 				player::CharacterController,
 				player::MotorIntent::default(),
+				player::MotorSelection::default(),
+				player::ResolvedMotorRequest::default(),
 				player::MoveWish::default(),
 				PlayerLook::default(),
 			))
@@ -637,9 +643,13 @@ mod tests {
 				TanzStack::starter(),
 				TanzExecution::default(),
 				player::MotorIntent::default(),
+				player::MotorSelection::default(),
+				player::ResolvedMotorRequest::default(),
 			))
 			.id();
-		app.world_mut().insert_resource(LocalActor::new(local));
+		app.world_mut()
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(local));
 		app.world_mut().insert_resource(RoutedActorControl::from_sample(
 			ActorTarget::new(local),
 			ActorControlSample::default().with_move_stick(Vec2::NEG_X),
@@ -731,7 +741,7 @@ mod tests {
 	#[test]
 	fn switching_standard_and_tanzer_leaves_no_stale_motion() -> anyhow::Result<()> {
 		use maybraid_character_controller::{ActorControlSample, CharacterIntent};
-		use maybraid_controllers_core::LocalActor;
+		use maybraid_controllers_core::{InputRouter, InputSource};
 		use player::{MoveSpeedCap, MoveWish, Sprinting};
 
 		let mut app = pipeline_app();
@@ -744,12 +754,16 @@ mod tests {
 				TanzStack::starter(),
 				TanzExecution::default(),
 				player::MotorIntent::default(),
+				player::MotorSelection::default(),
+				player::ResolvedMotorRequest::default(),
 				MoveWish::default(),
 				PlayerLook::default(),
 				Sprinting,
 			))
 			.id();
-		app.world_mut().insert_resource(LocalActor::new(player));
+		app.world_mut()
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(player));
 		app.update();
 		app.world_mut().write_message(CharacterIntent::Move(Vec2::Y));
 		app.world_mut().write_message(CharacterIntent::StartSprint);
@@ -772,11 +786,12 @@ mod tests {
 		assert_eq!(app.world().get::<MoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
 		assert!(app.world().get::<Sprinting>(player).is_none());
 		assert!(app.world().get::<MoveSpeedCap>(player).is_none());
-		let resolved = app
+		let intent = app
 			.world()
 			.get::<player::MotorIntent>(player)
-			.ok_or_else(|| anyhow::anyhow!("motor intent"))?
-			.resolve();
+			.ok_or_else(|| anyhow::anyhow!("motor intent"))?;
+		assert_eq!(intent.selected_base().map(|(kind, _)| kind), Some(player::MotorContributor::Tanz));
+		let resolved = intent.compose(None);
 		assert_eq!(resolved.translation, Vec3::ZERO);
 		assert_eq!(resolved.sprint, player::SprintRequest::Release);
 		assert_eq!(resolved.speed_cap, player::SpeedCapRequest::Release);

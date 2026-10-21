@@ -4,7 +4,7 @@
 //! semantic [`crate::CharacterIntent::Jump`].
 
 use bevy::prelude::*;
-use maybraid_controllers_core::{ActorTarget, InputSource, LocalActor, Routed};
+use maybraid_controllers_core::{ActorTarget, InputRouter, InputSource, Routed};
 use maybraid_input::{PadButton, VirtualPad};
 
 /// One frame of analog sticks and physical face / bumper state for one actor.
@@ -178,18 +178,23 @@ impl RoutedActorControl {
 	pub fn from_sample(target: ActorTarget, sample: ActorControlSample) -> Self {
 		Self(Some(Routed::to_actor(InputSource::local_pad(), target, sample)))
 	}
+
+	pub fn source(&self) -> Option<InputSource> {
+		self.0.as_ref().map(Routed::source)
+	}
 }
 
-/// Copy the local pad onto [`RoutedActorControl`] when a [`LocalActor`] is set.
+/// Copy the local pad onto [`RoutedActorControl`] for [`InputRouter::delivered_actor`].
 ///
-/// Locomotion fills the same resource with the Player fallback when hosts have
-/// not installed [`LocalActor`]. This system does not clear a fallback write.
+/// This is the sole Bind-stage pad sample for Tanz and skill-map. Capture,
+/// suspension, and disconnect clear delivery so those consumers see no sample.
 pub fn produce_actor_control_samples(
 	pad: Option<Res<VirtualPad>>,
-	local: Option<Res<LocalActor>>,
+	router: Res<InputRouter>,
 	mut routed: ResMut<RoutedActorControl>,
 ) {
-	let Some(local) = local else {
+	let Some(target) = router.delivered_actor(InputSource::local_pad()) else {
+		routed.clear();
 		return;
 	};
 	let Some(pad) = pad else {
@@ -198,7 +203,7 @@ pub fn produce_actor_control_samples(
 	};
 	routed.set(Routed::to_actor(
 		InputSource::local_pad(),
-		local.target(),
+		target,
 		ActorControlSample::from_pad(&pad),
 	));
 }
@@ -250,5 +255,39 @@ mod tests {
 		let routed = RoutedActorControl::from_sample(actor, ActorControlSample::default());
 		assert!(routed.addresses(actor.entity()));
 		assert!(!routed.addresses(other));
+	}
+
+	#[test]
+	fn produce_addresses_the_delivered_actor_only() {
+		use bevy::ecs::system::RunSystemOnce;
+
+		fn write(
+			pad: Option<Res<VirtualPad>>,
+			router: Res<InputRouter>,
+			routed: ResMut<RoutedActorControl>,
+		) {
+			super::produce_actor_control_samples(pad, router, routed);
+		}
+
+		let mut world = World::new();
+		world.init_resource::<VirtualPad>();
+		world.init_resource::<InputRouter>();
+		world.init_resource::<RoutedActorControl>();
+		world.resource_mut::<VirtualPad>().begin_frame();
+		world.resource_mut::<VirtualPad>().add_move(Vec2::NEG_X);
+		world.resource_mut::<VirtualPad>().finish_digital();
+
+		world.run_system_once(write).expect("unassigned");
+		assert!(world.resource::<RoutedActorControl>().payload().is_none());
+
+		let actor = Entity::from_bits(3);
+		world
+			.resource_mut::<InputRouter>()
+			.assign_actor(InputSource::local_pad(), ActorTarget::new(actor));
+		world.run_system_once(write).expect("assigned");
+		let routed = world.resource::<RoutedActorControl>();
+		assert!(routed.addresses(actor));
+		assert_eq!(routed.payload().map(ActorControlSample::move_stick), Some(Vec2::NEG_X));
+		assert_eq!(routed.source(), Some(InputSource::local_pad()));
 	}
 }

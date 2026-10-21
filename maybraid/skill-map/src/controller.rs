@@ -100,6 +100,9 @@ impl FlickLane {
 ///
 /// Standard keeps RB + either-stick flicks. Tanz disables that producer so
 /// committed Tanz gestures can publish [`SkillMapFlick`] instead.
+///
+/// Temporary until phase 4: a global policy adapter. Per-actor
+/// [`OrdinaryLocomotion`] already gates Standard flick.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SkillMapSteerPolicy {
 	#[default]

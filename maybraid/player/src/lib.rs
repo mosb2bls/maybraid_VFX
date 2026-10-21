@@ -1,5 +1,6 @@
 //! Capsule player, visual, and handoff slots for camera / pose drivers.
 
+mod assign;
 mod body;
 mod buoyancy;
 mod contact;
@@ -17,7 +18,7 @@ mod stance;
 use bevy::prelude::*;
 use characters::{CharacterMotionSystems, CharacterPoseSystems};
 use maybraid_character_controller::CharacterControlSystems;
-use maybraid_controllers_core::{ControllerPipeline, MotorRequestStage};
+use maybraid_controllers_core::ControllerPipeline;
 
 pub use body::{
 	apply_character_controller, apply_character_mobility, apply_locomotion_capsule,
@@ -38,8 +39,9 @@ pub use identity::{
 pub use locomotion::drive_player_locomotion;
 pub use look::{clamp_aim_pitch, look_delta, look_forward, wrap_pi, yaw_xz, AIM_PITCH_MARGIN};
 pub use motor::{
-	apply_motor, MotorIntent, MotorRecovery, MotorSample, ResolvedMotorRequest, SpeedCapRequest,
-	SprintRequest, StanceRequest,
+	apply_motor, compose_motor, MotorContributor, MotorIntent, MotorModifier, MotorRecovery,
+	MotorRequestStage, MotorSample, MotorSelection, MotorSuppressionToken, ResolvedMotorRequest,
+	SpeedCapRequest, SprintRequest, StanceRequest,
 };
 pub use separation::{SoftBump, NPC_SEPARATION};
 pub use spawn::{
@@ -96,7 +98,10 @@ impl Plugin for PlayerPlugin {
 		if !app.is_plugin_added::<maybraid_controllers_core::ControllersCorePlugin>() {
 			app.add_plugins(maybraid_controllers_core::ControllersCorePlugin);
 		}
+		MotorRequestStage::configure(app);
 		app.init_resource::<CharacterLocomotion>()
+			.init_resource::<maybraid_controllers_core::InputRouter>()
+			.add_systems(Update, assign::assign_local_player.before(CharacterControlSystems))
 			.configure_sets(
 				Update,
 				(
@@ -124,7 +129,7 @@ impl Plugin for PlayerPlugin {
 					.in_set(ControllerPipeline::MotorRequest)
 					.after(MotorRequestStage::Standard),
 			)
-			.add_systems(Update, apply_motor.in_set(PlayerSystems::Body))
+			.add_systems(Update, (compose_motor, apply_motor).chain().in_set(PlayerSystems::Body))
 			.add_systems(
 				Update,
 				(

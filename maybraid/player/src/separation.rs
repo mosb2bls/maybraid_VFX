@@ -152,7 +152,9 @@ mod tests {
 	use super::*;
 	use crate::body::MoveWish;
 	use crate::identity::Player;
-	use crate::motor::{apply_motor, MotorSample};
+	use crate::motor::{
+		apply_motor, compose_motor, MotorSample, MotorSelection, ResolvedMotorRequest,
+	};
 
 	fn entity(bits: u64) -> Entity {
 		Entity::from_bits(bits)
@@ -220,6 +222,8 @@ mod tests {
 				Transform::from_xyz(0.0, 0.0, 0.0),
 				MoveWish(Vec3::X),
 				npc_intent(Vec3::X),
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
@@ -230,6 +234,8 @@ mod tests {
 				Transform::from_xyz(0.5, 0.0, 0.0),
 				MoveWish(Vec3::X),
 				npc_intent(Vec3::X),
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
@@ -244,11 +250,14 @@ mod tests {
 					intent.set_standard(MotorSample::translation(Vec3::X));
 					intent
 				},
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
 
 		assert!(world.run_system_once(declare_npc_soft_bump).is_ok());
+		assert!(world.run_system_once(compose_motor).is_ok());
 		assert!(world.run_system_once(apply_motor).is_ok());
 
 		let wish_a = world.get::<MoveWish>(a).map(|wish| wish.0);
@@ -275,6 +284,8 @@ mod tests {
 				Transform::from_xyz(0.0, 0.0, 0.0),
 				MoveWish(Vec3::X),
 				npc_intent(Vec3::X),
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
@@ -285,11 +296,14 @@ mod tests {
 				Transform::from_xyz(8.0, 0.0, 0.0),
 				MoveWish(Vec3::Z),
 				npc_intent(Vec3::Z),
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
 				LocomotionCapsule::HUMANOID,
 			))
 			.id();
 
 		assert!(world.run_system_once(declare_npc_soft_bump).is_ok());
+		assert!(world.run_system_once(compose_motor).is_ok());
 		assert!(world.run_system_once(apply_motor).is_ok());
 
 		let wish_a = world.get::<MoveWish>(a).map(|wish| wish.0);
