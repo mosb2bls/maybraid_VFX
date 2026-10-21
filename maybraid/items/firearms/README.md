@@ -7,10 +7,12 @@ A [`FirearmKit`](src/kit.rs) is a required [`BodyMesh`](src/parts.rs) plus optio
 Iron sights keep the current ADS FOV. [`SightMesh::Holorand`](src/parts.rs) rolls 1–3× of that FOV; [`SightMesh::Leskop`](src/parts.rs) rolls 3–5×. Magnification is stored as vertical FOV (`fov' = 2 atan(tan(fov/2) / zoom)`). Sights socket onto `sight_socket` at a rest scale of the 1 m authored cube. First-person focus stays on `sight_camera_socket`.
 
 [`FirearmWeaponsPlugin`](src/projectiles.rs) registers
-[`register_firearm_runtime`](src/runtime.rs) (armed flag + [`WeaponFired`](src/cadence.rs))
+[`register_firearm_runtime`](src/runtime.rs) (armed flag,
+[`decide_weapon_fire`](src/projectiles.rs), [`WeaponShotRequest`](src/cadence.rs),
+[`WeaponFired`](src/cadence.rs))
 and [`register_firearm_presentation`](src/presentation.rs) (muzzle / laser / impact / audio).
-`fire_weapons` still advances its own clock while spawning; a follow-up will
-make one authoritative fire clock and have presentation consume `WeaponFired`.
+Headless tests and production run the same fire clock; `fire_weapons` realizes
+[`WeaponShotRequest`](src/cadence.rs).
 Put a [`Weapon`](src/projectiles.rs) on the [`FirearmRoot`](src/lib.rs). Auto-fire is the default; add [`FireOnTrigger`](src/projectiles.rs) to require [`WeaponTrigger`](src/projectiles.rs) (written per gun by [`firearm-user`](../firearm-user/)):
 
 | Load | Shape | Motion |

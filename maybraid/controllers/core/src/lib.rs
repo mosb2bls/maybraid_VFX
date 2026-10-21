@@ -82,8 +82,8 @@ mod tests {
 					record_bind.in_set(ControllerPipeline::Bind),
 					disconnect_after_bind
 						.after(ControllerPipeline::Bind)
-						.before(ControllerPipeline::Interpret),
-					record_later.in_set(ControllerPipeline::Interpret),
+						.before(ControllerPipeline::ResetMotorRequests),
+					record_later.in_set(ControllerPipeline::ResetMotorRequests),
 				),
 			);
 		app.update();

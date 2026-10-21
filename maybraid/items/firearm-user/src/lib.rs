@@ -19,7 +19,7 @@ use bevy::prelude::*;
 use firearms::add_firearm_components_host;
 use std::f32::consts::FRAC_PI_2;
 
-pub use fire::{apply_fire_intents, apply_fire_routing, realize_held_weapon_fire};
+pub use fire::{apply_fire_intents, apply_fire_routing};
 pub use hold::{sync_hands_to_firearm, HoldingArms};
 pub use kit::{kit_from_spec, GeneratedFirearm};
 pub use maybraid_equipment::EquippedItemHandler;

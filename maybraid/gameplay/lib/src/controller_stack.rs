@@ -355,6 +355,102 @@ fn reassignment_mid_cook_cancels_the_old_actor() {
 }
 
 #[test]
+fn two_grenade_users_disconnect_drops_only_the_named_actor() {
+	let mut app = stack_app();
+	let held_a = app.world_mut().spawn_empty().id();
+	let held_b = app.world_mut().spawn_empty().id();
+	let bag_a = spawn_grenade_bag(&mut app);
+	let bag_b = spawn_grenade_bag(&mut app);
+	let cook = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag_a),
+			GrenadeUser::holding(held_a),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	let other = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag_b),
+			GrenadeUser::holding(held_b),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	{
+		let mut throw = app.world_mut().get_mut::<GrenadeThrow>(other).expect("other throw");
+		assert!(throw.try_start_cook(true, false, 4.0));
+	}
+	assign(&mut app, cook);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert!(app.world().get::<GrenadeThrow>(cook).is_some_and(GrenadeThrow::cooking));
+	assert!(app.world().get::<GrenadeThrow>(other).is_some_and(GrenadeThrow::cooking));
+	routing_apply(&mut app, |router| {
+		router.disconnect(InputSource::local_pad());
+	});
+	app.update();
+	assert_eq!(
+		app.world().get::<GrenadeThrow>(cook).map(|throw| throw.phase),
+		Some(GrenadePhase::Ready)
+	);
+	assert!(
+		app.world().get::<GrenadeThrow>(other).is_some_and(GrenadeThrow::cooking),
+		"an unrelated cook must survive a local-pad disconnect"
+	);
+	let drops: Vec<_> = app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().collect();
+	assert_eq!(drops.len(), 1);
+	assert_eq!(drops[0].source, cook);
+}
+
+#[test]
+fn reassignment_then_capture_in_one_frame_cleans_the_old_actor() {
+	let mut app = stack_app();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let cook = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	let next = app
+		.world_mut()
+		.spawn((Player, VegetationPlayer, EquippedItemHandler::Firearm, InventoryCycling::default()))
+		.id();
+	assign(&mut app, cook);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert!(app.world().get::<GrenadeThrow>(cook).is_some_and(GrenadeThrow::cooking));
+	routing_apply(&mut app, move |router| {
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(next));
+		router.acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(21))),
+			CaptureKind::Overlay,
+		);
+	});
+	app.update();
+	assert_eq!(
+		app.world().get::<GrenadeThrow>(cook).map(|throw| throw.phase),
+		Some(GrenadePhase::Ready),
+		"the reassignment event must still drop the old cook when capture follows in the same frame"
+	);
+	assert!(app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().next().is_some());
+}
+
+#[test]
 fn category_then_cycle_in_one_plugin_frame() {
 	use character_items::{SkillMapKind, SkillMapSpec};
 

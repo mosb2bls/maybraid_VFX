@@ -105,10 +105,10 @@ mod tests {
 				Update,
 				(
 					note("bind").in_set(CharacterControlSystems),
-					note("interpret").in_set(ControllerPipeline::Interpret),
+					note("reset").in_set(ControllerPipeline::ResetMotorRequests),
 				),
 			);
 		app.update();
-		assert_eq!(app.world().resource::<StageOrder>().0, ["bind", "interpret"]);
+		assert_eq!(app.world().resource::<StageOrder>().0, ["bind", "reset"]);
 	}
 }

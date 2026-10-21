@@ -10,7 +10,7 @@ pub struct CaptureResolveSystems;
 ///
 /// Target order:
 /// `VirtualPad` (PreUpdate) → [`Bind`](Self::Bind) → camera / item branch →
-/// [`Interpret`](Self::Interpret) → [`MotorRequest`](Self::MotorRequest) →
+/// [`ResetMotorRequests`](Self::ResetMotorRequests) → [`MotorRequest`](Self::MotorRequest) →
 /// [`Motor`](Self::Motor).
 ///
 /// Pad production stays on `VirtualPadSystems` in PreUpdate. Camera look and
@@ -21,14 +21,15 @@ pub struct CaptureResolveSystems;
 /// world filters) lives beside those domain systems, not in this crate.
 ///
 /// [`CaptureResolveSystems`] runs first inside [`Self::Bind`] so actor
-/// delivery sees this frame's capture. [`Self::Interpret`] resets per-actor
-/// motor slots so writers in [`Self::MotorRequest`] declare this frame only.
+/// delivery sees this frame's capture. [`Self::ResetMotorRequests`] clears
+/// per-actor motor slots so writers in [`Self::MotorRequest`] declare this
+/// frame only.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ControllerPipeline {
 	/// Pad → routed character / menu samples.
 	Bind,
 	/// Clear motor slots. Composition happens later; this stage does not apply.
-	Interpret,
+	ResetMotorRequests,
 	/// Declared motor requests / modifiers. Domain sets order writers.
 	MotorRequest,
 	/// One compose + apply, then the shared capsule motor (`PlayerSystems::Body`).
@@ -42,8 +43,8 @@ impl ControllerPipeline {
 			Update,
 			(
 				Self::Bind,
-				Self::Interpret.after(Self::Bind),
-				Self::MotorRequest.after(Self::Interpret),
+				Self::ResetMotorRequests.after(Self::Bind),
+				Self::MotorRequest.after(Self::ResetMotorRequests),
 				Self::Motor.after(Self::MotorRequest),
 			)
 				.chain(),
@@ -64,14 +65,14 @@ mod tests {
 	}
 
 	#[test]
-	fn stages_run_bind_interpret_motor_request_motor() {
+	fn stages_run_bind_reset_motor_request_motor() {
 		let mut app = App::new();
 		ControllerPipeline::configure(&mut app);
 		app.init_resource::<StageOrder>().add_systems(
 			Update,
 			(
 				note("bind").in_set(ControllerPipeline::Bind),
-				note("interpret").in_set(ControllerPipeline::Interpret),
+				note("reset").in_set(ControllerPipeline::ResetMotorRequests),
 				note("request").in_set(ControllerPipeline::MotorRequest),
 				note("motor").in_set(ControllerPipeline::Motor),
 			),
@@ -79,7 +80,7 @@ mod tests {
 		app.update();
 		assert_eq!(
 			app.world().resource::<StageOrder>().0,
-			["bind", "interpret", "request", "motor"]
+			["bind", "reset", "request", "motor"]
 		);
 	}
 

@@ -10,7 +10,6 @@ use player_camera::PlayerCameraSystems;
 
 use crate::fire::{
 	advance_weapon_recoil, apply_fire_intents, apply_fire_routing, queue_weapon_recoil,
-	realize_held_weapon_fire,
 };
 use crate::weapon::live_weapon_from_stats;
 use crate::{FirearmUser, FirearmUserSettings, FirearmUserSystems, GeneratedFirearm};
@@ -18,24 +17,23 @@ use crate::{FirearmUser, FirearmUserSettings, FirearmUserSystems, GeneratedFirea
 #[derive(Resource, Default)]
 struct FirearmUserRuntime;
 
-/// Clocks, routing, fire, and recoil. Tests and production call this same
-/// function. Pose / reticle / audio stay on [`crate::register_firearm_user_presentation`].
-///
-/// Headless clock writes [`firearms::WeaponFired`]. Production
-/// [`firearms::FirearmWeaponsPlugin`] still owns a second clock inside
-/// `fire_weapons`. Do not add a third.
+/// Trigger translation, routing, and recoil. Tests and production call this
+/// same function. The fire clock lives in [`firearms::register_firearm_runtime`].
+/// Pose / reticle / audio stay on [`crate::register_firearm_user_presentation`].
 pub fn register_firearm_user_runtime(app: &mut App) {
 	if app.world().contains_resource::<FirearmUserRuntime>() {
 		return;
 	}
+	firearms::register_firearm_runtime(app);
 	app.init_resource::<FirearmUserRuntime>()
 		.add_message::<maybraid_input::PadRumble>()
 		.add_message::<maybraid_equipment::EquippedItemUse>()
 		.add_message::<player_camera::CameraRecoilHandoff>()
-		.add_message::<firearms::WeaponFired>()
 		.add_systems(
 			Update,
-			(apply_fire_intents, apply_fire_routing).chain().in_set(PlayerSystems::Intent),
+			(apply_fire_intents, apply_fire_routing, stamp_projectile_sources)
+				.chain()
+				.in_set(PlayerSystems::Intent),
 		)
 		.add_systems(
 			Update,
@@ -50,8 +48,17 @@ pub fn register_firearm_user_runtime(app: &mut App) {
 				.in_set(PlayerCameraSystems::Body)
 				.in_set(FirearmUserSystems::Recoil),
 		);
-	if !app.is_plugin_added::<firearms::FirearmWeaponsPlugin>() {
-		app.add_systems(PostUpdate, realize_held_weapon_fire.in_set(FirearmWeaponSystems::Fire));
+}
+
+fn stamp_projectile_sources(
+	users: Query<(Entity, &FirearmUser)>,
+	missing: Query<(), Without<firearms::ProjectileSource>>,
+	mut commands: Commands,
+) {
+	for (entity, user) in &users {
+		if missing.contains(user.held) {
+			commands.entity(user.held).insert(firearms::ProjectileSource(entity));
+		}
 	}
 }
 

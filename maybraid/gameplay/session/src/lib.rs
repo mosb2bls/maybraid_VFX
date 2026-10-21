@@ -38,7 +38,7 @@ impl Plugin for SessionPlugin {
 				Update,
 				SessionCapabilitySystems
 					.after(ControllerPipeline::Bind)
-					.before(ControllerPipeline::Interpret),
+					.before(ControllerPipeline::ResetMotorRequests),
 			)
 			.configure_sets(
 				PostUpdate,
@@ -61,18 +61,18 @@ mod tests {
 	}
 
 	#[test]
-	fn session_capabilities_run_after_bind_before_interpret() {
+	fn session_capabilities_run_after_bind_before_reset() {
 		let mut app = App::new();
 		app.add_plugins(SessionPlugin).init_resource::<StageOrder>().add_systems(
 			Update,
 			(
 				note("bind").in_set(ControllerPipeline::Bind),
 				note("session").in_set(SessionCapabilitySystems),
-				note("interpret").in_set(ControllerPipeline::Interpret),
+				note("reset").in_set(ControllerPipeline::ResetMotorRequests),
 			),
 		);
 		app.update();
-		assert_eq!(app.world().resource::<StageOrder>().0, ["bind", "session", "interpret"]);
+		assert_eq!(app.world().resource::<StageOrder>().0, ["bind", "session", "reset"]);
 	}
 
 	#[test]

@@ -7,8 +7,8 @@ use std::f32::consts::PI;
 
 use crate::material::{grenade_material, GrenadeMaterial, GrenadeMaterialPlugin};
 use crate::runtime::{
-	tick_grenade_fuses, DropLiveGrenade, GrenadeEffect, GrenadeFuse, ThrownGrenade,
-	ThrownGrenadeSpawn,
+	tick_grenade_fuses, DropLiveGrenade, GrenadeEffect, GrenadeFuse, SpawnThrownGrenade,
+	ThrownGrenade, ThrownGrenadeSpawn,
 };
 use crate::sound;
 
@@ -17,8 +17,7 @@ pub fn grenade_mesh() -> Mesh {
 }
 
 impl ThrownGrenadeSpawn {
-	/// Realize the physics body and mesh. A follow-up will drive this from a
-	/// `SpawnThrownGrenade` message instead of a direct call.
+	/// Realize the physics body and mesh from a throw / drop request.
 	pub fn realize(
 		self,
 		commands: &mut Commands,
@@ -108,10 +107,21 @@ pub fn spawn_dropped_live_grenades(
 	}
 }
 
+pub fn spawn_thrown_grenades(
+	mut commands: Commands,
+	mut meshes: ResMut<Assets<Mesh>>,
+	mut materials: ResMut<Assets<GrenadeMaterial>>,
+	mut throws: MessageReader<SpawnThrownGrenade>,
+) {
+	for throw in throws.read() {
+		throw.spawn().realize(&mut commands, &mut meshes, &mut materials);
+	}
+}
+
 #[derive(Resource, Default)]
 struct GrenadePresentation;
 
-/// Mesh / material / audio for thrown bodies. Fulfills [`DropLiveGrenade`].
+/// Mesh / material / audio for thrown bodies. Fulfills throw and drop requests.
 pub fn register_grenade_presentation(app: &mut App) {
 	if app.world().contains_resource::<GrenadePresentation>() {
 		return;
@@ -120,8 +130,12 @@ pub fn register_grenade_presentation(app: &mut App) {
 		app.add_plugins(GrenadeMaterialPlugin);
 	}
 	sound::configure_grenade_audio(app);
-	app.init_resource::<GrenadePresentation>()
-		.add_systems(Update, spawn_dropped_live_grenades.after(tick_grenade_fuses));
+	app.init_resource::<GrenadePresentation>().add_systems(
+		Update,
+		(spawn_thrown_grenades, spawn_dropped_live_grenades)
+			.chain()
+			.after(tick_grenade_fuses),
+	);
 }
 
 #[cfg(test)]

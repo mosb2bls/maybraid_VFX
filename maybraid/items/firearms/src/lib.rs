@@ -21,7 +21,7 @@ pub mod sound;
 pub use ::projectiles::{BoltSpec, BulletSpec, Flight, PenetrationCost, ProjectileSource};
 pub use cadence::{
 	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, Cadence, FireControl,
-	ShotClockTick, WeaponFired, WeaponRecoil, CATCH_UP_SHOTS,
+	ShotClockTick, WeaponFired, WeaponRecoil, WeaponShotRequest, CATCH_UP_SHOTS,
 };
 pub use concepts::FirearmConcept;
 pub use energy::{
@@ -49,8 +49,8 @@ pub use plugin::FirearmHostsPlugin;
 pub use pose::{aim_plus_x, BoneFit, FirearmPose};
 pub use presentation::register_firearm_presentation;
 pub use projectiles::{
-	muzzle_world, FireOnTrigger, FirearmWeaponSystems, FirearmWeaponsPlugin, LaserBeam, LaserSpec,
-	ProjectileLoad, Weapon, WeaponTrigger, WeaponsArmed, BARREL_REST_LENGTH,
+	decide_weapon_fire, muzzle_world, FireOnTrigger, FirearmWeaponSystems, FirearmWeaponsPlugin,
+	LaserBeam, LaserSpec, ProjectileLoad, Weapon, WeaponTrigger, WeaponsArmed, BARREL_REST_LENGTH,
 };
 pub use runtime::register_firearm_runtime;
 pub use sound::{

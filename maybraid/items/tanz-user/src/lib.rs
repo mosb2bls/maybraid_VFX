@@ -279,11 +279,13 @@ impl Plugin for TanzUserPlugin {
 
 fn apply_tanz_routing_events(
 	mut events: MessageReader<RoutingEvent>,
-	mut users: Query<&mut TanzUser>,
+	mut users: Query<(Entity, &mut TanzUser)>,
 ) {
 	for event in events.read() {
-		for mut user in &mut users {
-			user.apply_routing(*event);
+		for (entity, mut user) in &mut users {
+			if event.applies_to(entity) {
+				user.apply_routing(*event);
+			}
 		}
 	}
 }

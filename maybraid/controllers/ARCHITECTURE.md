@@ -15,12 +15,13 @@ it into behavior, state, or further events. A **controller** is a
 consumer/interpreter that produces follow-on events or intents, possibly with
 persistent state.
 
-There is no universal Interpret stage and no giant intent enum. Reusable
-systems are registered once; actor- or session-scoped participation is
-installed, removed, or suspended. Domain interpreters own realization;
-upstream controllers must not compete by writing the same motor components.
-Continuous input carries neutral / release semantics; analog samples are not
-heap messages.
+There is no universal intent-interpret stage and no giant intent enum.
+[`ControllerPipeline::ResetMotorRequests`](core/src/schedule.rs) only clears
+per-actor motor slots. Reusable systems are registered once; actor- or
+session-scoped participation is installed, removed, or suspended. Domain
+interpreters own realization; upstream controllers must not compete by
+writing the same motor components. Continuous input carries neutral / release
+semantics; analog samples are not heap messages.
 
 ## Flow
 
@@ -105,10 +106,10 @@ Package names stay; only directories moved. See [#1450](https://github.com/ramat
 | `movement/realization` | `movement-realization` | Recovery modifier |
 | `items/skill-map` | `maybraid-skill-map` | Map session + flick |
 | `items/equipment` | `maybraid-equipment` | Category, holster, equipped dispatch |
-| `items/firearm-user` | `firearm-user` | Hold / fire realize (`runtime` / `presentation`) |
-| `items/firearms` | `firearms` | Cadence + kit (`runtime` / `presentation`) |
-| `items/grenade-user` | `grenade-user` | Cook / throw realize (`runtime` / `presentation`) |
-| `items/grenades` | `grenades` | Fuse / blast vs thrown-body spawn |
+| `items/firearm-user` | `firearm-user` | Trigger / routing / recoil (`runtime` / `presentation`) |
+| `items/firearms` | `firearms` | Cadence clock + `WeaponShotRequest` (`runtime` / `presentation`) |
+| `items/grenade-user` | `grenade-user` | Cook / throw request (`runtime` / `presentation`) |
+| `items/grenades` | `grenades` | Fuse / blast + `SpawnThrownGrenade` realize |
 | `items/tanz-user` | `tanz-user` | Tanz recognize / execute |
 | `gameplay/session` | `maybraid-session` | Capabilities, pause, play-session end |
 | `gameplay/lib` | `maybraid-gameplay` | Cross-domain schedule, adapters |
@@ -132,7 +133,7 @@ Update
   ControllerPipeline::Bind           (P1)  character produce, menu focus+dispatch
     CharacterControlSystems ⊂ Bind   (item / camera / shell alias)
   camera / item / shell branch       (C*, D*, E*) after Bind
-  ControllerPipeline::Interpret      (P2)  reset MotorIntent slots
+  ControllerPipeline::ResetMotorRequests (P2)  reset MotorIntent slots
   ControllerPipeline::MotorRequest   (P3)  generic
     MotorRequestStage::Standard      locomotion + NPC drive (beside those systems)
     MotorRequestStage::Tanz          Tanz execution
@@ -160,7 +161,12 @@ delivery changes. Suspension emits `HoldEffect::Freeze` +
 `GestureEffect::Freeze`. Captures and suspensions are token- and
 owner-scoped: releasing one owner cannot release another.
 
-Lifecycle events are a Bevy `Message` (`RoutingEvent`). Each consumer uses a
+Lifecycle events are a Bevy `Message` (`RoutingEvent`). Each event carries
+`previous` / `next` actor identity; consumers apply
+[`RoutingEvent::lost_actor`](core/src/router.rs) /
+[`RoutingEvent::gained_actor`](core/src/router.rs) /
+[`RoutingEvent::applies_to`](core/src/router.rs) instead of reconstructing
+ownership from the router's later state. Each consumer uses a
 `MessageReader` cursor and sees every event exactly once, regardless of
 stage. Mutating systems should use `InputRouting` so the message is
 published in the same system. `take_events` is only the unpublished buffer.
@@ -243,7 +249,7 @@ the current owner. Later phases change the owner column, not the role id.
 | E1 | In-game menu / pause | `game::toggle_world_pause` | B8 + `VirtualPad` (A vs Start) | `WorldPause`, `SessionCapabilities` pause token, `WorldGameplayEnabled` | `GamePlugin` + `gameplay/session` | Pause writes the session token; session projects live-play. |
 | E2 | Inventory sheet | `stash.rs` Inventory reader | B9 | inventory editor | world | Broadcast. |
 | E3 | World map | `map_view.rs` ToggleMap reader | B10 | `WorldMapView` | world | Broadcast. Two camera-lock writers remain. |
-| E4 | Session gameplay gate | `SessionCapabilities`, `WorldGameplayEnabled` | E1, `game/src/flow.rs` enter, pause | B11 world filter, HUD, cycling | `gameplay/session` | Capabilities + live-play projection. World keeps scenery / menu-shell bits. |
+| E4 | Session gameplay gate | `SessionCapabilities`, `WorldGameplayEnabled` | E1, `game/src/flow.rs` enter, pause | B11 world filter, HUD, cycling | `gameplay/session` | Live. Capabilities already replace the old `SessionActivity` / `WorldGameplayEnabled` gates. Session projects live-play; world keeps scenery / menu-shell bits. |
 
 ### U — routing, capture, lifecycle
 
@@ -269,7 +275,7 @@ the current owner. Later phases change the owner column, not the role id.
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
 | P1 | Bind | `ControllerPipeline::Bind` | A4, A5 | C* / D* / E* / B11 | `ControllersCorePlugin` | Live. Character produce + menu dispatch. |
-| P2 | Interpret | `reset_motor_intents` | — | P3 | `PlayerPlugin` | **Phase 2.** Clears declared contributions each frame. `MotorSelection` persists. |
+| P2 | Reset motor requests | `ControllerPipeline::ResetMotorRequests` / `reset_motor_intents` | — | P3 | `PlayerPlugin` | **Phase 2.** Clears declared contributions each frame. `MotorSelection` persists. |
 | P3 | Motor request | `player::MotorRequestStage` + recovery / separation | B11, B12, A6, world | P4 | domain sets beside those systems | **Phase 2.** Declared contributions only. |
 | P4 | Motor apply | `compose_motor` then `apply_motor` then `PlayerSystems::Body` | `ResolvedMotorRequest` | `MoveWish` / jump / sprint / cap | `PlayerPlugin` | **Phase 2.** Compose selects; apply realizes without producer checks. |
 
@@ -289,8 +295,8 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | `MotorIntent` NPC | `drive_movement` | `intelligence/movement` | `MovementIntelligence` | A6. Declares. |
 | `MotorIntent` recovery | `realize_movement` | `movement/realization` | `MotorModifier::Recovery` | P3 modifier. |
 | `MotorIntent` separation | `declare_npc_soft_bump` | `player/lib/src/separation.rs` | `MotorModifier::Separation` | P3 modifier. |
-| `ResolvedMotorRequest` | `compose_motor` | `player/lib/src/motor.rs` | Tanz else NPC else Standard; then modifiers / suppression | Composition only. |
-| `MoveWish` / `JumpWish` / `Sprinting` / `MoveSpeedCap` | `apply_motor` | `player/lib/src/motor.rs` | composed request | **Only apply path.** |
+| `ResolvedMotorRequest` | `compose_motor` | `player/lib/src/motor/compose.rs` | Tanz else NPC else Standard; then modifiers / suppression | Composition only. |
+| `MoveWish` / `JumpWish` / `Sprinting` / `MoveSpeedCap` | `apply_motor` | `player/lib/src/motor/apply.rs` | composed request | **Only apply path.** |
 | mode flip | `TanzUser::apply_toggle` / `set_mode` | `items/tanz-user/src/lib.rs` | bumper chord / agent | Clears execution only. Contributor loss releases stale sprint / jump / cap. |
 | vegetation `MoveWish` / `MovementAction` | `keyboard_movement_input` | `world/player/src/player.rs` | `PadMovementEnabled` (false in Discovery) | Playground host only. Discovery duplicate removed. |
 | velocity | `apply_character_movement` | `world/player/src/player.rs` | `VegetationPlayerMotor` (false in Discovery) | Playground host motor. |
@@ -434,11 +440,13 @@ InputRouter::delivered_actor + EquippedItemHandler
                                             re-checks delivered_actor after
                                             SessionCapabilitySystems)
                  → apply_throw_intents     (grenade; missing use is not a release)
-                 → apply_throw_routing     (MessageReader: drop on
-                                            disconnect / reassign / removal;
-                                            capture cancels leftover latch)
+                 → apply_throw_routing     (MessageReader: each event on
+                                            lost_actor; drop on disconnect /
+                                            reassign / removal; capture
+                                            cancels leftover latch)
                  → advance_throw           (suspension freezes fuse + windup;
-                                            capture keeps a live fuse)
+                                            capture keeps a live fuse;
+                                            release writes SpawnThrownGrenade)
             → EquippedPowerUse(actor)
                  → LubikanActivationRequest::equipped(owner)
 InventoryCycling (per-actor) ← SelectInventoryCyclingCategory
@@ -455,9 +463,9 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 | `controllers/character` | `CharacterIntent::UseItem` / `PowerUseItem` / queue samples; `InventoryCyclingCategory` |
 | `items/equipment` | `EquippedItemHandler`, `EquippedItemUse`, `EquippedPowerUse`, `dispatch_equipped_item`, `InventoryCycling`, `EquipmentHolster` |
 | `player/camera` | `CameraRecoilHandoff`, `apply_recoil_handoff`; look gated on delivery |
-| `items/firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger; recoil writes the handoff only; `register_firearm_user_runtime` / `register_firearm_user_presentation`; realizes hold / teardown |
-| `items/grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime` / `register_grenade_user_presentation`; realizes hold / teardown |
-| `items/firearms` | cadence + `WeaponFired`; `register_firearm_runtime` / `register_firearm_presentation`. `fire_weapons` still mixes clock + spawn until a follow-up unifies fire. |
+| `items/firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger on `lost_actor`; recoil writes the handoff only; `register_firearm_user_runtime` / `register_firearm_user_presentation`; realizes hold / teardown |
+| `items/grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime` / `register_grenade_user_presentation`; throw writes `SpawnThrownGrenade` |
+| `items/firearms` | `decide_weapon_fire` clock + `WeaponShotRequest` / `WeaponFired`; `register_firearm_runtime` / `register_firearm_presentation`. Presentation `fire_weapons` realizes shot requests. |
 | `gameplay/lib` | `request_lubikan_activation`; equipment ↔ item wiring; actor teardown coordinate |
 | `gameplay/session` | capabilities, pause token, play-session end |
 | `world` | loadout / arm / VFX adapters; world-dependent Lubikan owner grant |
@@ -469,8 +477,10 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 |---|---|---|
 | `CharacterIntent::UseItem` / `PowerUseItem` | `EquippedItemUse` / `EquippedPowerUse` | D1 Bind |
 | `EquippedItemUse` firearm + held | `WeaponTrigger` | D2 |
+| `WeaponTrigger` + cadence | `WeaponShotRequest` / `WeaponFired` | `decide_weapon_fire` |
 | `EquippedItemUse` grenade | cook / latch / explicit release | D3 |
-| `RoutingEvent` disconnect / reassign / removal | `take_live_cook` + `DropLiveGrenade` | D3 |
+| throw release | `SpawnThrownGrenade` | D3 → grenades interpreter |
+| `RoutingEvent` disconnect / reassign / removal | `lost_actor` + `take_live_cook` + `DropLiveGrenade` | D3 |
 | `RoutingEvent` `Captured` | cancel leftover item latch / trigger; keep a live cook | D3 / D2 |
 | `InputRouter` suspension | freeze `advance_throw` clocks | D3 |
 | `WeaponFired` | `CameraRecoilHandoff` | D4 → C5 |
@@ -488,7 +498,10 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 
 ### Tests
 
-Unit: `dispatch.rs`, `fire.rs`, `throw.rs` (`missing_use_does_not_release_a_live_cook`),
+Unit: `dispatch.rs`, `fire.rs`, `throw/` (`missing_use_does_not_release_a_live_cook`,
+`disconnect_drops_only_the_named_grenade_user`,
+`reassignment_then_capture_in_one_frame_cleans_the_old_actor`,
+`release_emits_exactly_one_spawn_request`),
 `items/equipment` selection / transition, `gameplay/lib` `powers.rs` / `actor_lifecycle.rs`,
 `player/camera` `look.rs`. World still tests loadout arm and Lubikan owner grant.
 
@@ -498,14 +511,19 @@ runtime registration production uses
 steps `app.update()`. GPU / audio systems stay on the full plugins:
 
 - two delivered actors; two item modes
+- two simultaneous grenade users; a local-pad disconnect drops only the
+  named actor
+- reassignment plus capture in one frame still cleans the old cook
 - grenade handler does not squeeze a firearm
+- throw release emits exactly one `SpawnThrownGrenade` (owner, fuse,
+  origin, velocity)
 - denied shot runs real fire + recoil clocks (cooldown denies; a later
   ready shot kicks)
 - capture keeps ticking a live fuse and cancels a leftover item latch /
   held firearm trigger; suspension freezes fuse and windup
 - reassignment / disconnect emit `ReleaseNeutral` and drop via
-  `take_live_cook`; disconnect stays disconnected under production
-  `PlayerPlugin` / `assign_local_player`
+  `take_live_cook` on `lost_actor`; disconnect stays disconnected under
+  production `PlayerPlugin` / `assign_local_player`
 - Start + held trigger in one pad frame leaves an idle firearm / ready
   grenade (`PlayerSystems::Intent` after `SessionCapabilitySystems`)
 - category then cycle in one frame
@@ -526,13 +544,6 @@ steps `app.update()`. GPU / audio systems stay on the full plugins:
   `stash` `Gamepad` presence, `game::toggle_world_pause` Start / A.
 - Full `WorldPlugin` is not headless-safe; stack tests use the extracted
   headless runtime registration, not terrain / vegetation assemble.
-- `RoutingEvent` does not yet carry actor identity; item consumers infer
-  lost delivery from the router after the write.
-- Firearm fire still has two clocks: headless `realize_held_weapon_fire` and
-  `fire_weapons` (clock + spawn). Presentation should later consume
-  `WeaponFired` only.
-- Throw still realizes `ThrownGrenadeSpawn` immediately. Drop already uses
-  `DropLiveGrenade`; a follow-up will publish `SpawnThrownGrenade`.
 
 ## Review baselines
 

@@ -71,11 +71,48 @@ impl DropLiveGrenade {
 	}
 }
 
+/// Domain-owned throw request. Presentation realizes the body.
+#[derive(Message, Clone, Copy, Debug)]
+pub struct SpawnThrownGrenade {
+	pub origin: Vec3,
+	pub velocity: Vec3,
+	pub spec: GrenadeSpec,
+	pub stats: GrenadeStats,
+	pub effect: GrenadeEffect,
+	pub fuse: f32,
+	pub source: Entity,
+}
+
+impl SpawnThrownGrenade {
+	pub fn new(
+		origin: Vec3,
+		velocity: Vec3,
+		spec: GrenadeSpec,
+		stats: GrenadeStats,
+		effect: GrenadeEffect,
+		source: Entity,
+		fuse: f32,
+	) -> Self {
+		Self { origin, velocity, spec, stats, effect, fuse, source }
+	}
+
+	pub fn spawn(self) -> ThrownGrenadeSpawn {
+		ThrownGrenadeSpawn::from_throw(
+			self.origin,
+			self.velocity,
+			self.spec,
+			self.stats,
+			self.effect,
+			self.source,
+			self.fuse,
+		)
+	}
+}
+
 /// Request a live thrown body.
 ///
-/// Drop already publishes [`DropLiveGrenade`]. Throw still realizes this
-/// immediately. A follow-up will publish the same payload as
-/// `SpawnThrownGrenade` so execution never calls spawn itself.
+/// Throw publishes [`SpawnThrownGrenade`]; drop publishes [`DropLiveGrenade`].
+/// Presentation realizes both through this payload.
 #[derive(Clone, Copy, Debug)]
 pub struct ThrownGrenadeSpawn {
 	pub origin: Vec3,
@@ -272,7 +309,7 @@ pub fn apply_grenade_blasts(
 struct GrenadeRuntime;
 
 /// Fuse tick, blast hits, and thrown-body request messages. Presentation
-/// realizes [`DropLiveGrenade`] / [`ThrownGrenadeSpawn`].
+/// realizes [`DropLiveGrenade`] / [`SpawnThrownGrenade`].
 pub fn register_grenade_runtime(app: &mut App) {
 	if app.world().contains_resource::<GrenadeRuntime>() {
 		return;
@@ -280,6 +317,7 @@ pub fn register_grenade_runtime(app: &mut App) {
 	app.init_resource::<GrenadeRuntime>()
 		.add_message::<GrenadeDetonated>()
 		.add_message::<DropLiveGrenade>()
+		.add_message::<SpawnThrownGrenade>()
 		.add_message::<Hit>()
 		.add_systems(Update, (tick_grenade_fuses, apply_grenade_blasts.after(tick_grenade_fuses)));
 }

@@ -51,7 +51,7 @@ impl EquippedItemHandler {
 }
 
 /// Marker on the actor that currently owns the local pad assignment.
-/// Grenade cancel/drop reads this so disconnect does not depend on missing uses.
+/// Routing cleanup reads [`RoutingEvent`] actor identity, not this stamp.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RoutedItemActor;
 

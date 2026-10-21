@@ -18,7 +18,7 @@ uninstalls play and resumes the pause owner only.
 
 Capture (U5) is a third operation: it redirects or blocks delivery without
 freezing simulation. [`SessionCapabilitySystems`](../../gameplay/session/src/lib.rs) applies a
-pending pause after Bind and before Interpret / Tanz execute / WorldFilter.
+pending pause after Bind and before ResetMotorRequests / Tanz execute / WorldFilter.
 
 `apply_world_motor_filter` declares token-owned `MotorIntent` suppression
 for the local player (`WORLD_GAMEPLAY`) or every `CharacterController`

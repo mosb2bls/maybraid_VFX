@@ -122,7 +122,7 @@ impl Plugin for PlayerPlugin {
 				Update,
 				(motor::ensure_motor_intents, motor::reset_motor_intents)
 					.chain()
-					.in_set(ControllerPipeline::Interpret),
+					.in_set(ControllerPipeline::ResetMotorRequests),
 			)
 			.add_systems(
 				Update,

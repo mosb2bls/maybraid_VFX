@@ -1,11 +1,8 @@
 //! Realize addressed [`EquippedItemUse`] on the held gun, and hand recoil to the camera.
 
 use bevy::prelude::*;
-use firearms::{
-	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, FireControl,
-	FireOnTrigger, ProjectileSource, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger,
-};
-use maybraid_controllers_core::{InputRouter, InputSource, RoutingEvent, RoutingKind};
+use firearms::{WeaponFired, WeaponTrigger};
+use maybraid_controllers_core::{InputRouter, RoutingEvent, RoutingKind};
 use maybraid_equipment::{delivered_item_use, EquippedItemUse};
 use player::{CameraFollow, Player};
 use player_camera::CameraRecoilHandoff;
@@ -39,104 +36,30 @@ pub fn apply_fire_intents(
 	}
 }
 
-/// Delivery snapshot used to interpret a [`RoutingEvent`] until the event
-/// itself carries actor identity.
-#[derive(Clone, Copy)]
-struct RoutedHold {
-	current: Option<Entity>,
-}
-
-impl RoutedHold {
-	fn from_router(router: &InputRouter, source: InputSource) -> Self {
-		Self { current: router.actor(source).map(|actor| actor.entity()) }
-	}
-
-	fn applies_capture(self, actor: Entity) -> bool {
-		self.current == Some(actor)
-	}
-
-	fn applies_lost_hold(self, actor: Entity) -> bool {
-		self.current != Some(actor)
-	}
-}
-
-/// Clear a held trigger when routing cancels the pad. Capture must not keep
-/// squeezing; disconnect / reassignment / removal drop the lost actor's hold.
+/// Clear a held trigger when routing cancels the pad. Each event is applied
+/// to [`RoutingEvent::lost_actor`]. Capture must not keep squeezing;
+/// disconnect / reassignment / removal drop that actor's hold.
 pub fn apply_fire_routing(
 	mut events: MessageReader<RoutingEvent>,
-	router: Res<InputRouter>,
-	users: Query<(Entity, &FirearmUser), With<Player>>,
+	users: Query<&FirearmUser, With<Player>>,
 	mut triggers: Query<&mut WeaponTrigger>,
 ) {
-	let source = InputSource::local_pad();
-	let hold = RoutedHold::from_router(&router, source);
-	let mut clear_lost = false;
-	let mut clear_assigned = false;
 	for event in events.read() {
-		if event.source() != source {
-			continue;
-		}
-		match event.kind() {
-			RoutingKind::Disconnected | RoutingKind::Removed | RoutingKind::Reassigned => {
-				clear_lost = true;
-			}
-			RoutingKind::Captured => {
-				clear_assigned = true;
-			}
-			_ => {}
-		}
-	}
-	if !clear_lost && !clear_assigned {
-		return;
-	}
-	for (entity, user) in &users {
-		if (clear_assigned && hold.applies_capture(entity))
-			|| (clear_lost && hold.applies_lost_hold(entity))
-		{
-			if let Ok(mut trigger) = triggers.get_mut(user.held) {
-				trigger.0 = false;
-			}
-		}
-	}
-}
-
-/// Headless fire clock: write [`WeaponFired`] from a held trigger without
-/// spawning meshes. [`firearms::FirearmWeaponsPlugin`] still owns a second
-/// clock inside `fire_weapons` when present. Do not add a third.
-pub fn realize_held_weapon_fire(
-	time: Res<Time>,
-	users: Query<(Entity, &FirearmUser)>,
-	mut weapons: Query<(
-		&mut Weapon,
-		&WeaponTrigger,
-		Has<FireOnTrigger>,
-		Option<&mut FireControl>,
-		Option<&WeaponRecoil>,
-		Option<&ProjectileSource>,
-	)>,
-	mut fired: MessageWriter<WeaponFired>,
-) {
-	let dt = time.delta_secs();
-	for (user_entity, user) in &users {
-		let Ok((mut weapon, trigger, manual, mut control, recoil, source)) =
-			weapons.get_mut(user.held)
-		else {
+		let Some(actor) = event.lost_actor() else {
 			continue;
 		};
-		let shooter = source.map(|source| source.0).unwrap_or(user_entity);
-		if !trigger_allows_fire(control.as_deref_mut(), manual, trigger.0) {
-			idle_shot_clock(&mut weapon.cooldown, dt);
-			continue;
+		match event.kind() {
+			RoutingKind::Disconnected
+			| RoutingKind::Removed
+			| RoutingKind::Reassigned
+			| RoutingKind::Captured => {}
+			_ => continue,
 		}
-		let limit = catch_up_limit(control.as_deref());
-		let interval = weapon.interval;
-		let tick = advance_shot_clock(&mut weapon.cooldown, interval, dt, limit);
-		let strength = recoil.map(|recoil| recoil.0).unwrap_or(0.0);
-		for age in tick.ages() {
-			if let Some(control) = control.as_mut() {
-				control.note_shot();
-			}
-			fired.write(WeaponFired { shooter, recoil: strength, age });
+		let Ok(user) = users.get(actor.entity()) else {
+			continue;
+		};
+		if let Ok(mut trigger) = triggers.get_mut(user.held) {
+			trigger.0 = false;
 		}
 	}
 }

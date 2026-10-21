@@ -28,6 +28,7 @@ pub fn register_grenade_user_runtime(app: &mut App) {
 	app.init_resource::<GrenadeUserRuntime>()
 		.add_message::<maybraid_equipment::EquippedItemUse>()
 		.add_message::<grenades::DropLiveGrenade>()
+		.add_message::<grenades::SpawnThrownGrenade>()
 		.add_message::<grenades::GrenadeDetonated>()
 		.add_systems(Update, apply_throw_intents.in_set(PlayerSystems::Intent))
 		.add_systems(

@@ -32,7 +32,7 @@ use maybraid_audio::{Audio, AudioClip, Mixer};
 
 use crate::cadence::{
 	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, Cadence, FireControl,
-	WeaponFired, WeaponRecoil,
+	WeaponFired, WeaponRecoil, WeaponShotRequest,
 };
 use crate::impact::{puff_mask, spawn_impact, ImpactEffects};
 use crate::muzzle_flame::{
@@ -639,11 +639,61 @@ fn laser_bore_hit(
 	Some((hit.entity, hit.distance))
 }
 
+/// Authoritative fire decision and clock. Emits [`WeaponShotRequest`] /
+/// [`WeaponFired`] for ballistic loads. Presentation realizes projectiles.
+pub fn decide_weapon_fire(
+	time: Res<Time>,
+	armed: Res<WeaponsArmed>,
+	mut weapons: Query<(
+		Entity,
+		&mut Weapon,
+		Has<FireOnTrigger>,
+		Option<&WeaponTrigger>,
+		Option<&mut FireControl>,
+		Option<&WeaponRecoil>,
+		Option<&ProjectileSource>,
+	)>,
+	mut shots: MessageWriter<WeaponShotRequest>,
+	mut fired: MessageWriter<WeaponFired>,
+) {
+	let dt = time.delta_secs();
+	for (weapon_entity, mut weapon, manual, trigger, mut control, recoil, source) in &mut weapons {
+		if matches!(weapon.load, ProjectileLoad::Laser(_)) {
+			continue;
+		}
+		let held = trigger.is_some_and(|trigger| trigger.0);
+		if !armed.0 || !trigger_allows_fire(control.as_deref_mut(), manual, held) {
+			idle_shot_clock(&mut weapon.cooldown, dt);
+			continue;
+		}
+		let limit = catch_up_limit(control.as_deref());
+		let interval = weapon.interval;
+		let tick = advance_shot_clock(&mut weapon.cooldown, interval, dt, limit);
+		let strength = recoil.map(|recoil| recoil.0).unwrap_or(0.0);
+		let shooter = source.map(|source| source.0).unwrap_or(weapon_entity);
+		for age in tick.ages() {
+			if control
+				.as_ref()
+				.is_some_and(|control| control.cadence == Cadence::Burst && control.burst_left == 0)
+			{
+				break;
+			}
+			if let Some(control) = control.as_mut() {
+				control.note_shot();
+			}
+			let request = WeaponShotRequest::new(weapon_entity, shooter, strength, age);
+			shots.write(request);
+			fired.write(request.fired());
+		}
+	}
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fire_weapons(
 	mut commands: Commands,
 	time: Res<Time>,
 	armed: Res<WeaponsArmed>,
+	mut shots: MessageReader<WeaponShotRequest>,
 	mut meshes: ResMut<Assets<Mesh>>,
 	mut materials: ResMut<Assets<StandardMaterial>>,
 	mut projectile_visuals: ResMut<ProjectileVisualCache>,
@@ -656,20 +706,22 @@ pub(crate) fn fire_weapons(
 	mut flashes: Query<(&mut MuzzleFlash, &mut Visibility, &Children)>,
 	mut cones: Query<&mut Transform, With<MuzzleFlashCone>>,
 	mut spawners: Query<&mut EffectSpawner, With<MuzzleFlashEmbers>>,
-	mut fired: MessageWriter<WeaponFired>,
 ) {
 	if !armed.0 {
 		return;
 	}
 	let dt = time.delta_secs();
-	for (_root, members, mut weapon, manual, trigger, source, mut control, payload, recoil) in
+	let mut pending = std::collections::HashMap::<Entity, Vec<WeaponShotRequest>>::new();
+	for request in shots.read() {
+		pending.entry(request.weapon).or_default().push(*request);
+	}
+	for (root, members, mut weapon, manual, trigger, source, _control, payload, _recoil) in
 		&mut weapons
 	{
 		let Some((barrel, global)) = barrel_global(members, &maps, &globals) else {
 			continue;
 		};
 		let held = trigger.is_some_and(|trigger| trigger.0);
-		let allowed = trigger_allows_fire(control.as_deref_mut(), manual, held);
 		let now = muzzle_world(global);
 		let last = weapon.last_muzzle;
 		weapon.last_muzzle = Some(now);
@@ -710,16 +762,15 @@ pub(crate) fn fire_weapons(
 				}
 			}
 			ProjectileLoad::Bolt(spec) => {
-				if !allowed {
-					idle_shot_clock(&mut weapon.cooldown, dt);
+				let Some(requests) = pending.remove(&root) else {
 					continue;
-				}
-				let rounds = fire_ballistic_catch_up(
+				};
+				let rounds = realize_ballistic_requests(
 					&mut commands,
 					&mut meshes,
 					&mut materials,
 					&mut projectile_visuals,
-					&mut weapon,
+					&requests,
 					last,
 					now,
 					spec,
@@ -727,9 +778,6 @@ pub(crate) fn fire_weapons(
 					dt,
 					source,
 					payload,
-					recoil,
-					control.as_deref_mut(),
-					&mut fired,
 				);
 				if rounds.is_empty() {
 					continue;
@@ -756,16 +804,15 @@ pub(crate) fn fire_weapons(
 				);
 			}
 			ProjectileLoad::Bullet(spec) => {
-				if !allowed {
-					idle_shot_clock(&mut weapon.cooldown, dt);
+				let Some(requests) = pending.remove(&root) else {
 					continue;
-				}
-				let rounds = fire_ballistic_catch_up(
+				};
+				let rounds = realize_ballistic_requests(
 					&mut commands,
 					&mut meshes,
 					&mut materials,
 					&mut projectile_visuals,
-					&mut weapon,
+					&requests,
 					last,
 					now,
 					spec,
@@ -773,9 +820,6 @@ pub(crate) fn fire_weapons(
 					dt,
 					source,
 					payload,
-					recoil,
-					control.as_deref_mut(),
-					&mut fired,
 				);
 				if rounds.is_empty() {
 					continue;
@@ -827,12 +871,12 @@ fn emit_muzzle(last: Option<(Vec3, Vec3)>, now: (Vec3, Vec3), age: f32, dt: f32)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn fire_ballistic_catch_up(
+fn realize_ballistic_requests(
 	commands: &mut Commands,
 	meshes: &mut Assets<Mesh>,
 	materials: &mut Assets<StandardMaterial>,
 	projectile_visuals: &mut ProjectileVisualCache,
-	weapon: &mut Weapon,
+	requests: &[WeaponShotRequest],
 	last: Option<(Vec3, Vec3)>,
 	now: (Vec3, Vec3),
 	spec: impl IntoBallistic,
@@ -840,27 +884,12 @@ fn fire_ballistic_catch_up(
 	dt: f32,
 	source: Option<&ProjectileSource>,
 	payload: Option<&HitPayload>,
-	recoil: Option<&WeaponRecoil>,
-	mut control: Option<&mut FireControl>,
-	fired: &mut MessageWriter<WeaponFired>,
 ) -> Vec<SpawnedRound> {
-	let max_shots = catch_up_limit(control.as_deref());
-	let tick = advance_shot_clock(&mut weapon.cooldown, weapon.interval, dt, max_shots);
-	if tick.shots == 0 {
-		return Vec::new();
-	}
 	let (length, radius, speed, max_range, penetration, max_age, color) = spec.ballistic();
-	let kick = recoil.map(|recoil| recoil.0).unwrap_or(0.0);
-	let mut spawned = Vec::with_capacity(tick.shots as usize);
-	for age in tick.ages() {
-		if control
-			.as_ref()
-			.is_some_and(|control| control.cadence == Cadence::Burst && control.burst_left == 0)
-		{
-			break;
-		}
-		let (muzzle, dir) = emit_muzzle(last, now, age, dt);
-		let (position, velocity) = ballistic_after_age(muzzle, dir, speed, gravity, age);
+	let mut spawned = Vec::with_capacity(requests.len());
+	for request in requests {
+		let (muzzle, dir) = emit_muzzle(last, now, request.age, dt);
+		let (position, velocity) = ballistic_after_age(muzzle, dir, speed, gravity, request.age);
 		let projectile = spawn_flight_aged(
 			commands,
 			meshes,
@@ -876,7 +905,7 @@ fn fire_ballistic_catch_up(
 			max_age,
 			color,
 			gravity,
-			age,
+			request.age,
 		);
 		if let Some(payload) = payload {
 			commands.entity(projectile).insert(*payload);
@@ -884,13 +913,13 @@ fn fire_ballistic_catch_up(
 		if let Some(source) = source {
 			commands.entity(projectile).insert(*source);
 		}
-		if let Some(control) = control.as_deref_mut() {
-			control.note_shot();
-		}
-		if let Some(source) = source {
-			fired.write(WeaponFired { shooter: source.0, recoil: kick, age });
-		}
-		spawned.push(SpawnedRound { entity: projectile, origin: muzzle, position, velocity, age });
+		spawned.push(SpawnedRound {
+			entity: projectile,
+			origin: muzzle,
+			position,
+			velocity,
+			age: request.age,
+		});
 	}
 	spawned
 }

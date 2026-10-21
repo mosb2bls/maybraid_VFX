@@ -143,12 +143,13 @@ impl SkillMapController {
 		self.move_lane.active || self.look_lane.active
 	}
 
-	/// Apply a router hold / gesture contract for this source.
+	/// Apply a router hold / gesture contract for this owner.
 	pub fn apply_routing(&mut self, event: RoutingEvent) {
-		if self.owner.is_some_and(|(source, _)| source != event.source()) {
-			return;
-		}
-		if self.owner.is_none() && !self.has_partial() && !self.frozen {
+		if let Some((source, actor)) = self.owner {
+			if source != event.source() || !event.applies_to(actor) {
+				return;
+			}
+		} else if !self.has_partial() && !self.frozen {
 			return;
 		}
 		match event.gesture() {
