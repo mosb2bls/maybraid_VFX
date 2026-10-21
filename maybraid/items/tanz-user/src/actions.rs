@@ -5,7 +5,7 @@ use std::ops::RangeInclusive;
 use bevy::prelude::*;
 use characters::AnimClip;
 
-use crate::input::{TANZ_MIN_COHERENCE, TANZ_MIN_MAGNITUDE, TanzButton};
+use crate::input::{TanzButton, TANZ_MIN_COHERENCE, TANZ_MIN_MAGNITUDE};
 use crate::stack::{TanzDefinition, TanzId, TanzInputRange, TanzStack, TanzTiming};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -272,7 +272,11 @@ mod tests {
 	fn simulate_burst_travel(cruise: f32, dt: f32) -> BurstTravel {
 		fn move_toward(current: f32, target: f32, max_delta: f32) -> f32 {
 			let delta = target - current;
-			if delta.abs() <= max_delta { target } else { current + delta.signum() * max_delta }
+			if delta.abs() <= max_delta {
+				target
+			} else {
+				current + delta.signum() * max_delta
+			}
 		}
 
 		let total_secs = left_strafe().timing.total();

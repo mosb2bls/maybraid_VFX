@@ -10,10 +10,11 @@ use maybraid_agent::{
 	AgentEventBody, CommandStatus, EventSink, InventoryObservation, LineInbox, MenuObservation,
 	PadIntent, Playback, TickEffect, TickView, SCRIPT_API_VERSION,
 };
+use maybraid_character_controller::OrdinaryLocomotion;
 use maybraid_input::{PadButton, PadOverlay, VirtualPadSystems};
 use mob_characters::CharacterSceneRecipe;
 use mob_scenes::MobScene;
-use player::{MoveWish, Player as MotorPlayer};
+use player::Player as MotorPlayer;
 use player_camera::CameraController;
 use tanz_user::{ControlMode, TanzExecution, TanzId, TanzUser};
 use terrain_layer_model::TerrainStreaming;
@@ -590,7 +591,7 @@ fn agent_apply_world_ops(
 		),
 		With<MotorPlayer>,
 	>,
-	mut tanzers: Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	mut tanzers: Query<(Entity, &mut TanzUser, &mut TanzExecution)>,
 ) {
 	let pending = std::mem::take(&mut runtime.pending);
 	let t = time.elapsed_secs();
@@ -655,7 +656,7 @@ fn agent_apply_world_ops(
 			}
 			AgentCommand::TanzMode { mode } => {
 				let label = format!("tanz_mode {mode}");
-				let result = apply_tanz_mode(&mut tanzers, &mode);
+				let result = apply_tanz_mode(&mut commands, &mut tanzers, &mode);
 				let (status, detail) = match result {
 					Ok(detail) => (CommandStatus::Finished, Some(detail)),
 					Err(detail) => (CommandStatus::Failed, Some(detail)),
@@ -671,7 +672,7 @@ fn agent_apply_world_ops(
 			}
 			AgentCommand::Tanz { id: tanz_id } => {
 				let label = format!("tanz {tanz_id}");
-				let result = apply_tanz(&mut tanzers, &tanz_id);
+				let result = apply_tanz(&mut commands, &mut tanzers, &tanz_id);
 				let (status, detail) = match result {
 					Ok(detail) => (CommandStatus::Finished, Some(detail)),
 					Err(detail) => (CommandStatus::Failed, Some(detail)),
@@ -928,16 +929,21 @@ fn agent_actor_census(
 }
 
 fn apply_tanz_mode(
-	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	commands: &mut Commands,
+	tanzers: &mut Query<(Entity, &mut TanzUser, &mut TanzExecution)>,
 	mode: &str,
 ) -> Result<String, String> {
-	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
+	let (entity, mut user, mut execution) =
+		tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
 	let next = if mode.trim().eq_ignore_ascii_case("toggle") {
-		user.0.mode.toggle()
+		user.mode.toggle()
 	} else {
 		ControlMode::from_script_id(mode).ok_or_else(|| format!("unknown tanz mode: {mode}"))?
 	};
-	let changed = user.0.set_mode(next, &mut user.1, &mut user.2);
+	let changed = user.set_mode(next, &mut execution);
+	if changed {
+		commands.entity(entity).insert(OrdinaryLocomotion(user.ordinary_locomotion()));
+	}
 	Ok(if changed {
 		format!("mode {}", next.script_id())
 	} else {
@@ -946,15 +952,17 @@ fn apply_tanz_mode(
 }
 
 fn apply_tanz(
-	tanzers: &mut Query<(&mut TanzUser, &mut TanzExecution, &mut MoveWish)>,
+	commands: &mut Commands,
+	tanzers: &mut Query<(Entity, &mut TanzUser, &mut TanzExecution)>,
 	id: &str,
 ) -> Result<String, String> {
 	let tanz_id = TanzId::from_script_id(id).ok_or_else(|| format!("unknown tanz: {id}"))?;
-	let mut user = tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
-	if !user.0.mode.is_tanzer() {
-		user.0.set_mode(ControlMode::Tanzer, &mut user.1, &mut user.2);
+	let (entity, mut user, mut execution) =
+		tanzers.iter_mut().next().ok_or_else(|| String::from("no TanzUser"))?;
+	if !user.mode.is_tanzer() && user.set_mode(ControlMode::Tanzer, &mut execution) {
+		commands.entity(entity).insert(OrdinaryLocomotion(user.ordinary_locomotion()));
 	}
-	user.1.submit(tanz_id);
+	execution.submit(tanz_id);
 	Ok(format!("submitted {}", tanz_id.script_id()))
 }
 

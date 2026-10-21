@@ -11,6 +11,7 @@ use firearms::{
 	firearm_bounds, spawn_firearm_components, FireOnTrigger, FirearmConcept, FirearmMembers,
 	FirearmRoot, ProjectileSource, WeaponTrigger,
 };
+use maybraid_equipment::EquippedItemHandler;
 use player::{wrap_pi, yaw_xz, PlayerLook, PlayerUse};
 
 use crate::hold::HoldingArms;
@@ -79,9 +80,9 @@ where
 		));
 		root = entity;
 	}
-	commands
-		.entity(user)
-		.insert((FirearmUser { held: root, settings }, PlayerUse { driver: root }));
+	let mut entity = commands.entity(user);
+	entity.insert((FirearmUser { held: root, settings }, PlayerUse { driver: root }));
+	EquippedItemHandler::Firearm.install(&mut entity);
 	root
 }
 

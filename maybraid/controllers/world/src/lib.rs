@@ -1,15 +1,7 @@
-//! World controller: pause / live-play gate for character input.
+//! Compatibility re-export of [`maybraid_session`].
+//!
+//! Session capabilities live in `gameplay/session`. This crate keeps the
+//! existing package name.
 
-pub mod enabled;
-
-pub use enabled::WorldGameplayEnabled;
-
-use bevy::prelude::*;
-
-pub struct WorldControllerPlugin;
-
-impl Plugin for WorldControllerPlugin {
-	fn build(&self, app: &mut App) {
-		app.init_resource::<WorldGameplayEnabled>();
-	}
-}
+pub use maybraid_session::SessionPlugin as WorldControllerPlugin;
+pub use maybraid_session::*;

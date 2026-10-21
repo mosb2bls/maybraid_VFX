@@ -56,7 +56,10 @@ maybraid-game-mode-discover = { workspace = true }
 material-ref = { workspace = true }
 world-materials = { workspace = true }
 maybraid-character-controller = { workspace = true }
-maybraid-world-controller = { workspace = true }
+maybraid-equipment = { workspace = true }
+maybraid-controllers-core = { workspace = true }
+maybraid-locomotion-controller = { workspace = true }
+maybraid-session = { workspace = true }
 maybraid-input = { workspace = true }
 maybraid-agent = { workspace = true }
 menu-components = { workspace = true }
@@ -98,6 +101,8 @@ vegetation-layer-model = { workspace = true }
 [dev-dependencies]
 anyhow = { workspace = true }
 lubikans = { workspace = true, features = ["test-support"] }
+maybraid-audio = { workspace = true }
+maybraid-gameplay = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

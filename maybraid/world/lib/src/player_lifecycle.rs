@@ -8,10 +8,9 @@ use damage::{DamageSystems, DespawnAfter, Downed};
 use durham::{DurhamSurface, TerrainCellLayout, WorldBaseTerrain};
 use firearm_user::FirearmUser;
 use firearms::WeaponTrigger;
-use grenade_user::{GrenadeUser, GrenadeUserSystems};
-use lubikans::LubikanOwner;
+use grenade_user::GrenadeUserSystems;
 use maybraid_character_controller::CharacterIntent;
-use maybraid_input::{PadButton, VirtualPad};
+use maybraid_input::{MenuNav, MenuNavPad};
 use mob_characters::{LOCAL_POI, SALOON_POI, URBAN_POI, VEGETATION_POI};
 use player::{CameraFollow, Player as MaybraidPlayer, PlayerUse};
 use player_camera::{CameraController, FollowCamera};
@@ -35,13 +34,11 @@ use crate::control::strip_world_player_motor;
 use crate::map_view::WorldMapView;
 use crate::weapon::WorldPlayerAppearanceRequested;
 use crate::{
-	FirstWave, HcsgDemand, LodJobCounter, PlayerPositionWaypoints, WorldGameplayEnabled,
-	WorldPlayerLoadout,
+	ActorRetired, FirstWave, HcsgDemand, LodJobCounter, PlayerPositionWaypoints,
+	SessionLifecycleSystems, WorldGameplayEnabled, WorldPlayerLoadout,
 };
 
 const MAP_OPEN_SECS: f32 = 0.18;
-const STICK_REST: f32 = 0.28;
-const STICK_FLICK: f32 = 0.45;
 const STICK_ALIGN: f32 = 0.2;
 
 /// World-player downed duration, nearby POI scan, and replacement interests.
@@ -98,6 +95,67 @@ pub(crate) struct PendingPlayerRespawn {
 	picker_nearby_scratch: Vec<PoiId>,
 }
 
+impl PendingPlayerRespawn {
+	#[cfg(test)]
+	pub(crate) fn test(death_at: Vec3, first_life: bool) -> Self {
+		Self {
+			timer: Timer::from_seconds(0.0, TimerMode::Once),
+			death_at,
+			origin: RespawnOrigin::began(None, false),
+			candidates: Vec::new(),
+			highlighted: None,
+			highlighted_at: None,
+			map_opened: true,
+			stick_resting: true,
+			first_life,
+			fallback_at: death_at,
+			registry_revision: 0,
+			picker_nearby_scratch: Vec::new(),
+		}
+	}
+
+	/// Highlight step / flick from UI-owned [`MenuNav`]. Returns whether Select confirmed.
+	pub(crate) fn apply_menu_nav(&mut self, registry: &PoiRegistry, events: &[MenuNav]) -> bool {
+		let mut confirm = false;
+		for event in events {
+			match *event {
+				MenuNav::Select => confirm = true,
+				MenuNav::Back => {}
+				nav => {
+					if let Some(dir) = menu_nav_dir(nav) {
+						self.step_highlight(registry, dir);
+					}
+				}
+			}
+		}
+		if self.highlighted.is_none() {
+			if let Some(nearest) = nearest_candidate(&self.candidates, registry, self.death_at.xz())
+			{
+				set_highlighted(self, nearest, registry);
+			}
+		}
+		confirm
+	}
+
+	fn step_highlight(&mut self, registry: &PoiRegistry, dir: Vec2) {
+		if self.candidates.is_empty() {
+			return;
+		}
+		let Some(from) = current_highlight_xz(self, registry) else {
+			if let Some(nearest) = nearest_candidate(&self.candidates, registry, self.death_at.xz())
+			{
+				set_highlighted(self, nearest, registry);
+			}
+			return;
+		};
+		if let Some(next) =
+			next_candidate_in_direction(&self.candidates, registry, from, self.highlighted, dir)
+		{
+			set_highlighted(self, next, registry);
+		}
+	}
+}
+
 #[derive(Resource, Default)]
 pub struct WorldPlayerRespawnState {
 	pub(crate) pending: Option<PendingPlayerRespawn>,
@@ -122,14 +180,8 @@ pub struct PlayerChoseRespawnPoi {
 #[derive(Component)]
 struct PlayerDeathGlaze;
 
-type DownedWorldPlayer<'a> = (
-	Entity,
-	&'a Transform,
-	&'a mut LinearVelocity,
-	Option<&'a FirearmUser>,
-	Option<&'a GrenadeUser>,
-	Option<&'a InventoryUser>,
-);
+type DownedWorldPlayer<'a> =
+	(Entity, &'a Transform, &'a mut LinearVelocity, Option<&'a InventoryUser>);
 
 pub struct WorldPlayerLifecyclePlugin;
 
@@ -138,9 +190,13 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 		app.init_resource::<WorldPlayerRespawnConfig>()
 			.init_resource::<WorldPlayerRespawnState>()
 			.init_resource::<WorldMapView>()
+			.init_resource::<crate::spawn_picker::SpawnPickerController>()
+			.init_resource::<crate::spawn_picker::SpawnPickerCapture>()
+			.init_resource::<MenuNavPad>()
 			.add_message::<PlayerLifeEnded>()
 			.add_message::<PlayerChoseRespawnPoi>()
 			.add_message::<CharacterIntent>()
+			.add_message::<ActorRetired>()
 			.configure_sets(
 				Update,
 				PlayerLifeSet::Resolve.before(player_camera::PlayerCameraSystems::Look),
@@ -151,17 +207,23 @@ impl Plugin for WorldPlayerLifecyclePlugin {
 				queue_downed_world_player
 					.after(DamageSystems::Down)
 					.after(CharacterRagdollSystems::Handoff)
-					.after(GrenadeUserSystems::Interrupt),
+					.after(GrenadeUserSystems::Interrupt)
+					.in_set(SessionLifecycleSystems::Notify),
+			)
+			.add_systems(
+				Update,
+				crate::spawn_picker::refresh_spawn_picker_focus
+					.in_set(maybraid_controllers_core::CaptureResolveSystems),
 			)
 			.add_systems(
 				Update,
 				(
 					crate::first_wave::refresh_first_wave,
 					queue_first_spawn_picker.after(crate::first_wave::refresh_first_wave),
-					drive_respawn_picker,
+					crate::spawn_picker::dispatch_spawn_picker,
 					respawn_world_player
 						.after(queue_first_spawn_picker)
-						.after(drive_respawn_picker)
+						.after(crate::spawn_picker::dispatch_spawn_picker)
 						.run_if(world_player_respawn_pending),
 					close_orphaned_locked_respawn_map
 						.after(respawn_world_player)
@@ -228,10 +290,10 @@ fn queue_downed_world_player(
 	mut commands: Commands,
 	mut loadout: Option<ResMut<WorldPlayerLoadout>>,
 	mut players: Query<DownedWorldPlayer<'_>, (With<VegetationPlayer>, Added<Downed>)>,
-	mut triggers: Query<&mut WeaponTrigger>,
+	mut retired: MessageWriter<ActorRetired>,
 	bags: Query<&character_items::Inventory>,
 ) {
-	for (player, transform, mut velocity, firearm, grenade, inventory) in &mut players {
+	for (player, transform, mut velocity, inventory) in &mut players {
 		let now = mode.as_deref().and_then(|mode| mode.get().mode_id());
 		let ends_life = policies.as_deref().is_some_and(|policies| policies.respawn_ends_life(now));
 		state.pending = Some(PendingPlayerRespawn {
@@ -249,20 +311,10 @@ fn queue_downed_world_player(
 			picker_nearby_scratch: Vec::new(),
 		});
 		velocity.0 = Vec3::ZERO;
-		if let Some(firearm) = firearm {
-			if let Ok(mut trigger) = triggers.get_mut(firearm.held) {
-				trigger.0 = false;
-			}
-			commands.entity(firearm.held).try_insert(DespawnAfter::seconds(0.0));
-		}
-		if let Some(grenade) = grenade {
-			commands.entity(grenade.held).try_despawn();
-		}
 		if let Some(inventory) = inventory {
 			if let (Some(loadout), Ok(bag)) = (loadout.as_deref_mut(), bags.get(inventory.bag)) {
 				loadout.retarget_inventory(bag.clone());
 			}
-			commands.entity(inventory.bag).try_despawn();
 		}
 		strip_world_player_motor(&mut commands, player);
 		commands.entity(player).remove::<(
@@ -270,21 +322,12 @@ fn queue_downed_world_player(
 			MaybraidPlayer,
 			CameraFollow,
 			PlayerUse,
-			FirearmUser,
-			GrenadeUser,
-			grenade_user::GrenadeThrow,
-			InventoryUser,
 			MoveWish,
 			SpotSubject,
 			ThreatSubject,
 			Affiliations,
-			LubikanOwner,
 		)>();
-		commands.entity(player).remove::<(
-			tanz_user::TanzUser,
-			tanz_user::TanzStack,
-			tanz_user::TanzExecution,
-		)>();
+		retired.write(ActorRetired::new(player));
 	}
 }
 
@@ -383,67 +426,14 @@ fn retire_startup_player(
 	commands.entity(player).try_despawn();
 }
 
-fn drive_respawn_picker(
-	pad: Option<Res<VirtualPad>>,
-	map: Res<WorldMapView>,
-	registry: Res<PoiRegistry>,
-	mut state: ResMut<WorldPlayerRespawnState>,
-	mut chosen: MessageWriter<PlayerChoseRespawnPoi>,
-	mut intents: MessageReader<CharacterIntent>,
-) {
-	if !map.open || !map.close_locked {
-		return;
-	}
-	let Some(pending) = state.pending.as_mut() else {
-		return;
-	};
-	if !pending.candidates.is_empty() {
-		let stick = pad.as_deref().map(|pad| pad.move_stick).unwrap_or(Vec2::ZERO);
-		let mut step = 0i32;
-		if let Some(pad) = pad.as_deref() {
-			if pad.just_pressed(PadButton::DpadUp) {
-				step -= 1;
-			}
-			if pad.just_pressed(PadButton::DpadDown) {
-				step += 1;
-			}
-		}
-		if let Some(dir) = consume_stick_flick(&mut pending.stick_resting, stick) {
-			let dir = map_flick_dir(dir);
-			if let Some(from) = current_highlight_xz(pending, &registry) {
-				if let Some(next) = next_candidate_in_direction(
-					&pending.candidates,
-					&registry,
-					from,
-					pending.highlighted,
-					dir,
-				) {
-					set_highlighted(pending, next, &registry);
-				}
-			}
-		} else if step != 0 {
-			let len = pending.candidates.len() as i32;
-			let current = pending
-				.highlighted
-				.and_then(|id| pending.candidates.iter().position(|candidate| *candidate == id))
-				.unwrap_or(0) as i32;
-			let next = (current + step).rem_euclid(len) as usize;
-			if let Some(id) = pending.candidates.get(next).copied() {
-				set_highlighted(pending, id, &registry);
-			}
-		} else if pending.highlighted.is_none() {
-			if let Some(nearest) =
-				nearest_candidate(&pending.candidates, &registry, pending.death_at.xz())
-			{
-				set_highlighted(pending, nearest, &registry);
-			}
-		}
-	}
-	if intents
-		.read()
-		.any(|intent| matches!(intent, CharacterIntent::Jump | CharacterIntent::StartInteraction))
-	{
-		chosen.write(PlayerChoseRespawnPoi { poi: pending.highlighted });
+/// North-up map looks down with world +Z as screen up, so screen-right is world −X.
+fn menu_nav_dir(nav: MenuNav) -> Option<Vec2> {
+	match nav {
+		MenuNav::Up => Some(map_flick_dir(Vec2::Y)),
+		MenuNav::Down => Some(map_flick_dir(Vec2::NEG_Y)),
+		MenuNav::Left => Some(map_flick_dir(Vec2::NEG_X)),
+		MenuNav::Right => Some(map_flick_dir(Vec2::X)),
+		MenuNav::Select | MenuNav::Back => None,
 	}
 }
 
@@ -689,20 +679,6 @@ fn set_highlighted(pending: &mut PendingPlayerRespawn, id: PoiId, registry: &Poi
 /// North-up map looks down with world +Z as screen up, so screen-right is world −X.
 fn map_flick_dir(stick: Vec2) -> Vec2 {
 	Vec2::new(-stick.x, stick.y)
-}
-
-fn consume_stick_flick(resting: &mut bool, stick: Vec2) -> Option<Vec2> {
-	let mag = stick.length();
-	if mag < STICK_REST {
-		*resting = true;
-		return None;
-	}
-	if *resting && mag >= STICK_FLICK {
-		*resting = false;
-		Some(stick)
-	} else {
-		None
-	}
 }
 
 fn next_candidate_in_direction(
@@ -1148,6 +1124,7 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<WorldPlayerRespawnConfig>();
 		world.init_resource::<WorldPlayerRespawnState>();
+		world.init_resource::<Messages<ActorRetired>>();
 		let held = world.spawn(WeaponTrigger(true)).id();
 		let bag = world.spawn_empty().id();
 		let player = world
@@ -1173,11 +1150,15 @@ mod tests {
 			world.get::<LinearVelocity>(player).map(|velocity| velocity.0),
 			Some(Vec3::ZERO)
 		);
-		assert_eq!(world.get::<WeaponTrigger>(held).map(|trigger| trigger.0), Some(false));
-		assert!(world.get::<DespawnAfter>(held).is_some());
-		assert!(!world.entities().contains(bag));
+		assert!(
+			world.get::<FirearmUser>(player).is_some(),
+			"item teardown is gameplay's ActorRetired coordinator"
+		);
+		assert!(world.entities().contains(bag));
 		let pending = &world.resource::<WorldPlayerRespawnState>().pending;
 		assert!(pending.is_some());
+		let notices: Vec<_> = world.resource_mut::<Messages<ActorRetired>>().drain().collect();
+		assert_eq!(notices, vec![ActorRetired::new(player)]);
 		Ok(())
 	}
 
@@ -1542,6 +1523,22 @@ mod tests {
 		assert_eq!(picked, Some(ahead));
 	}
 
+	fn consume_stick_flick(resting: &mut bool, stick: Vec2) -> Option<Vec2> {
+		const STICK_REST: f32 = 0.28;
+		const STICK_FLICK: f32 = 0.45;
+		let mag = stick.length();
+		if mag < STICK_REST {
+			*resting = true;
+			return None;
+		}
+		if *resting && mag >= STICK_FLICK {
+			*resting = false;
+			Some(stick)
+		} else {
+			None
+		}
+	}
+
 	#[test]
 	fn a_stick_flick_waits_for_the_stick_to_come_home() {
 		let mut resting = true;
@@ -1553,8 +1550,59 @@ mod tests {
 		assert_eq!(consume_stick_flick(&mut resting, Vec2::NEG_X), Some(Vec2::NEG_X));
 	}
 
+	fn arm_locked_picker_input(world: &mut World) {
+		use maybraid_controllers_core::{CaptureKind, InputRouter, InputSource, ScopeOwner};
+
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<maybraid_controllers_core::RoutingEvent>>();
+		world.init_resource::<crate::spawn_picker::SpawnPickerController>();
+		world.init_resource::<crate::spawn_picker::SpawnPickerCapture>();
+		world.init_resource::<MenuNavPad>();
+		world.resource_mut::<InputRouter>().acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::map_overlay(),
+			CaptureKind::Overlay,
+		);
+		assert!(world.resource::<InputRouter>().actor(InputSource::local_pad()).is_none());
+		assert!(world.resource::<InputRouter>().blocks_actor(InputSource::local_pad()));
+	}
+
+	fn press_a_on_pad(world: &mut World) {
+		use maybraid_input::{PadButton, VirtualPad, VirtualPadConfig};
+
+		let mut pad = VirtualPad::default();
+		pad.begin_frame();
+		pad.hold_digital(PadButton::A);
+		pad.finish_digital();
+		let mut nav = MenuNavPad::default();
+		nav.derive(&pad, &VirtualPadConfig::default(), 0.0);
+		assert!(nav.just_pressed(MenuNav::Select), "A must become Select, got {:?}", nav.events);
+		world.insert_resource(pad);
+		world.insert_resource(nav);
+	}
+
+	fn confirm_picker_from_a(world: &mut World) -> anyhow::Result<()> {
+		press_a_on_pad(world);
+		world
+			.run_system_once(crate::spawn_picker::refresh_spawn_picker_focus)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(crate::spawn_picker::dispatch_spawn_picker)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		Ok(())
+	}
+
+	fn live_player_count(world: &mut World) -> usize {
+		world.query_filtered::<(), With<VegetationPlayer>>().iter(world).count()
+	}
+
 	#[test]
 	fn a_stick_flick_moves_the_picker_highlight() -> anyhow::Result<()> {
+		use maybraid_input::{PadButton, VirtualPad, VirtualPadConfig};
+
 		let mut world = discovery_respawn_world(0.2);
 		let west = world.spawn_empty().id();
 		let east = world.spawn_empty().id();
@@ -1590,13 +1638,26 @@ mod tests {
 			close_locked: true,
 			begin_life: false,
 		});
+		arm_locked_picker_input(&mut world);
 		let mut pad = VirtualPad::default();
-		pad.move_stick = Vec2::NEG_X;
+		pad.begin_frame();
+		pad.add_move(Vec2::NEG_X);
+		pad.finish_digital();
+		let mut nav = MenuNavPad::default();
+		nav.derive(&pad, &VirtualPadConfig::default(), 0.0);
+		assert!(
+			nav.just_pressed(MenuNav::Left),
+			"stick left must become MenuNav::Left, got {:?}",
+			nav.events
+		);
+		assert!(!pad.just_pressed(PadButton::DpadLeft));
 		world.insert_resource(pad);
-		world.init_resource::<Messages<PlayerChoseRespawnPoi>>();
-		world.init_resource::<Messages<CharacterIntent>>();
+		world.insert_resource(nav);
 		world
-			.run_system_once(drive_respawn_picker)
+			.run_system_once(crate::spawn_picker::refresh_spawn_picker_focus)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(crate::spawn_picker::dispatch_spawn_picker)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		let pending = world.resource::<WorldPlayerRespawnState>().pending.as_ref().unwrap();
 		assert_eq!(pending.highlighted, Some(PoiId(2)));
@@ -1606,6 +1667,78 @@ mod tests {
 			Vec2::new(3.0, 5.0),
 			"the view stays on the death point; flicks do not recenter"
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn first_spawn_a_creates_the_player_without_an_actor() -> anyhow::Result<()> {
+		let mut world = respawn_world(0.0, true, true);
+		{
+			let mut state = world.resource_mut::<WorldPlayerRespawnState>();
+			let pending = state.pending.as_mut().unwrap();
+			pending.origin = RespawnOrigin::began(Some(std::any::TypeId::of::<EndsLife>()), false);
+			pending.first_life = true;
+			pending.timer = Timer::from_seconds(0.0, TimerMode::Once);
+		}
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(live_player_count(&mut world), 0);
+		assert!(world.resource::<WorldMapView>().close_locked);
+		arm_locked_picker_input(&mut world);
+		confirm_picker_from_a(&mut world)?;
+		assert_eq!(live_player_count(&mut world), 1);
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
+		assert!(world.resource::<WorldMapView>().begin_life);
+		Ok(())
+	}
+
+	#[test]
+	fn death_respawn_a_creates_the_player_without_an_actor() -> anyhow::Result<()> {
+		let mut world = discovery_respawn_world(0.2);
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(live_player_count(&mut world), 0);
+		assert!(world.resource::<WorldMapView>().close_locked);
+		arm_locked_picker_input(&mut world);
+		confirm_picker_from_a(&mut world)?;
+		assert_eq!(live_player_count(&mut world), 1);
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_none());
+		assert!(world.resource::<WorldMapView>().begin_life);
+		Ok(())
+	}
+
+	#[test]
+	fn a_higher_priority_modal_blocks_picker_a() -> anyhow::Result<()> {
+		use maybraid_controllers_core::{
+			CaptureKind, InputRouter, InputSource, ScopeOwner, UiTarget,
+		};
+
+		let mut world = discovery_respawn_world(0.2);
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		arm_locked_picker_input(&mut world);
+		world
+			.run_system_once(crate::spawn_picker::refresh_spawn_picker_focus)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.resource_mut::<InputRouter>().acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(11))),
+			CaptureKind::Overlay,
+		);
+		press_a_on_pad(&mut world);
+		world
+			.run_system_once(crate::spawn_picker::dispatch_spawn_picker)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(respawn_world_player)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert_eq!(live_player_count(&mut world), 0);
+		assert!(world.resource::<WorldPlayerRespawnState>().pending.is_some());
+		assert!(world.resource::<WorldMapView>().open);
+		assert!(world.resource::<WorldMapView>().close_locked);
 		Ok(())
 	}
 

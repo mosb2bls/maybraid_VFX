@@ -17,6 +17,7 @@ use fleeing_intelligence::{FleeingPlugin, FleeingSystems};
 use hiding_intelligence::{HidingPlugin, HidingSystems};
 use journeying_intelligence::JourneyingIntelligencePlugin;
 use maybraid_character_controller::CharacterControllerPlugin;
+use maybraid_locomotion_controller::LocomotionControllerPlugin;
 use meandering_intelligence::MeanderingIntelligencePlugin;
 use mob_intelligence::{
 	MemberOf, Mob, MobIdAlloc, MobIntelligencePlugin, MobSystems, MobTetherLock,
@@ -63,6 +64,7 @@ impl Plugin for MobBrainPlaygroundPlugin {
 				..default()
 			})
 			.add_plugins(CharacterControllerPlugin)
+			.add_plugins(LocomotionControllerPlugin)
 			.add_plugins(PlayerPlugin)
 			.add_plugins(MovementIntelligencePlugin::<AvianMovementSurface<'_, '_>>::default())
 			.add_plugins(FirearmIntelligencePlugin)

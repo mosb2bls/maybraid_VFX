@@ -1,13 +1,25 @@
-//! `MenuNavPad` → [`MenuNavImpulse`] on the focused menu.
+//! `MenuNavPad` → [`MenuNavImpulse`] on the focused [`UiTarget`].
 
 use bevy::prelude::*;
-use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad, MenuOwnsBack};
+use maybraid_controllers_core::{
+	CaptureKind, CaptureToken, InputRouter, InputRouting, InputSource, Routed, ScopeOwner, UiTarget,
+};
+use maybraid_input::{MenuNav, MenuNavPad};
 use menu_components::{
 	hud_menu_under_modal, HudMenu, HudOverlayMenu, MenuModal, MenuModalId, MenuModalStack,
 	ShortTextModal, ShortTextPad, TextMenu, TextMenuInputLock,
 };
 
 use crate::controller::MenuController;
+
+/// Tokens this menu controller holds on [`InputRouter`]. Releasing one cannot
+/// release another owner's capture.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MenuNavCapture {
+	pub token: Option<CaptureToken>,
+	pub awaiting: Option<CaptureToken>,
+	pub text: Option<CaptureToken>,
+}
 
 /// One modal owns directional nav, or none does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18,29 +30,58 @@ pub enum ExclusiveNav {
 	/// Dispatch must not fall through to the parent catalog.
 	Awaiting,
 	/// Route stick / D-pad / keyboard to this menu.
-	Target(Entity),
+	Target(UiTarget),
+}
+
+impl ExclusiveNav {
+	pub fn target(self) -> Option<UiTarget> {
+		match self {
+			Self::Target(target) => Some(target),
+			Self::Unclaimed | Self::Awaiting => None,
+		}
+	}
+
+	pub fn target_entity(self) -> Option<Entity> {
+		self.target().map(UiTarget::entity)
+	}
+
+	/// Derive the exclusive nav target from the stack's top owning layer.
+	pub fn resolve(
+		_modal: &ShortTextModal,
+		stack: &MenuModalStack,
+		pads: &Query<Entity, (With<ShortTextPad>, With<HudMenu>)>,
+		roots: &Query<(Entity, &MenuModal)>,
+		menus: &Query<Entity, With<HudMenu>>,
+		children: &Query<&Children>,
+	) -> Self {
+		let Some(id) = stack.nav_owner() else {
+			return Self::Unclaimed;
+		};
+		let target = match id {
+			MenuModalId::SHORT_TEXT => pads.iter().next(),
+			_ => hud_menu_under_modal(id, roots, menus, children),
+		};
+		match target {
+			Some(entity) => Self::Target(UiTarget::new(entity)),
+			None => Self::Awaiting,
+		}
+	}
+
+	pub fn capture_owner(self) -> Option<ScopeOwner> {
+		self.target().map(ScopeOwner::ui)
+	}
 }
 
 /// Derive the exclusive nav target from the stack's top owning layer.
 pub fn exclusive_nav_menu(
-	_modal: &ShortTextModal,
+	modal: &ShortTextModal,
 	stack: &MenuModalStack,
 	pads: &Query<Entity, (With<ShortTextPad>, With<HudMenu>)>,
 	roots: &Query<(Entity, &MenuModal)>,
 	menus: &Query<Entity, With<HudMenu>>,
 	children: &Query<&Children>,
 ) -> ExclusiveNav {
-	let Some(id) = stack.nav_owner() else {
-		return ExclusiveNav::Unclaimed;
-	};
-	let target = match id {
-		MenuModalId::SHORT_TEXT => pads.iter().next(),
-		_ => hud_menu_under_modal(id, roots, menus, children),
-	};
-	match target {
-		Some(entity) => ExclusiveNav::Target(entity),
-		None => ExclusiveNav::Awaiting,
-	}
+	ExclusiveNav::resolve(modal, stack, pads, roots, menus, children)
 }
 
 pub fn refresh_menu_focus(
@@ -54,29 +95,38 @@ pub fn refresh_menu_focus(
 	pads: Query<Entity, (With<ShortTextPad>, With<HudMenu>)>,
 	roots: Query<(Entity, &MenuModal)>,
 	mut controllers: Query<(Entity, &mut MenuController)>,
-	mut menu_owns: ResMut<MenuOwnsBack>,
+	mut router: InputRouting,
+	mut menu_capture: ResMut<MenuNavCapture>,
 ) {
-	let exclusive = exclusive_nav_menu(&modal, &stack, &pads, &roots, &all_menus, &children);
-	let mut focused = false;
+	let exclusive = ExclusiveNav::resolve(&modal, &stack, &pads, &roots, &all_menus, &children);
+	let mut owner = exclusive.capture_owner();
 	for (root, mut controller) in &mut controllers {
 		controller.focus = match exclusive {
-			ExclusiveNav::Target(menu)
-				if menu == root || descendants_contain(&children, root, menu) =>
-			{
-				Some(menu)
-			}
+			ExclusiveNav::Target(menu) if menu.is_under(root, &children) => Some(menu),
 			ExclusiveNav::Target(_) | ExclusiveNav::Awaiting => None,
 			ExclusiveNav::Unclaimed => {
 				MenuController::resolve(root, &children, &overlays, &hud_menus, &text_menus)
+					.map(UiTarget::new)
 			}
 		};
-		focused |= controller.focus.is_some();
+		if owner.is_none() {
+			if let Some(focus) = controller.focus {
+				owner = Some(ScopeOwner::ui(focus));
+			}
+		}
 	}
-	menu_owns.0 = focused;
-}
-
-fn descendants_contain(children: &Query<&Children>, root: Entity, target: Entity) -> bool {
-	children.iter_descendants(root).any(|entity| entity == target)
+	router.replace_owned_capture(
+		&mut menu_capture.token,
+		InputSource::local_pad(),
+		owner,
+		CaptureKind::MenuNav,
+	);
+	router.replace_owned_capture(
+		&mut menu_capture.awaiting,
+		InputSource::local_pad(),
+		matches!(exclusive, ExclusiveNav::Awaiting).then_some(ScopeOwner::awaiting_nav()),
+		CaptureKind::Overlay,
+	);
 }
 
 pub fn dispatch_menu_nav(
@@ -84,11 +134,8 @@ pub fn dispatch_menu_nav(
 	modal: Res<ShortTextModal>,
 	stack: Res<MenuModalStack>,
 	nav: Res<MenuNavPad>,
+	router: Res<InputRouter>,
 	controllers: Query<&MenuController>,
-	pads: Query<Entity, (With<ShortTextPad>, With<HudMenu>)>,
-	roots: Query<(Entity, &MenuModal)>,
-	menus: Query<Entity, With<HudMenu>>,
-	children: Query<&Children>,
 	mut commands: Commands,
 ) {
 	let events: Vec<_> =
@@ -96,15 +143,21 @@ pub fn dispatch_menu_nav(
 	if events.is_empty() {
 		return;
 	}
-	match exclusive_nav_menu(&modal, &stack, &pads, &roots, &menus, &children) {
-		ExclusiveNav::Target(target) => {
-			for event in events {
-				commands.trigger(MenuNavImpulse::new(target, event));
+	if let Some(layer) = router.top_capture() {
+		if layer.kind() == CaptureKind::MenuNav {
+			if let Some(target) = layer.ui_owner() {
+				for event in events {
+					MenuController::trigger_routed(
+						&mut commands,
+						Routed::to_ui(layer.source(), target, event),
+					);
+				}
 			}
 			return;
 		}
-		ExclusiveNav::Awaiting => return,
-		ExclusiveNav::Unclaimed => {}
+		if layer.kind().precedes_menu_nav() {
+			return;
+		}
 	}
 	if modal.dismissed || stack.consumed() {
 		return;
@@ -113,11 +166,8 @@ pub fn dispatch_menu_nav(
 		return;
 	}
 	for controller in &controllers {
-		let Some(focus) = controller.focus else {
-			continue;
-		};
 		for event in &events {
-			commands.trigger(MenuNavImpulse::new(focus, *event));
+			controller.trigger_nav(&mut commands, InputSource::local_pad(), *event);
 		}
 	}
 }
@@ -126,9 +176,11 @@ pub fn dispatch_menu_nav(
 mod tests {
 	use super::{dispatch_menu_nav, exclusive_nav_menu, refresh_menu_focus, ExclusiveNav};
 	use crate::controller::MenuController;
+	use crate::dispatch::MenuNavCapture;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::prelude::*;
-	use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad, MenuOwnsBack};
+	use maybraid_controllers_core::{CaptureKind, InputRouter, InputSource, ScopeOwner, UiTarget};
+	use maybraid_input::{MenuNav, MenuNavImpulse, MenuNavPad};
 	use menu_components::{
 		HudMenu, HudOverlayMenu, MenuModal, MenuModalLayer, MenuModalStack, ShortTextModal,
 		ShortTextPad, TextMenuInputLock,
@@ -148,8 +200,10 @@ mod tests {
 		world.init_resource::<MenuModalStack>();
 		world.init_resource::<ShortTextModal>();
 		world.init_resource::<TextMenuInputLock>();
-		world.init_resource::<MenuOwnsBack>();
 		world.init_resource::<MenuNavPad>();
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<maybraid_controllers_core::RoutingEvent>>();
+		world.init_resource::<MenuNavCapture>();
 		world.init_resource::<NavHits>();
 		world.add_observer(record);
 		let drop_menu = world.spawn((HudMenu::new(2), HudOverlayMenu)).id();
@@ -174,6 +228,17 @@ mod tests {
 		Ok(world.resource::<NavHits>().0.clone())
 	}
 
+	fn exclusive_target(
+		modal: Res<ShortTextModal>,
+		stack: Res<MenuModalStack>,
+		pads: Query<Entity, (With<ShortTextPad>, With<HudMenu>)>,
+		roots: Query<(Entity, &MenuModal)>,
+		menus: Query<Entity, With<HudMenu>>,
+		children: Query<&Children>,
+	) -> ExclusiveNav {
+		exclusive_nav_menu(&modal, &stack, &pads, &roots, &menus, &children)
+	}
+
 	#[test]
 	fn item_drop_owns_stick_nav_instead_of_the_catalog() -> anyhow::Result<()> {
 		let (mut world, catalog, drop_menu) = catalog_under_drop();
@@ -182,6 +247,21 @@ mod tests {
 		let hits = run_down(&mut world)?;
 		assert_eq!(hits, vec![(drop_menu.to_bits(), MenuNav::Down)]);
 		assert_ne!(hits[0].0, catalog.to_bits());
+		Ok(())
+	}
+
+	#[test]
+	fn exclusive_capture_is_the_dispatch_target() -> anyhow::Result<()> {
+		let (mut world, catalog, drop_menu) = catalog_under_drop();
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::ITEM_DROP);
+		let hits = run_down(&mut world)?;
+		assert_eq!(hits, vec![(drop_menu.to_bits(), MenuNav::Down)]);
+		let owner = world
+			.resource::<InputRouter>()
+			.top_capture_of_kind(CaptureKind::MenuNav)
+			.ok_or_else(|| anyhow::anyhow!("menu capture"))?;
+		assert_eq!(owner.ui_owner(), Some(UiTarget::new(drop_menu)));
+		assert_ne!(owner.ui_owner(), Some(UiTarget::new(catalog)));
 		Ok(())
 	}
 
@@ -225,19 +305,8 @@ mod tests {
 		Ok(())
 	}
 
-	fn exclusive_target(
-		modal: Res<ShortTextModal>,
-		stack: Res<MenuModalStack>,
-		pads: Query<Entity, (With<ShortTextPad>, With<HudMenu>)>,
-		roots: Query<(Entity, &MenuModal)>,
-		menus: Query<Entity, With<HudMenu>>,
-		children: Query<&Children>,
-	) -> ExclusiveNav {
-		exclusive_nav_menu(&modal, &stack, &pads, &roots, &menus, &children)
-	}
-
 	#[test]
-	fn exclusive_nav_menu_is_unclaimed_for_overlay_only() -> anyhow::Result<()> {
+	fn exclusive_nav_is_unclaimed_for_overlay_only() -> anyhow::Result<()> {
 		let (mut world, catalog, drop_menu) = catalog_under_drop();
 		world.entity_mut(drop_menu).despawn();
 		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::OVERLAY_SELECT);
@@ -259,8 +328,8 @@ mod tests {
 		let target = world
 			.run_system_once(exclusive_target)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
-		assert_eq!(target, ExclusiveNav::Target(drop_menu));
-		assert_ne!(target, ExclusiveNav::Target(pad));
+		assert_eq!(target, ExclusiveNav::Target(UiTarget::new(drop_menu)));
+		assert_ne!(target, ExclusiveNav::Target(UiTarget::new(pad)));
 		let hits = run_down(&mut world)?;
 		assert_eq!(hits, vec![(drop_menu.to_bits(), MenuNav::Down)]);
 		assert_ne!(hits[0].0, catalog.to_bits());
@@ -282,6 +351,109 @@ mod tests {
 			hits.is_empty(),
 			"catalog must stay isolated while the owner is awaiting, got {hits:?}"
 		);
+		assert_eq!(
+			world.resource::<InputRouter>().top_capture().map(|layer| layer.kind()),
+			Some(CaptureKind::Overlay)
+		);
+		assert!(world.resource::<InputRouter>().blocks_actor(InputSource::local_pad()));
+		Ok(())
+	}
+
+	#[test]
+	fn higher_overlay_blocks_an_existing_menu() -> anyhow::Result<()> {
+		let (mut world, catalog, drop_menu) = catalog_under_drop();
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::ITEM_DROP);
+		let open = run_down(&mut world)?;
+		assert_eq!(open, vec![(drop_menu.to_bits(), MenuNav::Down)]);
+		world.resource_mut::<InputRouter>().acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::map_overlay(),
+			CaptureKind::Overlay,
+		);
+		world.resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		world.resource_mut::<NavHits>().0.clear();
+		world
+			.run_system_once(dispatch_menu_nav)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+		assert!(
+			world.resource::<NavHits>().0.is_empty(),
+			"overlay above menu must block catalog and drop nav, got {:?}",
+			world.resource::<NavHits>().0
+		);
+		assert_ne!(catalog.to_bits(), drop_menu.to_bits());
+		Ok(())
+	}
+
+	#[test]
+	fn plugin_wired_overlay_stays_above_a_refreshed_menu() -> anyhow::Result<()> {
+		use crate::MenuControllerPlugin;
+
+		let mut app = App::new();
+		app.add_plugins((
+			MinimalPlugins,
+			bevy::input::InputPlugin,
+			bevy::asset::AssetPlugin::default(),
+			MenuControllerPlugin,
+		));
+		app.add_message::<bevy::input::keyboard::KeyboardInput>()
+			.add_message::<bevy::window::Ime>()
+			.add_message::<bevy::input::mouse::MouseMotion>()
+			.add_message::<bevy::input::gamepad::GamepadRumbleRequest>()
+			.init_resource::<ButtonInput<KeyCode>>()
+			.init_resource::<ButtonInput<MouseButton>>()
+			.init_resource::<MenuNavPad>()
+			.init_resource::<bevy::picking::hover::HoverMap>()
+			.init_resource::<NavHits>()
+			.add_observer(record);
+		let catalog = app.world_mut().spawn((HudMenu::new(4), HudOverlayMenu)).id();
+		let root = app.world_mut().spawn(MenuController::default()).id();
+		app.world_mut().entity_mut(root).add_child(catalog);
+		app.world_mut().resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		app.finish();
+		app.cleanup();
+		app.world_mut().run_schedule(Update);
+		app.world_mut().flush();
+		assert_eq!(app.world().resource::<NavHits>().0, vec![(catalog.to_bits(), MenuNav::Down)]);
+
+		app.world_mut().resource_mut::<InputRouter>().acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::map_overlay(),
+			CaptureKind::Overlay,
+		);
+		app.world_mut().resource_mut::<NavHits>().0.clear();
+		app.world_mut().resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		app.world_mut().run_schedule(Update);
+		app.world_mut().flush();
+		assert!(
+			app.world().resource::<NavHits>().0.is_empty(),
+			"refresh must keep the overlay on top of the existing menu"
+		);
+		assert_eq!(
+			app.world().resource::<InputRouter>().top_capture().map(|layer| layer.kind()),
+			Some(CaptureKind::Overlay)
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn dispatch_without_refresh_does_not_use_an_exclusive_fallback() -> anyhow::Result<()> {
+		let (mut world, _catalog, drop_menu) = catalog_under_drop();
+		world.resource_mut::<MenuModalStack>().open(MenuModalLayer::ITEM_DROP);
+		world.resource_mut::<MenuNavPad>().events = vec![MenuNav::Down];
+		world
+			.run_system_once(dispatch_menu_nav)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world.flush();
+		anyhow::ensure!(
+			world.resource::<NavHits>().0.is_empty(),
+			"dispatch must wait for refresh to write capture, not re-resolve ExclusiveNav"
+		);
+		assert!(world
+			.resource::<InputRouter>()
+			.top_capture_of_kind(CaptureKind::MenuNav)
+			.is_none());
+		assert_ne!(drop_menu, Entity::PLACEHOLDER);
 		Ok(())
 	}
 }

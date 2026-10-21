@@ -17,8 +17,9 @@ use characters_playground::CameraController as PreviewCameraController;
 use layer_stack::ActiveGenerationMode;
 use maybraid_game_mode_discover::{streams_terrain, Discovery};
 use maybraid_world::{
-	Durham, InventoryEditCameraFollow, PlayerPhysicsEnabled, TerrainStreaming,
-	WorldGameplayEnabled, WorldMenuShell, WorldSceneryVisible, SKY_CLEAR,
+	Durham, InputRouter, InputRouting, InventoryEditCameraFollow, PlayerPhysicsEnabled,
+	SessionCapabilities, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
+	WorldSceneryVisible, SKY_CLEAR,
 };
 use menu_components::MENU_CLEAR;
 use menu_playground::{
@@ -90,12 +91,10 @@ pub(crate) fn enter_world_menu(mut commands: Commands) {
 /// so nothing from the pause stack spawns over live play.
 pub(crate) fn exit_world_menu(
 	mut commands: Commands,
-	mut inventory_follow: ResMut<InventoryEditCameraFollow>,
 	screens: MenuScreens,
 	editing: Option<Res<CharacterEditorReturn>>,
 ) {
 	screens.clear(&mut commands);
-	inventory_follow.0 = false;
 	if editing.is_some() {
 		end_character_editor(&mut commands);
 	}
@@ -122,8 +121,6 @@ pub(crate) fn apply_pause_character_look(
 	character: Query<(), With<CharacterScreen>>,
 	return_to: Option<Res<CharacterEditorReturn>>,
 	stashed: Option<Res<StashedWorldCamera>>,
-	mut scenery: ResMut<WorldSceneryVisible>,
-	mut inventory_follow: ResMut<InventoryEditCameraFollow>,
 	mut cameras: Query<
 		(Entity, &mut Transform, Has<PreviewCameraController>),
 		(With<Camera3d>, Without<LoadingBackdropCamera>),
@@ -133,8 +130,6 @@ pub(crate) fn apply_pause_character_look(
 	let in_game_edit =
 		editing && return_to.is_some_and(|return_to| return_to.uses_live_world_player());
 	let preview_edit = editing && !in_game_edit;
-	inventory_follow.0 = in_game_edit;
-	scenery.0 = !preview_edit;
 	let layers = if preview_edit {
 		RenderLayers::layer(PREVIEW_RENDER_LAYER)
 	} else {
@@ -189,14 +184,111 @@ impl ShellRoute<'_> {
 	}
 }
 
-fn world_session_playing(
-	flow: GameFlow,
-	session: PlaySession,
-	pause: Option<&State<WorldPause>>,
-) -> bool {
+fn world_session_playing(flow: GameFlow, session: PlaySession, pause: Option<WorldPause>) -> bool {
 	flow == GameFlow::World
 		&& session == PlaySession::Discovery
-		&& pause.is_some_and(|pause| *pause.get() == WorldPause::Playing)
+		&& pause == Some(WorldPause::Playing)
+}
+
+fn pending_or_current_pause(
+	pause: Option<&State<WorldPause>>,
+	next: Option<&NextState<WorldPause>>,
+) -> Option<WorldPause> {
+	match next {
+		Some(NextState::Pending(value)) => Some(*value),
+		_ => pause.map(|state| *state.get()),
+	}
+}
+
+fn discovery_streams(session: PlaySession, flow: GameFlow) -> bool {
+	streams_terrain(session == PlaySession::Discovery, terrain_streaming_for_shell(flow))
+}
+
+/// Lifecycle install from a shell enter. Not a per-frame truth table.
+/// Pause writes an owned suspension token; it does not uninstall play.
+pub(crate) fn install_shell_capabilities(
+	flow: GameFlow,
+	session: PlaySession,
+	pause: Option<WorldPause>,
+	capabilities: &mut SessionCapabilities,
+	router: &mut InputRouter,
+) {
+	match flow {
+		GameFlow::Home | GameFlow::Characters => {
+			capabilities.install_menu_shell();
+			router.set_paused(false);
+		}
+		GameFlow::LoadingWorld => {
+			capabilities.install_loading(discovery_streams(session, flow));
+			router.set_paused(false);
+		}
+		GameFlow::World => {
+			capabilities.install_play(discovery_streams(session, flow));
+			router.set_paused(!world_session_playing(flow, session, pause));
+		}
+	}
+}
+
+pub(crate) fn apply_session_projections(
+	capabilities: SessionCapabilities,
+	router: &InputRouter,
+	gameplay: &mut WorldGameplayEnabled,
+	physics: &mut PlayerPhysicsEnabled,
+	streaming: &mut TerrainStreaming<Durham>,
+	menu_shell: &mut WorldMenuShell,
+) {
+	*gameplay = WorldGameplayEnabled::from_session(capabilities, router);
+	physics.0 = capabilities.physics_installed();
+	streaming.enabled = capabilities.streaming_enabled();
+	menu_shell.0 = capabilities.menu_shell_active();
+}
+
+/// One writer for scenery and live-inventory camera follow.
+pub(crate) fn sync_scenery_and_editor(
+	capabilities: Res<SessionCapabilities>,
+	character: Query<(), With<CharacterScreen>>,
+	return_to: Option<Res<CharacterEditorReturn>>,
+	mut scenery: ResMut<WorldSceneryVisible>,
+	mut inventory_follow: ResMut<InventoryEditCameraFollow>,
+) {
+	let editing = !character.is_empty();
+	let in_game_edit =
+		editing && return_to.is_some_and(|return_to| return_to.uses_live_world_player());
+	let preview_edit = editing && !in_game_edit;
+	inventory_follow.0 = in_game_edit;
+	scenery.0 = capabilities.scenery_active() && !preview_edit;
+}
+
+/// Honor a pending pause the same frame Start is taken. Does not rebuild
+/// capabilities from shell state.
+pub(crate) fn resolve_session_capabilities(
+	flow: Res<State<GameFlow>>,
+	pause: Option<Res<State<WorldPause>>>,
+	next_pause: Option<Res<NextState<WorldPause>>>,
+	session: Res<PlaySession>,
+	capabilities: Res<SessionCapabilities>,
+	mut router: InputRouting,
+	mut gameplay: ResMut<WorldGameplayEnabled>,
+	mut physics: ResMut<PlayerPhysicsEnabled>,
+	mut streaming: ResMut<TerrainStreaming<Durham>>,
+	mut menu_shell: ResMut<WorldMenuShell>,
+) {
+	let pause = pending_or_current_pause(pause.as_deref(), next_pause.as_deref());
+	if *flow.get() == GameFlow::World && *session == PlaySession::Discovery {
+		match pause {
+			Some(WorldPause::Menu) => router.set_paused(true),
+			Some(WorldPause::Playing) => router.set_paused(false),
+			None => {}
+		}
+	}
+	apply_session_projections(
+		*capabilities,
+		&router,
+		&mut gameplay,
+		&mut physics,
+		&mut streaming,
+		&mut menu_shell,
+	);
 }
 
 pub(crate) fn apply_shell_look(
@@ -210,10 +302,11 @@ pub(crate) fn apply_shell_look(
 		(With<Camera3d>, Without<LoadingBackdropCamera>),
 	>,
 	mut loading_cameras: Query<&mut Camera, (With<LoadingBackdropCamera>, Without<Camera3d>)>,
+	mut capabilities: ResMut<SessionCapabilities>,
+	mut router: InputRouting,
 	mut gameplay: ResMut<WorldGameplayEnabled>,
 	mut physics: ResMut<PlayerPhysicsEnabled>,
 	mut streaming: ResMut<TerrainStreaming<Durham>>,
-	mut scenery: ResMut<WorldSceneryVisible>,
 	mut menu_shell: ResMut<WorldMenuShell>,
 ) {
 	let flow = *flow.get();
@@ -234,14 +327,23 @@ pub(crate) fn apply_shell_look(
 		camera.is_active = loading;
 	}
 	// Menus keep Durham off. Discovery streams the playable rings. Gameplay and
-	// the world motor stay on while the session is playing.
-	let in_world_shell = terrain_streaming_for_shell(flow);
-	streaming.enabled = streams_terrain(*session == PlaySession::Discovery, in_world_shell);
-	scenery.0 = flow == GameFlow::World;
-	let playing = world_session_playing(flow, *session, pause.as_deref());
-	gameplay.0 = playing;
-	physics.0 = playing;
-	menu_shell.0 = matches!(flow, GameFlow::Home | GameFlow::Characters);
+	// the world motor stay on while the session is playing. Pause writes an
+	// owned suspension token; it does not uninstall motors.
+	install_shell_capabilities(
+		flow,
+		*session,
+		pause.as_deref().map(|pause| *pause.get()),
+		&mut capabilities,
+		&mut router,
+	);
+	apply_session_projections(
+		*capabilities,
+		&router,
+		&mut gameplay,
+		&mut physics,
+		&mut streaming,
+		&mut menu_shell,
+	);
 }
 
 fn camera_render_layers(flow: GameFlow) -> RenderLayers {
@@ -300,15 +402,17 @@ mod tests {
 	use bevy::prelude::*;
 
 	use super::{
-		apply_shell_look, camera_render_layers, terrain_streaming_for_shell, ShellRoute,
-		PREVIEW_RENDER_LAYER, WORLD_RENDER_LAYER,
+		apply_shell_look, camera_render_layers, resolve_session_capabilities,
+		sync_scenery_and_editor, terrain_streaming_for_shell, ShellRoute, PREVIEW_RENDER_LAYER,
+		WORLD_RENDER_LAYER,
 	};
 	use crate::flow::{GameFlow, PlaySession, WorldPause};
 	use bevy::ecs::system::RunSystemOnce;
 	use layer_stack::ActiveGenerationMode;
 	use maybraid_game_mode_discover::Discovery;
 	use maybraid_world::{
-		Durham, PlayerPhysicsEnabled, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
+		Durham, InputRouter, InventoryEditCameraFollow, PlayerPhysicsEnabled, RoutingEvent,
+		SessionCapabilities, TerrainStreaming, WorldGameplayEnabled, WorldMenuShell,
 		WorldSceneryVisible,
 	};
 	use menu_components::MENU_CLEAR;
@@ -354,16 +458,29 @@ mod tests {
 			world.insert_resource(PlaySession::Discovery);
 			world.insert_resource(ClearColor(MENU_CLEAR));
 			world.insert_resource(WorldGameplayEnabled(true));
+			world.insert_resource(SessionCapabilities::default());
+			world.init_resource::<InputRouter>();
+			world.init_resource::<Messages<RoutingEvent>>();
 			world.insert_resource(PlayerPhysicsEnabled(false));
 			world.insert_resource(TerrainStreaming::<Durham>::new(false));
 			world.insert_resource(WorldSceneryVisible(false));
 			world.insert_resource(WorldMenuShell(false));
+			world.insert_resource(InventoryEditCameraFollow(false));
 			world
 				.run_system_once(apply_shell_look)
+				.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+			world
+				.run_system_once(sync_scenery_and_editor)
 				.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 			anyhow::ensure!(world.resource::<TerrainStreaming<Durham>>().enabled);
 			assert!(!world.resource::<WorldGameplayEnabled>().0);
 			assert_eq!(world.resource::<WorldSceneryVisible>().0, flow == GameFlow::World);
+			assert!(world.resource::<SessionCapabilities>().streaming_enabled());
+			assert_eq!(
+				world.resource::<SessionCapabilities>().physics_installed(),
+				flow == GameFlow::World,
+				"World installs motors even when pause is unset; Loading does not"
+			);
 		}
 		assert!(terrain_streaming_for_shell(GameFlow::LoadingWorld));
 		assert!(terrain_streaming_for_shell(GameFlow::World));
@@ -379,17 +496,28 @@ mod tests {
 		world.insert_resource(PlaySession::Discovery);
 		world.insert_resource(ClearColor(MENU_CLEAR));
 		world.insert_resource(WorldGameplayEnabled(false));
+		world.insert_resource(SessionCapabilities::default());
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.insert_resource(PlayerPhysicsEnabled(false));
 		world.insert_resource(TerrainStreaming::<Durham>::new(false));
 		world.insert_resource(WorldSceneryVisible(false));
 		world.insert_resource(WorldMenuShell(false));
+		world.insert_resource(InventoryEditCameraFollow(false));
 		world
 			.run_system_once(apply_shell_look)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(sync_scenery_and_editor)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		assert!(world.resource::<WorldGameplayEnabled>().0);
 		assert!(world.resource::<PlayerPhysicsEnabled>().0);
 		anyhow::ensure!(world.resource::<TerrainStreaming<Durham>>().enabled);
 		assert!(world.resource::<WorldSceneryVisible>().0);
+		assert!(world
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(world.resource::<InputRouter>()));
+		assert!(world.resource::<SessionCapabilities>().physics_installed());
 		Ok(())
 	}
 
@@ -413,6 +541,12 @@ mod tests {
 		use super::apply_pause_character_look;
 
 		let mut world = World::new();
+		let mut capabilities = SessionCapabilities::default();
+		capabilities.install_play(true);
+		world.insert_resource(capabilities);
+		let mut router = InputRouter::default();
+		router.set_paused(true);
+		world.insert_resource(router);
 		world.insert_resource(WorldSceneryVisible(true));
 		world.insert_resource(InventoryEditCameraFollow(false));
 		world.insert_resource(CharacterEditorReturn::InGame);
@@ -420,6 +554,9 @@ mod tests {
 		let camera = world.spawn((Camera3d::default(), Transform::default())).id();
 		world
 			.run_system_once(apply_pause_character_look)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(sync_scenery_and_editor)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 
 		assert!(world.resource::<WorldSceneryVisible>().0);
@@ -450,6 +587,13 @@ mod tests {
 			.run_system_once(exit_world_menu)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 		world.flush();
+		world.insert_resource(SessionCapabilities::default());
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
+		world.insert_resource(WorldSceneryVisible(false));
+		world
+			.run_system_once(sync_scenery_and_editor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 
 		anyhow::ensure!(world.query::<&MenuScreen>().iter(&world).count() == 0);
 		anyhow::ensure!(
@@ -470,6 +614,11 @@ mod tests {
 		use super::apply_pause_character_look;
 
 		let mut world = World::new();
+		let mut capabilities = SessionCapabilities::default();
+		capabilities.install_play(true);
+		world.insert_resource(capabilities);
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
 		world.insert_resource(WorldSceneryVisible(true));
 		world.insert_resource(InventoryEditCameraFollow(false));
 		world.insert_resource(CharacterEditorReturn::Gallery);
@@ -478,12 +627,117 @@ mod tests {
 		world
 			.run_system_once(apply_pause_character_look)
 			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(sync_scenery_and_editor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
 
 		assert!(!world.resource::<WorldSceneryVisible>().0);
 		assert!(!world.resource::<InventoryEditCameraFollow>().0);
 		assert!(world.get::<PreviewCameraController>(camera).is_some());
 		let layers = world.get::<RenderLayers>(camera).ok_or_else(|| anyhow::anyhow!("layers"))?;
 		assert!(layers.intersects(&RenderLayers::layer(PREVIEW_RENDER_LAYER)));
+		Ok(())
+	}
+
+	#[test]
+	fn pending_pause_suspends_gameplay_the_same_frame() -> anyhow::Result<()> {
+		let mut world = World::new();
+		world.insert_resource(State::new(GameFlow::World));
+		world.insert_resource(State::new(WorldPause::Playing));
+		world.insert_resource(NextState::<WorldPause>::Pending(WorldPause::Menu));
+		world.insert_resource(PlaySession::Discovery);
+		let mut capabilities = SessionCapabilities::default();
+		capabilities.install_play(true);
+		world.insert_resource(capabilities);
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(PlayerPhysicsEnabled(true));
+		world.insert_resource(TerrainStreaming::<Durham>::new(true));
+		world.insert_resource(WorldMenuShell(false));
+		world
+			.run_system_once(resolve_session_capabilities)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.resource::<WorldGameplayEnabled>().0);
+		assert!(world.resource::<PlayerPhysicsEnabled>().0);
+		assert!(world.resource::<SessionCapabilities>().physics_installed());
+		assert!(world.resource::<SessionCapabilities>().simulation_active());
+		assert!(!world
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(world.resource::<InputRouter>()));
+		assert!(world.resource::<SessionCapabilities>().gameplay().is_installed());
+		Ok(())
+	}
+
+	#[test]
+	fn loading_play_pause_inventory_resume_home() -> anyhow::Result<()> {
+		use maybraid_world::InventoryEditCameraFollow;
+		use menu_playground::{CharacterEditorReturn, CharacterScreen};
+
+		let mut world = World::new();
+		world.insert_resource(State::new(GameFlow::LoadingWorld));
+		world.insert_resource(PlaySession::Discovery);
+		world.insert_resource(SessionCapabilities::default());
+		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<RoutingEvent>>();
+		world.insert_resource(ClearColor(MENU_CLEAR));
+		world.insert_resource(WorldGameplayEnabled(true));
+		world.insert_resource(PlayerPhysicsEnabled(false));
+		world.insert_resource(TerrainStreaming::<Durham>::new(false));
+		world.insert_resource(WorldSceneryVisible(false));
+		world.insert_resource(WorldMenuShell(false));
+		world.insert_resource(InventoryEditCameraFollow(false));
+		world
+			.run_system_once(apply_shell_look)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(sync_scenery_and_editor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<TerrainStreaming<Durham>>().enabled);
+		assert!(!world.resource::<WorldGameplayEnabled>().0);
+
+		world.insert_resource(State::new(GameFlow::World));
+		world.insert_resource(State::new(WorldPause::Playing));
+		world
+			.run_system_once(apply_shell_look)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(sync_scenery_and_editor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<WorldGameplayEnabled>().0);
+		assert!(world.resource::<PlayerPhysicsEnabled>().0);
+
+		world.insert_resource(NextState::<WorldPause>::Pending(WorldPause::Menu));
+		world
+			.run_system_once(resolve_session_capabilities)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.resource::<WorldGameplayEnabled>().0);
+		assert!(world.resource::<PlayerPhysicsEnabled>().0);
+
+		world.insert_resource(CharacterEditorReturn::InGame);
+		world.spawn(CharacterScreen);
+		world
+			.run_system_once(sync_scenery_and_editor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<InventoryEditCameraFollow>().0);
+		assert!(world.resource::<WorldSceneryVisible>().0);
+
+		world.insert_resource(NextState::<WorldPause>::Pending(WorldPause::Playing));
+		world
+			.run_system_once(resolve_session_capabilities)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(world.resource::<WorldGameplayEnabled>().0);
+
+		world.insert_resource(State::new(GameFlow::Home));
+		world
+			.run_system_once(apply_shell_look)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(sync_scenery_and_editor)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		assert!(!world.resource::<WorldGameplayEnabled>().0);
+		assert!(!world.resource::<SessionCapabilities>().physics_installed());
+		assert!(world.resource::<SessionCapabilities>().menu_shell_active());
 		Ok(())
 	}
 }

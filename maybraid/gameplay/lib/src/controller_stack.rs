@@ -1,0 +1,1059 @@
+//! Stack-tip acceptance on the real production plugin wiring (not chained systems).
+
+use bevy::ecs::system::RunSystemOnce;
+use bevy::prelude::*;
+use bevy::scene::ScenePlugin;
+use bevy::time::TimeUpdateStrategy;
+use character_inventory_user::InventoryUser;
+use character_items::{FirearmMesh, Inventory, InventoryItem};
+use firearm_user::{FirearmUser, RecoilPattern, register_firearm_user_runtime};
+use firearms::{FireControl, FireOnTrigger, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger};
+use grenade_user::{GrenadePhase, GrenadeThrow, GrenadeUser, register_grenade_user_runtime};
+use grenades::DropLiveGrenade;
+use lubikans::{
+	LubikanActivationDenied, LubikanActivationRefused, LubikanLedger, LubikanOwner,
+	LubikanSelfConfig,
+};
+use maybraid_audio::AudioClip;
+use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
+use maybraid_controllers_core::{
+	ActorTarget, CaptureKind, InputRouter, InputRouting, InputSource, ScopeOwner, SourceConnection,
+	UiTarget,
+};
+use maybraid_equipment::{
+	ActiveInventoryCyclingCategory, EquipmentHolster, EquippedItemHandler, EquippedItemUse,
+	EquippedPowerUse, InventoryCycling, RoutedItemActor, EQUIPMENT_HOLSTER_SECS,
+};
+use maybraid_input::{PadButton, VirtualPad, VirtualPadSystems};
+use maybraid_session::{
+	SessionCapabilities, SessionCapabilitySystems, WorldGameplayEnabled, apply_in_game_menu_pause,
+};
+use player::{CameraFollow, Player, PlayerLook, PlayerPlugin, PlayerUse};
+use player_camera::{
+	CameraController, CameraRecoilHandoff, FollowCamera, register_player_camera_runtime,
+};
+use std::time::Duration;
+use world_player::Player as VegetationPlayer;
+
+use crate::register_gameplay_runtime;
+
+fn stack_app() -> App {
+	let mut app = App::new();
+	app.add_plugins(MinimalPlugins)
+		.add_plugins(bevy::input::InputPlugin)
+		.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(1.0 / 60.0)));
+	register_gameplay_runtime(&mut app);
+	register_player_camera_runtime(&mut app);
+	app.add_systems(Update, apply_in_game_menu_pause.in_set(SessionCapabilitySystems))
+		.insert_resource(WorldGameplayEnabled(true));
+	app.world_mut().resource_mut::<SessionCapabilities>().install_play(true);
+	app
+}
+
+fn routing_apply(app: &mut App, apply: impl FnOnce(&mut InputRouter) + Send + Sync + 'static) {
+	let mut apply = Some(apply);
+	app.world_mut()
+		.run_system_once(move |mut routing: InputRouting| {
+			if let Some(apply) = apply.take() {
+				apply(&mut routing);
+			}
+		})
+		.expect("publish routing");
+}
+
+fn assign(app: &mut App, actor: Entity) {
+	routing_apply(app, move |router| {
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(actor));
+	});
+}
+
+fn no_thrown_grenade(app: &mut App) -> bool {
+	let world = app.world_mut();
+	world.query::<&grenades::ThrownGrenade>().iter(world).next().is_none()
+}
+
+fn spawn_grenade_bag(app: &mut App) -> Entity {
+	app.world_mut()
+		.spawn(Inventory {
+			items: vec![InventoryItem::standard_grenade()],
+			clothing: Vec::new(),
+			weapons: vec![0],
+			skills: Vec::new(),
+			tanzes: Vec::new(),
+		})
+		.id()
+}
+
+fn spawn_live_gun(app: &mut App, cooldown: f32) -> Entity {
+	let mut weapon = Weapon::bolt();
+	weapon.cooldown = cooldown;
+	app.world_mut()
+		.spawn((
+			weapon,
+			WeaponTrigger(false),
+			FireOnTrigger,
+			FireControl::auto(),
+			WeaponRecoil(0.08),
+			RecoilPattern::from_seed(7),
+		))
+		.id()
+}
+
+fn press_start_and_fire(mut pad: ResMut<VirtualPad>) {
+	pad.buttons.press(PadButton::Start);
+	pad.max_triggers(0.0, 1.0);
+}
+
+#[test]
+fn stack_app_survives_a_second_runtime_register() {
+	let mut app = stack_app();
+	register_gameplay_runtime(&mut app);
+	register_firearm_user_runtime(&mut app);
+	register_grenade_user_runtime(&mut app);
+	app.update();
+}
+
+#[test]
+fn two_actors_only_the_delivered_handler_fires() {
+	let mut app = stack_app();
+	let gun_a = app.world_mut().spawn(WeaponTrigger(false)).id();
+	let gun_b = app.world_mut().spawn(WeaponTrigger(false)).id();
+	let a = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			FirearmUser::holding(gun_a),
+			EquippedItemHandler::Firearm,
+			InventoryCycling::default(),
+		))
+		.id();
+	let b = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			FirearmUser::holding(gun_b),
+			EquippedItemHandler::Firearm,
+			InventoryCycling::default(),
+		))
+		.id();
+	assign(&mut app, a);
+	app.world_mut().write_message(EquippedItemUse::new(
+		ActorTarget::new(a),
+		EquippedItemHandler::Firearm,
+		1.0,
+		true,
+	));
+	app.update();
+	assert_eq!(app.world().get::<WeaponTrigger>(gun_a).map(|t| t.0), Some(true));
+	assert_eq!(app.world().get::<WeaponTrigger>(gun_b).map(|t| t.0), Some(false));
+	let _ = (a, b);
+}
+
+#[test]
+fn two_actors_in_different_item_modes() {
+	let mut app = stack_app();
+	let gun = app.world_mut().spawn(WeaponTrigger(false)).id();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let shooter = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			FirearmUser::holding(gun),
+			EquippedItemHandler::Firearm,
+			InventoryCycling::default(),
+		))
+		.id();
+	let thrower = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+			InventoryCycling::default(),
+		))
+		.id();
+	assign(&mut app, shooter);
+	app.world_mut().write_message(EquippedItemUse::new(
+		ActorTarget::new(shooter),
+		EquippedItemHandler::Firearm,
+		1.0,
+		true,
+	));
+	app.update();
+	assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|t| t.0), Some(true));
+	assert!(!app.world().get::<GrenadeThrow>(thrower).is_some_and(GrenadeThrow::cooking));
+
+	assign(&mut app, thrower);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert!(app.world().get::<GrenadeThrow>(thrower).is_some_and(GrenadeThrow::cooking));
+}
+
+#[test]
+fn grenade_user_does_not_fire_a_firearm() {
+	let mut app = stack_app();
+	let gun = app.world_mut().spawn(WeaponTrigger(false)).id();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let actor = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			FirearmUser::holding(gun),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+			InventoryCycling::default(),
+		))
+		.id();
+	assign(&mut app, actor);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|t| t.0), Some(false));
+	assert!(matches!(
+		app.world().get::<GrenadeThrow>(actor).map(|throw| throw.phase),
+		Some(GrenadePhase::Cooking { .. })
+	));
+}
+
+#[test]
+fn denied_shot_produces_no_recoil() {
+	let mut app = stack_app();
+	let camera = app
+		.world_mut()
+		.spawn((Camera3d::default(), FollowCamera::default(), CameraController::default()))
+		.id();
+	let gun = spawn_live_gun(&mut app, 8.0);
+	let shooter = app
+		.world_mut()
+		.spawn((
+			Player,
+			CameraFollow,
+			FirearmUser::holding(gun),
+			PlayerLook::default(),
+			EquippedItemHandler::Firearm,
+		))
+		.id();
+	assign(&mut app, shooter);
+	app.world_mut().write_message(EquippedItemUse::new(
+		ActorTarget::new(shooter),
+		EquippedItemHandler::Firearm,
+		1.0,
+		true,
+	));
+	app.update();
+	assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|t| t.0), Some(true));
+	assert!(app.world_mut().resource_mut::<Messages<WeaponFired>>().drain().next().is_none());
+	app.update();
+	assert!(
+		app.world_mut()
+			.resource_mut::<Messages<CameraRecoilHandoff>>()
+			.drain()
+			.next()
+			.is_none()
+	);
+	let denied = app.world().entity(camera).get::<CameraController>().unwrap();
+	assert_eq!(denied.yaw, 0.0);
+	assert_eq!(denied.pitch, 0.0);
+
+	app.world_mut().get_mut::<Weapon>(gun).expect("weapon").cooldown = 0.0;
+	app.world_mut().write_message(EquippedItemUse::new(
+		ActorTarget::new(shooter),
+		EquippedItemHandler::Firearm,
+		1.0,
+		true,
+	));
+	app.update();
+	assert!(
+		app.world_mut().resource_mut::<Messages<WeaponFired>>().drain().next().is_some(),
+		"a ready trigger must realize WeaponFired"
+	);
+	app.update();
+	let camera = app.world().entity(camera).get::<CameraController>().unwrap();
+	assert!(camera.yaw.abs() + camera.pitch.abs() > 1e-6, "a realized shot must kick");
+}
+
+#[test]
+fn capture_does_not_release_a_cooking_grenade() {
+	let mut app = stack_app();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let actor = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	assign(&mut app, actor);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	let fuse = app.world().get::<GrenadeThrow>(actor).expect("throw").fuse;
+	assert!(app.world().get::<GrenadeThrow>(actor).is_some_and(|throw| throw.cooking()));
+	routing_apply(&mut app, |router| {
+		router.acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(99))),
+			CaptureKind::Overlay,
+		);
+	});
+	for _ in 0..12 {
+		app.update();
+	}
+	let throw = app.world().get::<GrenadeThrow>(actor).expect("throw");
+	assert!(throw.cooking(), "input suppression must not release");
+	assert!(throw.fuse < fuse, "capture must keep ticking the live fuse");
+	assert!(no_thrown_grenade(&mut app));
+}
+
+#[test]
+fn reassignment_mid_cook_cancels_the_old_actor() {
+	let mut app = stack_app();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let cook = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	let other = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			EquippedItemHandler::Firearm,
+			InventoryCycling::default(),
+		))
+		.id();
+	assign(&mut app, cook);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert!(app.world().get::<GrenadeThrow>(cook).is_some_and(GrenadeThrow::cooking));
+	assert!(app.world().get::<RoutedItemActor>(cook).is_some());
+	assign(&mut app, other);
+	app.update();
+	assert_eq!(
+		app.world().get::<GrenadeThrow>(cook).map(|throw| throw.phase),
+		Some(GrenadePhase::Ready),
+		"reassignment is ReleaseNeutral, not a missing-message freeze"
+	);
+	assert!(
+		app.world_mut()
+			.resource_mut::<Messages<DropLiveGrenade>>()
+			.drain()
+			.next()
+			.is_some()
+	);
+	assert!(no_thrown_grenade(&mut app));
+}
+
+#[test]
+fn two_grenade_users_disconnect_drops_only_the_named_actor() {
+	let mut app = stack_app();
+	let held_a = app.world_mut().spawn_empty().id();
+	let held_b = app.world_mut().spawn_empty().id();
+	let bag_a = spawn_grenade_bag(&mut app);
+	let bag_b = spawn_grenade_bag(&mut app);
+	let cook = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag_a),
+			GrenadeUser::holding(held_a),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	let other = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag_b),
+			GrenadeUser::holding(held_b),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	{
+		let mut throw = app.world_mut().get_mut::<GrenadeThrow>(other).expect("other throw");
+		assert!(throw.try_start_cook(true, false, 4.0));
+	}
+	assign(&mut app, cook);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert!(app.world().get::<GrenadeThrow>(cook).is_some_and(GrenadeThrow::cooking));
+	assert!(app.world().get::<GrenadeThrow>(other).is_some_and(GrenadeThrow::cooking));
+	routing_apply(&mut app, |router| {
+		router.disconnect(InputSource::local_pad());
+	});
+	app.update();
+	assert_eq!(
+		app.world().get::<GrenadeThrow>(cook).map(|throw| throw.phase),
+		Some(GrenadePhase::Ready)
+	);
+	assert!(
+		app.world().get::<GrenadeThrow>(other).is_some_and(GrenadeThrow::cooking),
+		"an unrelated cook must survive a local-pad disconnect"
+	);
+	let drops: Vec<_> =
+		app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().collect();
+	assert_eq!(drops.len(), 1);
+	assert_eq!(drops[0].source, cook);
+}
+
+#[test]
+fn reassignment_then_capture_in_one_frame_cleans_the_old_actor() {
+	let mut app = stack_app();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let cook = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	let next = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			EquippedItemHandler::Firearm,
+			InventoryCycling::default(),
+		))
+		.id();
+	assign(&mut app, cook);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert!(app.world().get::<GrenadeThrow>(cook).is_some_and(GrenadeThrow::cooking));
+	routing_apply(&mut app, move |router| {
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(next));
+		router.acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(21))),
+			CaptureKind::Overlay,
+		);
+	});
+	app.update();
+	assert_eq!(
+		app.world().get::<GrenadeThrow>(cook).map(|throw| throw.phase),
+		Some(GrenadePhase::Ready),
+		"the reassignment event must still drop the old cook when capture follows in the same frame"
+	);
+	assert!(
+		app.world_mut()
+			.resource_mut::<Messages<DropLiveGrenade>>()
+			.drain()
+			.next()
+			.is_some()
+	);
+}
+
+#[test]
+fn category_then_cycle_in_one_plugin_frame() {
+	use character_items::{SkillMapKind, SkillMapSpec};
+
+	let mut app = stack_app();
+	let inventory = Inventory {
+		items: vec![
+			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
+			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 2)),
+		],
+		clothing: Vec::new(),
+		weapons: Vec::new(),
+		skills: vec![0, 1],
+		tanzes: Vec::new(),
+	};
+	let bag = app.world_mut().spawn(inventory).id();
+	let actor = app
+		.world_mut()
+		.spawn((VegetationPlayer, InventoryUser::carrying(bag), InventoryCycling::default()))
+		.id();
+	assign(&mut app, actor);
+	app.world_mut().write_message(CharacterIntent::SelectInventoryCyclingCategory(
+		InventoryCyclingCategory::SkillMaps,
+	));
+	app.world_mut().write_message(CharacterIntent::SwapActive);
+	app.update();
+	let bag = app.world().get::<Inventory>(bag).expect("bag");
+	assert_eq!(
+		bag.primary_skill_map().and_then(InventoryItem::skill_map_spec),
+		Some(SkillMapSpec::new(SkillMapKind::Dumbwave, 2))
+	);
+	assert_eq!(
+		app.world().resource::<ActiveInventoryCyclingCategory>().0,
+		InventoryCyclingCategory::SkillMaps
+	);
+}
+
+#[test]
+fn lubikan_spends_once_from_addressed_dispatch() {
+	let mut app = stack_app();
+	let actor = app
+		.world_mut()
+		.spawn((
+			VegetationPlayer,
+			LubikanOwner,
+			LubikanLedger::with_self(&LubikanSelfConfig::default()),
+		))
+		.id();
+	assign(&mut app, actor);
+	{
+		let mut ledger = app.world_mut().get_mut::<LubikanLedger>(actor).unwrap();
+		let _ = ledger.apply_to_equipped(512.0);
+	}
+	let before = app
+		.world()
+		.get::<LubikanLedger>(actor)
+		.unwrap()
+		.account(lubikans::LubikanAccountId::SELF)
+		.unwrap()
+		.charge()
+		.current();
+	app.world_mut().write_message(EquippedPowerUse::new(ActorTarget::new(actor)));
+	app.update();
+	let after = app
+		.world()
+		.get::<LubikanLedger>(actor)
+		.unwrap()
+		.account(lubikans::LubikanAccountId::SELF)
+		.unwrap()
+		.charge()
+		.current();
+	assert!(after < before, "first spend must reduce charge");
+	app.world_mut().write_message(EquippedPowerUse::new(ActorTarget::new(actor)));
+	app.update();
+	let refused = app
+		.world_mut()
+		.resource_mut::<Messages<LubikanActivationRefused>>()
+		.drain()
+		.next();
+	assert!(
+		refused.is_some_and(|refused| refused.reason == LubikanActivationDenied::AlreadyActive),
+		"second spend must refuse, not charge again"
+	);
+	let again = app
+		.world()
+		.get::<LubikanLedger>(actor)
+		.unwrap()
+		.account(lubikans::LubikanAccountId::SELF)
+		.unwrap()
+		.charge()
+		.current();
+	assert_eq!(again, after);
+}
+
+#[test]
+fn nested_captures_release_independently_on_the_router() {
+	let mut app = stack_app();
+	let actor = app.world_mut().spawn((Player, EquippedItemHandler::Firearm)).id();
+	assign(&mut app, actor);
+	let overlay = app.world_mut().resource_mut::<InputRouter>().acquire_capture(
+		InputSource::local_pad(),
+		ScopeOwner::ui(UiTarget::new(Entity::from_bits(2))),
+		CaptureKind::Overlay,
+	);
+	let menu = app.world_mut().resource_mut::<InputRouter>().acquire_capture(
+		InputSource::local_pad(),
+		ScopeOwner::ui(UiTarget::new(Entity::from_bits(3))),
+		CaptureKind::MenuNav,
+	);
+	assert!(app.world().resource::<InputRouter>().blocks_actor(InputSource::local_pad()));
+	app.world_mut().resource_mut::<InputRouter>().release_capture(menu);
+	assert!(
+		app.world().resource::<InputRouter>().blocks_actor(InputSource::local_pad()),
+		"releasing the lower menu must not release the overlay"
+	);
+	app.world_mut().resource_mut::<InputRouter>().release_capture(overlay);
+	assert!(!app.world().resource::<InputRouter>().blocks_actor(InputSource::local_pad()));
+}
+
+#[test]
+fn disconnect_while_holding_cancels_the_cook() {
+	let mut app = stack_app();
+	app.add_plugins((AssetPlugin::default(), PlayerPlugin))
+		.init_asset::<AudioClip>();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let actor = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	app.update();
+	assert_eq!(
+		app.world().resource::<InputRouter>().local_actor(),
+		Some(ActorTarget::new(actor)),
+		"PlayerPlugin assignment must pick the spawned player"
+	);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	assert!(app.world().get::<GrenadeThrow>(actor).is_some_and(|throw| throw.use_latched));
+	assert!(app.world().get::<RoutedItemActor>(actor).is_some());
+	routing_apply(&mut app, |router| {
+		router.disconnect(InputSource::local_pad());
+	});
+	let mut dropped = false;
+	for _ in 0..4 {
+		app.update();
+		dropped |= app
+			.world_mut()
+			.resource_mut::<Messages<DropLiveGrenade>>()
+			.drain()
+			.next()
+			.is_some();
+		let router = app.world().resource::<InputRouter>();
+		assert_eq!(
+			router.connection(InputSource::local_pad()),
+			SourceConnection::Disconnected,
+			"PlayerPlugin assignment must not reconnect a disconnected pad"
+		);
+		assert_eq!(router.local_actor(), None);
+	}
+	assert_eq!(
+		app.world().get::<GrenadeThrow>(actor).map(|throw| throw.phase),
+		Some(GrenadePhase::Ready),
+		"disconnect must drop the live cook"
+	);
+	assert!(dropped, "disconnect must emit DropLiveGrenade");
+	assert!(no_thrown_grenade(&mut app));
+}
+
+#[test]
+fn capture_cancels_a_held_firearm_trigger() {
+	let mut app = stack_app();
+	let gun = spawn_live_gun(&mut app, 8.0);
+	let actor = app
+		.world_mut()
+		.spawn((Player, VegetationPlayer, FirearmUser::holding(gun), EquippedItemHandler::Firearm))
+		.id();
+	assign(&mut app, actor);
+	app.world_mut().write_message(EquippedItemUse::new(
+		ActorTarget::new(actor),
+		EquippedItemHandler::Firearm,
+		1.0,
+		true,
+	));
+	app.update();
+	assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0), Some(true));
+	assert!(
+		app.world_mut().resource_mut::<Messages<WeaponFired>>().drain().next().is_none(),
+		"partial hold must not have realized a shot yet"
+	);
+	routing_apply(&mut app, |router| {
+		router.acquire_capture(
+			InputSource::local_pad(),
+			ScopeOwner::ui(UiTarget::new(Entity::from_bits(11))),
+			CaptureKind::Overlay,
+		);
+	});
+	app.update();
+	assert_eq!(
+		app.world().get::<WeaponTrigger>(gun).map(|trigger| trigger.0),
+		Some(false),
+		"capture must cancel a partial firearm hold"
+	);
+	assert!(app.world_mut().resource_mut::<Messages<WeaponFired>>().drain().next().is_none());
+}
+
+#[test]
+fn suspension_freezes_advance_throw_clocks() {
+	let mut app = stack_app();
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let actor = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	assign(&mut app, actor);
+	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
+	app.update();
+	let fuse = app.world().get::<GrenadeThrow>(actor).expect("throw").fuse;
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	for _ in 0..12 {
+		app.update();
+	}
+	let throw = app.world().get::<GrenadeThrow>(actor).expect("throw");
+	assert!(throw.cooking());
+	assert!((throw.fuse - fuse).abs() < 1e-4, "suspension must freeze fuse and windup");
+	assert!(no_thrown_grenade(&mut app));
+}
+
+#[test]
+fn same_frame_pause_blocks_inventory_cycle() {
+	use character_items::{SkillMapKind, SkillMapSpec};
+
+	let mut app = stack_app();
+	let inventory = Inventory {
+		items: vec![
+			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
+			InventoryItem::skill_map(SkillMapSpec::new(SkillMapKind::Dumbwave, 2)),
+		],
+		clothing: Vec::new(),
+		weapons: Vec::new(),
+		skills: vec![0, 1],
+		tanzes: Vec::new(),
+	};
+	let bag = app.world_mut().spawn(inventory).id();
+	let actor = app
+		.world_mut()
+		.spawn((
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			InventoryCycling::new(InventoryCyclingCategory::SkillMaps),
+		))
+		.id();
+	assign(&mut app, actor);
+	app.world_mut().insert_resource(WorldGameplayEnabled(false));
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	app.world_mut().write_message(CharacterIntent::SwapActive);
+	app.update();
+	let bag = app.world().get::<Inventory>(bag).expect("bag");
+	assert_eq!(
+		bag.primary_skill_map().and_then(InventoryItem::skill_map_spec),
+		Some(SkillMapSpec::new(SkillMapKind::Fireball, 1)),
+		"paused gameplay must not cycle the equipped queue"
+	);
+}
+
+#[test]
+fn start_and_held_trigger_same_frame_leaves_idle_firearm() {
+	let mut app = stack_app();
+	app.add_systems(PreUpdate, press_start_and_fire.after(VirtualPadSystems::Derive));
+	let gun = app.world_mut().spawn(WeaponTrigger(false)).id();
+	let actor = app
+		.world_mut()
+		.spawn((Player, VegetationPlayer, FirearmUser::holding(gun), EquippedItemHandler::Firearm))
+		.id();
+	assign(&mut app, actor);
+	app.update();
+	assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|t| t.0), Some(false));
+	assert!(app.world().resource::<InputRouter>().is_suspended(InputSource::local_pad()));
+}
+
+#[test]
+fn start_and_held_trigger_same_frame_leaves_ready_grenade() {
+	let mut app = stack_app();
+	app.add_systems(PreUpdate, press_start_and_fire.after(VirtualPadSystems::Derive));
+	let held = app.world_mut().spawn_empty().id();
+	let bag = spawn_grenade_bag(&mut app);
+	let actor = app
+		.world_mut()
+		.spawn((
+			Player,
+			VegetationPlayer,
+			InventoryUser::carrying(bag),
+			GrenadeUser::holding(held),
+			GrenadeThrow::default(),
+			EquippedItemHandler::Grenade,
+		))
+		.id();
+	assign(&mut app, actor);
+	app.update();
+	assert_eq!(
+		app.world().get::<GrenadeThrow>(actor).map(|throw| throw.phase),
+		Some(GrenadePhase::Ready)
+	);
+	assert!(app.world().resource::<InputRouter>().is_suspended(InputSource::local_pad()));
+}
+
+#[test]
+fn loading_play_inventory_resume_home_on_plugin_session() {
+	let mut app = stack_app();
+	{
+		let mut session = app.world_mut().resource_mut::<SessionCapabilities>();
+		session.install_loading(true);
+	}
+	app.update();
+	assert!(
+		!app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
+	assert!(app.world().resource::<SessionCapabilities>().streaming_enabled());
+
+	{
+		let mut session = app.world_mut().resource_mut::<SessionCapabilities>();
+		session.install_play(true);
+	}
+	app.update();
+	assert!(
+		app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
+	assert!(app.world().resource::<SessionCapabilities>().physics_installed());
+
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	app.update();
+	assert!(
+		!app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
+	assert!(app.world().resource::<SessionCapabilities>().physics_installed());
+	assert!(app.world().resource::<SessionCapabilities>().simulation_active());
+
+	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
+	app.update();
+	assert!(
+		app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
+
+	{
+		let mut session = app.world_mut().resource_mut::<SessionCapabilities>();
+		session.uninstall_play();
+	}
+	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
+	app.update();
+	assert!(
+		!app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
+	assert!(!app.world().resource::<SessionCapabilities>().physics_installed());
+	assert!(app.world().resource::<SessionCapabilities>().menu_shell_active());
+}
+
+#[test]
+fn npc_firearm_does_not_consume_player_dispatch() {
+	let mut app = stack_app();
+	let gun = app.world_mut().spawn(WeaponTrigger(false)).id();
+	let npc = app
+		.world_mut()
+		.spawn((FirearmUser::holding(gun), EquippedItemHandler::Firearm))
+		.id();
+	assign(&mut app, npc);
+	app.world_mut().write_message(EquippedItemUse::new(
+		ActorTarget::new(npc),
+		EquippedItemHandler::Firearm,
+		1.0,
+		true,
+	));
+	app.update();
+	assert_eq!(
+		app.world().get::<WeaponTrigger>(gun).map(|t| t.0),
+		Some(false),
+		"NPC fire stays on intelligence WeaponTrigger, not player EquippedItemUse"
+	);
+}
+
+#[test]
+fn item_runtime_register_is_idempotent_beside_gameplay() {
+	let mut app = stack_app();
+	register_firearm_user_runtime(&mut app);
+	register_grenade_user_runtime(&mut app);
+	app.update();
+}
+
+fn mixed_weapon_bag() -> Inventory {
+	Inventory {
+		items: vec![
+			InventoryItem::firearm(FirearmMesh::Bullpup),
+			InventoryItem::standard_grenade(),
+		],
+		clothing: Vec::new(),
+		weapons: vec![0, 1],
+		skills: Vec::new(),
+		tanzes: Vec::new(),
+	}
+}
+
+fn spawn_mixed_weapon_actor(
+	app: &mut App,
+	handler: EquippedItemHandler,
+) -> (Entity, Entity, Entity) {
+	let bag = app.world_mut().spawn(mixed_weapon_bag()).id();
+	let held = app.world_mut().spawn_empty().id();
+	let mut entity = app.world_mut().spawn((
+		Player,
+		VegetationPlayer,
+		InventoryUser::carrying(bag),
+		PlayerUse { driver: held },
+		handler,
+		InventoryCycling::default(),
+	));
+	match handler {
+		EquippedItemHandler::Firearm => {
+			entity.insert(FirearmUser::holding(held));
+		}
+		EquippedItemHandler::Grenade => {
+			entity.insert((GrenadeUser::holding(held), GrenadeThrow::default()));
+		}
+		EquippedItemHandler::None => {}
+	}
+	(entity.id(), bag, held)
+}
+
+fn insert_holster_at(app: &mut App, actor: Entity, elapsed: f32, swapped: bool) {
+	app.world_mut().entity_mut(actor).insert(EquipmentHolster {
+		elapsed,
+		duration: EQUIPMENT_HOLSTER_SECS,
+		swapped,
+		reverse: false,
+	});
+}
+
+fn commit_ready_holster(app: &mut App, actor: Entity) {
+	insert_holster_at(app, actor, EQUIPMENT_HOLSTER_SECS * 0.5, false);
+	app.update();
+}
+
+#[test]
+fn assembled_firearm_grenade_swap_keeps_player_use() {
+	let mut app = stack_app();
+	app.add_plugins((AssetPlugin::default(), ScenePlugin));
+	let (actor, _, old_held) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	assign(&mut app, actor);
+	commit_ready_holster(&mut app, actor);
+
+	assert!(
+		app.world().get::<FirearmUser>(actor).is_none(),
+		"outgoing firearm relationship must be torn down"
+	);
+	let grenade = app.world().get::<GrenadeUser>(actor).expect("incoming grenade relationship");
+	let player_use = app.world().get::<PlayerUse>(actor).expect("PlayerUse must survive the swap");
+	assert_eq!(player_use.driver, grenade.held);
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Grenade)
+	);
+	assert!(!app.world().entities().contains(old_held));
+
+	commit_ready_holster(&mut app, actor);
+	assert!(
+		app.world().get::<GrenadeUser>(actor).is_none(),
+		"outgoing grenade relationship must be torn down"
+	);
+	let firearm = app.world().get::<FirearmUser>(actor).expect("incoming firearm relationship");
+	let player_use = app.world().get::<PlayerUse>(actor).expect("PlayerUse must survive the swap");
+	assert_eq!(player_use.driver, firearm.held);
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Firearm)
+	);
+}
+
+#[test]
+fn pause_before_holster_midpoint_does_not_commit() {
+	let mut app = stack_app();
+	let (actor, bag, _) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	assign(&mut app, actor);
+	insert_holster_at(&mut app, actor, EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01, false);
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	for _ in 0..30 {
+		app.update();
+	}
+	let holster = app.world().get::<EquipmentHolster>(actor).expect("holster");
+	assert!(
+		(holster.elapsed - (EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01)).abs() < 1e-4,
+		"paused actor holster must stay short of the commit midpoint"
+	);
+	assert!(!holster.swapped);
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Firearm)
+	);
+	assert_eq!(
+		app.world()
+			.get::<Inventory>(bag)
+			.and_then(|bag| bag.primary_weapon()?.firearm_mesh()),
+		Some(FirearmMesh::Bullpup)
+	);
+
+	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
+	app.update();
+	let holster = app.world().get::<EquipmentHolster>(actor).expect("holster");
+	assert!(holster.swapped, "resume must commit once the clock crosses the midpoint");
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Grenade)
+	);
+}
+
+#[test]
+fn pause_after_holster_midpoint_does_not_finish() {
+	let mut app = stack_app();
+	let (actor, _, _) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	assign(&mut app, actor);
+	insert_holster_at(&mut app, actor, EQUIPMENT_HOLSTER_SECS * 0.5 + 0.01, true);
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	for _ in 0..30 {
+		app.update();
+	}
+	let holster = app.world().get::<EquipmentHolster>(actor).expect("committed holster");
+	assert!(holster.swapped);
+	assert!(
+		(holster.elapsed - (EQUIPMENT_HOLSTER_SECS * 0.5 + 0.01)).abs() < 1e-4,
+		"paused actor holster must not finish after commit"
+	);
+	assert!(!holster.finished());
+}
+
+#[test]
+fn npc_holster_advances_while_the_local_actor_is_paused() {
+	let mut app = stack_app();
+	let (actor, _, _) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	let npc = app
+		.world_mut()
+		.spawn(EquipmentHolster {
+			elapsed: 0.0,
+			duration: EQUIPMENT_HOLSTER_SECS,
+			swapped: false,
+			reverse: false,
+		})
+		.id();
+	assign(&mut app, actor);
+	insert_holster_at(&mut app, actor, 0.0, false);
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	for _ in 0..10 {
+		app.update();
+	}
+	let actor_holster = app.world().get::<EquipmentHolster>(actor).expect("actor");
+	assert!(actor_holster.elapsed.abs() < 1e-4, "paused local actor holster must stay frozen");
+	let npc_holster = app.world().get::<EquipmentHolster>(npc).expect("npc");
+	assert!(
+		npc_holster.elapsed > 0.0,
+		"unrelated NPC holster must keep advancing during local pause"
+	);
+}

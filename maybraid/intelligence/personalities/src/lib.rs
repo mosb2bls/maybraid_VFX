@@ -17,6 +17,7 @@ use firearm_intelligence::{FirearmIntelligencePlugin, FirearmIntelligenceSystems
 use fleeing_intelligence::{FleeingPlugin, FleeingSystems};
 use hiding_intelligence::{HidingPlugin, HidingSystems};
 use maybraid_character_controller::CharacterControllerPlugin;
+use maybraid_locomotion_controller::LocomotionControllerPlugin;
 use meandering_intelligence::MeanderingIntelligencePlugin;
 use mob_intelligence::{MemberOf, Mob, MobIdAlloc, MobIntelligencePlugin};
 use mobs::{clamp_to_pad, spawn_mobs, spawn_needed_members, spawn_presence, PublicPresence};
@@ -59,6 +60,7 @@ impl Plugin for PersonalitiesPlaygroundPlugin {
 				..default()
 			})
 			.add_plugins(CharacterControllerPlugin)
+			.add_plugins(LocomotionControllerPlugin)
 			.add_plugins(PlayerPlugin)
 			.add_plugins(MovementIntelligencePlugin::<AvianMovementSurface<'_, '_>>::default())
 			.add_plugins(FirearmIntelligencePlugin)

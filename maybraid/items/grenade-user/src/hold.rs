@@ -4,21 +4,22 @@ use bevy::prelude::*;
 use bevy::transform::helper::TransformHelper;
 use character_inventory_user::InventoryUser;
 use character_items::{GrenadeStats, Inventory, InventoryItem};
-use character_rigs::Side;
 use character_rigs::arm_reach::{ArmReachPole, BodyReachSpace, OverhandThrow};
 use character_rigs::articulation::{
-	BONE_LENGTH_AXIS, TwoBoneAim, compose_parent_rotation, rotation_along_with_roll,
+	compose_parent_rotation, rotation_along_with_roll, TwoBoneAim, BONE_LENGTH_AXIS,
 };
 use character_rigs::authoring::{humanoid_bone_axis, humanoid_write_mask};
 use character_rigs::rigs::humanoid_v0::HumanoidV0Rig;
+use character_rigs::Side;
 use characters::{
-	AnimBone, AnimMailbox, AnimateBones, BoneMap, CharacterHeading, CharacterMembers, CharacterRig,
-	CharacterRigRole, CharacterRoot, MailboxApplySet, RigSkeletonKind, SuspendAnimation,
-	mailbox_apply_allows,
+	mailbox_apply_allows, AnimBone, AnimMailbox, AnimateBones, BoneMap, CharacterHeading,
+	CharacterMembers, CharacterRig, CharacterRigRole, CharacterRoot, MailboxApplySet,
+	RigSkeletonKind, SuspendAnimation,
 };
 use firearm_user::{HoldingArms, WeaponSwap};
-use grenades::{GrenadeMaterial, grenade_material, grenade_mesh};
-use player::{PlayerLook, PlayerUse, look_forward, yaw_xz};
+use grenades::{grenade_material, grenade_mesh, GrenadeMaterial};
+use maybraid_equipment::EquippedItemHandler;
+use player::{look_forward, yaw_xz, PlayerLook, PlayerUse};
 use std::f32::consts::FRAC_PI_2;
 
 use crate::throw::{GrenadePhase, GrenadeThrow, GrenadeUser, GrenadeUserSettings};
@@ -59,11 +60,13 @@ pub fn spawn_held_grenade(
 			HeldGrenade { scale: HELD_SCALE },
 		))
 		.id();
-	commands.entity(user).insert((
+	let mut entity = commands.entity(user);
+	entity.insert((
 		GrenadeUser { held, settings },
 		GrenadeThrow::default(),
 		PlayerUse { driver: held },
 	));
+	EquippedItemHandler::Grenade.install(&mut entity);
 	held
 }
 
