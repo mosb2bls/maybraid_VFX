@@ -1,5 +1,6 @@
 //! Sole routing owner. Controllers read assignments; they do not rediscover actors.
 
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
 use crate::actor::ActorTarget;
@@ -46,6 +47,16 @@ impl SourceAssignment {
 	}
 }
 
+/// Source lifecycle. Distinct from "no actor assigned yet".
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SourceConnection {
+	/// Live source. Empty assignment means the host may apply lowest-ID fallback.
+	#[default]
+	Connected,
+	/// Explicit disconnect. Host fallback must not assign; only [`InputRouter::connect`].
+	Disconnected,
+}
+
 /// Why the router emitted a lifecycle event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RoutingKind {
@@ -53,6 +64,10 @@ pub enum RoutingKind {
 	Reassigned,
 	Disconnected,
 	Removed,
+	/// First capture that blocked actor delivery.
+	Captured,
+	/// Last blocking capture released; actor delivery restored.
+	Uncaptured,
 	Suspended,
 	Resumed,
 }
@@ -61,8 +76,10 @@ impl RoutingKind {
 	/// Held-input and gesture effects for this kind.
 	pub const fn effects(self) -> (HoldEffect, GestureEffect) {
 		match self {
-			Self::Assigned | Self::Resumed => (HoldEffect::None, GestureEffect::None),
-			Self::Reassigned | Self::Disconnected | Self::Removed => {
+			Self::Assigned | Self::Resumed | Self::Uncaptured => {
+				(HoldEffect::None, GestureEffect::None)
+			}
+			Self::Reassigned | Self::Disconnected | Self::Removed | Self::Captured => {
 				(HoldEffect::ReleaseNeutral, GestureEffect::Cancel)
 			}
 			Self::Suspended => (HoldEffect::Freeze, GestureEffect::Freeze),
@@ -91,7 +108,10 @@ pub enum GestureEffect {
 }
 
 /// One routing lifecycle event with its hold / gesture contract.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// Published as a Bevy [`Message`] so each consumer's [`MessageReader`] cursor
+/// sees every event exactly once, regardless of schedule stage.
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RoutingEvent {
 	source: InputSource,
 	kind: RoutingKind,
@@ -142,13 +162,17 @@ impl Suspension {
 #[derive(Clone, Debug)]
 struct SourceBinding {
 	assignment: SourceAssignment,
-	connected: bool,
+	connection: SourceConnection,
 	suspensions: Vec<Suspension>,
 }
 
 impl Default for SourceBinding {
 	fn default() -> Self {
-		Self { assignment: SourceAssignment::empty(), connected: true, suspensions: Vec::new() }
+		Self {
+			assignment: SourceAssignment::empty(),
+			connection: SourceConnection::Connected,
+			suspensions: Vec::new(),
+		}
 	}
 }
 
@@ -182,8 +206,17 @@ impl InputRouter {
 		self.actor(InputSource::local_pad())
 	}
 
+	pub fn connection(&self, source: InputSource) -> SourceConnection {
+		self.binding(source).connection
+	}
+
 	pub fn connected(&self, source: InputSource) -> bool {
-		self.binding(source).connected
+		self.connection(source) == SourceConnection::Connected
+	}
+
+	/// Connected and waiting for the host's first (or next) actor.
+	pub fn awaiting_assignment(&self, source: InputSource) -> bool {
+		self.connected(source) && self.actor(source).is_none()
 	}
 
 	pub fn captures(&self) -> &CaptureStack {
@@ -230,7 +263,9 @@ impl InputRouter {
 	}
 
 	pub fn assign_actor(&mut self, source: InputSource, actor: ActorTarget) -> Option<ActorTarget> {
-		self.binding_mut(source).connected = true;
+		if !self.connected(source) {
+			return self.actor(source);
+		}
 		let previous = self.actor(source);
 		if previous == Some(actor) {
 			return previous;
@@ -244,7 +279,9 @@ impl InputRouter {
 	}
 
 	pub fn assign_ui(&mut self, source: InputSource, ui: UiTarget) -> Option<UiTarget> {
-		self.binding_mut(source).connected = true;
+		if !self.connected(source) {
+			return self.ui(source);
+		}
 		let previous = self.ui(source);
 		if previous == Some(ui) {
 			return previous;
@@ -258,12 +295,16 @@ impl InputRouter {
 	}
 
 	/// Host-only. If `source` already has an actor, keep it (no rediscovery).
-	/// Otherwise assign the lowest-ID candidate once.
+	/// Otherwise assign the lowest-ID candidate once, only while connected.
+	/// Disconnect stays disconnected until [`Self::connect`].
 	pub fn assign_lowest_id_actor(
 		&mut self,
 		source: InputSource,
 		candidates: impl IntoIterator<Item = Entity>,
 	) -> Option<ActorTarget> {
+		if !self.connected(source) {
+			return None;
+		}
 		if let Some(actor) = self.actor(source) {
 			return Some(actor);
 		}
@@ -316,12 +357,22 @@ impl InputRouter {
 
 	pub fn disconnect(&mut self, source: InputSource) -> bool {
 		let binding = self.binding_mut(source);
-		if !binding.connected && binding.assignment.is_empty() {
+		if binding.connection == SourceConnection::Disconnected && binding.assignment.is_empty() {
 			return false;
 		}
-		binding.connected = false;
+		binding.connection = SourceConnection::Disconnected;
 		binding.assignment = SourceAssignment::empty();
 		self.emit(source, RoutingKind::Disconnected);
+		true
+	}
+
+	/// Source-lifecycle reconnect. Does not assign; host fallback may run after.
+	pub fn connect(&mut self, source: InputSource) -> bool {
+		let binding = self.binding_mut(source);
+		if binding.connection == SourceConnection::Connected {
+			return false;
+		}
+		binding.connection = SourceConnection::Connected;
 		true
 	}
 
@@ -334,17 +385,26 @@ impl InputRouter {
 		if let Some(layer) = self.captures.find(source, owner, kind) {
 			return layer.token();
 		}
-		let token = CaptureToken::from_raw(self.mint());
-		self.captures.push(CaptureStack::new_layer(token, source, owner, kind));
+		let before = self.delivered_actor(source);
+		let token = self.push_capture(source, owner, kind);
+		self.emit_capture_transition(source, before);
 		token
 	}
 
 	pub fn release_capture(&mut self, token: CaptureToken) -> Option<CaptureLayer> {
-		self.captures.release(token)
+		let source = self.captures.layer(token).map(CaptureLayer::source)?;
+		let before = self.delivered_actor(source);
+		let layer = self.captures.release(token)?;
+		self.emit_capture_transition(source, before);
+		Some(layer)
 	}
 
 	pub fn release_owner(&mut self, owner: ScopeOwner) -> Vec<CaptureLayer> {
-		self.captures.release_owner(owner)
+		let source = InputSource::local_pad();
+		let before = self.delivered_actor(source);
+		let released = self.captures.release_owner(owner);
+		self.emit_capture_transition(source, before);
+		released
 	}
 
 	/// Replace `token`'s capture without releasing any other owner.
@@ -362,16 +422,25 @@ impl InputRouter {
 				}) {
 					return Some(current);
 				}
-				self.release_capture(current);
-				*token = None;
 			}
-			let next = self.acquire_capture(source, owner, kind);
+			let before = self.delivered_actor(source);
+			if let Some(current) = token.take() {
+				self.captures.release(current);
+			}
+			let next = if let Some(layer) = self.captures.find(source, owner, kind) {
+				layer.token()
+			} else {
+				self.push_capture(source, owner, kind)
+			};
 			*token = Some(next);
+			self.emit_capture_transition(source, before);
 			Some(next)
 		} else {
+			let before = self.delivered_actor(source);
 			if let Some(current) = token.take() {
-				self.release_capture(current);
+				self.captures.release(current);
 			}
+			self.emit_capture_transition(source, before);
 			None
 		}
 	}
@@ -427,8 +496,38 @@ impl InputRouter {
 		resumed
 	}
 
+	/// Unpublished buffer. Production consumers use [`MessageReader<RoutingEvent>`].
 	pub fn take_events(&mut self) -> Vec<RoutingEvent> {
 		std::mem::take(&mut self.events)
+	}
+
+	pub fn publish_events(&mut self, writer: &mut MessageWriter<RoutingEvent>) {
+		for event in self.take_events() {
+			writer.write(event);
+		}
+	}
+
+	fn push_capture(
+		&mut self,
+		source: InputSource,
+		owner: ScopeOwner,
+		kind: CaptureKind,
+	) -> CaptureToken {
+		let token = CaptureToken::from_raw(self.mint());
+		self.captures.push(CaptureStack::new_layer(token, source, owner, kind));
+		token
+	}
+
+	fn emit_capture_transition(&mut self, source: InputSource, before: Option<ActorTarget>) {
+		let after = self.delivered_actor(source);
+		if before == after {
+			return;
+		}
+		if before.is_some() && after.is_none() {
+			self.emit(source, RoutingKind::Captured);
+		} else if before.is_none() && after.is_some() {
+			self.emit(source, RoutingKind::Uncaptured);
+		}
 	}
 
 	fn emit(&mut self, source: InputSource, kind: RoutingKind) {
@@ -452,6 +551,49 @@ impl InputRouter {
 			InputSource::LocalPad => &mut self.local,
 		}
 	}
+}
+
+/// Mutate [`InputRouter`] and publish lifecycle events as Bevy messages.
+///
+/// Drop flushes so later stages in the same frame see this system's events.
+#[derive(SystemParam)]
+pub struct InputRouting<'w> {
+	router: ResMut<'w, InputRouter>,
+	events: MessageWriter<'w, RoutingEvent>,
+}
+
+impl InputRouting<'_> {
+	pub fn publish(&mut self) {
+		self.router.publish_events(&mut self.events);
+	}
+}
+
+impl std::ops::Deref for InputRouting<'_> {
+	type Target = InputRouter;
+
+	fn deref(&self) -> &InputRouter {
+		&self.router
+	}
+}
+
+impl std::ops::DerefMut for InputRouting<'_> {
+	fn deref_mut(&mut self) -> &mut InputRouter {
+		&mut self.router
+	}
+}
+
+impl Drop for InputRouting<'_> {
+	fn drop(&mut self) {
+		self.publish();
+	}
+}
+
+/// Safety net for callers that still mutate [`InputRouter`] without [`InputRouting`].
+pub fn publish_routing_events(
+	mut router: ResMut<InputRouter>,
+	mut writer: MessageWriter<RoutingEvent>,
+) {
+	router.publish_events(&mut writer);
 }
 
 #[cfg(test)]
@@ -507,8 +649,13 @@ mod tests {
 		router.assign_ui(source, ui(8));
 		router.take_events();
 		assert!(router.disconnect(source));
+		assert_eq!(router.connection(source), SourceConnection::Disconnected);
 		assert!(!router.connected(source));
+		assert!(!router.awaiting_assignment(source));
 		assert!(router.assignment(source).is_empty());
+		assert_eq!(router.assign_lowest_id_actor(source, [Entity::from_bits(3)]), None);
+		assert_eq!(router.assign_actor(source, actor(4)), None);
+		assert_eq!(router.actor(source), None);
 		assert_eq!(router.delivered_actor(source), None);
 		assert_eq!(router.delivered_ui(source), None);
 		assert_release_cancel(last_event(&mut router), RoutingKind::Disconnected);
@@ -554,12 +701,46 @@ mod tests {
 		let mut router = InputRouter::default();
 		let source = InputSource::local_pad();
 		router.assign_actor(source, actor(7));
+		router.take_events();
 		let token = router.acquire_capture(source, ScopeOwner::ui(ui(9)), CaptureKind::MenuNav);
 		assert_eq!(router.actor(source), Some(actor(7)));
 		assert_eq!(router.delivered_actor(source), None);
 		assert_eq!(router.delivered_ui(source), Some(ui(9)));
+		assert_release_cancel(last_event(&mut router), RoutingKind::Captured);
 		router.release_capture(token);
 		assert_eq!(router.delivered_actor(source), Some(actor(7)));
+		assert_eq!(last_event(&mut router).kind(), RoutingKind::Uncaptured);
+	}
+
+	#[test]
+	fn nested_captures_emit_only_on_effective_delivery_change() {
+		let mut router = InputRouter::default();
+		let source = InputSource::local_pad();
+		router.assign_actor(source, actor(7));
+		router.take_events();
+		let first = router.acquire_capture(source, ScopeOwner::ui(ui(1)), CaptureKind::MenuNav);
+		assert_eq!(router.take_events().len(), 1);
+		let second = router.acquire_capture(source, ScopeOwner::ui(ui(2)), CaptureKind::Overlay);
+		assert!(router.take_events().is_empty());
+		router.release_capture(second);
+		assert!(router.take_events().is_empty());
+		router.release_capture(first);
+		assert_eq!(last_event(&mut router).kind(), RoutingKind::Uncaptured);
+	}
+
+	#[test]
+	fn connect_is_the_only_reconnect() {
+		let mut router = InputRouter::default();
+		let source = InputSource::local_pad();
+		assert!(router.awaiting_assignment(source));
+		assert_eq!(router.assign_lowest_id_actor(source, [Entity::from_bits(2)]), Some(actor(2)));
+		router.take_events();
+		router.disconnect(source);
+		router.take_events();
+		assert_eq!(router.assign_lowest_id_actor(source, [Entity::from_bits(2)]), None);
+		assert!(router.connect(source));
+		assert!(router.awaiting_assignment(source));
+		assert_eq!(router.assign_lowest_id_actor(source, [Entity::from_bits(2)]), Some(actor(2)));
 	}
 
 	#[test]

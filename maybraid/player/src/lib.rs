@@ -101,6 +101,7 @@ impl Plugin for PlayerPlugin {
 		MotorRequestStage::configure(app);
 		app.init_resource::<CharacterLocomotion>()
 			.init_resource::<maybraid_controllers_core::InputRouter>()
+			.add_message::<maybraid_controllers_core::RoutingEvent>()
 			.add_systems(Update, assign::assign_local_player.before(CharacterControlSystems))
 			.configure_sets(
 				Update,

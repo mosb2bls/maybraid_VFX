@@ -14,7 +14,10 @@ release another. Assignment loss clears delivery.
 
 Controllers read the router; they never rediscover a "current player". The
 lowest-ID Player fallback is resolved once at the host assignment boundary
-([`InputRouter::assign_lowest_id_actor`](src/router.rs)).
+([`InputRouter::assign_lowest_id_actor`](src/router.rs)) while the source is
+connected. Reconnect is [`InputRouter::connect`](src/router.rs). Lifecycle
+events are [`RoutingEvent`](src/router.rs) messages; use `MessageReader`, not
+`take_events`.
 
 Schedule contract: generic [`ControllerPipeline`](src/schedule.rs) stages.
 Domain ordering lives beside domain systems. Plugin install order is not the
