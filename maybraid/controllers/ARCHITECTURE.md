@@ -55,7 +55,7 @@ and `RoutingEvent` cancel / freeze. Phase 4 realizes session capabilities
 and pause tokens. Phase 5 addresses UseItem / PowerUseItem through
 [`dispatch_equipped_item`](character/src/dispatch.rs) (D1), stamps
 [`EquippedItemHandler`](character/src/dispatch.rs) at inventory / holster
-commit, and hands recoil through [`CameraRecoilHandoff`](../player-camera/src/look.rs).
+commit, and hands recoil through [`CameraRecoilHandoff`](../player/camera/src/look.rs).
 Character produce is still a broadcast adapter for look / shell / queue
 intents; item interpreters consume D1, not the pad.
 
@@ -257,14 +257,14 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | `MotorIntent` suppress | `apply_world_motor_filter` | `world/lib/src/control.rs` | `WORLD_GAMEPLAY` on Player; `SIMULATION` on every `CharacterController` when the Simulation bit is absent | P3 WorldFilter. Token-owned; zeros leftover vegetation `MoveWish`. |
 | `MotorIntent` NPC | `drive_movement` | `intelligence/movement` | `MovementIntelligence` | A6. Declares. |
 | `MotorIntent` recovery | `realize_movement` | `movement-realization` | `MotorModifier::Recovery` | P3 modifier. |
-| `MotorIntent` separation | `declare_npc_soft_bump` | `player/src/separation.rs` | `MotorModifier::Separation` | P3 modifier. |
-| `ResolvedMotorRequest` | `compose_motor` | `player/src/motor.rs` | Tanz else NPC else Standard; then modifiers / suppression | Composition only. |
-| `MoveWish` / `JumpWish` / `Sprinting` / `MoveSpeedCap` | `apply_motor` | `player/src/motor.rs` | composed request | **Only apply path.** |
+| `MotorIntent` separation | `declare_npc_soft_bump` | `player/lib/src/separation.rs` | `MotorModifier::Separation` | P3 modifier. |
+| `ResolvedMotorRequest` | `compose_motor` | `player/lib/src/motor.rs` | Tanz else NPC else Standard; then modifiers / suppression | Composition only. |
+| `MoveWish` / `JumpWish` / `Sprinting` / `MoveSpeedCap` | `apply_motor` | `player/lib/src/motor.rs` | composed request | **Only apply path.** |
 | mode flip | `TanzUser::apply_toggle` / `set_mode` | `items/tanz-user/src/lib.rs` | bumper chord / agent | Clears execution only. Contributor loss releases stale sprint / jump / cap. |
 | vegetation `MoveWish` / `MovementAction` | `keyboard_movement_input` | `world/player/src/player.rs` | `PadMovementEnabled` (false in Discovery) | Playground host only. Discovery duplicate removed. |
 | velocity | `apply_character_movement` | `world/player/src/player.rs` | `VegetationPlayerMotor` (false in Discovery) | Playground host motor. |
-| `CameraController` look / POV | `apply_look_intents` | `player-camera/src/look.rs` | `CameraLookSuppressed`, `CameraPovLocked`, `delivered_actor` | C1–C4. **Phase 5.** |
-| Follow camera recoil yaw / pitch | `apply_recoil_handoff` | `player-camera/src/look.rs` | `CameraRecoilHandoff` from `WeaponFired` | C5. **Phase 5.** Sole follow-yaw recoil writer. |
+| `CameraController` look / POV | `apply_look_intents` | `player/camera/src/look.rs` | `CameraLookSuppressed`, `CameraPovLocked`, `delivered_actor` | C1–C4. **Phase 5.** |
+| Follow camera recoil yaw / pitch | `apply_recoil_handoff` | `player/camera/src/look.rs` | `CameraRecoilHandoff` from `WeaponFired` | C5. **Phase 5.** Sole follow-yaw recoil writer. |
 | `EquippedItemHandler` | `hold_primary_weapon` / `commit_weapon_swap` | `world/lib/src/weapon.rs` | inventory primary at arm / holster commit | D1 stamp. **Phase 5.** |
 | `EquippedItemUse` / `EquippedPowerUse` | `dispatch_equipped_item` | `controllers/character/src/dispatch.rs` | `delivered_actor` + handler | D1. **Phase 5.** Sole Bind writer. |
 | `WeaponTrigger` (player) | `apply_fire_intents` | `items/firearm-user/src/fire.rs` | `Player` + addressed firearm use | D2. **Phase 5.** |
@@ -281,7 +281,7 @@ phase. Phase 1 inventories them and migrates menu dispatch only.
 | `controllers/character/src/produce.rs` | `VirtualPad` | A2 (this **is** the character Bind reader) | keep; later route the output |
 | `controllers/menu/src/dispatch.rs` | `MenuNavPad` (derived, not raw HID) | A2 surface | keep |
 | `items/tanz-user` | — | `RoutedActorControl` (A5 / U2) | **Phase 3 migrated** |
-| `skill-map/src/controller.rs` / `cursor.rs` | — | `RoutedActorControl` + addressed `SkillMapFlick` | **Phase 3 migrated** |
+| `items/skill-map/src/controller.rs` / `cursor.rs` | — | `RoutedActorControl` + addressed `SkillMapFlick` | **Phase 3 migrated** |
 | `items/firearm-user/src/fire.rs` | — | D1 `EquippedItemUse` | **Phase 5 migrated** |
 | `game/src/lib.rs` `toggle_world_pause` | `VirtualPad` (A vs Start) | B8 | 4 |
 | `world/lib/src/player_lifecycle.rs` `drive_respawn_picker` | `VirtualPad` stick / D-pad | shell | 5 |

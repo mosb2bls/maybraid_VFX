@@ -1,7 +1,7 @@
 # Locomotion controller
 
 Ordinary locomotion: pad [`CharacterIntent`](../character/src/intent.rs) move /
-jump / sprint / stance become a [`MotorIntent`](../../player/src/motor.rs)
+jump / sprint / stance become a [`MotorIntent`](../../player/lib/src/motor.rs)
 sample on [`InputRouter::delivered_local_actor`](../core/src/router.rs).
 Disconnect and the first blocking capture emit `RoutingEvent` with
 `HoldEffect::ReleaseNeutral`; the motor reads those via `MessageReader` and

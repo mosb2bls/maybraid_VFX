@@ -1072,7 +1072,7 @@ mod tests {
 
 	#[test]
 	fn kenney_steer_and_fire_icons_are_in_the_asset_tree() {
-		let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+		let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
 		assert!(root.join(SKILL_MAP_RB_ICON).is_file());
 		assert!(root.join(SKILL_MAP_RT_ICON).is_file());
 		assert!(root.join(SKILL_MAP_Y_ICON).is_file());

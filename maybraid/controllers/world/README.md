@@ -25,7 +25,7 @@ Standard ↔ Tanzer is per-actor participation, written once on change. It
 does not restamp a global mode table.
 
 Item / camera / Lubikan interpreters join this session after Bind.
-[`PlayerSystems::Intent`](../../player/src/lib.rs) is ordered after
+[`PlayerSystems::Intent`](../../player/lib/src/lib.rs) is ordered after
 [`SessionCapabilitySystems`](src/lib.rs) so item realization sees the
 same-frame pause. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the phase 5
 D1–D7 and C5 contracts.

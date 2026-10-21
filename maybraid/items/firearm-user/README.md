@@ -6,13 +6,13 @@ index on the gun. Hold / aim knobs live on [`FirearmUserSettings`](src/lib.rs)
 (defaults match the firing-range bullpup).
 
 Pose and arm IK key off the user's [`CharacterRoot`](../../world/layers/mobs/characters/lib/src/member.rs)
-child, so an [`Npc`](../../player/src/identity.rs) holds the same way as the
+child, so an [`Npc`](../../player/lib/src/identity.rs) holds the same way as the
 player. Player fire consumes addressed
 [`EquippedItemUse`](../../controllers/character/src/dispatch.rs) (D1) and
 cancels a held trigger from [`RoutingEvent`](../../controllers/core/src/router.rs)
 (`MessageReader`; capture / disconnect / reassignment / removal). NPCs keep
 the intelligence [`WeaponTrigger`](../firearms/src/projectiles.rs) writer. The
-world reticle stays on the followed [`Player`](../../player/src/identity.rs).
+world reticle stays on the followed [`Player`](../../player/lib/src/identity.rs).
 See [ARCHITECTURE.md](../../controllers/ARCHITECTURE.md).
 The two-bone reach resolves humerus roll with a closed-form signed angle rather
 than sampling trial poses. Hold posing runs only for actively animated,
@@ -23,8 +23,8 @@ at the equipment boundary. Headless clocks, fire, and recoil use
 [`register_firearm_user_runtime`](src/lib.rs); pose / reticle / audio stay on
 [`FirearmUserPlugin`](src/lib.rs).
 
-Writes player handoff slots ([`PlayerUse`](../../player/src/identity.rs),
-[`PlayerCameraAim`](../../player/src/identity.rs),
+Writes player handoff slots ([`PlayerUse`](../../player/lib/src/identity.rs),
+[`PlayerCameraAim`](../../player/lib/src/identity.rs),
 [`WeaponTrigger`](../firearms/src/projectiles.rs)) and poses the kit + arm IK.
 `PlayerLook` follows the camera's −Z convention; the pose reverses the local X
 rotation when applying that pitch to the firearm's +Z bore.
@@ -44,7 +44,7 @@ strength; the direction is hashed from the weapon identity and shot index so
 the same gun repeats the same pattern. Each kick lerps along that path over
 80 ms instead of snapping. [`WeaponFired`](../firearms/src/projectiles.rs)
 queues the pattern; the camera is the only follow-yaw writer via
-[`CameraRecoilHandoff`](../../player-camera/src/look.rs). NPCs get the look
+[`CameraRecoilHandoff`](../../player/camera/src/look.rs). NPCs get the look
 kick; [`firearm-intelligence`](../../intelligence/combat/firearm/)
 observes and skill-recovers that displacement instead of overwriting it.
 Lasers emit recoil `0` and do not kick. Default spawn is a
