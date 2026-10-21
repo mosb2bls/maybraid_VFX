@@ -246,11 +246,11 @@ impl MotorIntent {
 		}
 	}
 
-	pub fn suppressed_by(self, token: MotorSuppressionToken) -> bool {
+	pub fn suppressed_by(&self, token: MotorSuppressionToken) -> bool {
 		self.suppressions.iter().any(|slot| *slot == Some(token))
 	}
 
-	pub fn suppressed(self) -> bool {
+	pub fn suppressed(&self) -> bool {
 		self.suppressions.iter().any(Option::is_some)
 	}
 
