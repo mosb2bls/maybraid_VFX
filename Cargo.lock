@@ -9115,6 +9115,7 @@ dependencies = [
  "lod-avian",
  "maybraid-audio",
  "maybraid-character-controller",
+ "maybraid-controllers-core",
 ]
 
 [[package]]

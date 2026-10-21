@@ -5,9 +5,11 @@ the current stick / trigger. Digital is a press or release edge. Chords are
 resolved here so consumers do not re-read the pad.
 
 Bind runs in [`ControllerPipeline::Bind`](../core/src/schedule.rs) from
-[`controllers/core`](../core/README.md). Intents are still a process-wide
-[`CharacterIntent`](src/intent.rs) broadcast — that adapter is removed as
-consumers become actor-addressed (phases 2–5). See
+[`controllers/core`](../core/README.md). Produce runs only when
+[`InputRouter`](../core/src/router.rs) has a host-assigned actor. Intents are
+still a process-wide [`CharacterIntent`](src/intent.rs) broadcast — that
+adapter is removed as consumers become actor-addressed (phases 2–5). The
+lowest-ID `Player` fallback is resolved once in `player`, not here. See
 [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 `RightTrigger` + `X` is `PowerUseItem` and suppresses `StartInteraction`.

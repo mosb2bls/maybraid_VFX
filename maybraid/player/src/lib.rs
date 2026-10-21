@@ -1,5 +1,6 @@
 //! Capsule player, visual, and handoff slots for camera / pose drivers.
 
+mod assign;
 mod body;
 mod buoyancy;
 mod contact;
@@ -89,6 +90,8 @@ impl Plugin for PlayerPlugin {
 			app.add_plugins(PlayerPresentationPlugin);
 		}
 		app.init_resource::<CharacterLocomotion>()
+			.init_resource::<maybraid_controllers_core::InputRouter>()
+			.add_systems(Update, assign::assign_local_player.before(CharacterControlSystems))
 			.configure_sets(
 				Update,
 				(

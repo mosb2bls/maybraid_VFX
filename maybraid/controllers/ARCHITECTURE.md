@@ -38,9 +38,10 @@ Device input (A1) → virtual-pad controller (A2) → input-routing controller (
 NPC movement controller (A6) → MotorIntent
 ```
 
-Phase 1 realizes A3 (routing + capture vocabulary), U1–U5, M1 targeting, and
-P1–P4 as named `SystemSet`s. Motor request writers and actor-addressed
-character intents stay on adapters until phases 2–5.
+Phase 1 realizes A3 as the sole [`InputRouter`](core/src/router.rs), U1–U6
+contracts (assignment, token-scoped capture / suspension, hold / gesture
+effects), M1 targeting, and P1–P4 as **generic** `SystemSet`s. Motor request
+writers and broadcast `CharacterIntent` stay on adapters until phases 2–5.
 
 ## Dependency direction
 
@@ -48,7 +49,7 @@ character intents stay on adapters until phases 2–5.
 bevy / maybraid-input
         ▲
         │
-controllers/core          (targeting, capture, schedule — no game deps)
+controllers/core          (router, capture, generic schedule — no game deps)
         ▲
         │
 controllers/character     controllers/menu     controllers/world
@@ -83,20 +84,29 @@ Update
     CharacterControlSystems ⊂ Bind   (temporary alias)
   camera / item / shell branch       (C*, D*, E*) after Bind
   ControllerPipeline::Interpret      (P2)  empty in phase 1
-  ControllerPipeline::MotorRequest   (P3)
-    MotorRequestStage::Standard
-    MotorRequestStage::Tanz
-    MotorRequestStage::WorldFilter
+  ControllerPipeline::MotorRequest   (P3)  generic; domain order beside domain systems
   ControllerPipeline::Motor          (P4)  PlayerSystems::Body (not joined yet)
 
 PostUpdate
   PadRumbleSystems
 ```
 
-`ControllerPipeline` / `MotorRequestStage` are the contract. Plugin install
-order is not. The named motor-request sets are registered in phase 1 so later
-PRs can move writers without renaming the graph. Phase 2 keeps this order and
-replaces overwrite priority with one resolver.
+`ControllerPipeline` is the shared schedule contract. Plugin install order is
+not. Tanz / Standard / WorldFilter names do **not** belong in generic core;
+phase 2 registers those sets beside locomotion / Tanz / world systems.
+
+`InputRouter` is the sole routing owner. Sources have an explicit actor and
+optional UI assignment. Assignment loss, disconnect, and removal clear
+delivery and emit `HoldEffect::ReleaseNeutral` + `GestureEffect::Cancel`.
+Suspension emits `HoldEffect::Freeze` + `GestureEffect::Freeze`. Captures and
+suspensions are token- and owner-scoped: releasing one owner cannot release
+another.
+
+Controllers read `InputRouter::actor` / `delivered_actor`. They never
+rediscover a "current player". The lowest-ID `Player` fallback is resolved
+**once** at the host assignment boundary
+(`InputRouter::assign_lowest_id_actor`, called from `player`'s
+`assign_local_player`).
 
 Same-frame pause and capture (invariant 10): menu focus + capture write run
 in the same `Update` chain as dispatch. Pause still zeros wishes in the world
@@ -114,9 +124,9 @@ the phase 1 owner. Later phases change the owner column, not the role id.
 |---|---|---|---|---|---|---|
 | A1 | Device HID | `bevy_input` `Gamepad` / `ButtonInput` / mouse; Apple `hid/gamecontroller.rs` | OS / gilrs / GameController | `input::produce::{keyboard,mouse,gamepad}` | `VirtualPadPlugin` | Hardware only. Stays in `input`. |
 | A2 | Virtual-pad controller | `VirtualPad`, `VirtualPadSystems` | A1 producers + `PadOverlay` | A3–A5, plus leftover hardware readers below | `VirtualPadPlugin` | Canonical analog + edges. |
-| A3 | Input-routing controller | `InputSource`, `Routed<T>`, `RouteTarget` | A2 (`InputSource::LocalPad`) | A4 / A5 / U5 | `ControllersCorePlugin` | New in phase 1. One local pad. |
+| A3 | Input-routing controller | `InputRouter`, `InputSource`, `Routed<T>`, `RouteTarget` | A2 (`InputSource::LocalPad`) | A4 / A5 / U5 / U6 | `ControllersCorePlugin` | Sole owner of assignment, capture, and suspension. One local pad. |
 | A4 | Menu controller | `MenuControllerPlugin`, `refresh_menu_focus`, `dispatch_menu_nav` | A2 `MenuNavPad` | M2 via `MenuNavImpulse` | `MenuControllerPlugin` | Targeted path (see M1). |
-| A5 | Character controller | `produce_character_intents` → `CharacterIntent` | A2 `VirtualPad` | B* consumers via broadcast `Messages` | `CharacterControllerPlugin` | Bind only; still untargeted. |
+| A5 | Character controller | `produce_character_intents` → `CharacterIntent` | A2 `VirtualPad` + `InputRouter::actor` | B* consumers via broadcast `Messages` | `CharacterControllerPlugin` | Bind only. Produces only when the host has assigned an actor; payload is still an untargeted broadcast (adapter). |
 | A6 | NPC movement controller | `intelligence::movement::drive_movement` | planner / `MovementIntelligence` | `player::MoveWish` | movement-intelligence plugin | Writes the motor wish directly. Phase 2 → `MotorIntent`. |
 
 ### B — character / actor samples
@@ -174,19 +184,19 @@ the phase 1 owner. Later phases change the owner column, not the role id.
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
-| U1 | Source routing | `InputSource` | A3 | `Routed`, `CaptureLayer` | `controllers/core` | Local pad only. |
-| U2 | Actor routing | `ActorTarget` | hosts (none yet) | future B* / motor | `controllers/core` | Vocabulary only in phase 1. |
-| U3 | UI routing | `UiTarget`, `RouteTarget::Ui` | A4 | M1 / M2 | `controllers/core` + menu | Used by the migrated menu path. |
+| U1 | Source routing | `InputSource` | A3 | `Routed`, `CaptureLayer`, `InputRouter` | `controllers/core` | Local pad only. |
+| U2 | Actor routing | `ActorTarget`, `InputRouter::actor` | host `assign_local_player` | A5; future B* / motor | `InputRouter` (sole owner) | Lowest-ID `Player` assigned **once** at the host boundary. Controllers do not rediscover. |
+| U3 | UI routing | `UiTarget`, `RouteTarget::Ui`, `InputRouter::ui` | A4 capture; host `assign_ui` | M1 / M2 | `InputRouter` | Menu path uses token-scoped capture; UI assignment is available for hosts. |
 | U4 | Focus pick | `MenuController::pick_focus` / `resolve` | screen subtree | A4 | `MenuController` | Overlay > HUD > text. |
-| U5 | Scoped capture | `CaptureStack`, `CaptureLayer`, `CaptureKind` | A4 `refresh_menu_focus` | A4 `dispatch_menu_nav` | `ControllersCorePlugin` | Menu-nav layer only. Nested pop is implemented; hosts do not yet nest text/overlay independently. Phase 4. |
-| U6 | Suspension | (missing) | — | — | — | Phase 4. Input blocking ≠ simulation halt. |
-| U7 | Lifecycle cleanup | Tanz `reset_input` / `apply_toggle`; death despawn | mode flip, death | wishes, execution, items | per-domain | No shared uninstall. Phase 4–5. |
+| U5 | Scoped capture | `CaptureToken`, `ScopeOwner`, `CaptureStack` via `InputRouter` | A4 `refresh_menu_focus` (`MenuNavCapture`) | A4 `dispatch_menu_nav` | `InputRouter` | Token- and owner-scoped. Releasing one owner cannot release another. Menu-nav layer only today. Phase 4 nests text/overlay independently. |
+| U6 | Suspension | `SuspensionToken`, `InputRouter::suspend` / `resume` / `resume_owner` | hosts (none live yet) | future E4 / phase 4 | `InputRouter` | Vocabulary + effects. Input blocking ≠ simulation halt. Phase 4 installs participation. |
+| U7 | Lifecycle cleanup | `RoutingEvent` hold / gesture effects; Tanz `reset_input` / `apply_toggle`; death despawn | A3 events; mode flip; death | wishes, execution, items | `InputRouter` + per-domain | Router defines reassignment / disconnect / removal / suspension effects. Domain uninstall is phase 4–5. |
 
 ### M — menu
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
-| M1 | Menu controller | `MenuController`, `ExclusiveNav`, `dispatch_menu_nav` | A2 `MenuNavPad` | M2 | `MenuControllerPlugin` | **Phase 1 migrated path.** `Routed<MenuNav>` → `MenuNavImpulse` on one `UiTarget`. Exclusive modal nav writes `CaptureStack`. |
+| M1 | Menu controller | `MenuController`, `ExclusiveNav`, `dispatch_menu_nav` | A2 `MenuNavPad` | M2 | `MenuControllerPlugin` | **Phase 1 migrated path.** `Routed<MenuNav>` → `MenuNavImpulse` on one `UiTarget`. Exclusive modal nav acquires a `CaptureToken` on `InputRouter`. |
 | M2 | Menu consumer | `On<MenuNavImpulse>` in `TextMenu`, `HudMenu`, scroll, short-text, screens, playground prompts | M1 | widget state, `MenuActivate` | each widget | Already entity-addressed. Keep. |
 
 ### P — pipeline / motor
@@ -195,7 +205,7 @@ the phase 1 owner. Later phases change the owner column, not the role id.
 |---|---|---|---|---|---|---|
 | P1 | Bind | `ControllerPipeline::Bind` | A4, A5 | C* / D* / E* / B11 | `ControllersCorePlugin` | Live. Character produce + menu dispatch. |
 | P2 | Interpret | `ControllerPipeline::Interpret` | — | — | core | Empty. Phase 2. |
-| P3 | Motor request | `ControllerPipeline::MotorRequest` + `MotorRequestStage::{Standard,Tanz,WorldFilter}` | B11, B12, A6 | P4 | core graph; writers still outside the sets | Phase 2 joins writers. |
+| P3 | Motor request | `ControllerPipeline::MotorRequest` | B11, B12, A6 | P4 | core graph; writers still outside the set | Phase 2 joins writers and places domain order beside those systems. |
 | P4 | Motor apply | `PlayerSystems::Body` (`apply_wish_movement`, jump, stance hulls) | P3 wishes | capsule velocity | `PlayerPlugin` | One apply path already. Request side still has several writers. |
 
 ## Realized-state writer inventory
@@ -249,7 +259,7 @@ applies the last sample to **every** matching entity.
 
 | Path | Mechanism | Phase 1 | Removal |
 |---|---|---|---|
-| **Menu nav (M1)** | `Routed<MenuNav>` → `MenuNavImpulse` on one `UiTarget`; exclusive modal writes `CaptureStack` | **Migrated** | — |
+| **Menu nav (M1)** | `Routed<MenuNav>` → `MenuNavImpulse` on one `UiTarget`; exclusive modal acquires a `CaptureToken` | **Migrated** | — |
 | `CharacterIntent` (B1–B11) | `MessageWriter` / `MessageReader`, no actor | adapter | 2–5 per consumer |
 | `apply_move_intents` | reads broadcast, writes every `Player` + `CharacterController` | adapter | 2 |
 | `apply_intents_to_movement` | same, every vegetation + player wish | adapter | 2 |
@@ -266,18 +276,32 @@ Do not add a second copy of these. Remove in the named phase.
 
 | Adapter | Why it exists | Removal |
 |---|---|---|
-| Broadcast `CharacterIntent` | Consumers are not actor-addressed yet. A5 still binds from the local pad into a process-wide message. | Phases 2–5 as each consumer takes `Routed` / `ActorTarget`. |
+| Broadcast `CharacterIntent` | Consumers are not actor-addressed yet. A5 binds only when `InputRouter` has an actor, then still writes a process-wide message. | Phases 2–5 as each consumer takes `Routed` / `ActorTarget`. Duplicate character / locomotion producers are removed as descendants update. |
 | `CharacterControlSystems` ⊂ `Bind` | Existing `.after(CharacterControlSystems)` hosts (player intent, Tanz, world cycling, stash, Lubikan). | Phase 2: those hosts join `ControllerPipeline` sets. |
-| `MotorRequestStage` sets with no members | Graph from [#1394](https://github.com/ramate-io/maybraid/pull/1394) so phase 2 can move writers without renaming. | Phase 2 joins Standard / Tanz / WorldFilter. |
+| Domain motor-request order not in core | Tanz / Standard / WorldFilter names were removed from generic core. | Phase 2 registers those sets beside locomotion / Tanz / world. |
 | `PlayerSystems::{Intent,Body}` outside P3 / P4 | Motor apply is already one path; request writers are not in the pipeline sets. | Phase 2. |
-| World adapter live `player::MoveWish` write | Discovery vegetation + pause zeroing share `apply_intents_to_movement`. | Phase 2 (WorldFilter zeros only; vegetation motor removed). |
+| World adapter live `player::MoveWish` write | Discovery vegetation + pause zeroing share `apply_intents_to_movement`. | Phase 2 (world filter zeros only; vegetation motor removed). |
 | `MenuOwnsBack` written from menu focus | Character Bind still consults it to skip stance. Capture should own **B**. | Phase 4 (U5 / U6). |
-| `ExclusiveNav` fallback in `dispatch_menu_nav` when `CaptureStack` has no menu layer | Hosts that run dispatch without `refresh_menu_focus` (or before it). Refresh always writes the layer when the plugin is installed. | Phase 4 once every host goes through refresh. |
+| `ExclusiveNav` fallback in `dispatch_menu_nav` when the router has no menu capture | Hosts that run dispatch without `refresh_menu_focus` (or before it). Refresh always acquires the token when the plugin is installed. | Phase 4 once every host goes through refresh. |
 | `exclusive_nav_menu` free function | Thin wrapper around `ExclusiveNav::resolve` for existing imports. | Phase 4. |
 | `PadGameplayEnabled` + `KeyboardPadMap` lanes | Global table, not participation install. | Phase 4. |
 | `OrdinaryLocomotionEnabled` pad-level resource | Any Tanzer flips walking for everyone. [#1395](https://github.com/ramate-io/maybraid/pull/1395) per-actor flag is the review baseline. | Phase 2 / 4. |
 | Direct `VirtualPad` / `Gamepad` reads in the hardware table | Bind is the only blessed reader. | Phases 3 and 5. |
-| `ActorTarget` unused by a live path | Vocabulary for phases 2–5. Menu uses `UiTarget` so the crate is not abstraction-only. | Used as soon as B11 is addressed. |
+
+## Routing contracts
+
+| Event | Held inputs | Accumulated gestures | Delivery |
+|---|---|---|---|
+| First assign | `HoldEffect::None` | `GestureEffect::None` | Source delivers to the assigned actor / UI |
+| Reassignment | `ReleaseNeutral` | `Cancel` | Old target loses the source; new target receives later samples |
+| Disconnect | `ReleaseNeutral` | `Cancel` | Assignment cleared; `delivered_*` is `None` |
+| Removal (actor / UI gone, or host `clear_*`) | `ReleaseNeutral` | `Cancel` | That side of the assignment is cleared |
+| Suspension | `Freeze` | `Freeze` | Assignment kept; `delivered_*` is `None` until resume |
+| Resume | `None` | `None` | Delivery returns if still assigned and not captured |
+
+Capture redirects / blocks actor delivery without clearing the assignment.
+Releasing `CaptureToken` / `SuspensionToken` A, or `ScopeOwner` A, cannot
+release owner B.
 
 ## Invariants (checklist)
 
@@ -299,7 +323,7 @@ later PRs do not drift.
 
 Useful commits may be pulled from these branches; do not push to them.
 
-- [#1394](https://github.com/ramate-io/maybraid/pull/1394) `9ba9504d` — explicit `ControllerPipeline` / `MotorRequestStage` (now in `controllers/core`). Motor-writer move is phase 2.
+- [#1394](https://github.com/ramate-io/maybraid/pull/1394) `9ba9504d` — explicit `ControllerPipeline` (generic stages now in `controllers/core`). Named Tanz / Standard / WorldFilter sets move to domain crates in phase 2. Motor-writer move is phase 2.
 - [#1395](https://github.com/ramate-io/maybraid/pull/1395) `9c683129` — `SessionActivity` + per-actor ordinary locomotion. Phase 4 replaces the global table.
 
 Do not touch [#1342](https://github.com/ramate-io/maybraid/pull/1342).

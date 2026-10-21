@@ -4,8 +4,8 @@ pub mod controller;
 pub mod dispatch;
 
 pub use controller::MenuController;
-pub use dispatch::{exclusive_nav_menu, ExclusiveNav};
-pub use maybraid_controllers_core::{CaptureKind, CaptureStack, UiTarget};
+pub use dispatch::{exclusive_nav_menu, ExclusiveNav, MenuNavCapture};
+pub use maybraid_controllers_core::{CaptureKind, CaptureToken, InputRouter, ScopeOwner, UiTarget};
 
 use bevy::prelude::*;
 use maybraid_controllers_core::ControllersCorePlugin;
@@ -30,6 +30,7 @@ impl Plugin for MenuControllerPlugin {
 			app.add_plugins(MenuComponentsPlugin);
 		}
 		app.init_resource::<maybraid_input::MenuOwnsBack>()
+			.init_resource::<MenuNavCapture>()
 			.insert_resource(KeyboardMenuNav(false))
 			.add_systems(PreUpdate, sync_pad_from_menu_lock.before(VirtualPadSystems::Produce));
 		app.add_systems(
