@@ -427,6 +427,12 @@ impl InputRouter {
 		resumed
 	}
 
+	/// Events since the last [`Self::take_events`]. Multiple Bind consumers
+	/// peek this list; the core plugin clears it at `Last`.
+	pub fn events(&self) -> &[RoutingEvent] {
+		&self.events
+	}
+
 	pub fn take_events(&mut self) -> Vec<RoutingEvent> {
 		std::mem::take(&mut self.events)
 	}

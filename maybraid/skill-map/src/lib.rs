@@ -33,7 +33,8 @@ pub use burst::{
 	ROCKADDER_RADIUS,
 };
 pub use controller::{
-	skill_map_steer_held, SkillMapController, SkillMapFlick, SkillMapSteerPolicy,
+	detect_skill_map_flicks, skill_map_steer_held, SkillMapController, SkillMapFlick,
+	SkillMapSteerPolicy,
 };
 pub use cursor::apply_flicks;
 pub use effects::{

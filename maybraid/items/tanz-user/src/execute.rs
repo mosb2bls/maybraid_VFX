@@ -243,6 +243,8 @@ pub fn advance_tanz_execution(
 	}
 }
 
+/// Declare the Tanz motor contribution. Compose selects it; apply realizes
+/// sprint/cap without inspecting this producer.
 pub fn apply_tanz_movement(
 	mut users: Query<(&TanzUser, &TanzExecution, Option<&PlayerLook>, &mut MotorIntent)>,
 ) {

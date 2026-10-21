@@ -31,8 +31,12 @@ impl Plugin for ControllersCorePlugin {
 			app.add_plugins(VirtualPadPlugin::default());
 		}
 		ControllerPipeline::configure(app);
-		app.init_resource::<InputRouter>();
+		app.init_resource::<InputRouter>().add_systems(Last, clear_routing_events);
 	}
+}
+
+fn clear_routing_events(mut router: ResMut<InputRouter>) {
+	router.take_events();
 }
 
 #[cfg(test)]
