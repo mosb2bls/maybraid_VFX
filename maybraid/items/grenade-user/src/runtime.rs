@@ -12,15 +12,16 @@ use player::{PlayerSystems, PlayerUse};
 
 use crate::hold::spawn_held_grenade;
 use crate::throw::{
-	advance_throw, apply_throw_intents, apply_throw_routing, interrupt_live_cooks, GrenadeThrow,
-	GrenadeUser, GrenadeUserSettings, GrenadeUserSystems,
+	GrenadeThrow, GrenadeUser, GrenadeUserSettings, GrenadeUserSystems, advance_throw,
+	apply_throw_intents, apply_throw_routing, interrupt_live_cooks,
 };
 
 #[derive(Resource, Default)]
 struct GrenadeUserRuntime;
 
-/// Cook / windup clocks, routing cancel, and owned recharge. HUD / audio /
-/// mesh realization stay on [`crate::register_grenade_user_presentation`].
+/// Cook / windup clocks, routing cancel, and owned recharge. Gameplay
+/// assembly is the owner that calls this; a second call is a no-op. HUD /
+/// audio / mesh realization stay on [`crate::register_grenade_user_presentation`].
 pub fn register_grenade_user_runtime(app: &mut App) {
 	if app.world().contains_resource::<GrenadeUserRuntime>() {
 		return;

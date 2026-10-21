@@ -5,9 +5,9 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventoryItem};
-use firearm_user::{FirearmUser, RecoilPattern};
+use firearm_user::{FirearmUser, RecoilPattern, register_firearm_user_runtime};
 use firearms::{FireControl, FireOnTrigger, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger};
-use grenade_user::{GrenadePhase, GrenadeThrow, GrenadeUser};
+use grenade_user::{GrenadePhase, GrenadeThrow, GrenadeUser, register_grenade_user_runtime};
 use grenades::DropLiveGrenade;
 use lubikans::{
 	LubikanActivationDenied, LubikanActivationRefused, LubikanLedger, LubikanOwner,
@@ -25,11 +25,11 @@ use maybraid_equipment::{
 };
 use maybraid_input::{PadButton, VirtualPad, VirtualPadSystems};
 use maybraid_session::{
-	apply_in_game_menu_pause, SessionCapabilities, SessionCapabilitySystems, WorldGameplayEnabled,
+	SessionCapabilities, SessionCapabilitySystems, WorldGameplayEnabled, apply_in_game_menu_pause,
 };
 use player::{CameraFollow, Player, PlayerLook, PlayerPlugin};
 use player_camera::{
-	register_player_camera_runtime, CameraController, CameraRecoilHandoff, FollowCamera,
+	CameraController, CameraRecoilHandoff, FollowCamera, register_player_camera_runtime,
 };
 use std::time::Duration;
 use world_player::Player as VegetationPlayer;
@@ -101,6 +101,15 @@ fn spawn_live_gun(app: &mut App, cooldown: f32) -> Entity {
 fn press_start_and_fire(mut pad: ResMut<VirtualPad>) {
 	pad.buttons.press(PadButton::Start);
 	pad.max_triggers(0.0, 1.0);
+}
+
+#[test]
+fn stack_app_survives_a_second_runtime_register() {
+	let mut app = stack_app();
+	register_gameplay_runtime(&mut app);
+	register_firearm_user_runtime(&mut app);
+	register_grenade_user_runtime(&mut app);
+	app.update();
 }
 
 #[test]
@@ -244,12 +253,13 @@ fn denied_shot_produces_no_recoil() {
 	assert_eq!(app.world().get::<WeaponTrigger>(gun).map(|t| t.0), Some(true));
 	assert!(app.world_mut().resource_mut::<Messages<WeaponFired>>().drain().next().is_none());
 	app.update();
-	assert!(app
-		.world_mut()
-		.resource_mut::<Messages<CameraRecoilHandoff>>()
-		.drain()
-		.next()
-		.is_none());
+	assert!(
+		app.world_mut()
+			.resource_mut::<Messages<CameraRecoilHandoff>>()
+			.drain()
+			.next()
+			.is_none()
+	);
 	let denied = app.world().entity(camera).get::<CameraController>().unwrap();
 	assert_eq!(denied.yaw, 0.0);
 	assert_eq!(denied.pitch, 0.0);
@@ -345,12 +355,13 @@ fn reassignment_mid_cook_cancels_the_old_actor() {
 		Some(GrenadePhase::Ready),
 		"reassignment is ReleaseNeutral, not a missing-message freeze"
 	);
-	assert!(app
-		.world_mut()
-		.resource_mut::<Messages<DropLiveGrenade>>()
-		.drain()
-		.next()
-		.is_some());
+	assert!(
+		app.world_mut()
+			.resource_mut::<Messages<DropLiveGrenade>>()
+			.drain()
+			.next()
+			.is_some()
+	);
 	assert!(no_thrown_grenade(&mut app));
 }
 
@@ -404,7 +415,8 @@ fn two_grenade_users_disconnect_drops_only_the_named_actor() {
 		app.world().get::<GrenadeThrow>(other).is_some_and(GrenadeThrow::cooking),
 		"an unrelated cook must survive a local-pad disconnect"
 	);
-	let drops: Vec<_> = app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().collect();
+	let drops: Vec<_> =
+		app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().collect();
 	assert_eq!(drops.len(), 1);
 	assert_eq!(drops[0].source, cook);
 }
@@ -427,7 +439,12 @@ fn reassignment_then_capture_in_one_frame_cleans_the_old_actor() {
 		.id();
 	let next = app
 		.world_mut()
-		.spawn((Player, VegetationPlayer, EquippedItemHandler::Firearm, InventoryCycling::default()))
+		.spawn((
+			Player,
+			VegetationPlayer,
+			EquippedItemHandler::Firearm,
+			InventoryCycling::default(),
+		))
 		.id();
 	assign(&mut app, cook);
 	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
@@ -447,7 +464,13 @@ fn reassignment_then_capture_in_one_frame_cleans_the_old_actor() {
 		Some(GrenadePhase::Ready),
 		"the reassignment event must still drop the old cook when capture follows in the same frame"
 	);
-	assert!(app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().next().is_some());
+	assert!(
+		app.world_mut()
+			.resource_mut::<Messages<DropLiveGrenade>>()
+			.drain()
+			.next()
+			.is_some()
+	);
 }
 
 #[test]
@@ -779,10 +802,11 @@ fn loading_play_inventory_resume_home_on_plugin_session() {
 		session.install_loading(true);
 	}
 	app.update();
-	assert!(!app
-		.world()
-		.resource::<SessionCapabilities>()
-		.gameplay_enabled(app.world().resource::<InputRouter>()));
+	assert!(
+		!app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
 	assert!(app.world().resource::<SessionCapabilities>().streaming_enabled());
 
 	{
@@ -790,27 +814,30 @@ fn loading_play_inventory_resume_home_on_plugin_session() {
 		session.install_play(true);
 	}
 	app.update();
-	assert!(app
-		.world()
-		.resource::<SessionCapabilities>()
-		.gameplay_enabled(app.world().resource::<InputRouter>()));
+	assert!(
+		app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
 	assert!(app.world().resource::<SessionCapabilities>().physics_installed());
 
 	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
 	app.update();
-	assert!(!app
-		.world()
-		.resource::<SessionCapabilities>()
-		.gameplay_enabled(app.world().resource::<InputRouter>()));
+	assert!(
+		!app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
 	assert!(app.world().resource::<SessionCapabilities>().physics_installed());
 	assert!(app.world().resource::<SessionCapabilities>().simulation_active());
 
 	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
 	app.update();
-	assert!(app
-		.world()
-		.resource::<SessionCapabilities>()
-		.gameplay_enabled(app.world().resource::<InputRouter>()));
+	assert!(
+		app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
 
 	{
 		let mut session = app.world_mut().resource_mut::<SessionCapabilities>();
@@ -818,10 +845,11 @@ fn loading_play_inventory_resume_home_on_plugin_session() {
 	}
 	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
 	app.update();
-	assert!(!app
-		.world()
-		.resource::<SessionCapabilities>()
-		.gameplay_enabled(app.world().resource::<InputRouter>()));
+	assert!(
+		!app.world()
+			.resource::<SessionCapabilities>()
+			.gameplay_enabled(app.world().resource::<InputRouter>())
+	);
 	assert!(!app.world().resource::<SessionCapabilities>().physics_installed());
 	assert!(app.world().resource::<SessionCapabilities>().menu_shell_active());
 }

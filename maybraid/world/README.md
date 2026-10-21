@@ -21,9 +21,10 @@ POI.
 population, presentation, and [`spawn_surface`](lib/src/spawn_surface.rs),
 plus world-specific adapters (loadout / arm, stash, map, occupancy, and
 world-dependent Lubikan owner grant). Session, equipment, and item-runtime
-assembly live in `gameplay/lib`. Persistent equipment state is in
-`items/equipment`, grenade cooking in `grenade-user`, firing cadence in
-`firearms`.
+assembly live in `gameplay/lib` (`register_gameplay_runtime` /
+`ItemRuntimes`). World intelligence does not register item runtimes.
+Persistent equipment state is in `items/equipment`, grenade cooking in
+`grenade-user`, firing cadence in `firearms`.
 
 Equipped-item dispatch, inventory category ownership, holster-commit handler
 stamps, and Lubikan activation are documented in

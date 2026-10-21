@@ -179,8 +179,9 @@ const WORLD_TERRAIN_PITCH_GIZMOS: DrawTerrainPitchProbes = DrawTerrainPitchProbe
 
 /// Assembled world: Durham terrain, streamed forest, urbanization, sky dome, character.
 ///
-/// Session, equipment, and item-runtime assembly live on `GameplayPlugin`.
-/// Game and the world playground add that plugin beside this one.
+/// Session, equipment, and item-runtime assembly live on `GameplayPlugin`
+/// (`register_gameplay_runtime`). Game and the world playground add that
+/// plugin beside this one. Intelligence does not register item runtimes.
 ///
 /// Playground chrome (command drawer and FPS HUD) is on by default.
 /// The game executable uses [`WorldPlugin::game`] (FPS log, no HUD or console).

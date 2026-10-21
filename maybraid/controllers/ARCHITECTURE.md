@@ -89,11 +89,16 @@ Rules:
 - Locomotion and Tanz write the motor contract; they do not own apply.
 - Apply realizes translation / jump / stance / sprint / cap without checking
   whether the producer was Tanz.
-- `game` assembles World + Gameplay + shell. `gameplay/lib` registers session,
-  equipment, and item runtimes. `world` keeps terrain / POI / population /
-  presentation / `spawn_surface` plus world-specific adapters (loadout, stash,
-  map, occupancy). They are not controllers unless a type in them produces
-  follow-on intents (E1–E4 today).
+- `game` assembles World + Gameplay + shell. `gameplay/lib` is the sole owner
+of session, equipment, and item *runtime* registration
+([`register_gameplay_runtime`](../gameplay/lib/src/lib.rs) /
+[`ItemRuntimes`](../gameplay/lib/src/equipment.rs)). Those registers are
+idempotent: item plugins may call the same functions; a second call is a
+no-op. Headless stack tests use that same registration. `GameplayPlugin`
+adds item *presentation* plugins after the runtime. `world` keeps terrain /
+POI / population / presentation / `spawn_surface` plus world-specific
+adapters (loadout, stash, map, occupancy). They are not controllers unless
+a type in them produces follow-on intents (E1–E4 today).
 
 ### Crate layout
 
@@ -112,7 +117,7 @@ Package names stay; only directories moved. See [#1450](https://github.com/ramat
 | `items/grenades` | `grenades` | Fuse / blast + `SpawnThrownGrenade` realize |
 | `items/tanz-user` | `tanz-user` | Tanz recognize / execute |
 | `gameplay/session` | `maybraid-session` | Capabilities, pause, play-session end |
-| `gameplay/lib` | `maybraid-gameplay` | Cross-domain schedule, adapters |
+| `gameplay/lib` | `maybraid-gameplay` | Cross-domain schedule, item-runtime owner, adapters |
 | `world/lib` | `maybraid-world` | Terrain, POIs, population, presentation, `spawn_surface` |
 | `game/src` | `maybraid` | Assembles World + Gameplay + shell / flow |
 
@@ -466,7 +471,7 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 | `items/firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger on `lost_actor`; recoil writes the handoff only; `register_firearm_user_runtime` / `register_firearm_user_presentation`; realizes hold / teardown |
 | `items/grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime` / `register_grenade_user_presentation`; throw writes `SpawnThrownGrenade` |
 | `items/firearms` | `decide_weapon_fire` clock + `WeaponShotRequest` / `WeaponFired`; `register_firearm_runtime` / `register_firearm_presentation`. Presentation `fire_weapons` realizes shot requests. |
-| `gameplay/lib` | `request_lubikan_activation`; equipment ↔ item wiring; actor teardown coordinate |
+| `gameplay/lib` | `register_gameplay_runtime` / `ItemRuntimes` (sole item-runtime owner); `request_lubikan_activation`; actor teardown coordinate |
 | `gameplay/session` | capabilities, pause token, play-session end |
 | `world` | loadout / arm / VFX adapters; world-dependent Lubikan owner grant |
 | `intelligence/combat/firearm` | unchanged NPC `WeaponTrigger` writer |
@@ -508,7 +513,9 @@ Unit: `dispatch.rs`, `fire.rs`, `throw/` (`missing_use_does_not_release_a_live_c
 Stack tip (`gameplay/lib/src/controller_stack.rs`) calls the same headless
 runtime registration production uses
 (`register_gameplay_runtime`, `register_player_camera_runtime`) and
-steps `app.update()`. GPU / audio systems stay on the full plugins:
+steps `app.update()`. A second `register_gameplay_runtime` or a later
+item-plugin runtime call is a no-op. GPU / audio systems stay on the
+full plugins (`GameplayPlugin` adds those after the runtime):
 
 - two delivered actors; two item modes
 - two simultaneous grenade users; a local-pad disconnect drops only the

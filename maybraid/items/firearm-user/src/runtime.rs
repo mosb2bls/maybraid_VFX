@@ -17,9 +17,10 @@ use crate::{FirearmUser, FirearmUserSettings, FirearmUserSystems, GeneratedFirea
 #[derive(Resource, Default)]
 struct FirearmUserRuntime;
 
-/// Trigger translation, routing, and recoil. Tests and production call this
-/// same function. The fire clock lives in [`firearms::register_firearm_runtime`].
-/// Pose / reticle / audio stay on [`crate::register_firearm_user_presentation`].
+/// Trigger translation, routing, and recoil. Gameplay assembly is the owner
+/// that calls this; a second call is a no-op. The fire clock lives in
+/// [`firearms::register_firearm_runtime`]. Pose / reticle / audio stay on
+/// [`crate::register_firearm_user_presentation`].
 pub fn register_firearm_user_runtime(app: &mut App) {
 	if app.world().contains_resource::<FirearmUserRuntime>() {
 		return;
