@@ -200,4 +200,12 @@ mod tests {
 		anyhow::ensure!(recharge.remaining == 0.0, "idle recharge must stay at zero");
 		Ok(())
 	}
+
+	#[test]
+	fn runtime_register_is_idempotent() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins);
+		register_grenade_user_runtime(&mut app);
+		register_grenade_user_runtime(&mut app);
+	}
 }

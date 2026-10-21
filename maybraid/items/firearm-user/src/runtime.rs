@@ -97,3 +97,17 @@ fn realize_equipment_hold(mut commands: Commands, pending: Query<(Entity, &Pendi
 		);
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::register_firearm_user_runtime;
+	use bevy::prelude::*;
+
+	#[test]
+	fn runtime_register_is_idempotent() {
+		let mut app = App::new();
+		app.add_plugins(MinimalPlugins);
+		register_firearm_user_runtime(&mut app);
+		register_firearm_user_runtime(&mut app);
+	}
+}

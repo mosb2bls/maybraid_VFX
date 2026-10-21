@@ -90,15 +90,15 @@ Rules:
 - Apply realizes translation / jump / stance / sprint / cap without checking
   whether the producer was Tanz.
 - `game` assembles World + Gameplay + shell. `gameplay/lib` is the sole owner
-of session, equipment, and item *runtime* registration
-([`register_gameplay_runtime`](../gameplay/lib/src/lib.rs) /
-[`ItemRuntimes`](../gameplay/lib/src/equipment.rs)). Those registers are
-idempotent: item plugins may call the same functions; a second call is a
-no-op. Headless stack tests use that same registration. `GameplayPlugin`
-adds item *presentation* plugins after the runtime. `world` keeps terrain /
-POI / population / presentation / `spawn_surface` plus world-specific
-adapters (loadout, stash, map, occupancy). They are not controllers unless
-a type in them produces follow-on intents (E1–E4 today).
+  of session, equipment, and item *runtime* registration
+  ([`register_gameplay_runtime`](../gameplay/lib/src/lib.rs) /
+  [`ItemRuntimes`](../gameplay/lib/src/equipment.rs)). Those registers are
+  idempotent: item plugins may call the same functions; a second call is a
+  no-op. Headless stack tests use that same registration. `GameplayPlugin`
+  adds item *presentation* plugins after the runtime. `world` keeps terrain /
+  POI / population / presentation / `spawn_surface` plus world-specific
+  adapters (loadout, stash, map, occupancy). They are not controllers unless
+  a type in them produces follow-on intents (E1–E4 today).
 
 ### Crate layout
 

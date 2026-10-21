@@ -8,8 +8,8 @@ use maybraid_equipment::EquipmentPlugin;
 
 /// Sole gameplay owner of firearm / grenade *runtime* registration.
 ///
-/// Item plugins and world intelligence may call the same `register_*_runtime`
-/// functions; those are idempotent. Presentation stays on the item plugins.
+/// Item plugins may call the same `register_*_runtime` functions; those are
+/// idempotent. Presentation stays on the item plugins.
 pub struct ItemRuntimes;
 
 impl ItemRuntimes {
