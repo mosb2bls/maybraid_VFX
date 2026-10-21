@@ -5,9 +5,9 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventoryItem};
-use firearm_user::{FirearmUser, RecoilPattern};
+use firearm_user::{register_firearm_user_runtime, FirearmUser, RecoilPattern};
 use firearms::{FireControl, FireOnTrigger, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger};
-use grenade_user::{GrenadePhase, GrenadeThrow, GrenadeUser};
+use grenade_user::{register_grenade_user_runtime, GrenadePhase, GrenadeThrow, GrenadeUser};
 use grenades::DropLiveGrenade;
 use lubikans::{
 	LubikanActivationDenied, LubikanActivationRefused, LubikanLedger, LubikanOwner,
@@ -42,6 +42,8 @@ fn stack_app() -> App {
 		.add_plugins(bevy::input::InputPlugin)
 		.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(1.0 / 60.0)));
 	register_gameplay_runtime(&mut app);
+	register_firearm_user_runtime(&mut app);
+	register_grenade_user_runtime(&mut app);
 	register_player_camera_runtime(&mut app);
 	app.add_systems(Update, apply_in_game_menu_pause.in_set(SessionCapabilitySystems))
 		.insert_resource(WorldGameplayEnabled(true));
