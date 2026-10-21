@@ -206,6 +206,11 @@ impl InputRouter {
 		self.actor(InputSource::local_pad())
 	}
 
+	/// Local-pad actor delivery: assigned, connected, not captured, not suspended.
+	pub fn delivered_local_actor(&self) -> Option<ActorTarget> {
+		self.delivered_actor(InputSource::local_pad())
+	}
+
 	pub fn connection(&self, source: InputSource) -> SourceConnection {
 		self.binding(source).connection
 	}

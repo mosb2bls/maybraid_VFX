@@ -1,7 +1,9 @@
 //! Actor-local motor contract. Composition selects contributions; apply realizes.
 
 use bevy::prelude::*;
-use maybraid_controllers_core::ControllerPipeline;
+use maybraid_controllers_core::{
+	ActorTarget, ControllerPipeline, HoldEffect, InputRouter, InputSource, RoutingEvent,
+};
 
 use crate::body::{CharacterController, JumpWish, Jumping, MoveSpeedCap, MoveWish, Sprinting};
 use crate::separation::SoftBump;
@@ -191,6 +193,11 @@ impl MotorIntent {
 
 	pub fn set_standard(&mut self, sample: MotorSample) {
 		self.standard = Some(sample);
+	}
+
+	/// Drop the Standard contribution. Pad disconnect / capture / removal.
+	pub fn clear_standard(&mut self) {
+		self.standard = None;
 	}
 
 	pub fn set_tanz(&mut self, sample: MotorSample) {
@@ -452,6 +459,67 @@ pub(crate) fn ensure_motor_intents(
 pub(crate) fn reset_motor_intents(mut intents: Query<&mut MotorIntent>) {
 	for mut intent in &mut intents {
 		intent.clear();
+	}
+}
+
+/// Apply [`HoldEffect::ReleaseNeutral`] from [`RoutingEvent`] before compose.
+///
+/// Production consumers use [`MessageReader`]; `take_events` is the unpublished
+/// buffer only. Disconnect, first capture, reassignment, and removal drop the
+/// Standard contribution on the actor that just lost delivery.
+pub fn apply_routing_hold_effects(
+	mut events: MessageReader<RoutingEvent>,
+	router: Res<InputRouter>,
+	mut last_delivered: Local<Option<Entity>>,
+	mut actors: Query<&mut MotorIntent, With<CharacterController>>,
+) {
+	let source = InputSource::local_pad();
+	let mut release = false;
+	let mut freeze = false;
+	for event in events.read() {
+		if event.source() != source {
+			continue;
+		}
+		match event.hold() {
+			HoldEffect::ReleaseNeutral => {
+				release = true;
+				freeze = false;
+			}
+			HoldEffect::Freeze => {
+				if !release {
+					freeze = true;
+				}
+			}
+			HoldEffect::None => {}
+		}
+	}
+
+	let assigned = router.actor(source).map(ActorTarget::entity);
+	if release {
+		if let Some(entity) = last_delivered.or(assigned) {
+			if let Ok(mut intent) = actors.get_mut(entity) {
+				intent.clear_standard();
+			}
+		}
+		*last_delivered = router.delivered_actor(source).map(|actor| actor.entity());
+		return;
+	}
+
+	if freeze {
+		if let Some(entity) = last_delivered.or(assigned) {
+			if let Ok(mut intent) = actors.get_mut(entity) {
+				if intent.selected_base().is_none() {
+					intent.set_standard(MotorSample {
+						sprint: SprintRequest::Neutral,
+						..MotorSample::default()
+					});
+				}
+			}
+		}
+	}
+
+	if let Some(actor) = router.delivered_actor(source) {
+		*last_delivered = Some(actor.entity());
 	}
 }
 
@@ -836,5 +904,131 @@ mod tests {
 		assert!(delta_a.length() > 1e-4, "{wish_a:?}");
 		assert!(delta_a.dot(delta_b) < 0.0, "opposing {wish_a:?} {wish_b:?}");
 		Ok(())
+	}
+
+	fn routing_motor_app() -> (App, Entity) {
+		let mut app = App::new();
+		MotorRequestStage::configure(&mut app);
+		app.init_resource::<InputRouter>().add_message::<RoutingEvent>().add_systems(
+			Update,
+			(
+				apply_routing_hold_effects
+					.in_set(ControllerPipeline::MotorRequest)
+					.after(MotorRequestStage::WorldFilter),
+				(compose_motor, apply_motor).chain().in_set(ControllerPipeline::Motor),
+			),
+		);
+		let player = app
+			.world_mut()
+			.spawn((
+				CharacterController,
+				Player,
+				MoveWish::default(),
+				MotorIntent::default(),
+				MotorSelection::default(),
+				ResolvedMotorRequest::default(),
+				crate::identity::PlayerLook::default(),
+				CharacterStance::settled(StanceKind::Stand),
+			))
+			.id();
+		(app, player)
+	}
+
+	fn publish_hold(
+		app: &mut App,
+		apply: impl FnOnce(&mut InputRouter) + Send + Sync + 'static,
+	) -> Result<()> {
+		use bevy::ecs::system::RunSystemOnce;
+		use maybraid_controllers_core::InputRouting;
+		let mut apply = Some(apply);
+		app.world_mut()
+			.run_system_once(move |mut routing: InputRouting| {
+				if let Some(apply) = apply.take() {
+					apply(&mut routing);
+				}
+			})
+			.map_err(|err| anyhow!("publish routing hold: {err}"))?;
+		Ok(())
+	}
+
+	#[test]
+	fn disconnect_event_releases_standard_contributor() -> Result<()> {
+		let (mut app, player) = routing_motor_app();
+		publish_hold(&mut app, move |router| {
+			router.assign_actor(InputSource::local_pad(), ActorTarget::new(player));
+		})?;
+		write_standard(
+			&mut app,
+			player,
+			MotorSample { translation: Vec3::X, sprint: SprintRequest::Start, ..default() },
+		)?;
+		app.update();
+		if app.world().get::<Sprinting>(player).is_none() {
+			return Err(anyhow!("precondition: sprint hold"));
+		}
+		publish_hold(&mut app, |router| {
+			router.disconnect(InputSource::local_pad());
+		})?;
+		write_standard(
+			&mut app,
+			player,
+			MotorSample { translation: Vec3::X, sprint: SprintRequest::Neutral, ..default() },
+		)?;
+		app.update();
+		if app.world().get::<Sprinting>(player).is_some() {
+			return Err(anyhow!("disconnect must release Sprinting"));
+		}
+		assert_eq!(app.world().get::<MoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
+		Ok(())
+	}
+
+	#[test]
+	fn capture_event_releases_standard_contributor() -> Result<()> {
+		use maybraid_controllers_core::{CaptureKind, ScopeOwner, UiTarget};
+		let (mut app, player) = routing_motor_app();
+		let menu = app.world_mut().spawn_empty().id();
+		publish_hold(&mut app, move |router| {
+			router.assign_actor(InputSource::local_pad(), ActorTarget::new(player));
+		})?;
+		write_standard(
+			&mut app,
+			player,
+			MotorSample { sprint: SprintRequest::Start, ..default() },
+		)?;
+		app.update();
+		publish_hold(&mut app, move |router| {
+			router.acquire_capture(
+				InputSource::local_pad(),
+				ScopeOwner::ui(UiTarget::new(menu)),
+				CaptureKind::MenuNav,
+			);
+		})?;
+		write_standard(
+			&mut app,
+			player,
+			MotorSample { translation: Vec3::Z, sprint: SprintRequest::Neutral, ..default() },
+		)?;
+		app.update();
+		if app.world().get::<Sprinting>(player).is_some() {
+			return Err(anyhow!("capture must release Sprinting"));
+		}
+		assert_eq!(
+			app.world().resource::<InputRouter>().local_actor(),
+			Some(ActorTarget::new(player))
+		);
+		assert_eq!(app.world().get::<MoveWish>(player).map(|wish| wish.0), Some(Vec3::ZERO));
+		Ok(())
+	}
+
+	#[test]
+	fn clear_standard_is_contributor_loss() {
+		let mut intent = MotorIntent::default();
+		intent.set_standard(MotorSample::translation(Vec3::X));
+		intent.clear_standard();
+		assert!(intent.standard().is_none());
+		assert_eq!(
+			intent.compose(Some(MotorContributor::Standard)),
+			ResolvedMotorRequest::released()
+		);
 	}
 }

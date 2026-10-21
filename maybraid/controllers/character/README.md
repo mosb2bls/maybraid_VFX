@@ -10,7 +10,7 @@ Bind runs in [`ControllerPipeline::Bind`](../core/src/schedule.rs) from
 still a process-wide [`CharacterIntent`](src/intent.rs) broadcast — that
 adapter is removed as consumers become actor-addressed (phases 3–5). Ordinary
 locomotion consumes move / jump / sprint / stance for
-[`InputRouter::local_actor`](../core/src/router.rs) in
+[`InputRouter::delivered_local_actor`](../core/src/router.rs) in
 [`controllers/locomotion`](../locomotion/README.md). The lowest-ID `Player`
 fallback is resolved once in `player`, not here. See
 [ARCHITECTURE.md](../ARCHITECTURE.md).

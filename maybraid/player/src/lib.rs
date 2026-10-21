@@ -39,9 +39,9 @@ pub use identity::{
 pub use locomotion::drive_player_locomotion;
 pub use look::{clamp_aim_pitch, look_delta, look_forward, wrap_pi, yaw_xz, AIM_PITCH_MARGIN};
 pub use motor::{
-	apply_motor, compose_motor, MotorContributor, MotorIntent, MotorModifier, MotorRecovery,
-	MotorRequestStage, MotorSample, MotorSelection, MotorSuppressionToken, ResolvedMotorRequest,
-	SpeedCapRequest, SprintRequest, StanceRequest,
+	apply_motor, apply_routing_hold_effects, compose_motor, MotorContributor, MotorIntent,
+	MotorModifier, MotorRecovery, MotorRequestStage, MotorSample, MotorSelection,
+	MotorSuppressionToken, ResolvedMotorRequest, SpeedCapRequest, SprintRequest, StanceRequest,
 };
 pub use separation::{SoftBump, NPC_SEPARATION};
 pub use spawn::{
@@ -129,6 +129,12 @@ impl Plugin for PlayerPlugin {
 				separation::declare_npc_soft_bump
 					.in_set(ControllerPipeline::MotorRequest)
 					.after(MotorRequestStage::Standard),
+			)
+			.add_systems(
+				Update,
+				apply_routing_hold_effects
+					.in_set(ControllerPipeline::MotorRequest)
+					.after(MotorRequestStage::WorldFilter),
 			)
 			.add_systems(Update, (compose_motor, apply_motor).chain().in_set(PlayerSystems::Body))
 			.add_systems(

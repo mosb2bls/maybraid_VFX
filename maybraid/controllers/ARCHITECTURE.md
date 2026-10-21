@@ -166,7 +166,7 @@ the current owner. Later phases change the owner column, not the role id.
 | B8 | In-game menu | `CharacterIntent::InGameMenu` | A5 | E1 `toggle_world_pause` | character crate | Broadcast. |
 | B9 | Inventory | `CharacterIntent::Inventory` | A5 | E2 `stash.rs` | character crate | Broadcast. |
 | B10 | Toggle map | `CharacterIntent::ToggleMap` | A5 | E3 `map_view.rs` | character crate | Broadcast. |
-| B11 | Ordinary locomotion | `controllers/locomotion` `interpret_standard_locomotion` | A5 + `InputRouter::local_actor` | `MotorIntent` Standard contribution | `LocomotionControllerPlugin` | **Phase 2.** One routed actor. No lowest-ID lookup. |
+| B11 | Ordinary locomotion | `controllers/locomotion` `interpret_standard_locomotion` | A5 + `InputRouter::delivered_local_actor` | `MotorIntent` Standard contribution | `LocomotionControllerPlugin` | **Phase 2.** One delivered actor. Capture / disconnect / suspend do not write Standard. No lowest-ID lookup. |
 | B12 | Tanz gesture | `TanzInput` (`user: Entity`) | `tanz_user::recognize_tanz_inputs` reading `VirtualPad` | Tanz match + skill-map fan-out | `TanzUser` component | Actor field exists; pad read is still global. Phase 3. |
 | B13 | Standard flick | `SkillMapFlick` | `SkillMapController::detect_skill_map_flicks` | skill-map interpreter | `SkillMapController` resource | Untargeted message; also reads raw `Gamepad`. Phase 3. |
 
@@ -213,7 +213,7 @@ the current owner. Later phases change the owner column, not the role id.
 | U4 | Focus pick | `MenuController::pick_focus` / `resolve` | screen subtree | A4 | `MenuController` | Overlay > HUD > text. |
 | U5 | Scoped capture | `CaptureToken`, `ScopeOwner`, `CaptureStack` via `InputRouter` | A4 `refresh_menu_focus` (`MenuNavCapture`) | A4 `dispatch_menu_nav` | `InputRouter` | Token- and owner-scoped. Releasing one owner cannot release another. Menu-nav layer only today. Phase 4 nests text/overlay independently. |
 | U6 | Suspension | `SuspensionToken`, `InputRouter::suspend` / `resume` / `resume_owner` | hosts (none live yet) | future E4 / phase 4 | `InputRouter` | Vocabulary + effects. Input blocking ≠ simulation halt. Phase 4 installs participation. |
-| U7 | Lifecycle cleanup | `RoutingEvent` hold / gesture effects; Tanz `reset_input` / `apply_toggle`; death despawn | A3 events; mode flip; death | wishes, execution, items | `InputRouter` + per-domain | Router defines reassignment / disconnect / removal / suspension effects. Domain uninstall is phase 4–5. |
+| U7 | Lifecycle cleanup | `RoutingEvent` hold / gesture effects; Tanz `reset_input` / `apply_toggle`; death despawn | A3 events; mode flip; death | wishes, execution, items | `InputRouter` + per-domain | Motor reads `MessageReader<RoutingEvent>` (`apply_routing_hold_effects`): `ReleaseNeutral` drops the Standard contribution (disconnect / capture / reassignment / removal). Domain uninstall is phase 4–5. |
 
 ### M — menu
 
@@ -238,7 +238,7 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | State | Writer | File | Policy | Role after the stack |
 |---|---|---|---|---|
 | `CharacterIntent` | `produce_character_intents` | `controllers/character/src/produce.rs` | `InputRouter::actor`, `OrdinaryLocomotionEnabled`, `PadGameplayEnabled`, `MenuOwnsBack` | A5 Bind. Single producer. Becomes `Routed` per actor. |
-| `MotorIntent` Standard | `interpret_standard_locomotion` | `controllers/locomotion/src/standard.rs` | `InputRouter::local_actor`; per-actor `OrdinaryLocomotion` | P3 Standard. One routed actor. |
+| `MotorIntent` Standard | `interpret_standard_locomotion` | `controllers/locomotion/src/standard.rs` | `InputRouter::delivered_local_actor`; per-actor `OrdinaryLocomotion` | P3 Standard. One delivered actor. |
 | `MotorIntent` Tanz | `apply_tanz_movement` | `items/tanz-user/src/execute.rs` | `TanzUser.mode.is_tanzer()` | P3 Tanz. Declares sprint/cap in the sample. |
 | `MotorIntent` suppress | `apply_world_motor_filter` | `world/lib/src/control.rs` | `MotorSuppressionToken::WORLD_GAMEPLAY` on Player | P3 WorldFilter. Token-owned; zeros leftover vegetation `MoveWish`. |
 | `MotorIntent` NPC | `drive_movement` | `intelligence/movement` | `MovementIntelligence` | A6. Declares. |
@@ -285,7 +285,7 @@ applies the last sample to **every** matching entity.
 | Path | Mechanism | Phase 1 | Removal |
 |---|---|---|---|
 | **Menu nav (M1)** | `Routed<MenuNav>` → `MenuNavImpulse` on one `UiTarget`; exclusive modal acquires a `CaptureToken` | **Migrated** | — |
-| `CharacterIntent` (B1–B11) | `MessageWriter` / `MessageReader`, no actor | adapter | 3–5 per consumer. B11 consumes via `InputRouter::local_actor`. |
+| `CharacterIntent` (B1–B11) | `MessageWriter` / `MessageReader`, no actor | adapter | 3–5 per consumer. B11 consumes via `InputRouter::delivered_local_actor`. |
 | `apply_move_intents` | removed | **Phase 2** | locomotion + compose / apply |
 | `apply_intents_to_movement` | removed live writes | **Phase 2** | `apply_world_motor_filter` suppress |
 | `apply_look_intents` | broadcast → every `FollowCamera` | adapter | 5 |
@@ -346,6 +346,9 @@ and does not inspect the producer.
 When the previously selected base contributor disappears, translation is the
 new base (or zero if none) and that contributor's unclaimed sprint / cap /
 jump holds are released. "No request" does not preserve stale ownership.
+`apply_routing_hold_effects` reads `MessageReader<RoutingEvent>` and treats
+`HoldEffect::ReleaseNeutral` (disconnect, first capture, reassignment,
+removal) as Standard contributor loss on the actor that just lost delivery.
 
 ## Invariants (checklist)
 
