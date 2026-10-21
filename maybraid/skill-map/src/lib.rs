@@ -25,6 +25,7 @@ use bevy::prelude::*;
 use fireball_material::FireballMaterialPlugin;
 
 use maybraid_character_controller::CharacterControlSystems;
+use maybraid_controllers_core::RoutingEvent;
 use projectiles::ProjectilesPlugin;
 use threat_management_intelligence::ThreatManagementSystems;
 
@@ -114,6 +115,7 @@ impl Plugin for SkillMapPlugin {
 			.init_resource::<icon::SkillMapPaintSlots>()
 			.init_resource::<icon::SkillMapIconSubmitted>()
 			.add_message::<SkillMapEvent>()
+			.add_message::<RoutingEvent>()
 			.add_message::<controller::SkillMapFlick>()
 			.configure_sets(
 				Update,

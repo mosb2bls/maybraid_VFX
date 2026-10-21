@@ -922,7 +922,7 @@ mod tests {
 			InputSource::local_pad(),
 			maybraid_controllers_core::ActorTarget::new(bevy::prelude::Entity::from_bits(2)),
 		);
-		let event = router.events().last().copied().expect("reassigned");
+		let event = router.take_events().last().copied().expect("reassigned");
 		assert_eq!(event.kind(), RoutingKind::Reassigned);
 		assert_eq!(event.gesture(), GestureEffect::Cancel);
 		recognizer.apply_routing(event);

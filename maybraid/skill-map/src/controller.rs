@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 use maybraid_character_controller::{ActorControlSample, OrdinaryLocomotion, RoutedActorControl};
 use maybraid_controllers_core::{
-	ActorTarget, GestureEffect, InputRouter, InputSource, RoutingEvent, RoutingKind,
+	ActorTarget, GestureEffect, InputSource, RoutingEvent, RoutingKind,
 };
 
 use crate::user::SkillMapUser;
@@ -219,17 +219,15 @@ impl SkillMapController {
 
 pub fn detect_skill_map_flicks(
 	time: Res<Time>,
-	router: Option<Res<InputRouter>>,
+	mut events: MessageReader<RoutingEvent>,
 	routed: Option<Res<RoutedActorControl>>,
 	enabled: Res<SkillMapEnabled>,
 	users: Query<(Entity, &SkillMapUser, Option<&OrdinaryLocomotion>)>,
 	mut controller: ResMut<SkillMapController>,
 	mut flicks: MessageWriter<SkillMapFlick>,
 ) {
-	if let Some(router) = router.as_deref() {
-		for event in router.events() {
-			controller.apply_routing(*event);
-		}
+	for event in events.read() {
+		controller.apply_routing(*event);
 	}
 	if !enabled.0 {
 		controller.reset();
@@ -350,6 +348,8 @@ mod tests {
 
 	#[test]
 	fn reassignment_cancels_a_partial_flick() {
+		use maybraid_controllers_core::InputRouter;
+
 		let mut controller = SkillMapController::default();
 		let source = InputSource::local_pad();
 		let actor_a = ActorTarget::new(Entity::from_bits(1));
@@ -360,7 +360,7 @@ mod tests {
 		router.assign_actor(source, actor_a);
 		router.take_events();
 		router.assign_actor(source, ActorTarget::new(Entity::from_bits(2)));
-		let event = router.events().last().copied().expect("reassigned");
+		let event = router.take_events().last().copied().expect("reassigned");
 		assert_eq!(event.kind(), RoutingKind::Reassigned);
 		assert_eq!(event.gesture(), GestureEffect::Cancel);
 		controller.apply_routing(event);
