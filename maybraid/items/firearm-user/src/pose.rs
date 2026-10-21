@@ -11,7 +11,7 @@ use firearms::{
 	firearm_bounds, spawn_firearm_components, FireOnTrigger, FirearmConcept, FirearmMembers,
 	FirearmRoot, ProjectileSource, WeaponTrigger,
 };
-use maybraid_character_controller::EquippedItemHandler;
+use maybraid_equipment::EquippedItemHandler;
 use player::{wrap_pi, yaw_xz, PlayerLook, PlayerUse};
 
 use crate::hold::HoldingArms;

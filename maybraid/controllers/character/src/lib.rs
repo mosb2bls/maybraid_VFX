@@ -1,15 +1,14 @@
 //! Character controller: pad analog + edges → [`CharacterIntent`].
+//!
+//! Equipped-item meaning lives in `maybraid-equipment`. This crate keeps the
+//! broadcast [`CharacterIntent::UseItem`] / [`CharacterIntent::PowerUseItem`]
+//! samples.
 
-pub mod dispatch;
 pub mod intent;
 pub mod produce;
 pub mod sample;
 
-pub use dispatch::{
-	delivered_item_use, dispatch_equipped_item, stamp_routed_item_actor, EquippedItemHandler,
-	EquippedItemUse, EquippedPowerUse, RoutedItemActor,
-};
-pub use intent::{CharacterIntent, InventoryCycling, InventoryCyclingCategory};
+pub use intent::{CharacterIntent, InventoryCyclingCategory};
 pub use maybraid_controllers_core::{
 	ActorTarget, CaptureKind, ControllerPipeline, HoldEffect, InputRouter, InputRouting,
 	InputSource, Routed, RoutingEvent, RoutingKind, ScopeOwner, SourceConnection, UiTarget,
@@ -63,8 +62,6 @@ impl Plugin for CharacterControllerPlugin {
 			app.add_plugins(VirtualPadPlugin::default());
 		}
 		app.add_message::<CharacterIntent>()
-			.add_message::<EquippedItemUse>()
-			.add_message::<EquippedPowerUse>()
 			.init_resource::<RoutedActorControl>()
 			.configure_sets(Update, CharacterControlSystems.in_set(ControllerPipeline::Bind))
 			.configure_sets(
@@ -82,9 +79,7 @@ impl Plugin for CharacterControllerPlugin {
 				),
 			)
 			.add_systems(Update, produce_actor_control_samples.in_set(CharacterBindSystems::Route))
-			.add_systems(Update, produce_character_intents.in_set(CharacterBindSystems::Produce))
-			.add_systems(Update, dispatch_equipped_item.in_set(CharacterBindSystems::Dispatch))
-			.add_systems(Last, stamp_routed_item_actor);
+			.add_systems(Update, produce_character_intents.in_set(CharacterBindSystems::Produce));
 	}
 }
 

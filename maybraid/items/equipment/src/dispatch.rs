@@ -1,12 +1,11 @@
-//! D1: addressed equipped-item use. Inventory selection and the holster
-//! commit stamp [`EquippedItemHandler`]; this system is the only Bind writer
-//! of [`EquippedItemUse`] / [`EquippedPowerUse`].
+//! Equipped-item dispatch. Inventory selection and the holster commit stamp
+//! [`EquippedItemHandler`]; this system is the only Bind writer of
+//! [`EquippedItemUse`] / [`EquippedPowerUse`].
 
 use bevy::prelude::*;
-
+use character_items::{Inventory, InventoryItem};
+use maybraid_character_controller::CharacterIntent;
 use maybraid_controllers_core::{ActorTarget, InputRouter, InputSource};
-
-use crate::intent::CharacterIntent;
 
 /// Which UseItem interpreter owns this actor. Written by inventory / swap
 /// commit, not by the pad.
@@ -40,6 +39,15 @@ impl EquippedItemHandler {
 	pub fn clear(entity: &mut EntityCommands) {
 		entity.remove::<Self>();
 	}
+
+	/// Handler implied by the bag's current primary weapon.
+	pub fn from_inventory(inventory: &Inventory) -> Self {
+		match inventory.primary_weapon() {
+			Some(InventoryItem::Firearm { .. }) => Self::Firearm,
+			Some(InventoryItem::Grenade { .. }) => Self::Grenade,
+			_ => Self::None,
+		}
+	}
 }
 
 /// Marker on the actor that currently owns the local pad assignment.
@@ -47,21 +55,23 @@ impl EquippedItemHandler {
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RoutedItemActor;
 
-/// Keep [`RoutedItemActor`] on [`InputRouter::actor`]. Runs after routing
-/// consumers so a same-frame disconnect still sees last frame's owner.
-pub fn stamp_routed_item_actor(
-	router: Res<InputRouter>,
-	mut commands: Commands,
-	owners: Query<Entity, With<RoutedItemActor>>,
-) {
-	let current = router.actor(InputSource::local_pad()).map(ActorTarget::entity);
-	for entity in &owners {
-		if Some(entity) != current {
-			commands.entity(entity).remove::<RoutedItemActor>();
+impl RoutedItemActor {
+	/// Keep [`RoutedItemActor`] on [`InputRouter::actor`]. Runs after routing
+	/// consumers so a same-frame disconnect still sees last frame's owner.
+	pub fn stamp(
+		router: Res<InputRouter>,
+		mut commands: Commands,
+		owners: Query<Entity, With<RoutedItemActor>>,
+	) {
+		let current = router.actor(InputSource::local_pad()).map(ActorTarget::entity);
+		for entity in &owners {
+			if Some(entity) != current {
+				commands.entity(entity).remove::<RoutedItemActor>();
+			}
 		}
-	}
-	if let Some(entity) = current {
-		commands.entity(entity).try_insert(RoutedItemActor);
+		if let Some(entity) = current {
+			commands.entity(entity).try_insert(RoutedItemActor);
+		}
 	}
 }
 
@@ -107,19 +117,24 @@ impl EquippedItemUse {
 	pub fn addresses(self, entity: Entity) -> bool {
 		self.actor.matches(entity)
 	}
+
+	/// True when this use is still delivered after session / capture projection.
+	///
+	/// Bind may publish [`EquippedItemUse`] before session pause lands. Realizers
+	/// call this so a same-frame Start does not fire or cook.
+	pub fn still_delivered(self, router: Option<&InputRouter>) -> bool {
+		match router {
+			None => true,
+			Some(router) => router
+				.delivered_actor(InputSource::local_pad())
+				.is_some_and(|actor| self.actor() == actor),
+		}
+	}
 }
 
 /// True when this use is still delivered after session / capture projection.
-///
-/// Bind may publish [`EquippedItemUse`] before session pause lands. Realizers
-/// call this so a same-frame Start does not fire or cook.
 pub fn delivered_item_use(router: Option<&InputRouter>, use_item: EquippedItemUse) -> bool {
-	match router {
-		None => true,
-		Some(router) => router
-			.delivered_actor(InputSource::local_pad())
-			.is_some_and(|actor| use_item.actor() == actor),
-	}
+	use_item.still_delivered(router)
 }
 
 /// Addressed PowerUseItem. Lubikan activation consumes this, not the
@@ -213,11 +228,8 @@ mod tests {
 			.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
 		write_intents(&mut world, &[CharacterIntent::UseItem(0.9)]);
 		world.run_system_once(dispatch_equipped_item).expect("delivered");
-		let use_item = world
-			.resource_mut::<Messages<EquippedItemUse>>()
-			.drain()
-			.next()
-			.expect("use");
+		let use_item =
+			world.resource_mut::<Messages<EquippedItemUse>>().drain().next().expect("use");
 		assert!(use_item.addresses(entity));
 		assert!(use_item.handler().is_firearm());
 		assert!(use_item.held());
@@ -236,11 +248,8 @@ mod tests {
 			.resource_mut::<InputRouter>()
 			.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
 		world.run_system_once(dispatch_equipped_item).expect("release");
-		let use_item = world
-			.resource_mut::<Messages<EquippedItemUse>>()
-			.drain()
-			.next()
-			.expect("use");
+		let use_item =
+			world.resource_mut::<Messages<EquippedItemUse>>().drain().next().expect("use");
 		assert!(use_item.handler().is_grenade());
 		assert!(!use_item.held());
 	}
@@ -274,7 +283,8 @@ mod tests {
 		let mut world = World::new();
 		world.init_resource::<InputRouter>();
 		let entity = world.spawn(EquippedItemHandler::Firearm).id();
-		let use_item = EquippedItemUse::new(ActorTarget::new(entity), EquippedItemHandler::Firearm, 1.0, true);
+		let use_item =
+			EquippedItemUse::new(ActorTarget::new(entity), EquippedItemHandler::Firearm, 1.0, true);
 		{
 			let mut router = world.resource_mut::<InputRouter>();
 			router.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
@@ -295,10 +305,7 @@ mod tests {
 		world
 			.resource_mut::<InputRouter>()
 			.assign_actor(InputSource::local_pad(), ActorTarget::new(entity));
-		write_intents(
-			&mut world,
-			&[CharacterIntent::UseItem(1.0), CharacterIntent::PowerUseItem],
-		);
+		write_intents(&mut world, &[CharacterIntent::UseItem(1.0), CharacterIntent::PowerUseItem]);
 		world.run_system_once(dispatch_equipped_item).expect("power");
 		assert!(world.resource_mut::<Messages<EquippedItemUse>>().drain().next().is_none());
 		let power = world
@@ -308,5 +315,31 @@ mod tests {
 			.expect("power");
 		assert!(power.addresses(entity));
 		assert_eq!(power.actor(), actor(entity.to_bits()));
+	}
+
+	#[test]
+	fn handler_follows_the_primary_weapon() {
+		use character_items::FirearmMesh;
+
+		let firearm = Inventory {
+			items: vec![InventoryItem::firearm(FirearmMesh::Bullpup)],
+			clothing: Vec::new(),
+			weapons: vec![0],
+			skills: Vec::new(),
+			tanzes: Vec::new(),
+		};
+		assert_eq!(EquippedItemHandler::from_inventory(&firearm), EquippedItemHandler::Firearm);
+		let grenade = Inventory {
+			items: vec![InventoryItem::standard_grenade()],
+			clothing: Vec::new(),
+			weapons: vec![0],
+			skills: Vec::new(),
+			tanzes: Vec::new(),
+		};
+		assert_eq!(EquippedItemHandler::from_inventory(&grenade), EquippedItemHandler::Grenade);
+		assert_eq!(
+			EquippedItemHandler::from_inventory(&Inventory::default()),
+			EquippedItemHandler::None
+		);
 	}
 }

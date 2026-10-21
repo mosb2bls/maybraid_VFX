@@ -69,7 +69,6 @@ pub use first_wave::UnitXTile;
 pub use first_wave::{FirstWave, FIRST_WAVE_JOB_THRESHOLD};
 pub use game_commands::command::PendingStartupCommand;
 pub use intelligence::WorldIntelligencePlugin;
-pub use inventory_cycling::ActiveInventoryCyclingCategory;
 pub use item_icons::{
 	discover_icon_cache_dir, item_icon_requests, InventoryItemSubject, ItemIconCache,
 	ItemIconPlugin, ITEM_ICON_RESOLUTION,
@@ -77,6 +76,7 @@ pub use item_icons::{
 pub use lod::hcsg::{HcsgClass, HcsgDemand, Outstanding};
 pub use lod::LodJobCounter;
 pub use map_view::{WorldMapView, WorldMapViewPlugin};
+pub use maybraid_equipment::ActiveInventoryCyclingCategory;
 pub use maybraid_sky::{
 	ShadowQuality, SkyClock, SkyCommand, SKY_BLUE, SKY_CLEAR, SKY_HORIZON, SKY_NADIR, SKY_ZENITH,
 	SUN_COLOR, SUN_ILLUMINANCE,

@@ -20,7 +20,8 @@ use lubikans::{
 	LubikanOwner, LubikanSelfHeal, LubikanSystems, LubikansPlugin,
 };
 use lubikans_damage::LubikanDamagePlugin;
-use maybraid_character_controller::{ActorTarget, EquippedPowerUse};
+use maybraid_character_controller::ActorTarget;
+use maybraid_equipment::EquippedPowerUse;
 use maybraid_world::{control, world_lubikan, WorldGameplayEnabled, WorldPlaySessionEnded};
 use std::time::Duration;
 use world_player::Player;

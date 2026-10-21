@@ -8,7 +8,7 @@ index on the gun. Hold / aim knobs live on [`FirearmUserSettings`](src/lib.rs)
 Pose and arm IK key off the user's [`CharacterRoot`](../../world/layers/mobs/characters/lib/src/member.rs)
 child, so an [`Npc`](../../player/lib/src/identity.rs) holds the same way as the
 player. Player fire consumes addressed
-[`EquippedItemUse`](../../controllers/character/src/dispatch.rs) (D1) and
+[`EquippedItemUse`](../equipment/src/dispatch.rs) (D1) and
 cancels a held trigger from [`RoutingEvent`](../../controllers/core/src/router.rs)
 (`MessageReader`; capture / disconnect / reassignment / removal). NPCs keep
 the intelligence [`WeaponTrigger`](../firearms/src/projectiles.rs) writer. The
@@ -18,7 +18,7 @@ The two-bone reach resolves humerus roll with a closed-form signed angle rather
 than sampling trial poses. Hold posing runs only for actively animated,
 non-suspended body rigs, so culled LODs and ragdolls pay no arm-IK cost.
 
-[`spawn_held_kit`](src/pose.rs) installs [`EquippedItemHandler::Firearm`](../../controllers/character/src/dispatch.rs)
+[`spawn_held_kit`](src/pose.rs) installs [`EquippedItemHandler::Firearm`](../equipment/src/dispatch.rs)
 at the equipment boundary. Headless clocks, fire, and recoil use
 [`register_firearm_user_runtime`](src/lib.rs); pose / reticle / audio stay on
 [`FirearmUserPlugin`](src/lib.rs).

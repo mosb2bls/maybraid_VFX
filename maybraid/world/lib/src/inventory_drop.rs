@@ -251,7 +251,7 @@ mod tests {
 	use characters::CharacterAppearance;
 	use firearm_user::FirearmUser;
 	use grenade_user::GrenadeUser;
-	use maybraid_character_controller::InventoryCyclingCategory;
+	use maybraid_equipment::InventoryCyclingCategory;
 
 	use super::*;
 	use crate::inventory_cycling::ActiveInventoryCyclingCategory;

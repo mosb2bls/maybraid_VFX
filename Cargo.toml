@@ -104,6 +104,7 @@ members = [
   "maybraid/world/lib",
   "maybraid/world/playground",
   "maybraid/items/skill-map",
+  "maybraid/items/equipment",
   "maybraid/game",
   "maybraid/world/modes/discover",
   "maybraid/world/modes/reliquary",
@@ -378,6 +379,7 @@ vfx-playground = { path = "maybraid/vfx/playground" }
 maybraid-spatial-rumble = { path = "maybraid/spatial-rumble/lib" }
 spatial-rumble-playground = { path = "maybraid/spatial-rumble/playground" }
 maybraid-skill-map = { path = "maybraid/items/skill-map" }
+maybraid-equipment = { path = "maybraid/items/equipment" }
 maybraid = { path = "maybraid/game" }
 maybraid-input = { path = "maybraid/input" }
 maybraid-agent = { path = "maybraid/agent" }

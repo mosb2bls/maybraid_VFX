@@ -6,7 +6,8 @@ use lubikans::{
 	LubikanActivationRequest, LubikanHealingEnabled, LubikanOwner, LubikanSystems, LubikansPlugin,
 };
 use lubikans_damage::LubikanDamagePlugin;
-use maybraid_character_controller::{CharacterControlSystems, EquippedPowerUse};
+use maybraid_character_controller::CharacterControlSystems;
+use maybraid_equipment::EquippedPowerUse;
 use maybraid_world_controller::SessionCapabilitySystems;
 use world_player::Player;
 

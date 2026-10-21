@@ -38,6 +38,8 @@ pub enum CharacterIntent {
 }
 
 /// Which equipped inventory queue responds to **Y** / **[** / **]**.
+///
+/// Actor ownership of the selected category lives in `maybraid-equipment`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum InventoryCyclingCategory {
 	#[default]
@@ -53,26 +55,6 @@ impl InventoryCyclingCategory {
 			Self::SkillMaps => "Skill Maps",
 			Self::Lubikans => "Lubikans",
 		}
-	}
-}
-
-/// Per-actor category owner. One writer: inventory category selection.
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub struct InventoryCycling {
-	category: InventoryCyclingCategory,
-}
-
-impl InventoryCycling {
-	pub const fn new(category: InventoryCyclingCategory) -> Self {
-		Self { category }
-	}
-
-	pub const fn category(&self) -> InventoryCyclingCategory {
-		self.category
-	}
-
-	pub fn select(&mut self, category: InventoryCyclingCategory) {
-		self.category = category;
 	}
 }
 

@@ -53,8 +53,8 @@ recognition on the single routed actor sample, `ExecuteTanz` selection,
 and actor/session-addressed `SkillMapFlick` with source/actor ownership
 and `RoutingEvent` cancel / freeze. Phase 4 realizes session capabilities
 and pause tokens. Phase 5 addresses UseItem / PowerUseItem through
-[`dispatch_equipped_item`](character/src/dispatch.rs) (D1), stamps
-[`EquippedItemHandler`](character/src/dispatch.rs) at inventory / holster
+[`dispatch_equipped_item`](../items/equipment/src/dispatch.rs) (D1), stamps
+[`EquippedItemHandler`](../items/equipment/src/dispatch.rs) at inventory / holster
 commit, and hands recoil through [`CameraRecoilHandoff`](../player/camera/src/look.rs).
 Character produce is still a broadcast adapter for look / shell / queue
 intents; item interpreters consume D1, not the pad.
@@ -171,7 +171,7 @@ the current owner. Later phases change the owner column, not the role id.
 | B2 | Focus | `CharacterIntent::Focus` | A5 | C2; also drops sprint in `interpret_standard_locomotion` | character crate | Broadcast. |
 | B3 | Ads | `CharacterIntent::Ads` | A5 | C3 | character crate | Broadcast. |
 | B4 | Swap POV | `CharacterIntent::SwapPov` | A5 | C4 | character crate | Broadcast. |
-| B5 | Use item | `CharacterIntent::UseItem` | A5 | D1 `dispatch_equipped_item` | character crate | **Phase 5.** Broadcast Bind sample. D1 is the only interpreter. |
+| B5 | Use item | `CharacterIntent::UseItem` | A5 | D1 `dispatch_equipped_item` | character crate (sample); `items/equipment` (D1) | **Phase 5.** Broadcast Bind sample. D1 is the only interpreter. |
 | B6 | Power-use item | `CharacterIntent::PowerUseItem` | A5 | D1 → `EquippedPowerUse` | character crate | **Phase 5.** Broadcast Bind sample. D7 reads the addressed message. |
 | B7 | Equipped queue | `SwapActive`, `CycleEquippedQueue`, `SelectInventoryCyclingCategory` | A5 | D5 / D6 | character crate | Broadcast. |
 | B8 | In-game menu | `CharacterIntent::InGameMenu` | A5 | E1 `toggle_world_pause` | character crate | Broadcast. |
@@ -195,12 +195,12 @@ the current owner. Later phases change the owner column, not the role id.
 
 | Id | Role | Symbol | Producers | Consumers | Lifecycle owner | Now |
 |---|---|---|---|---|---|---|
-| D1 | Equipped-item dispatch | `dispatch_equipped_item` → `EquippedItemUse` / `EquippedPowerUse` | A5 Bind + `EquippedItemHandler` | D2 / D3 / D7 | character crate | **Phase 5.** Writes only for `delivered_actor`. Absence is not a release. |
+| D1 | Equipped-item dispatch | `dispatch_equipped_item` → `EquippedItemUse` / `EquippedPowerUse` | A5 Bind + `EquippedItemHandler` | D2 / D3 / D7 | `items/equipment` | **Phase 5.** Character produces `UseItem`; equipment writes only for `delivered_actor`. Absence is not a release. |
 | D2 | Firearm trigger | `firearm_user::fire::apply_fire_intents` | D1 firearm + held | `WeaponTrigger` on held gun | firearm-user | **Phase 5.** `With<Player>` + addressed use. NPCs keep intelligence `WeaponTrigger`. |
 | D3 | Grenade throw | `grenade_user::throw::apply_throw_intents` | D1 grenade | cook / latch | grenade-user | **Phase 5.** Missing delivery freezes; `take_live_cook` owns swap / death drop. |
 | D4 | Recoil handoff | `queue_weapon_recoil` → `advance_weapon_recoil` | `WeaponFired` | C5 `CameraRecoilHandoff` | firearm-user | **Phase 5.** Camera applies; firearm-user does not write look / camera. |
-| D5 | Inventory category | `apply_inventory_category_selection` | B7 `SelectInventoryCyclingCategory` | per-actor `InventoryCycling`; HUD `ActiveInventoryCyclingCategory` | `world/lib` `inventory_cycling.rs` | **Phase 5.** Actor component is the owner; resource is a mirror. |
-| D6 | Queue cycle / swap | `cycle_equipped_inventory_queues` / `begin_weapon_swap` + `commit_weapon_swap` | B7 + `InventoryCycling` | skill-map / Lubikan cycle, or `WeaponSwap` holster commit | one category owner | **Phase 5.** Weapons commit the handler at the holster midpoint. |
+| D5 | Inventory category | `apply_inventory_category_selection` | B7 `SelectInventoryCyclingCategory` | per-actor `InventoryCycling`; HUD `ActiveInventoryCyclingCategory` | `items/equipment` `selection.rs` | **Phase 5.** Actor component is the owner; resource is a mirror. |
+| D6 | Queue cycle / swap | `cycle_equipped_inventory_queues` / `begin_equipment_holster` + `commit_equipment_holster` | B7 + `InventoryCycling` | skill-map / Lubikan cycle, or `EquipmentHolster` commit | `items/equipment` | **Phase 5.** Weapons commit the handler at the holster midpoint. Item crates realize hold / teardown. |
 | D7 | Lubikan activation | `world_lubikan::request_lubikan_activation` | D1 `EquippedPowerUse` | `LubikanActivationRequest::equipped(owner)` | world | **Phase 5.** Spends once; refusal keeps charge. |
 | D8 | Interaction / stash | `stash.rs` `StartInteraction` | `CharacterIntent::StartInteraction` | stash / crate loot | world | Broadcast. |
 | D9 | Item presentation | `PlayerPoseSystems::Item` / `WeaponSwap` | D6, Tanz pose | held meshes | player presentation | Not a controller. Listed so D6 does not own pose. |
@@ -266,7 +266,7 @@ Who currently writes the live motor / pose bits that interpreters should own.
 | `CameraController` look / POV | `apply_look_intents` | `player/camera/src/look.rs` | `CameraLookSuppressed`, `CameraPovLocked`, `delivered_actor` | C1–C4. **Phase 5.** |
 | Follow camera recoil yaw / pitch | `apply_recoil_handoff` | `player/camera/src/look.rs` | `CameraRecoilHandoff` from `WeaponFired` | C5. **Phase 5.** Sole follow-yaw recoil writer. |
 | `EquippedItemHandler` | `hold_primary_weapon` / `commit_weapon_swap` | `world/lib/src/weapon.rs` | inventory primary at arm / holster commit | D1 stamp. **Phase 5.** |
-| `EquippedItemUse` / `EquippedPowerUse` | `dispatch_equipped_item` | `controllers/character/src/dispatch.rs` | `delivered_actor` + handler | D1. **Phase 5.** Sole Bind writer. |
+| `EquippedItemUse` / `EquippedPowerUse` | `dispatch_equipped_item` | `items/equipment/src/dispatch.rs` | `delivered_actor` + handler | D1. **Phase 5.** Sole Bind writer. |
 | `WeaponTrigger` (player) | `apply_fire_intents` | `items/firearm-user/src/fire.rs` | `Player` + addressed firearm use | D2. **Phase 5.** |
 | `WeaponTrigger` (NPC) | `intelligence::combat::firearm` | `intelligence/combat/firearm/src/combat.rs` | planner cadence | A6 item path. Keep. |
 | `WorldGameplayEnabled` | `toggle_world_pause`, flow enter | `game/src/lib.rs`, world control | pause / shell | E1 / E4. Phase 4. |
@@ -421,11 +421,12 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 
 | Crate | Phase 5 types / systems |
 |---|---|
-| `controllers/character` | `EquippedItemHandler`, `EquippedItemUse`, `EquippedPowerUse`, `dispatch_equipped_item`, `InventoryCycling` |
+| `controllers/character` | `CharacterIntent::UseItem` / `PowerUseItem` / queue samples; `InventoryCyclingCategory` |
+| `items/equipment` | `EquippedItemHandler`, `EquippedItemUse`, `EquippedPowerUse`, `dispatch_equipped_item`, `InventoryCycling`, `EquipmentHolster` |
 | `player-camera` | `CameraRecoilHandoff`, `apply_recoil_handoff`; look gated on delivery |
-| `firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger; recoil writes the handoff only; `register_firearm_user_runtime` |
-| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime` |
-| `world` | category owner + holster commit; `request_lubikan_activation` |
+| `firearm-user` | `apply_fire_intents` reads D1; `apply_fire_routing` clears a held trigger; recoil writes the handoff only; `register_firearm_user_runtime`; realizes hold / teardown |
+| `grenade-user` | `GrenadeThrow::{apply_use,try_start_cook,apply_hold,apply_routing,cancel_partial_hold,take_live_cook}`; `register_grenade_user_runtime`; realizes hold / teardown |
+| `world` | loadout / arm / VFX adapters; `request_lubikan_activation` |
 | `intelligence/combat/firearm` | unchanged NPC `WeaponTrigger` writer |
 
 ### Controller I/O

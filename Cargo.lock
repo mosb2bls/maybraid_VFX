@@ -4580,6 +4580,8 @@ dependencies = [
  "material-ref",
  "maybraid-audio",
  "maybraid-character-controller",
+ "maybraid-controllers-core",
+ "maybraid-equipment",
  "maybraid-input",
  "player",
  "player-camera",
@@ -5457,6 +5459,8 @@ dependencies = [
  "grenades",
  "maybraid-audio",
  "maybraid-character-controller",
+ "maybraid-controllers-core",
+ "maybraid-equipment",
  "maybraid-input",
  "maybraid-spatial-rumble",
  "player",
@@ -6970,6 +6974,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "maybraid-equipment"
+version = "0.1.5"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "character-inventory-user",
+ "character-items",
+ "lubikans",
+ "maybraid-character-controller",
+ "maybraid-controllers-core",
+]
+
+[[package]]
 name = "maybraid-game-mode-discover"
 version = "0.1.5"
 dependencies = [
@@ -7173,6 +7190,7 @@ dependencies = [
  "maybraid-audio",
  "maybraid-character-controller",
  "maybraid-controllers-core",
+ "maybraid-equipment",
  "maybraid-game-mode-discover",
  "maybraid-input",
  "maybraid-locomotion-controller",

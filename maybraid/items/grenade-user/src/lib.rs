@@ -9,6 +9,9 @@ use bevy::ecs::system::ParamSet;
 use bevy::prelude::*;
 use character_items::{Inventory, InventoryItem};
 use characters::{CharacterMotionSystems, CharacterPoseOverlay, CharacterPoseSystems};
+use maybraid_equipment::{
+	BlocksEquipmentSwap, EquipmentSystems, PendingEquipmentHold, PendingEquipmentTeardown,
+};
 use maybraid_spatial_rumble::{SpatialRumblePlugin, SpatialRumbleSystems};
 use player::{PlayerPoseSystems, PlayerSystems, PlayerUse};
 
@@ -30,15 +33,23 @@ pub struct GrenadeUserPlugin;
 /// Cook / windup clocks, routing cancel, and owned recharge. HUD / audio /
 /// mesh realization stay on [`GrenadeUserPlugin`].
 pub fn register_grenade_user_runtime(app: &mut App) {
-	app.add_message::<maybraid_character_controller::EquippedItemUse>()
+	app.add_message::<maybraid_equipment::EquippedItemUse>()
 		.add_message::<grenades::DropLiveGrenade>()
 		.add_message::<grenades::GrenadeDetonated>()
 		.add_systems(Update, throw::apply_throw_intents.in_set(PlayerSystems::Intent))
 		.add_systems(
 			Update,
-			throw::apply_throw_routing.after(throw::apply_throw_intents).in_set(PlayerSystems::Intent),
+			throw::apply_throw_routing
+				.after(throw::apply_throw_intents)
+				.in_set(PlayerSystems::Intent),
 		)
 		.add_systems(Update, throw::advance_throw.after(PlayerSystems::Intent))
+		.add_systems(Update, sync_equipment_swap_block.before(EquipmentSystems::BeginHolster))
+		.add_systems(
+			Update,
+			(realize_equipment_teardown, realize_equipment_hold.after(realize_equipment_teardown))
+				.in_set(EquipmentSystems::Realize),
+		)
 		.add_systems(Update, throw::interrupt_live_cooks.in_set(GrenadeUserSystems::Interrupt))
 		.add_systems(
 			PostUpdate,
@@ -98,7 +109,46 @@ impl Plugin for GrenadeUserPlugin {
 
 pub fn teardown_held_grenade(commands: &mut Commands, user: Entity, grenade: &GrenadeUser) {
 	commands.entity(grenade.held).try_despawn();
-	commands.entity(user).remove::<(GrenadeUser, GrenadeThrow, PlayerUse)>();
+	commands
+		.entity(user)
+		.remove::<(GrenadeUser, GrenadeThrow, PlayerUse, BlocksEquipmentSwap)>();
+}
+
+fn sync_equipment_swap_block(
+	mut commands: Commands,
+	throws: Query<(Entity, &GrenadeThrow, Has<BlocksEquipmentSwap>)>,
+) {
+	for (entity, throw, blocked) in &throws {
+		match (throw.blocks_swap(), blocked) {
+			(true, false) => {
+				commands.entity(entity).insert(BlocksEquipmentSwap);
+			}
+			(false, true) => {
+				commands.entity(entity).remove::<BlocksEquipmentSwap>();
+			}
+			_ => {}
+		}
+	}
+}
+
+fn realize_equipment_teardown(
+	mut commands: Commands,
+	pending: Query<(Entity, &GrenadeUser), With<PendingEquipmentTeardown>>,
+) {
+	for (entity, grenade) in &pending {
+		teardown_held_grenade(&mut commands, entity, grenade);
+	}
+}
+
+fn realize_equipment_hold(mut commands: Commands, pending: Query<(Entity, &PendingEquipmentHold)>) {
+	use character_items::InventoryItem;
+
+	for (entity, hold) in &pending {
+		if !matches!(hold.inventory().primary_weapon(), Some(InventoryItem::Grenade { .. })) {
+			continue;
+		}
+		hold::spawn_held_grenade(&mut commands, entity, GrenadeUserSettings::default());
+	}
 }
 
 fn tick_owned_recharge(

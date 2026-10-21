@@ -5,28 +5,22 @@ use bevy::prelude::*;
 use bevy::time::TimeUpdateStrategy;
 use character_inventory_user::InventoryUser;
 use character_items::{Inventory, InventoryItem};
-use firearm_user::{
-	register_firearm_user_runtime, FirearmUser, RecoilPattern,
-};
-use firearms::{
-	FireControl, FireOnTrigger, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger,
-};
-use grenade_user::{
-	register_grenade_user_runtime, GrenadePhase, GrenadeThrow, GrenadeUser,
-};
+use firearm_user::{register_firearm_user_runtime, FirearmUser, RecoilPattern};
+use firearms::{FireControl, FireOnTrigger, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger};
+use grenade_user::{register_grenade_user_runtime, GrenadePhase, GrenadeThrow, GrenadeUser};
 use grenades::DropLiveGrenade;
 use lubikans::{
 	LubikanActivationDenied, LubikanActivationRefused, LubikanLedger, LubikanOwner,
 	LubikanSelfConfig, LubikansPlugin,
 };
 use maybraid_audio::AudioClip;
-use maybraid_character_controller::{
-	CharacterIntent, EquippedItemHandler, EquippedItemUse, EquippedPowerUse, InventoryCycling,
-	InventoryCyclingCategory, RoutedItemActor,
-};
+use maybraid_character_controller::{CharacterIntent, InventoryCyclingCategory};
 use maybraid_controllers_core::{
-	ActorTarget, CaptureKind, InputRouter, InputRouting, InputSource, ScopeOwner,
-	SourceConnection, UiTarget,
+	ActorTarget, CaptureKind, InputRouter, InputRouting, InputSource, ScopeOwner, SourceConnection,
+	UiTarget,
+};
+use maybraid_equipment::{
+	EquippedItemHandler, EquippedItemUse, EquippedPowerUse, InventoryCycling, RoutedItemActor,
 };
 use maybraid_input::{PadButton, VirtualPad, VirtualPadSystems};
 use maybraid_world_controller::{SessionCapabilities, SessionCapabilitySystems};
@@ -338,7 +332,12 @@ fn reassignment_mid_cook_cancels_the_old_actor() {
 		.id();
 	let other = app
 		.world_mut()
-		.spawn((Player, VegetationPlayer, EquippedItemHandler::Firearm, InventoryCycling::default()))
+		.spawn((
+			Player,
+			VegetationPlayer,
+			EquippedItemHandler::Firearm,
+			InventoryCycling::default(),
+		))
 		.id();
 	assign(&mut app, cook);
 	app.world_mut().write_message(CharacterIntent::UseItem(1.0));
@@ -352,7 +351,12 @@ fn reassignment_mid_cook_cancels_the_old_actor() {
 		Some(GrenadePhase::Ready),
 		"reassignment is ReleaseNeutral, not a missing-message freeze"
 	);
-	assert!(app.world_mut().resource_mut::<Messages<DropLiveGrenade>>().drain().next().is_some());
+	assert!(app
+		.world_mut()
+		.resource_mut::<Messages<DropLiveGrenade>>()
+		.drain()
+		.next()
+		.is_some());
 	assert!(no_thrown_grenade(&mut app));
 }
 
@@ -478,7 +482,8 @@ fn nested_captures_release_independently_on_the_router() {
 #[test]
 fn disconnect_while_holding_cancels_the_cook() {
 	let mut app = stack_app();
-	app.add_plugins((AssetPlugin::default(), PlayerPlugin)).init_asset::<AudioClip>();
+	app.add_plugins((AssetPlugin::default(), PlayerPlugin))
+		.init_asset::<AudioClip>();
 	let held = app.world_mut().spawn_empty().id();
 	let bag = spawn_grenade_bag(&mut app);
 	let actor = app
@@ -537,12 +542,7 @@ fn capture_cancels_a_held_firearm_trigger() {
 	let gun = spawn_live_gun(&mut app, 8.0);
 	let actor = app
 		.world_mut()
-		.spawn((
-			Player,
-			VegetationPlayer,
-			FirearmUser::holding(gun),
-			EquippedItemHandler::Firearm,
-		))
+		.spawn((Player, VegetationPlayer, FirearmUser::holding(gun), EquippedItemHandler::Firearm))
 		.id();
 	assign(&mut app, actor);
 	app.world_mut().write_message(EquippedItemUse::new(
@@ -647,12 +647,7 @@ fn start_and_held_trigger_same_frame_leaves_idle_firearm() {
 	let gun = app.world_mut().spawn(WeaponTrigger(false)).id();
 	let actor = app
 		.world_mut()
-		.spawn((
-			Player,
-			VegetationPlayer,
-			FirearmUser::holding(gun),
-			EquippedItemHandler::Firearm,
-		))
+		.spawn((Player, VegetationPlayer, FirearmUser::holding(gun), EquippedItemHandler::Firearm))
 		.id();
 	assign(&mut app, actor);
 	app.update();
@@ -694,9 +689,10 @@ fn loading_play_inventory_resume_home_on_plugin_session() {
 		session.install_loading(true);
 	}
 	app.update();
-	assert!(!app.world().resource::<SessionCapabilities>().gameplay_enabled(
-		app.world().resource::<InputRouter>()
-	));
+	assert!(!app
+		.world()
+		.resource::<SessionCapabilities>()
+		.gameplay_enabled(app.world().resource::<InputRouter>()));
 	assert!(app.world().resource::<SessionCapabilities>().streaming_enabled());
 
 	{
@@ -704,24 +700,27 @@ fn loading_play_inventory_resume_home_on_plugin_session() {
 		session.install_play(true);
 	}
 	app.update();
-	assert!(app.world().resource::<SessionCapabilities>().gameplay_enabled(
-		app.world().resource::<InputRouter>()
-	));
+	assert!(app
+		.world()
+		.resource::<SessionCapabilities>()
+		.gameplay_enabled(app.world().resource::<InputRouter>()));
 	assert!(app.world().resource::<SessionCapabilities>().physics_installed());
 
 	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
 	app.update();
-	assert!(!app.world().resource::<SessionCapabilities>().gameplay_enabled(
-		app.world().resource::<InputRouter>()
-	));
+	assert!(!app
+		.world()
+		.resource::<SessionCapabilities>()
+		.gameplay_enabled(app.world().resource::<InputRouter>()));
 	assert!(app.world().resource::<SessionCapabilities>().physics_installed());
 	assert!(app.world().resource::<SessionCapabilities>().simulation_active());
 
 	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
 	app.update();
-	assert!(app.world().resource::<SessionCapabilities>().gameplay_enabled(
-		app.world().resource::<InputRouter>()
-	));
+	assert!(app
+		.world()
+		.resource::<SessionCapabilities>()
+		.gameplay_enabled(app.world().resource::<InputRouter>()));
 
 	{
 		let mut session = app.world_mut().resource_mut::<SessionCapabilities>();
@@ -729,9 +728,10 @@ fn loading_play_inventory_resume_home_on_plugin_session() {
 	}
 	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
 	app.update();
-	assert!(!app.world().resource::<SessionCapabilities>().gameplay_enabled(
-		app.world().resource::<InputRouter>()
-	));
+	assert!(!app
+		.world()
+		.resource::<SessionCapabilities>()
+		.gameplay_enabled(app.world().resource::<InputRouter>()));
 	assert!(!app.world().resource::<SessionCapabilities>().physics_installed());
 	assert!(app.world().resource::<SessionCapabilities>().menu_shell_active());
 }

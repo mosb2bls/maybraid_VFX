@@ -3,8 +3,8 @@
 Held grenade, cook / windup / release, and owned recharge clocks.
 
 Throw realization reads addressed
-[`EquippedItemUse`](../../controllers/character/src/dispatch.rs) for the
-grenade [`EquippedItemHandler`](../../controllers/character/src/dispatch.rs).
+[`EquippedItemUse`](../equipment/src/dispatch.rs) for the
+grenade [`EquippedItemHandler`](../equipment/src/dispatch.rs).
 A missing use is not a release. [`apply_throw_routing`](src/throw.rs) reads
 [`RoutingEvent`](../../controllers/core/src/router.rs) via `MessageReader`.
 Capture keeps a live fuse ticking and only cancels a leftover use latch;

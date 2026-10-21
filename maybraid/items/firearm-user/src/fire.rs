@@ -5,9 +5,8 @@ use firearms::{
 	advance_shot_clock, catch_up_limit, idle_shot_clock, trigger_allows_fire, FireControl,
 	FireOnTrigger, ProjectileSource, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger,
 };
-use maybraid_character_controller::{
-	delivered_item_use, EquippedItemUse, InputRouter, InputSource, RoutingEvent, RoutingKind,
-};
+use maybraid_controllers_core::{InputRouter, InputSource, RoutingEvent, RoutingKind};
+use maybraid_equipment::{delivered_item_use, EquippedItemUse};
 use player::{CameraFollow, Player};
 use player_camera::CameraRecoilHandoff;
 
@@ -207,10 +206,11 @@ mod tests {
 	use super::*;
 	use bevy::ecs::system::RunSystemOnce;
 	use bevy::time::TimeUpdateStrategy;
-	use maybraid_character_controller::{
-		ActorTarget, CaptureKind, EquippedItemHandler, EquippedItemUse, InputRouter, InputRouting,
-		InputSource, RoutingEvent, ScopeOwner, UiTarget,
+	use maybraid_controllers_core::{
+		ActorTarget, CaptureKind, InputRouter, InputRouting, InputSource, RoutingEvent, ScopeOwner,
+		UiTarget,
 	};
+	use maybraid_equipment::{EquippedItemHandler, EquippedItemUse};
 	use player::PlayerLook;
 	use player_camera::{CameraController, CameraPov, FollowCamera};
 
@@ -248,8 +248,6 @@ mod tests {
 
 	#[test]
 	fn paused_delivery_does_not_squeeze_a_published_use() {
-		use maybraid_character_controller::InputSource;
-
 		let mut app = App::new();
 		app.add_plugins(MinimalPlugins)
 			.init_resource::<InputRouter>()
@@ -381,11 +379,7 @@ mod tests {
 			.add_message::<CameraRecoilHandoff>()
 			.add_systems(
 				Update,
-				(
-					queue_weapon_recoil,
-					advance_weapon_recoil,
-					player_camera::apply_recoil_handoff,
-				)
+				(queue_weapon_recoil, advance_weapon_recoil, player_camera::apply_recoil_handoff)
 					.chain(),
 			);
 		let camera = app

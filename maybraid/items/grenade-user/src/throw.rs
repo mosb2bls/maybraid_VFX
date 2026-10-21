@@ -12,10 +12,9 @@ use grenades::{
 	GrenadeSounds,
 };
 use maybraid_audio::{Audio, AudioClip, Mixer};
-use maybraid_character_controller::{
-	delivered_item_use, ActorTarget, EquippedItemUse, HoldEffect, InputRouter, InputSource,
-	RoutingEvent, RoutingKind,
-};
+use maybraid_character_controller::HoldEffect;
+use maybraid_controllers_core::{ActorTarget, InputRouter, InputSource, RoutingEvent, RoutingKind};
+use maybraid_equipment::{delivered_item_use, EquippedItemUse};
 use player::{look_forward, PlayerLook};
 
 use crate::hold::HeldGrenade;
@@ -184,9 +183,10 @@ pub fn apply_throw_intents(
 		.filter(|use_item| delivered_item_use(router, *use_item))
 		.collect();
 	for (entity, mut throw, swapping) in &mut users {
-		let Some(use_item) = uses.iter().rev().find(|use_item| {
-			use_item.addresses(entity) && use_item.handler().is_grenade()
-		})
+		let Some(use_item) = uses
+			.iter()
+			.rev()
+			.find(|use_item| use_item.addresses(entity) && use_item.handler().is_grenade())
 		else {
 			// Lifecycle events own cancel / freeze. Missing use is not a release.
 			continue;
@@ -723,7 +723,8 @@ mod tests {
 	}
 
 	fn apply_use_item(world: &mut World) -> anyhow::Result<()> {
-		use maybraid_character_controller::{ActorTarget, EquippedItemHandler, EquippedItemUse};
+		use maybraid_controllers_core::ActorTarget;
+		use maybraid_equipment::{EquippedItemHandler, EquippedItemUse};
 
 		world.init_resource::<Messages<EquippedItemUse>>();
 		world.resource_mut::<Messages<EquippedItemUse>>().drain().for_each(drop);
@@ -745,7 +746,8 @@ mod tests {
 	}
 
 	fn apply_release(world: &mut World) -> anyhow::Result<()> {
-		use maybraid_character_controller::{ActorTarget, EquippedItemHandler, EquippedItemUse};
+		use maybraid_controllers_core::ActorTarget;
+		use maybraid_equipment::{EquippedItemHandler, EquippedItemUse};
 
 		world.init_resource::<Messages<EquippedItemUse>>();
 		world.resource_mut::<Messages<EquippedItemUse>>().drain().for_each(drop);
@@ -1173,9 +1175,7 @@ mod tests {
 
 	#[test]
 	fn suspension_freezes_fuse_and_windup() -> anyhow::Result<()> {
-		use maybraid_character_controller::{
-			ActorTarget, InputRouter, InputSource, ScopeOwner,
-		};
+		use maybraid_character_controller::{ActorTarget, InputRouter, InputSource, ScopeOwner};
 
 		let mut world = World::new();
 		let user = spawn_ready_user(&mut world);
