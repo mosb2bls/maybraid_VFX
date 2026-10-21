@@ -9,6 +9,7 @@ mod lifecycle;
 mod selection;
 mod transition;
 
+use bevy::ecs::schedule::ApplyDeferred;
 use bevy::prelude::*;
 use maybraid_character_controller::{
 	CharacterBindSystems, CharacterControlSystems, CharacterControllerPlugin,
@@ -45,8 +46,10 @@ pub enum EquipmentSystems {
 	AdvanceHolster,
 	/// Commit the bag and request kit replace at the holster midpoint.
 	CommitHolster,
-	/// Item crates realize hold / teardown requests.
-	Realize,
+	/// Item crates tear down the outgoing kit.
+	Teardown,
+	/// Item crates construct the incoming kit after teardown commands flush.
+	Hold,
 	/// Drop realized hold / teardown request components.
 	Cleanup,
 }
@@ -76,9 +79,14 @@ impl Plugin for EquipmentPlugin {
 						.after(CharacterControlSystems),
 					EquipmentSystems::AdvanceHolster,
 					EquipmentSystems::CommitHolster.after(EquipmentSystems::AdvanceHolster),
-					EquipmentSystems::Realize.after(EquipmentSystems::CommitHolster),
-					EquipmentSystems::Cleanup.after(EquipmentSystems::Realize),
+					EquipmentSystems::Teardown.after(EquipmentSystems::CommitHolster),
+					EquipmentSystems::Hold.after(EquipmentSystems::Teardown),
+					EquipmentSystems::Cleanup.after(EquipmentSystems::Hold),
 				),
+			)
+			.add_systems(
+				Update,
+				ApplyDeferred.after(EquipmentSystems::Teardown).before(EquipmentSystems::Hold),
 			)
 			.add_systems(Update, dispatch_equipped_item.in_set(CharacterBindSystems::Dispatch))
 			.add_systems(Last, RoutedItemActor::stamp)

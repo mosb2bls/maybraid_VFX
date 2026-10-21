@@ -1,5 +1,5 @@
 //! Equipment ↔ concrete item crates. Equipment owns category / holster state;
-//! firearm-user and grenade-user realize hold and teardown.
+//! firearm-user and grenade-user realize teardown then hold.
 
 use bevy::prelude::*;
 use firearm_user::register_firearm_user_runtime;

@@ -2,9 +2,10 @@
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
+use bevy::scene::ScenePlugin;
 use bevy::time::TimeUpdateStrategy;
 use character_inventory_user::InventoryUser;
-use character_items::{Inventory, InventoryItem};
+use character_items::{FirearmMesh, Inventory, InventoryItem};
 use firearm_user::{FirearmUser, RecoilPattern, register_firearm_user_runtime};
 use firearms::{FireControl, FireOnTrigger, Weapon, WeaponFired, WeaponRecoil, WeaponTrigger};
 use grenade_user::{GrenadePhase, GrenadeThrow, GrenadeUser, register_grenade_user_runtime};
@@ -20,14 +21,14 @@ use maybraid_controllers_core::{
 	UiTarget,
 };
 use maybraid_equipment::{
-	ActiveInventoryCyclingCategory, EquippedItemHandler, EquippedItemUse, EquippedPowerUse,
-	InventoryCycling, RoutedItemActor,
+	ActiveInventoryCyclingCategory, EquipmentHolster, EquippedItemHandler, EquippedItemUse,
+	EquippedPowerUse, InventoryCycling, RoutedItemActor, EQUIPMENT_HOLSTER_SECS,
 };
 use maybraid_input::{PadButton, VirtualPad, VirtualPadSystems};
 use maybraid_session::{
 	SessionCapabilities, SessionCapabilitySystems, WorldGameplayEnabled, apply_in_game_menu_pause,
 };
-use player::{CameraFollow, Player, PlayerLook, PlayerPlugin};
+use player::{CameraFollow, Player, PlayerLook, PlayerPlugin, PlayerUse};
 use player_camera::{
 	CameraController, CameraRecoilHandoff, FollowCamera, register_player_camera_runtime,
 };
@@ -883,4 +884,176 @@ fn item_runtime_register_is_idempotent_beside_gameplay() {
 	register_firearm_user_runtime(&mut app);
 	register_grenade_user_runtime(&mut app);
 	app.update();
+}
+
+fn mixed_weapon_bag() -> Inventory {
+	Inventory {
+		items: vec![
+			InventoryItem::firearm(FirearmMesh::Bullpup),
+			InventoryItem::standard_grenade(),
+		],
+		clothing: Vec::new(),
+		weapons: vec![0, 1],
+		skills: Vec::new(),
+		tanzes: Vec::new(),
+	}
+}
+
+fn spawn_mixed_weapon_actor(
+	app: &mut App,
+	handler: EquippedItemHandler,
+) -> (Entity, Entity, Entity) {
+	let bag = app.world_mut().spawn(mixed_weapon_bag()).id();
+	let held = app.world_mut().spawn_empty().id();
+	let mut entity = app.world_mut().spawn((
+		Player,
+		VegetationPlayer,
+		InventoryUser::carrying(bag),
+		PlayerUse { driver: held },
+		handler,
+		InventoryCycling::default(),
+	));
+	match handler {
+		EquippedItemHandler::Firearm => {
+			entity.insert(FirearmUser::holding(held));
+		}
+		EquippedItemHandler::Grenade => {
+			entity.insert((GrenadeUser::holding(held), GrenadeThrow::default()));
+		}
+		EquippedItemHandler::None => {}
+	}
+	(entity.id(), bag, held)
+}
+
+fn insert_holster_at(app: &mut App, actor: Entity, elapsed: f32, swapped: bool) {
+	app.world_mut().entity_mut(actor).insert(EquipmentHolster {
+		elapsed,
+		duration: EQUIPMENT_HOLSTER_SECS,
+		swapped,
+		reverse: false,
+	});
+}
+
+fn commit_ready_holster(app: &mut App, actor: Entity) {
+	insert_holster_at(app, actor, EQUIPMENT_HOLSTER_SECS * 0.5, false);
+	app.update();
+}
+
+#[test]
+fn assembled_firearm_grenade_swap_keeps_player_use() {
+	let mut app = stack_app();
+	app.add_plugins((AssetPlugin::default(), ScenePlugin));
+	let (actor, _, old_held) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	assign(&mut app, actor);
+	commit_ready_holster(&mut app, actor);
+
+	assert!(
+		app.world().get::<FirearmUser>(actor).is_none(),
+		"outgoing firearm relationship must be torn down"
+	);
+	let grenade = app.world().get::<GrenadeUser>(actor).expect("incoming grenade relationship");
+	let player_use = app.world().get::<PlayerUse>(actor).expect("PlayerUse must survive the swap");
+	assert_eq!(player_use.driver, grenade.held);
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Grenade)
+	);
+	assert!(!app.world().entities().contains(old_held));
+
+	commit_ready_holster(&mut app, actor);
+	assert!(
+		app.world().get::<GrenadeUser>(actor).is_none(),
+		"outgoing grenade relationship must be torn down"
+	);
+	let firearm = app.world().get::<FirearmUser>(actor).expect("incoming firearm relationship");
+	let player_use = app.world().get::<PlayerUse>(actor).expect("PlayerUse must survive the swap");
+	assert_eq!(player_use.driver, firearm.held);
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Firearm)
+	);
+}
+
+#[test]
+fn pause_before_holster_midpoint_does_not_commit() {
+	let mut app = stack_app();
+	let (actor, bag, _) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	assign(&mut app, actor);
+	insert_holster_at(&mut app, actor, EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01, false);
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	for _ in 0..30 {
+		app.update();
+	}
+	let holster = app.world().get::<EquipmentHolster>(actor).expect("holster");
+	assert!(
+		(holster.elapsed - (EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01)).abs() < 1e-4,
+		"paused actor holster must stay short of the commit midpoint"
+	);
+	assert!(!holster.swapped);
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Firearm)
+	);
+	assert_eq!(
+		app.world()
+			.get::<Inventory>(bag)
+			.and_then(|bag| bag.primary_weapon()?.firearm_mesh()),
+		Some(FirearmMesh::Bullpup)
+	);
+
+	app.world_mut().resource_mut::<InputRouter>().set_paused(false);
+	app.update();
+	let holster = app.world().get::<EquipmentHolster>(actor).expect("holster");
+	assert!(holster.swapped, "resume must commit once the clock crosses the midpoint");
+	assert_eq!(
+		app.world().get::<EquippedItemHandler>(actor).copied(),
+		Some(EquippedItemHandler::Grenade)
+	);
+}
+
+#[test]
+fn pause_after_holster_midpoint_does_not_finish() {
+	let mut app = stack_app();
+	let (actor, _, _) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	assign(&mut app, actor);
+	insert_holster_at(&mut app, actor, EQUIPMENT_HOLSTER_SECS * 0.5 + 0.01, true);
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	for _ in 0..30 {
+		app.update();
+	}
+	let holster = app.world().get::<EquipmentHolster>(actor).expect("committed holster");
+	assert!(holster.swapped);
+	assert!(
+		(holster.elapsed - (EQUIPMENT_HOLSTER_SECS * 0.5 + 0.01)).abs() < 1e-4,
+		"paused actor holster must not finish after commit"
+	);
+	assert!(!holster.finished());
+}
+
+#[test]
+fn npc_holster_advances_while_the_local_actor_is_paused() {
+	let mut app = stack_app();
+	let (actor, _, _) = spawn_mixed_weapon_actor(&mut app, EquippedItemHandler::Firearm);
+	let npc = app
+		.world_mut()
+		.spawn(EquipmentHolster {
+			elapsed: 0.0,
+			duration: EQUIPMENT_HOLSTER_SECS,
+			swapped: false,
+			reverse: false,
+		})
+		.id();
+	assign(&mut app, actor);
+	insert_holster_at(&mut app, actor, 0.0, false);
+	app.world_mut().resource_mut::<InputRouter>().set_paused(true);
+	for _ in 0..10 {
+		app.update();
+	}
+	let actor_holster = app.world().get::<EquipmentHolster>(actor).expect("actor");
+	assert!(actor_holster.elapsed.abs() < 1e-4, "paused local actor holster must stay frozen");
+	let npc_holster = app.world().get::<EquipmentHolster>(npc).expect("npc");
+	assert!(
+		npc_holster.elapsed > 0.0,
+		"unrelated NPC holster must keep advancing during local pause"
+	);
 }

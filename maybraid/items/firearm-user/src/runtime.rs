@@ -36,11 +36,8 @@ pub fn register_firearm_user_runtime(app: &mut App) {
 				.chain()
 				.in_set(PlayerSystems::Intent),
 		)
-		.add_systems(
-			Update,
-			(realize_equipment_teardown, realize_equipment_hold.after(realize_equipment_teardown))
-				.in_set(EquipmentSystems::Realize),
-		)
+		.add_systems(Update, realize_equipment_teardown.in_set(EquipmentSystems::Teardown))
+		.add_systems(Update, realize_equipment_hold.in_set(EquipmentSystems::Hold))
 		.add_systems(PostUpdate, queue_weapon_recoil.after(FirearmWeaponSystems::Fire))
 		.add_systems(
 			Update,

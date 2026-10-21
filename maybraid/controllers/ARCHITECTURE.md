@@ -242,7 +242,7 @@ the current owner. Later phases change the owner column, not the role id.
 | D3 | Grenade throw | `grenade_user::throw::apply_throw_intents` | D1 grenade | cook / latch | grenade-user | **Phase 5.** Missing delivery freezes; `take_live_cook` owns swap / death drop. |
 | D4 | Recoil handoff | `queue_weapon_recoil` → `advance_weapon_recoil` | `WeaponFired` | C5 `CameraRecoilHandoff` | firearm-user | **Phase 5.** Camera applies; firearm-user does not write look / camera. |
 | D5 | Inventory category | `apply_inventory_category_selection` | B7 `SelectInventoryCyclingCategory` | per-actor `InventoryCycling`; HUD `ActiveInventoryCyclingCategory` | `items/equipment` `selection.rs` | **Phase 5.** Actor component is the owner; resource is a mirror. |
-| D6 | Queue cycle / swap | `cycle_equipped_inventory_queues` / `begin_equipment_holster` + `commit_equipment_holster` | B7 + `InventoryCycling` | skill-map / Lubikan cycle, or `EquipmentHolster` commit | `items/equipment` | **Phase 5.** Weapons commit the handler at the holster midpoint. Item crates realize hold / teardown. |
+| D6 | Queue cycle / swap | `cycle_equipped_inventory_queues` / `begin_equipment_holster` + `commit_equipment_holster` | B7 + `InventoryCycling` | skill-map / Lubikan cycle, or `EquipmentHolster` commit | `items/equipment` | **Phase 5.** Weapons commit the handler at the holster midpoint. Shared stages are Commit → Teardown → `ApplyDeferred` → Hold → Cleanup so every outgoing kit is gone before any incoming kit is built. |
 | D7 | Lubikan activation | `gameplay/lib/src/powers.rs` `request_lubikan_activation` | D1 `EquippedPowerUse` | `LubikanActivationRequest::equipped(owner)` | `gameplay/lib` | **Phase 5.** Spends once; refusal keeps charge. |
 | D8 | Interaction / stash | `stash.rs` `StartInteraction` | `CharacterIntent::StartInteraction` | stash / crate loot | world | Broadcast. |
 | D9 | Item presentation | `PlayerPoseSystems::Item` / `WeaponSwap` | D6, Tanz pose | held meshes | player presentation | Not a controller. Listed so D6 does not own pose. |
@@ -457,7 +457,9 @@ InputRouter::delivered_actor + EquippedItemHandler
 InventoryCycling (per-actor) ← SelectInventoryCyclingCategory
        → HUD ActiveInventoryCyclingCategory (mirror)
        → cycle_equipped_inventory_queues | begin_equipment_holster
-            → commit_equipment_holster requests hold; item crates stamp the handler
+            → commit_equipment_holster requests hold
+            → Teardown (all outgoing kits) → ApplyDeferred → Hold (incoming kit)
+              item crates stamp the handler; PlayerUse is removed then reinstalled
 WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_handoff
 ```
 
@@ -487,7 +489,7 @@ WeaponFired → queue_weapon_recoil → CameraRecoilHandoff → apply_recoil_han
 | throw release | `SpawnThrownGrenade` | D3 → grenades interpreter |
 | `RoutingEvent` disconnect / reassign / removal | `lost_actor` + `take_live_cook` + `DropLiveGrenade` | D3 |
 | `RoutingEvent` `Captured` | cancel leftover item latch / trigger; keep a live cook | D3 / D2 |
-| `InputRouter` suspension | freeze `advance_throw` clocks | D3 |
+| `InputRouter` suspension | freeze `advance_throw` clocks; freeze the local actor's holster clock | D3 / D6 |
 | `WeaponFired` | `CameraRecoilHandoff` | D4 → C5 |
 | `EquippedPowerUse` | `LubikanActivationRequest::equipped` | D7 |
 | `SelectInventoryCyclingCategory` | `InventoryCycling` + HUD mirror | D5 |
@@ -527,7 +529,12 @@ full plugins (`GameplayPlugin` adds those after the runtime):
 - denied shot runs real fire + recoil clocks (cooldown denies; a later
   ready shot kicks)
 - capture keeps ticking a live fuse and cancels a leftover item latch /
-  held firearm trigger; suspension freezes fuse and windup
+  held firearm trigger; suspension freezes fuse, windup, and the local
+  actor's holster clock (NPC holsters keep advancing)
+- firearm↔grenade swap realizes teardown before hold so the new
+  relationship, handler, and `PlayerUse.driver` survive
+- pause just before the holster midpoint does not commit; pause just
+  after does not finish the swap
 - reassignment / disconnect emit `ReleaseNeutral` and drop via
   `take_live_cook` on `lost_actor`; disconnect stays disconnected under
   production `PlayerPlugin` / `assign_local_player`

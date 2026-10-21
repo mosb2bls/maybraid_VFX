@@ -73,6 +73,25 @@ impl EquipmentHolster {
 		self.elapsed += dt;
 	}
 
+	/// Local-pad pause freezes this actor; unrelated holsters keep moving.
+	pub fn owner_suspended(router: &InputRouter, owner: Entity) -> bool {
+		let source = InputSource::local_pad();
+		router.is_suspended(source)
+			&& router.actor(source).is_some_and(|actor| actor.matches(owner))
+	}
+
+	fn clocks_frozen(router: Option<&InputRouter>, owner: Entity) -> bool {
+		router.is_some_and(|router| Self::owner_suspended(router, owner))
+	}
+
+	/// Advance unless the owning actor's local pad is suspended.
+	pub fn advance_if_active(&mut self, dt: f32, router: Option<&InputRouter>, owner: Entity) {
+		if Self::clocks_frozen(router, owner) {
+			return;
+		}
+		self.advance(dt);
+	}
+
 	/// Dip the posed kit down and in toward the body.
 	pub fn apply_to(self, transform: &mut Transform) {
 		let dip = self.dip();
@@ -110,18 +129,28 @@ impl EquipmentHolster {
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BlocksEquipmentSwap;
 
-pub fn advance_equipment_holster(time: Res<Time>, mut holsters: Query<&mut EquipmentHolster>) {
+pub fn advance_equipment_holster(
+	time: Res<Time>,
+	router: Option<Res<InputRouter>>,
+	mut holsters: Query<(Entity, &mut EquipmentHolster)>,
+) {
 	let dt = time.delta_secs();
-	for mut holster in &mut holsters {
-		holster.advance(dt);
+	let router = router.as_deref();
+	for (entity, mut holster) in &mut holsters {
+		holster.advance_if_active(dt, router, entity);
 	}
 }
 
 pub fn clear_finished_equipment_holsters(
 	mut commands: Commands,
+	router: Option<Res<InputRouter>>,
 	holsters: Query<(Entity, &EquipmentHolster)>,
 ) {
+	let router = router.as_deref();
 	for (entity, holster) in &holsters {
+		if EquipmentHolster::clocks_frozen(router, entity) {
+			continue;
+		}
 		if holster.finished() {
 			commands.entity(entity).remove::<EquipmentHolster>();
 		}
@@ -212,6 +241,7 @@ mod tests {
 	use crate::selection::{
 		apply_inventory_category_selection, ActiveInventoryCyclingCategory, InventoryCycling,
 	};
+	use std::time::Duration;
 
 	fn two_gun_bag() -> Inventory {
 		Inventory {
@@ -535,6 +565,70 @@ mod tests {
 			world.get::<EquippedItemHandler>(actor).copied(),
 			Some(EquippedItemHandler::Grenade)
 		);
+		Ok(())
+	}
+
+	fn holster_at(elapsed: f32, swapped: bool) -> EquipmentHolster {
+		EquipmentHolster { elapsed, duration: EQUIPMENT_HOLSTER_SECS, swapped, reverse: false }
+	}
+
+	fn seed_time(world: &mut World, dt: Duration) {
+		let mut time = Time::<()>::default();
+		time.advance_by(dt);
+		world.insert_resource(time);
+	}
+
+	#[test]
+	fn pause_before_midpoint_freezes_the_local_actor() -> anyhow::Result<()> {
+		let mut world = World::new();
+		seed_time(&mut world, Duration::from_millis(200));
+		let actor = world.spawn(holster_at(EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01, false)).id();
+		let npc = world.spawn(holster_at(EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01, false)).id();
+		let mut router = InputRouter::default();
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(actor));
+		router.set_paused(true);
+		world.insert_resource(router);
+		world
+			.run_system_once(advance_equipment_holster)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let actor_holster =
+			world.get::<EquipmentHolster>(actor).ok_or_else(|| anyhow::anyhow!("actor"))?;
+		assert!(
+			(actor_holster.elapsed - (EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01)).abs() < 1e-5,
+			"paused actor holster must not advance through the commit midpoint"
+		);
+		assert!(!actor_holster.ready_to_swap());
+		let npc_holster =
+			world.get::<EquipmentHolster>(npc).ok_or_else(|| anyhow::anyhow!("npc"))?;
+		assert!(npc_holster.elapsed > EQUIPMENT_HOLSTER_SECS * 0.5 - 0.01);
+		assert!(npc_holster.ready_to_swap());
+		Ok(())
+	}
+
+	#[test]
+	fn pause_after_midpoint_does_not_finish_the_local_actor() -> anyhow::Result<()> {
+		let mut world = World::new();
+		seed_time(&mut world, Duration::from_millis(400));
+		let actor = world.spawn(holster_at(EQUIPMENT_HOLSTER_SECS * 0.5 + 0.01, true)).id();
+		let npc = world.spawn(holster_at(EQUIPMENT_HOLSTER_SECS * 0.5 + 0.01, true)).id();
+		let mut router = InputRouter::default();
+		router.assign_actor(InputSource::local_pad(), ActorTarget::new(actor));
+		router.set_paused(true);
+		world.insert_resource(router);
+		world
+			.run_system_once(advance_equipment_holster)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		world
+			.run_system_once(clear_finished_equipment_holsters)
+			.map_err(|error| anyhow::anyhow!("{error:?}"))?;
+		let actor_holster =
+			world.get::<EquipmentHolster>(actor).ok_or_else(|| anyhow::anyhow!("actor"))?;
+		assert!(
+			(actor_holster.elapsed - (EQUIPMENT_HOLSTER_SECS * 0.5 + 0.01)).abs() < 1e-5,
+			"paused actor holster must not finish after commit"
+		);
+		assert!(!actor_holster.finished());
+		assert!(world.get::<EquipmentHolster>(npc).is_none(), "NPC holster must keep finishing");
 		Ok(())
 	}
 }

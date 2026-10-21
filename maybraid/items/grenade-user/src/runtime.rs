@@ -12,8 +12,8 @@ use player::{PlayerSystems, PlayerUse};
 
 use crate::hold::spawn_held_grenade;
 use crate::throw::{
-	GrenadeThrow, GrenadeUser, GrenadeUserSettings, GrenadeUserSystems, advance_throw,
-	apply_throw_intents, apply_throw_routing, interrupt_live_cooks,
+	advance_throw, apply_throw_intents, apply_throw_routing, interrupt_live_cooks, GrenadeThrow,
+	GrenadeUser, GrenadeUserSettings, GrenadeUserSystems,
 };
 
 #[derive(Resource, Default)]
@@ -38,11 +38,8 @@ pub fn register_grenade_user_runtime(app: &mut App) {
 		)
 		.add_systems(Update, advance_throw.after(PlayerSystems::Intent))
 		.add_systems(Update, sync_equipment_swap_block.before(EquipmentSystems::BeginHolster))
-		.add_systems(
-			Update,
-			(realize_equipment_teardown, realize_equipment_hold.after(realize_equipment_teardown))
-				.in_set(EquipmentSystems::Realize),
-		)
+		.add_systems(Update, realize_equipment_teardown.in_set(EquipmentSystems::Teardown))
+		.add_systems(Update, realize_equipment_hold.in_set(EquipmentSystems::Hold))
 		.add_systems(Update, interrupt_live_cooks.in_set(GrenadeUserSystems::Interrupt))
 		.add_systems(
 			PostUpdate,
