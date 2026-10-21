@@ -255,6 +255,7 @@ the current owner. Later phases change the owner column, not the role id.
 | E2 | Inventory sheet | `stash.rs` Inventory reader | B9 | inventory editor | world | Broadcast. |
 | E3 | World map | `map_view.rs` ToggleMap reader | B10 | `WorldMapView` | world | Broadcast. Two camera-lock writers remain. |
 | E4 | Session gameplay gate | `SessionCapabilities`, `WorldGameplayEnabled` | E1, `game/src/flow.rs` enter, pause | B11 world filter, HUD, cycling | `gameplay/session` | Live. Capabilities already replace the old `SessionActivity` / `WorldGameplayEnabled` gates. Session projects live-play; world keeps scenery / menu-shell bits. |
+| E5 | Spawn / respawn picker | `SpawnPickerController`, `refresh_spawn_picker_focus`, `dispatch_spawn_picker` | A2 `MenuNavPad` | `PlayerChoseRespawnPoi` → `respawn_world_player` | world | **Phase 5.** UI-owned MenuNav capture. No actor. Higher overlay / text / other menu blocks confirm. |
 
 ### U — routing, capture, lifecycle
 
@@ -326,7 +327,7 @@ phase. Phase 1 inventories them and migrates menu dispatch only.
 | `items/skill-map/src/controller.rs` / `cursor.rs` | — | `RoutedActorControl` + addressed `SkillMapFlick` | **Phase 3 migrated** |
 | `items/firearm-user/src/fire.rs` | — | D1 `EquippedItemUse` | **Phase 5 migrated** |
 | `game/src/lib.rs` `toggle_world_pause` | `VirtualPad` (A vs Start) | B8 | 4 |
-| `world/lib/src/player_lifecycle.rs` `drive_respawn_picker` | `VirtualPad` stick / D-pad | shell | 5 |
+| `world/lib/src/spawn_picker.rs` `dispatch_spawn_picker` | `MenuNavPad` (derived, not raw HID) | A2 surface; UI-owned confirm | **Phase 5 migrated** |
 | `world/lib/src/camera.rs` `fly_world_camera` | `VirtualPad` | playground free-fly | keep (host debug) |
 | `world/player/src/player.rs` `keyboard_movement_input` | `VirtualPad` | playground B11 | playground host |
 | `world/player/src/camera.rs` | `VirtualPad` | playground camera | keep (host debug) |
@@ -554,8 +555,11 @@ full plugins (`GameplayPlugin` adds those after the runtime):
 - `CharacterControlSystems` remains a Bind alias for leftover
   `.after(CharacterControlSystems)` hosts.
 - `apply_look_intents` is still query-wide `FollowCamera` (delivery-gated).
-- Shell HID leftovers: `player_lifecycle` respawn picker `VirtualPad`,
-  `stash` `Gamepad` presence, `game::toggle_world_pause` Start / A.
+- Shell HID leftovers: `stash` `Gamepad` presence,
+  `game::toggle_world_pause` Start / A. The locked spawn picker now
+  confirms from UI-owned [`MenuNavPad`](../input/src/surface/menu.rs)
+  (`SpawnPickerController`); it does not restore actor-less character
+  intents or exempt Jump from map capture.
 - Full `WorldPlugin` is not headless-safe; stack tests use the extracted
   headless runtime registration, not terrain / vegetation assemble.
 
