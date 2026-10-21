@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use maybraid_controllers_core::{
-	CaptureKind, CaptureToken, InputRouter, InputSource, Routed, ScopeOwner, UiTarget,
+	CaptureKind, CaptureToken, InputRouter, InputRouting, InputSource, Routed, ScopeOwner, UiTarget,
 };
 use maybraid_input::{MenuNav, MenuNavPad, MenuOwnsBack};
 use menu_components::{
@@ -94,7 +94,7 @@ pub fn refresh_menu_focus(
 	roots: Query<(Entity, &MenuModal)>,
 	mut controllers: Query<(Entity, &mut MenuController)>,
 	mut menu_owns: ResMut<MenuOwnsBack>,
-	mut router: ResMut<InputRouter>,
+	mut router: InputRouting,
 	mut menu_capture: ResMut<MenuNavCapture>,
 ) {
 	let exclusive = ExclusiveNav::resolve(&modal, &stack, &pads, &roots, &all_menus, &children);
@@ -205,6 +205,7 @@ mod tests {
 		world.init_resource::<MenuOwnsBack>();
 		world.init_resource::<MenuNavPad>();
 		world.init_resource::<InputRouter>();
+		world.init_resource::<Messages<maybraid_controllers_core::RoutingEvent>>();
 		world.init_resource::<MenuNavCapture>();
 		world.init_resource::<NavHits>();
 		world.add_observer(record);

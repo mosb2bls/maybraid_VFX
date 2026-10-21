@@ -5,7 +5,9 @@ pub mod dispatch;
 
 pub use controller::MenuController;
 pub use dispatch::{exclusive_nav_menu, ExclusiveNav, MenuNavCapture};
-pub use maybraid_controllers_core::{CaptureKind, CaptureToken, InputRouter, ScopeOwner, UiTarget};
+pub use maybraid_controllers_core::{
+	CaptureKind, CaptureToken, InputRouter, RoutingEvent, ScopeOwner, UiTarget,
+};
 
 use bevy::prelude::*;
 use maybraid_controllers_core::ControllersCorePlugin;

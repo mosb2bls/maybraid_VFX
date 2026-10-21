@@ -243,7 +243,9 @@ mod tests {
 		produce::keyboard::produce_keyboard, KeyboardPadMap, MenuNavPad, MenuOwnsBack, PadButton,
 		PadGameplayEnabled, VirtualPad, VirtualPadConfig,
 	};
-	use maybraid_menu_controller::{dispatch, InputRouter, MenuController, MenuNavCapture};
+	use maybraid_menu_controller::{
+		dispatch, InputRouter, MenuController, MenuNavCapture, RoutingEvent,
+	};
 	use menu_components::{
 		HudMenu, HudMenuItem, MenuComponentsPlugin, ShortTextField, ShortTextKey, ShortTextModal,
 		TextMenuInputLock, TextMenuSystems,
@@ -307,6 +309,7 @@ mod tests {
 		.init_resource::<MenuNavPad>()
 		.init_resource::<MenuOwnsBack>()
 		.init_resource::<InputRouter>()
+		.init_resource::<Messages<RoutingEvent>>()
 		.init_resource::<MenuNavCapture>()
 		.init_resource::<PadGameplayEnabled>()
 		.init_resource::<KeyboardPadMap>()

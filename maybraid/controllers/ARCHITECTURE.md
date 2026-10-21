@@ -96,17 +96,27 @@ not. Tanz / Standard / WorldFilter names do **not** belong in generic core;
 phase 2 registers those sets beside locomotion / Tanz / world systems.
 
 `InputRouter` is the sole routing owner. Sources have an explicit actor and
-optional UI assignment. Assignment loss, disconnect, and removal clear
-delivery and emit `HoldEffect::ReleaseNeutral` + `GestureEffect::Cancel`.
-Suspension emits `HoldEffect::Freeze` + `GestureEffect::Freeze`. Captures and
-suspensions are token- and owner-scoped: releasing one owner cannot release
-another.
+optional UI assignment. `SourceConnection::Connected` with no actor is
+awaiting host fallback; `Disconnected` is an explicit source-lifecycle
+state. Assignment loss, disconnect, removal, and the first blocking capture
+clear actor delivery and emit `HoldEffect::ReleaseNeutral` +
+`GestureEffect::Cancel`. The last blocking capture release emits
+`Uncaptured` (`None` / `None`). Nested captures emit only when effective
+delivery changes. Suspension emits `HoldEffect::Freeze` +
+`GestureEffect::Freeze`. Captures and suspensions are token- and
+owner-scoped: releasing one owner cannot release another.
+
+Lifecycle events are a Bevy `Message` (`RoutingEvent`). Each consumer uses a
+`MessageReader` cursor and sees every event exactly once, regardless of
+stage. Mutating systems should use `InputRouting` so the message is
+published in the same system. `take_events` is only the unpublished buffer.
 
 Controllers read `InputRouter::actor` / `delivered_actor`. They never
 rediscover a "current player". The lowest-ID `Player` fallback is resolved
 **once** at the host assignment boundary
 (`InputRouter::assign_lowest_id_actor`, called from `player`'s
-`assign_local_player`).
+`assign_local_player`) and only while the source is connected. Reconnect is
+`InputRouter::connect` from the source lifecycle.
 
 Same-frame pause and capture (invariant 10): menu focus + capture write run
 in the same `Update` chain as dispatch. Pause still zeros wishes in the world
@@ -294,8 +304,11 @@ Do not add a second copy of these. Remove in the named phase.
 |---|---|---|---|
 | First assign | `HoldEffect::None` | `GestureEffect::None` | Source delivers to the assigned actor / UI |
 | Reassignment | `ReleaseNeutral` | `Cancel` | Old target loses the source; new target receives later samples |
-| Disconnect | `ReleaseNeutral` | `Cancel` | Assignment cleared; `delivered_*` is `None` |
+| Disconnect | `ReleaseNeutral` | `Cancel` | Assignment cleared; `delivered_*` is `None`; host fallback must not assign until `connect` |
 | Removal (actor / UI gone, or host `clear_*`) | `ReleaseNeutral` | `Cancel` | That side of the assignment is cleared |
+| First blocking capture | `ReleaseNeutral` | `Cancel` | Assignment kept; actor delivery blocked |
+| Nested capture / release | (no event) | (no event) | Effective actor delivery unchanged |
+| Last blocking capture released | `None` | `None` | Actor delivery restored if still assigned and not suspended |
 | Suspension | `Freeze` | `Freeze` | Assignment kept; `delivered_*` is `None` until resume |
 | Resume | `None` | `None` | Delivery returns if still assigned and not captured |
 
