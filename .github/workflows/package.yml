@@ -36,7 +36,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       rust: ${{ steps.ver.outputs.rust }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: ver
         run: |
           echo "version=$(packaging/version.sh)" >> "$GITHUB_OUTPUT"
@@ -51,11 +51,14 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ needs.version.outputs.rust }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build -p maybraid --release --locked
       - run: packaging/scripts/package-linux.sh
       - run: packaging/smoke.sh "dist/Maybraid-$VERSION-linux-x64/maybraid"
@@ -80,11 +83,14 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       MACOSX_DEPLOYMENT_TARGET: "13.0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ needs.version.outputs.rust }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build -p maybraid --release --locked
       - run: packaging/scripts/package-macos.sh
       - run: packaging/smoke.sh dist/Maybraid.app/Contents/MacOS/maybraid
@@ -105,12 +111,15 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ needs.version.outputs.rust }}
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo build -p maybraid --release --locked --target x86_64-pc-windows-msvc
       - run: packaging/scripts/package-windows.sh
       - uses: actions/upload-artifact@v4

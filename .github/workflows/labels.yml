@@ -30,7 +30,7 @@ jobs:
           {"name": "priority:urgent", "color": "c842f5", "description": "Urgent-priority issues should be worked on at the expense of all other issues."}
         ]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest commit message
       id: get_commit_msg
       run: |
