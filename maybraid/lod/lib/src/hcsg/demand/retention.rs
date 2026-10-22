@@ -5,9 +5,29 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::PoisonError;
 
+use bevy::math::bounding::Aabb3d;
+
 use super::schedule::{pick_job, Job};
 use super::state::{lock_mutex, DemandState};
 use super::HcsgDemand;
+
+/// Take a pending sweep. An epoch sweep is always empty, even if something
+/// already resubscribed: those new subscriptions get a second, reach-based
+/// sweep once the old session cache is gone.
+fn take_sweep_plan(state: &mut DemandState) -> Option<HashMap<TypeId, Vec<Aabb3d>>> {
+	if !state.sweep_needed {
+		return None;
+	}
+	state.sweep_needed = false;
+	if std::mem::take(&mut state.epoch_sweep_pending) {
+		if !state.subscriptions.is_empty() {
+			state.sweep_needed = true;
+		}
+		Some(HashMap::new())
+	} else {
+		Some(retention_plan(state))
+	}
+}
 
 /// What the worker should do next: sweep, fill a quantum, or stop.
 pub(crate) enum WorkerWait {
@@ -41,10 +61,9 @@ impl HcsgDemand {
 			if state.shutdown {
 				return WorkerWait::Shutdown;
 			}
-			if state.sweep_needed {
-				state.sweep_needed = false;
+			if let Some(plan) = take_sweep_plan(&mut state) {
 				self.0.sweeps.fetch_add(1, Ordering::Relaxed);
-				return WorkerWait::Sweep(retention_plan(&state));
+				return WorkerWait::Sweep(plan);
 			}
 			if let Some(job) = pick_job(&mut state) {
 				state.working = true;
@@ -59,13 +78,10 @@ impl HcsgDemand {
 	/// Applies a pending sweep plan without a worker. Tests use this after a
 	/// mid-quantum replacement.
 	#[cfg(test)]
-	pub(crate) fn try_sweep(&self) -> Option<HashMap<TypeId, Vec<bevy::math::bounding::Aabb3d>>> {
+	pub(crate) fn try_sweep(&self) -> Option<HashMap<TypeId, Vec<Aabb3d>>> {
 		let mut state = self.lock();
-		if !state.sweep_needed {
-			return None;
-		}
-		state.sweep_needed = false;
+		let plan = take_sweep_plan(&mut state)?;
 		self.0.sweeps.fetch_add(1, Ordering::Relaxed);
-		Some(retention_plan(&state))
+		Some(plan)
 	}
 }

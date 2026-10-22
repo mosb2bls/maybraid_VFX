@@ -56,7 +56,7 @@ pub use session::{
 pub use storage::{Busy, HcsgStorage, HcsgValue};
 pub use test_support::{
 	drain_retired_hosts, hcsg_hosts, hosts_replaced, leftover_retired_hosts, settle_presentation,
-	wait_replaced_hosts, SettlePresentation, SettleTimedOut,
+	wait_replaced_hosts, SettlePresentation, SettleTimedOut, WaitReplacedHosts,
 };
 
 /// Keeps a test [`worker::HcsgWorker`] alive until dropped.
