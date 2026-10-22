@@ -16,9 +16,9 @@ use crate::scene::{LodHostBounds, LodSceneHost, LodViewer};
 use crate::scene::{LodScene, LodSceneLevel};
 
 use super::{
-	settle_presentation, GenerationContext, GenerationPlugin, GenerationScheme, HcsgBounds,
-	HcsgBoundsPlugin, HcsgClass, HcsgDemand, HcsgNode, HcsgRestartRequest, HcsgStorage,
-	PresentationPlugin, RetiredHost, SettlePresentation,
+	GenerationContext, GenerationPlugin, GenerationScheme, HcsgBounds, HcsgBoundsPlugin, HcsgClass,
+	HcsgDemand, HcsgNode, HcsgRestartRequest, HcsgStorage, PresentationPlugin, RetiredHost,
+	SettlePresentation,
 };
 
 #[derive(Resource, Default)]
@@ -95,7 +95,11 @@ fn set_window(app: &mut App, regions: Vec<Aabb3d>) {
 }
 
 fn settle(app: &mut App) -> anyhow::Result<()> {
-	settle_presentation(app, SettlePresentation::PLUGIN_TESTS).map_err(Into::into)
+	SettlePresentation::PLUGIN_TESTS.settle(app).map_err(Into::into)
+}
+
+fn host_versions(hosts: &[(Id, Version, Entity)]) -> Vec<(Id, Version)> {
+	hosts.iter().map(|(id, version, _)| (*id, *version)).collect()
 }
 
 fn hosts(app: &mut App) -> Vec<(Id, Version, Entity)> {
@@ -258,17 +262,23 @@ fn presentation_keeps_hosts_when_the_subscription_dies() -> anyhow::Result<()> {
 	let mut app = present_terrain(vec![span(0.2, 2.6)]);
 	settle(&mut app)?;
 	let before = hosts(&mut app);
+	let before_versions = host_versions(&before);
 	anyhow::ensure!(!before.is_empty(), "need hosts before the subscription dies");
 
 	app.world().resource::<HcsgDemand>().advance_epoch();
 	app.update();
-	assert_eq!(
-		hosts(&mut app),
-		before,
-		"a dead subscription must not drop hosts before replacements exist"
+	let mid = hosts(&mut app);
+	anyhow::ensure!(
+		SettlePresentation::hosts_cover(&before_versions, &host_versions(&mid)),
+		"a dead subscription must not drop hosts before replacements exist; before={before_versions:?} mid={:?}",
+		host_versions(&mid)
 	);
 
-	settle(&mut app)?;
+	SettlePresentation::PLUGIN_TESTS.wait_replaced::<Terrain>(
+		&mut app,
+		&before_versions,
+		SettlePresentation::PLUGIN_TEST_REPLACE_FRAMES,
+	)?;
 	let after = hosts(&mut app);
 	assert_eq!(after.len(), before.len());
 	for ((id, version, entity), (before_id, before_version, before_entity)) in
@@ -295,13 +305,18 @@ fn presentation_keeps_hosts_until_world_session_restart_replacements_are_ready(
 	app.world_mut().resource_mut::<HcsgRestartRequest>().request();
 	app.update();
 	let mid = hosts(&mut app);
-	assert_eq!(
-		mid.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
-		before.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
-		"old presentation stays up until the new session publishes replacements"
+	anyhow::ensure!(
+		SettlePresentation::hosts_cover(&host_versions(&before), &host_versions(&mid)),
+		"old presentation stays up until the new session publishes replacements; before={:?} mid={:?}",
+		host_versions(&before),
+		host_versions(&mid)
 	);
 
-	settle(&mut app)?;
+	SettlePresentation::PLUGIN_TESTS.wait_replaced::<Terrain>(
+		&mut app,
+		&host_versions(&before),
+		SettlePresentation::PLUGIN_TEST_REPLACE_FRAMES,
+	)?;
 	let after = hosts(&mut app);
 	assert_eq!(after.len(), before.len());
 	for ((id, version, entity), (before_id, before_version, before_entity)) in
@@ -322,7 +337,11 @@ fn presentation_replaces_hosts_whose_value_changed_across_an_epoch() -> anyhow::
 
 	app.world().resource::<HcsgDemand>().advance_epoch();
 	app.world().resource::<HcsgStorage>().clear::<Terrain>();
-	settle(&mut app)?;
+	SettlePresentation::PLUGIN_TESTS.wait_replaced::<Terrain>(
+		&mut app,
+		&host_versions(&before),
+		SettlePresentation::PLUGIN_TEST_REPLACE_FRAMES,
+	)?;
 
 	let after = hosts(&mut app);
 	assert_eq!(after.len(), before.len());
@@ -419,8 +438,13 @@ fn a_new_session_retires_hosts_it_does_not_publish() -> anyhow::Result<()> {
 	app.world().resource::<HcsgDemand>().advance_epoch();
 	storage.clear::<Kept>();
 	storage.seed(Keep(vec![1.0]), span(-10.0, 30.0));
-	settle(&mut app)?;
-	assert_eq!(kept(&mut app), ids(&[1.0]), "cells the session dropped are retired");
+	let expected = ids(&[1.0]);
+	SettlePresentation::PLUGIN_TESTS.wait_until(
+		&mut app,
+		SettlePresentation::PLUGIN_TEST_REPLACE_FRAMES,
+		|app| kept(app) == expected,
+	)?;
+	assert_eq!(kept(&mut app), expected, "cells the session dropped are retired");
 	Ok(())
 }
 
@@ -465,10 +489,12 @@ fn generation_keeps_values_warm_without_hosts() -> anyhow::Result<()> {
 
 	app.world().resource::<HcsgDemand>().advance_epoch();
 	storage.clear::<Vegetation>();
-	settle(&mut app)?;
-	assert!(
-		storage.contains::<Vegetation>(Id::from_cell(cell(1.0))),
-		"resubscribed after the epoch"
-	);
+	let id = Id::from_cell(cell(1.0));
+	SettlePresentation::PLUGIN_TESTS.wait_until(
+		&mut app,
+		SettlePresentation::PLUGIN_TEST_REPLACE_FRAMES,
+		|app| app.world().resource::<HcsgStorage>().contains::<Vegetation>(id),
+	)?;
+	assert!(storage.contains::<Vegetation>(id), "resubscribed after the epoch");
 	Ok(())
 }

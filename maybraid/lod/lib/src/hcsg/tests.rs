@@ -395,6 +395,22 @@ fn advancing_the_epoch_drops_every_subscription() {
 }
 
 #[test]
+fn epoch_sweep_evicts_before_a_same_frame_resubscribe() {
+	let storage = seeded();
+	let id = Id::from_cell(cell(0.0));
+	GenerationContext::new(&storage).get_or_generate::<Ground>(id);
+	assert!(storage.contains::<Ground>(id));
+	let demand = HcsgDemand::default();
+	subscribe::<Ground>(&demand, None, vec![span(0.0, 1.0)], None);
+	demand.advance_epoch();
+	subscribe::<Ground>(&demand, None, vec![span(0.0, 1.0)], None);
+	let plan = demand.try_sweep().expect("epoch requests a sweep");
+	assert!(plan.is_empty(), "epoch must evict before adopting a same-frame resubscribe");
+	storage.retain_reached(&plan);
+	assert!(!storage.contains::<Ground>(id), "old session cache is gone");
+}
+
+#[test]
 fn region_pulls_skip_what_does_not_exist() {
 	let storage = HcsgStorage::default();
 	storage.seed(Root { seed: 3 }, span(-1_000.0, 2_000.0));

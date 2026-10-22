@@ -1,6 +1,7 @@
 //! Helpers for integration tests that drive the real HCSG worker through a
 //! [`bevy::app::App`]. Production code should not call these.
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use bevy::ecs::entity_disabling::Disabled;
@@ -15,6 +16,23 @@ use super::{HcsgDemand, HcsgNode, HcsgValue, RetiredHost};
 #[error("HCSG worker did not go idle before the timeout ({timeout:?})")]
 pub struct SettleTimedOut {
 	pub timeout: Duration,
+}
+
+/// [`SettlePresentation::wait_replaced`] exhausted its frame budget or lost a host.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum WaitReplacedHosts {
+	#[error(transparent)]
+	Idle(#[from] SettleTimedOut),
+	#[error(
+		"presented hosts disappeared before replacements existed: missing {missing:?}; after {after:?}"
+	)]
+	Dropped { missing: Vec<Id>, after: Vec<(Id, Version)> },
+	#[error(
+		"newer versions were not presented after {max_frames} frames; before {before:?}; after {after:?}"
+	)]
+	StillPrevious { max_frames: u32, before: Vec<(Id, Version)>, after: Vec<(Id, Version)> },
+	#[error("condition not met after {max_frames} frames")]
+	NotReady { max_frames: u32 },
 }
 
 /// How long to wait for the worker and how many frames to run after it idles.
@@ -48,6 +66,75 @@ impl SettlePresentation {
 	/// Geneva language overlay (extra idle round for gated bounds).
 	pub fn geneva_integration(idle_timeout: Duration) -> Self {
 		Self { idle_timeout, idle_rounds: 3, reconcile_frames: 8 }
+	}
+
+	/// Extra frames after a session change while waiting for newer versions.
+	pub const PLUGIN_TEST_REPLACE_FRAMES: u32 = 64;
+
+	/// Subscribe (or resubscribe), wait for the worker, then reconcile hosts.
+	pub fn settle(self, app: &mut App) -> Result<(), SettleTimedOut> {
+		settle_presentation(app, self)
+	}
+
+	/// Every `before` id is still presented (same or newer version).
+	pub fn hosts_cover(before: &[(Id, Version)], after: &[(Id, Version)]) -> bool {
+		missing_before_ids(before, after).is_none() && !before.is_empty()
+	}
+
+	/// Step the app until every `before` id is presented at a newer version.
+	///
+	/// [`settle_presentation`] uses a fixed reconcile budget. A busy store or a
+	/// still-running publish pass can leave a host on the previous session after
+	/// those frames — this waits on the version condition instead. Fails if an
+	/// id disappears (dropped without a replacement) or the frame budget ends.
+	pub fn wait_replaced<T: HcsgValue>(
+		self,
+		app: &mut App,
+		before: &[(Id, Version)],
+		max_frames: u32,
+	) -> Result<Vec<(Id, Version)>, WaitReplacedHosts> {
+		for _ in 0..max_frames {
+			let after = hcsg_hosts::<T>(app);
+			if let Some(missing) = missing_before_ids(before, &after) {
+				return Err(WaitReplacedHosts::Dropped { missing, after });
+			}
+			if hosts_replaced(before, &after) {
+				return Ok(after);
+			}
+			app.update();
+			let demand = app.world().resource::<HcsgDemand>().clone();
+			if !demand.wait_idle(self.idle_timeout) {
+				return Err(SettleTimedOut { timeout: self.idle_timeout }.into());
+			}
+		}
+		let after = hcsg_hosts::<T>(app);
+		if let Some(missing) = missing_before_ids(before, &after) {
+			return Err(WaitReplacedHosts::Dropped { missing, after });
+		}
+		if hosts_replaced(before, &after) {
+			return Ok(after);
+		}
+		Err(WaitReplacedHosts::StillPrevious { max_frames, before: before.to_vec(), after })
+	}
+
+	/// Step the app until `ready` holds, waiting for the worker between frames.
+	pub fn wait_until(
+		self,
+		app: &mut App,
+		max_frames: u32,
+		mut ready: impl FnMut(&mut App) -> bool,
+	) -> Result<(), WaitReplacedHosts> {
+		for _ in 0..=max_frames {
+			if ready(app) {
+				return Ok(());
+			}
+			app.update();
+			let demand = app.world().resource::<HcsgDemand>().clone();
+			if !demand.wait_idle(self.idle_timeout) {
+				return Err(SettleTimedOut { timeout: self.idle_timeout }.into());
+			}
+		}
+		Err(WaitReplacedHosts::NotReady { max_frames })
 	}
 }
 
@@ -114,6 +201,13 @@ pub fn hosts_replaced(before: &[(Id, Version)], after: &[(Id, Version)]) -> bool
 		&& before.iter().all(|(id, old)| after.get(id).is_some_and(|new| *new > *old))
 }
 
+fn missing_before_ids(before: &[(Id, Version)], after: &[(Id, Version)]) -> Option<Vec<Id>> {
+	let have: BTreeSet<Id> = after.iter().map(|(id, _)| *id).collect();
+	let missing: Vec<Id> =
+		before.iter().map(|(id, _)| *id).filter(|id| !have.contains(id)).collect();
+	(!missing.is_empty()).then_some(missing)
+}
+
 /// Extra frames until [`hosts_replaced`] holds.
 ///
 /// [`settle_presentation`] uses a fixed reconcile budget. A busy store or a
@@ -125,18 +219,12 @@ pub fn wait_replaced_hosts<T: HcsgValue>(
 	idle_timeout: Duration,
 	max_frames: u32,
 ) -> Result<Vec<(Id, Version)>, SettleTimedOut> {
-	for _ in 0..max_frames {
-		let after = hcsg_hosts::<T>(app);
-		if hosts_replaced(before, &after) {
-			return Ok(after);
-		}
-		app.update();
-		let demand = app.world().resource::<HcsgDemand>().clone();
-		if !demand.wait_idle(idle_timeout) {
-			return Err(SettleTimedOut { timeout: idle_timeout });
-		}
+	let opts = SettlePresentation { idle_timeout, idle_rounds: 0, reconcile_frames: 0 };
+	match opts.wait_replaced::<T>(app, before, max_frames) {
+		Ok(after) => Ok(after),
+		Err(WaitReplacedHosts::Idle(idle)) => Err(idle),
+		Err(_) => Ok(hcsg_hosts::<T>(app)),
 	}
-	Ok(hcsg_hosts::<T>(app))
 }
 
 #[cfg(test)]
@@ -149,6 +237,15 @@ mod tests {
 		assert!(!hosts_replaced(&before, &[]));
 		assert!(!hosts_replaced(&before, &[(Id::Universal, Version(3))]));
 		assert!(hosts_replaced(&before, &[(Id::Universal, Version(4))]));
+		Ok(())
+	}
+
+	#[test]
+	fn hosts_cover_allows_the_same_or_a_newer_version() -> anyhow::Result<()> {
+		let before = [(Id::Universal, Version(3))];
+		assert!(!SettlePresentation::hosts_cover(&before, &[]));
+		assert!(SettlePresentation::hosts_cover(&before, &[(Id::Universal, Version(3))]));
+		assert!(SettlePresentation::hosts_cover(&before, &[(Id::Universal, Version(4))]));
 		Ok(())
 	}
 }

@@ -70,6 +70,11 @@ pub(super) struct DemandState {
 	pub shutdown: bool,
 	/// The live subscription set changed since the last sweep.
 	pub sweep_needed: bool,
+	/// After [`super::HcsgDemand::advance_epoch`], the next sweep must evict as
+	/// if no subscription were live, even if a system already resubscribed.
+	/// Otherwise a same-frame resubscribe can keep old-session cache hits and
+	/// never bump versions.
+	pub epoch_sweep_pending: bool,
 }
 
 pub(super) struct DemandShared {
