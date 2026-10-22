@@ -44,7 +44,7 @@ use les_halles::LesHallesSpawn;
 use lod::LodRefreshSystems;
 use maybraid_character_controller::CharacterControllerPlugin;
 use maybraid_controllers_core::{
-	CaptureKind, CaptureToken, InputRouter, InputRouting, InputSource, ScopeOwner,
+	CaptureKind, CaptureToken, InputRouting, InputSource, ScopeOwner,
 };
 use maybraid_input::{PadInputPolicy, VirtualPadSystems};
 use maybraid_locomotion_controller::LocomotionControllerPlugin;

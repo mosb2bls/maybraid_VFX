@@ -36,7 +36,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       rust: ${{ steps.ver.outputs.rust }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - id: ver
         run: |
           echo "version=$(packaging/version.sh)" >> "$GITHUB_OUTPUT"
@@ -51,7 +51,7 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ needs.version.outputs.rust }}
@@ -83,7 +83,7 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       MACOSX_DEPLOYMENT_TARGET: "13.0"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ needs.version.outputs.rust }}
@@ -111,7 +111,7 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ needs.version.outputs.rust }}

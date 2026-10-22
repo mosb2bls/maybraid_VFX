@@ -18,7 +18,6 @@ clap = { workspace = true }
 character-items = { workspace = true }
 characters-playground = { workspace = true }
 character-creation-menus = { workspace = true }
-bikanwarda-character = { workspace = true }
 characters = { workspace = true }
 character-motion = { workspace = true }
 character-rigs = { workspace = true }

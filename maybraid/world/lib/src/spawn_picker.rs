@@ -8,13 +8,11 @@ use bevy::prelude::*;
 use maybraid_controllers_core::{
 	CaptureKind, CaptureLayer, CaptureToken, InputRouter, InputRouting, InputSource, ScopeOwner,
 };
-use maybraid_input::{MenuNav, MenuNavPad};
+use maybraid_input::MenuNavPad;
 use poi_intelligence::{PoiId, PoiRegistry};
 
 use crate::map_view::WorldMapView;
-use crate::player_lifecycle::{
-	PendingPlayerRespawn, PlayerChoseRespawnPoi, WorldPlayerRespawnState,
-};
+use crate::player_lifecycle::{PlayerChoseRespawnPoi, WorldPlayerRespawnState};
 
 /// Token this picker holds on [`InputRouter`]. Releasing it cannot release
 /// another owner's capture.
@@ -105,8 +103,9 @@ pub fn dispatch_spawn_picker(
 mod tests {
 	use super::*;
 	use bevy::ecs::system::RunSystemOnce;
+	use crate::player_lifecycle::PendingPlayerRespawn;
 	use maybraid_controllers_core::{InputSource, UiTarget};
-	use maybraid_input::{PadButton, VirtualPad, VirtualPadConfig};
+	use maybraid_input::{MenuNav, PadButton, VirtualPad, VirtualPadConfig};
 
 	fn router_world() -> World {
 		let mut world = World::new();

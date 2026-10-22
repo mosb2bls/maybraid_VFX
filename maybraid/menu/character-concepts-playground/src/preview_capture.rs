@@ -19,21 +19,8 @@ use crate::focus_reference::FocusReferenceRig;
 use crate::animation::ConceptAnimation;
 use crate::preview::{ConceptPreviewConfig, ConceptPreviewRoot};
 
-/// Boss-scale Bikanwarda assembly (see `bikanwarda_character::encounter_uniform_scale`).
-pub fn boss_encounter_scale() -> f32 {
-	bikanwarda_character::encounter_uniform_scale()
-}
-
 #[derive(Resource, Clone, Copy, Debug)]
 pub struct CaptureCameraLocked;
-
-pub fn capture_camera_locked(lock: Option<Res<CaptureCameraLocked>>) -> bool {
-	lock.is_some()
-}
-
-pub fn capture_camera_unlocked(lock: Option<Res<CaptureCameraLocked>>) -> bool {
-	lock.is_none()
-}
 
 pub fn capture_hides_creator_ui() -> bool {
 	let settings = PreviewCaptureSettings::from_env();
@@ -136,7 +123,7 @@ pub fn capture_camera_frame_for_bounds(
 ) -> (Vec3, Vec3) {
 	const MARGIN: f32 = 1.14;
 	let mut min = Vec3::from(bounds.min);
-	let mut max = Vec3::from(bounds.max);
+	let max = Vec3::from(bounds.max);
 	// Keep ground contact in frame.
 	min.y = min.y.min(ground_y);
 	let center = (min + max) * 0.5;
