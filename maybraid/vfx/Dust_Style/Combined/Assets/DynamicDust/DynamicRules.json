@@ -1,0 +1,27 @@
+{
+  "schema": "maybraid.dynamic-dust.v1",
+  "config": {
+    "dt": 0.008333333333333333,
+    "seed": 9271,
+    "cloud_rate_per_region_s": 23.0,
+    "grain_rate_per_region_s": 16.0,
+    "max_clouds": 96,
+    "max_grains": 96,
+    "guide_rate_per_s": 4.0,
+    "guide_age_decay_s": 0.45,
+    "guide_reach_m": 0.48,
+    "concentration": 0.62,
+    "wind_scale": 1.0
+  },
+  "space": "metres, RH,+Y,world positions after release",
+  "order": "retire; deterministic tick-based emission; evaluate shared analytic ambient flow and compact body guide; exact frozen-target velocity relaxation; trapezoidal position update once; age/size/concentration; ground",
+  "random": "uint32 wrapping mix32; uniform=hash/2^32. Inputs seed,region,tick,channel; no frame/stream randomness",
+  "pool": "Separate capacities; reject newest birth when full; never move or evict live particles. Stable ID=kind*2^30+region*100000+tick; reset on new event, combine with external event ID for overlapping events.",
+  "pause_reset": "pause performs no steps and accrues no time; reset clears clock, particles, births and accumulator. Fixed1/120s steps; advance accumulates wall time without dropping steps. Caller owns catch-up budgeting.",
+  "scenarios": {
+    "normal": "unchanged selected body; wind(.18,0,.02)m/s",
+    "wind_turn": "diagnostic rigid whole-body yaw .65*S((t-1.15)/1.3); same births/local clocks/support/late rolls; wind smoothsteps at1.4..2.05s toward(-.15,.03,.75)m/s. Previously released particle positions are never transformed."
+  },
+  "following": "guide kernels around current moving source anchors, blended parent material velocities, exp(-particleAge/.45) attenuation; zero outside .48m and after emission. Never reparent particles.",
+  "runtime": "Python+NumPy reference, not Rust/WGSL. Analytic ambient/curl is a practical approximation, never samples the exported Pyro reference. Client supplies terrain, event IDs, wind/local influence fields, GPU rendering and scene-depth/volume composition."
+}

@@ -1,0 +1,15 @@
+#pragma opname landing_surface
+#pragma oplabel "Landing Dust — Rest-space Surface Dissolution"
+#include "landing_noise.h"
+surface landing_surface(vector previewN={0,1,0};vector restpos={0,0,0};
+                       int puffseed=0;float cutoff=-.02;float style=1;
+                       vector Cd={.1,.12,.14})
+{
+ if(style<0){Cf=Cd;Of=1;Af=1;}
+ else if(landing_noise(restpos,puffseed)<=cutoff){Cf=0;Of=0;Af=0;}
+ else{
+  float d=dot(normalize(previewN),normalize(set(-3.8,5.5,3)));
+  Cf=d>.62?set(.84,.59,.31):(d>.04?set(.58,.37,.17):set(.34,.19,.085));
+  Of=1;Af=1;
+ }
+}

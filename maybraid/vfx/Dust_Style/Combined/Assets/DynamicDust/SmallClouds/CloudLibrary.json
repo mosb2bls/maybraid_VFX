@@ -1,0 +1,214 @@
+{
+  "schema": "maybraid.small-cloud-library.v1",
+  "representation": "Four distinct static 3D density elements, not cards or body-shape copies",
+  "assets": [
+    {
+      "id": 0,
+      "name": "Billow",
+      "file": "Billow.f16",
+      "dimensions_xyz": [
+        64,
+        64,
+        64
+      ],
+      "scalar_type": "float16",
+      "byte_order": "little",
+      "channel_order": "X fastest, then Y, then Z",
+      "index_to_world_m": [
+        [
+          0.03125,
+          0,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0.03125,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0,
+          0.03125,
+          -0.984375
+        ]
+      ],
+      "coordinate": "local element coordinates; particle scale in metres, quaternion local-to-world",
+      "outside": 0.0,
+      "range": [
+        0.0,
+        1.0
+      ],
+      "sha256": "20f4cd0e3a172f955936a3169a05f46a5700e31d9cffd20a1360ac2380f02f51",
+      "bytes": 524288
+    },
+    {
+      "id": 1,
+      "name": "Curl",
+      "file": "Curl.f16",
+      "dimensions_xyz": [
+        64,
+        64,
+        64
+      ],
+      "scalar_type": "float16",
+      "byte_order": "little",
+      "channel_order": "X fastest, then Y, then Z",
+      "index_to_world_m": [
+        [
+          0.03125,
+          0,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0.03125,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0,
+          0.03125,
+          -0.984375
+        ]
+      ],
+      "coordinate": "local element coordinates; particle scale in metres, quaternion local-to-world",
+      "outside": 0.0,
+      "range": [
+        0.0,
+        1.0
+      ],
+      "sha256": "60aa3b9fe4255a7eb8012858c095214704546f4242824d92543806a9b9a882f1",
+      "bytes": 524288
+    },
+    {
+      "id": 2,
+      "name": "Trail",
+      "file": "Trail.f16",
+      "dimensions_xyz": [
+        64,
+        64,
+        64
+      ],
+      "scalar_type": "float16",
+      "byte_order": "little",
+      "channel_order": "X fastest, then Y, then Z",
+      "index_to_world_m": [
+        [
+          0.03125,
+          0,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0.03125,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0,
+          0.03125,
+          -0.984375
+        ]
+      ],
+      "coordinate": "local element coordinates; particle scale in metres, quaternion local-to-world",
+      "outside": 0.0,
+      "range": [
+        0.0,
+        1.0
+      ],
+      "sha256": "5708a9917787ad5ba27552099f7f1ca6f55afd287b0e36fb54e592508dc5d5bd",
+      "bytes": 524288
+    },
+    {
+      "id": 3,
+      "name": "Cluster",
+      "file": "Cluster.f16",
+      "dimensions_xyz": [
+        64,
+        64,
+        64
+      ],
+      "scalar_type": "float16",
+      "byte_order": "little",
+      "channel_order": "X fastest, then Y, then Z",
+      "index_to_world_m": [
+        [
+          0.03125,
+          0,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0.03125,
+          0,
+          -0.984375
+        ],
+        [
+          0,
+          0,
+          0.03125,
+          -0.984375
+        ]
+      ],
+      "coordinate": "local element coordinates; particle scale in metres, quaternion local-to-world",
+      "outside": 0.0,
+      "range": [
+        0.0,
+        1.0
+      ],
+      "sha256": "dd590f34f390d82155c837faed956ecc17a1ece90f6f5c5b0e4b247c7a9011c9",
+      "bytes": 524288
+    }
+  ],
+  "defaults": {
+    "extinction_per_m": 3.0,
+    "color_linear_rgb": [
+      0.65,
+      0.44,
+      0.25
+    ],
+    "radius_range_m": [
+      0.1,
+      0.19
+    ],
+    "lifetime_range_s": [
+      1.0,
+      1.8
+    ],
+    "base_concentration": 0.62
+  },
+  "sampling": "Trilinear linear scalar; outside0. Apply inverse particle quaternion and positive XYZ scale. Sum with other densities before shared cap/integration.",
+  "quantization": [
+    {
+      "id": 0,
+      "max_quantization_error": 0.000244140625,
+      "relative_integral_error": 1.6062653003245941e-06,
+      "occupied_voxels": 68663
+    },
+    {
+      "id": 1,
+      "max_quantization_error": 0.000244140625,
+      "relative_integral_error": 0.0,
+      "occupied_voxels": 22568
+    },
+    {
+      "id": 2,
+      "max_quantization_error": 0.00024396181106567383,
+      "relative_integral_error": 1.6333789290001732e-06,
+      "occupied_voxels": 18435
+    },
+    {
+      "id": 3,
+      "max_quantization_error": 0.0002440810203552246,
+      "relative_integral_error": 2.4319085696333786e-06,
+      "occupied_voxels": 45370
+    }
+  ]
+}

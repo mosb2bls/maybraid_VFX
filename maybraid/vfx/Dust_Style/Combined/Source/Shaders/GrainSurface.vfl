@@ -1,0 +1,8 @@
+#pragma opname grain_surface
+#pragma oplabel "Flow dust grain — matte sand, native volume attenuation"
+surface grain_surface(vector Cd={.28,.17,.08};vector previewN={0,1,0})
+{
+ vector key=normalize(set(-3.8,5.5,3.0));
+ float lit=.45+.55*max(0,dot(normalize(previewN),key));
+ Cf=Cd*lit;Of=1;Af=1;
+}

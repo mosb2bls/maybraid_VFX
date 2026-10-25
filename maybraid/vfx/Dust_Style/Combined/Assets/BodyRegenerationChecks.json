@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "variants": [
+    {
+      "variant": 0,
+      "mesh_max_position_error_m": 0.0,
+      "density_half_roundtrip_max_error": 0.0,
+      "vertices": 1202
+    },
+    {
+      "variant": 1,
+      "mesh_max_position_error_m": 0.0,
+      "density_half_roundtrip_max_error": 0.0,
+      "vertices": 1302
+    },
+    {
+      "variant": 2,
+      "mesh_max_position_error_m": 0.0,
+      "density_half_roundtrip_max_error": 0.0,
+      "vertices": 1102
+    }
+  ],
+  "public_exporter_checks": {
+    "Shoulder": {
+      "mesh_arrays_exact": true,
+      "rest_half_exact": true
+    },
+    "Column": {
+      "mesh_arrays_exact": true,
+      "rest_half_exact": true
+    },
+    "Swept": {
+      "mesh_arrays_exact": true,
+      "rest_half_exact": true
+    }
+  },
+  "offline_grain_regeneration_max_position_velocity_error": 4.76837158203125e-07
+}

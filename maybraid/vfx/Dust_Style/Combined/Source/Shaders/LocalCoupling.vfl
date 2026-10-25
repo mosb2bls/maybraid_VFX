@@ -1,0 +1,23 @@
+// Gas Field Wrangle snippet; evaluated AFTER native density sourcing, BEFORE
+// pressure projection. No modifications outside finite emitter/guide support.
+string source="op:/obj/FineDustSimulation/MovingEmission";
+float rate=max(0,volumesample(source,"density",@P));
+float guide=clamp(volumesample(source,"guide",@P),0,1);
+if (rate>0 || guide>0) {
+ vector target=set(volumesample(source,"v.x",@P),
+                   volumesample(source,"v.y",@P),
+                   volumesample(source,"v.z",@P));
+ // Native Volume Source Add with Use Timestep is normalized to 24 fps.
+ // Mix the incoming density's material velocity with existing fluid momentum.
+ float incoming=rate*24*@TimeInc;
+ float birthmix=clamp(incoming/max(f@density,1e-8),0,1);
+ // Interpolate rho*v then divide by interpolated rho, preserving velocity
+ // at faint rasterized boundaries and weighting parent overlaps by emission.
+ vector incomingVelocity=set(volumesample(source,"birthm.x",@P),
+                             volumesample(source,"birthm.y",@P),
+                             volumesample(source,"birthm.z",@P))/max(rate,1e-12);
+ v@vel=lerp(v@vel,incomingVelocity,birthmix);
+ // Smooth following is local and fades with distance and source activity.
+ float follow=1-exp(-chf("strength")*guide*@TimeInc);
+ v@vel=lerp(v@vel,target,follow);
+}

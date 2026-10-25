@@ -1,0 +1,248 @@
+{
+  "schema": "maybraid.offline-emission.v1",
+  "role": "Selected offline authoring reference, distinct from dynamic dust",
+  "defaults": {
+    "emission": 0.65,
+    "guide_strength": 5.0,
+    "release": 0.5,
+    "turbulence": 0.1,
+    "dissipation": 0.035,
+    "grain_rate": 90.0,
+    "grain_size": 1.0,
+    "seed": 271,
+    "voxel": 0.04
+  },
+  "regions": [
+    [
+      0,
+      1,
+      0.18,
+      1.1,
+      1.0
+    ],
+    [
+      0,
+      0,
+      1.65,
+      2.55,
+      0.65
+    ],
+    [
+      3,
+      0,
+      0.26,
+      1.35,
+      1.2
+    ],
+    [
+      3,
+      2,
+      0.38,
+      1.55,
+      0.8
+    ],
+    [
+      6,
+      1,
+      0.24,
+      1.5,
+      1.1
+    ],
+    [
+      6,
+      0,
+      0.5,
+      1.55,
+      0.6
+    ],
+    [
+      9,
+      0,
+      0.26,
+      1.5,
+      1.0
+    ],
+    [
+      9,
+      2,
+      0.42,
+      1.65,
+      0.7
+    ],
+    [
+      11,
+      1,
+      0.3,
+      1.6,
+      0.85
+    ],
+    [
+      13,
+      0,
+      0.16,
+      0.55,
+      0.6
+    ]
+  ],
+  "region_columns": [
+    "parent",
+    "anchor_kind",
+    "start_parent_age_s",
+    "end_parent_age_s",
+    "amplitude"
+  ],
+  "rest_anchors": [
+    {
+      "variant": 0,
+      "anchors": [
+        {
+          "point": [
+            0.04815518483519554,
+            1.0979927778244019,
+            0.3981870114803314
+          ],
+          "normal": [
+            0.6189138889312744,
+            0.49827060103416443,
+            0.6071836948394775
+          ],
+          "kind": 0
+        },
+        {
+          "point": [
+            -1.0504099130630493,
+            0.5543229579925537,
+            0.2359970360994339
+          ],
+          "normal": [
+            -0.9023538827896118,
+            0.03705783933401108,
+            0.42939987778663635
+          ],
+          "kind": 1
+        },
+        {
+          "point": [
+            0.4897473454475403,
+            0.307005912065506,
+            -0.8658326864242554
+          ],
+          "normal": [
+            0.25026804208755493,
+            -0.09267091751098633,
+            -0.9637312889099121
+          ],
+          "kind": 2
+        }
+      ]
+    },
+    {
+      "variant": 1,
+      "anchors": [
+        {
+          "point": [
+            0.13010059297084808,
+            1.5756694078445435,
+            0.4762876033782959
+          ],
+          "normal": [
+            -0.10584966838359833,
+            -0.0177517831325531,
+            0.9942237138748169
+          ],
+          "kind": 0
+        },
+        {
+          "point": [
+            -0.8446005582809448,
+            0.5718633532524109,
+            0.13349294662475586
+          ],
+          "normal": [
+            -0.9816442131996155,
+            0.032017044723033905,
+            0.18801511824131012
+          ],
+          "kind": 1
+        },
+        {
+          "point": [
+            0.3853066563606262,
+            0.36782094836235046,
+            -0.5968751907348633
+          ],
+          "normal": [
+            0.9250056147575378,
+            -0.051135025918483734,
+            -0.3764968514442444
+          ],
+          "kind": 2
+        }
+      ]
+    },
+    {
+      "variant": 2,
+      "anchors": [
+        {
+          "point": [
+            0.10827832669019699,
+            0.9973859190940857,
+            0.3991261124610901
+          ],
+          "normal": [
+            -0.3968096971511841,
+            0.8862454891204834,
+            0.2389790117740631
+          ],
+          "kind": 0
+        },
+        {
+          "point": [
+            -0.8537853360176086,
+            0.6047520041465759,
+            0.19538146257400513
+          ],
+          "normal": [
+            -0.40898218750953674,
+            0.26044562458992004,
+            0.8745865821838379
+          ],
+          "kind": 1
+        },
+        {
+          "point": [
+            0.3531869947910309,
+            0.5955258011817932,
+            -0.7078388929367065
+          ],
+          "normal": [
+            0.5533735752105713,
+            -0.03386665880680084,
+            -0.8322444558143616
+          ],
+          "kind": 2
+        }
+      ]
+    }
+  ],
+  "source": "Source/offline_emission.py",
+  "source_bounds_min_m": [
+    -2.4,
+    0.0,
+    -2.8
+  ],
+  "source_bounds_max_m": [
+    4.4,
+    2.4,
+    2.8
+  ],
+  "emission_stop_s": 2.82,
+  "birth_velocity": "Full world material-point finite difference plus explicit relative_release; central +/-0.0005s, clamped at parent birth.",
+  "momentum": "After density Add: incoming=sourceDensity*24*dt; blend incoming rho*v over current density. Birth momentum is density weighted; guide velocity is separately guide weighted. Local following factor1-exp(-5*guide*dt); unchanged velocity where source and guide both0.",
+  "coupling": "Source/Shaders/LocalCoupling.vfl",
+  "appearance": "processedFine=.75*max(rawDensity,0)+.12*max(rawDensity,0)^1.35; add optical concentrations to main BEFORE shared2.2 softcap. Light is an offline directional transport approximation.",
+  "grain_births": "GrainBirths.json",
+  "grain_reference": "VisibleGrains.json",
+  "grain_generator": "Source/export_grains.py; NumPy PCG64 event table; float64 birth table is authoritative for ports, use exported births rather than substituting RNG algorithms.",
+  "path_base": "Source paths are relative to Combined; birth/reference JSON paths are relative to this manifest."
+}

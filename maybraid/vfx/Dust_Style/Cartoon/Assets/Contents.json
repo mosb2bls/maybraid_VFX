@@ -1,0 +1,18 @@
+{
+  "schema": "maybraid.category.v1",
+  "category": "Cartoon",
+  "path_base": "category root",
+  "body_assets": "Assets/Body/BodyAssets.json",
+  "motion_rules": "Assets/MotionRules.json",
+  "projects": [
+    "Houdini/BodyShapes.hip",
+    "Houdini/RollingWave.hip",
+    "Houdini/Landing.hip"
+  ],
+  "previews": [
+    "Previews/Landing.mp4",
+    "Previews/RollingWave.mp4"
+  ],
+  "runtime_requirements": "Binary readers use standard Python only; motion/dynamic reference and GLB array adapter use NumPy. No Houdini needed to load assets.",
+  "authoring_requirements": "Houdini22.0.466, Python/NumPy, Mantra and VEX compiler for scene rebuilding; included shader definitions embedded in HIP."
+}

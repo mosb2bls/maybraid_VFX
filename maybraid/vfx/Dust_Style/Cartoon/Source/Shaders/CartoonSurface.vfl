@@ -1,0 +1,8 @@
+#pragma opname cartoon_surface
+#pragma oplabel "Cartoon dust surface"
+surface cartoon_surface(vector previewN={0,1,0}; float toon=0; vector Cd={.6,.6,.6})
+{
+ float d=dot(normalize(previewN),normalize(set(-3.8,5.5,3)));
+ Cf=toon<0?Cd:(toon>.5?(d>.62?set(.84,.59,.31):(d>.04?set(.58,.37,.17):set(.34,.19,.085))):set(.6,.6,.6)*(.3+.7*max(d,0)));
+ Of=1;Af=1;
+}

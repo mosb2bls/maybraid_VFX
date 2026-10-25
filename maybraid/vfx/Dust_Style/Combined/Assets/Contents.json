@@ -1,0 +1,25 @@
+{
+  "schema": "maybraid.category.v1",
+  "category": "Combined",
+  "path_base": "category root",
+  "body_assets": "Assets/Body/BodyAssets.json",
+  "motion_rules": "Assets/MotionRules.json",
+  "projects": [
+    "Houdini/BodyShapes.hip",
+    "Houdini/CombinedDust.hip",
+    "Houdini/DynamicDust.hip",
+    "Houdini/SmallCloudLibrary.hip"
+  ],
+  "previews": [
+    "Previews/CombinedDust.mp4",
+    "Previews/FineCloudsAndGrains.png",
+    "Previews/RuntimeClouds.mp4",
+    "Previews/WindAndTurn.mp4"
+  ],
+  "runtime_requirements": "Binary readers use standard Python only; motion/dynamic reference and GLB array adapter use NumPy. No Houdini needed to load assets.",
+  "authoring_requirements": "Houdini22.0.466, Python/NumPy, Mantra and VEX compiler for scene rebuilding; included shader definitions embedded in HIP.",
+  "dynamic_assets": "Assets/DynamicDust/SmallClouds/CloudLibrary.json",
+  "dynamic_rules": "Assets/DynamicDust/DynamicRules.json",
+  "portable_pyro": "Assets/Reference/Pyro/Sequence.json",
+  "offline_grains": "Assets/Reference/VisibleGrains.json"
+}

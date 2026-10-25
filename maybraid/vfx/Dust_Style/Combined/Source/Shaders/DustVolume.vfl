@@ -1,0 +1,10 @@
+#pragma opname dust_volume
+#pragma oplabel "Dust filled dust — Beer Lambert / directional transport"
+#pragma hint density hidden
+#pragma hint lightfield hidden
+surface dust_volume(float density=0;float lightfield=1;float extinction=3.0;
+                        vector sand={.65,.44,.25})
+{
+ Of=1-exp(-max(0,density)*extinction*dPdz);
+ Cf=sand*max(0,lightfield)*Of;Af=avg(Of);
+}

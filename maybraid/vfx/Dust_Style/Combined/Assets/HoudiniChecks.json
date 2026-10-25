@@ -1,0 +1,109 @@
+{
+  "projects": [
+    {
+      "project": "Cartoon/Houdini/BodyShapes.hip",
+      "opened": true,
+      "cooked": true,
+      "private_paths": false
+    },
+    {
+      "project": "Cartoon/Houdini/Landing.hip",
+      "opened": true,
+      "cooked": true,
+      "private_paths": false
+    },
+    {
+      "project": "Cartoon/Houdini/RollingWave.hip",
+      "opened": true,
+      "cooked": true,
+      "private_paths": false
+    },
+    {
+      "project": "Combined/Houdini/BodyShapes.hip",
+      "opened": true,
+      "cooked": true,
+      "private_paths": false
+    },
+    {
+      "project": "Combined/Houdini/CombinedDust.hip",
+      "opened": true,
+      "cooked": true,
+      "private_paths": false
+    },
+    {
+      "project": "Combined/Houdini/DynamicDust.hip",
+      "opened": true,
+      "cooked": true,
+      "private_paths": false
+    },
+    {
+      "project": "Combined/Houdini/SmallCloudLibrary.hip",
+      "opened": true,
+      "cooked": true,
+      "private_paths": false
+    }
+  ],
+  "recook_frame": 45,
+  "recook_comparison": {
+    "density": {
+      "resolution": [
+        112,
+        48,
+        96
+      ],
+      "reference_resolution": [
+        112,
+        48,
+        96
+      ],
+      "max_sample_error": 0.0,
+      "maximum": 3.729125738143921,
+      "maximum_all_voxel_error": 0.0
+    },
+    "vel.x": {
+      "resolution": [
+        112,
+        48,
+        96
+      ],
+      "reference_resolution": [
+        112,
+        48,
+        96
+      ],
+      "max_sample_error": 0.0,
+      "maximum": 1.97199285030365,
+      "maximum_all_voxel_error": 0.0
+    },
+    "vel.y": {
+      "resolution": [
+        112,
+        48,
+        96
+      ],
+      "reference_resolution": [
+        112,
+        48,
+        96
+      ],
+      "max_sample_error": 0.0,
+      "maximum": 1.774794340133667,
+      "maximum_all_voxel_error": 0.0
+    },
+    "vel.z": {
+      "resolution": [
+        112,
+        48,
+        96
+      ],
+      "reference_resolution": [
+        112,
+        48,
+        96
+      ],
+      "max_sample_error": 0.0,
+      "maximum": 1.1976598501205444,
+      "maximum_all_voxel_error": 0.0
+    }
+  }
+}

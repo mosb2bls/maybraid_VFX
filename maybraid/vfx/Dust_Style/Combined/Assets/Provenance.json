@@ -1,0 +1,7 @@
+{
+  "tools": "Houdini 22.0.466 / Mantra; Python reference",
+  "body_assets": "Original authored meshes, calibrated rest densities and deformation data retained byte-for-byte",
+  "cartoon": "Advancing rolling wave and one-shot landing",
+  "combined": "Selected flowing secondary Pyro and visible grains; internal source identifier take05",
+  "runtime": "Particle-driven small clouds are a separate runtime-oriented approximation, not Bevy footage or a full-grid fluid solver"
+}

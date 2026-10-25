@@ -1,0 +1,4 @@
+#pragma opname backdrop
+#pragma oplabel "Dust transmission chart — inspection backdrop"
+surface backdrop(vector Cd={.18,.24,.28})
+{ Cf=Cd;Of=1;Af=1; }
